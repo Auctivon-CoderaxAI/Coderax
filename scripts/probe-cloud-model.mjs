@@ -25,7 +25,7 @@ async function main() {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  const options = { headers, signal: AbortSignal.timeout(90000) };
+  const options = { headers, redirect: 'error', signal: AbortSignal.timeout(90000) };
   const listed = await fetch(new URL('models', url), options);
   if (!listed.ok) throw new Error('Model inventory request failed');
   const inventory = await listed.json();
