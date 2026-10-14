@@ -1,0 +1,16 @@
+{{- if .Values.coderax.imageVolume.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "coderax.fullname" $ }}-images
+spec:
+  accessModes:
+    - {{ .Values.coderax.imageVolume.accessModes }}
+{{- if .Values.coderax.imageVolume.storageClassName }}
+  storageClassName: {{ .Values.coderax.imageVolume.storageClassName }}
+{{- end }}          
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: {{ .Values.coderax.imageVolume.size }}
+{{- end }}
