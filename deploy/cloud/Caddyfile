@@ -1,0 +1,6 @@
+# Caddy obtains and renews a public TLS certificate after DNS points to this host.
+# Do not expose internal services, especially Ollama, MongoDB, or Meilisearch.
+{$CODERAX_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy api:3080
+}
