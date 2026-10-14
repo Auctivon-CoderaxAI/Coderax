@@ -29,6 +29,11 @@ services:
       HOST: "0.0.0.0"
       PORT: "3080"
       NODE_ENV: production
+      ALLOW_REGISTRATION: "false"
+      ALLOW_SOCIAL_REGISTRATION: "false"
+      SESSION_COOKIE_SECURE: "true"
+      TRUST_PROXY: "1"
+      NO_INDEX: "true"
       DOMAIN_CLIENT: "https://${CODERAX_DOMAIN:?set CODERAX_DOMAIN}"
       DOMAIN_SERVER: "https://${CODERAX_DOMAIN:?set CODERAX_DOMAIN}"
       MONGO_URI: "mongodb://root:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongodb:27017/Coderax?authSource=admin"
