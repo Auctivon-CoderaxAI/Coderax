@@ -11,7 +11,7 @@ endpoints:
       models:
         default:
           - qwen3.5:4b
-        fetch: true
+        fetch: false
       titleConvo: true
       titleModel: current_model
       summarize: false
