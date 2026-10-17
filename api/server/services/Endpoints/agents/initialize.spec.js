@@ -1250,6 +1250,34 @@ describe('initializeClient — subagent loading', () => {
     maxContextTokens: 4096,
   });
 
+  it('automatically enables isolated subagents for a complex authorized request', async () => {
+    mockInitializeAgent.mockResolvedValue(makePrimaryConfig({}));
+    const requestBody = {
+      conversationId: 'conv_sub',
+      messages: [
+        {
+          role: 'user',
+          content: 'Compare two database options and recommend one with operational trade-offs.',
+        },
+      ],
+    };
+
+    await initializeClient({
+      req: makeSubagentReq(),
+      res: {},
+      signal: new AbortController().signal,
+      endpointOption: makeEndpointOption(),
+      requestBody,
+    });
+
+    expect(agentClientArgs.agent.subagents).toEqual({
+      enabled: true,
+      allowSelf: true,
+      shareFiles: false,
+    });
+    expect(agentClientArgs.agent.additional_instructions).toMatch(/up to two focused subtasks/);
+  });
+
   const makeNestedSubagentConfig = (id, childIds = []) => ({
     ...makeSubagentConfig(id),
     subagents: { enabled: true, allowSelf: false, agent_ids: childIds },
