@@ -15,6 +15,9 @@ describe('automatic subagent delegation policy', () => {
     ).toBe(true);
     expect(isComplexRequest('What does this error mean?')).toBe(false);
     expect(isComplexRequest('approve A1B2-C3D4')).toBe(false);
+    expect(isComplexRequest('Compare these designs, but do not delegate to subagents.')).toBe(false);
+    expect(isComplexRequest('Compare these designs without subagents, then recommend one.')).toBe(false);
+    expect(isComplexRequest('Compare two deployment designs and recommend one.')).toBe(true);
   });
 
   it('extracts only the latest user message from the current request payload', () => {
@@ -86,6 +89,19 @@ describe('automatic subagent delegation policy', () => {
     expect(result.subagentsConfig).toEqual({ enabled: true, allowSelf: true, shareFiles: false });
     expect(result.additionalInstructions).toContain('Keep answers concise.');
     expect(result.additionalInstructions).toContain(AUTOMATIC_DELEGATION_INSTRUCTIONS);
+  });
+
+  it('does not duplicate automatic instructions on repeated application', () => {
+    const input = {
+      text: 'Compare the database options and recommend one with operational trade-offs.',
+      capabilityEnabled: true,
+      subagentsConfig: undefined,
+      runtimeAvailable: true,
+      additionalInstructions: 'Keep answers concise.',
+    };
+    const first = applyAutomaticDelegation(input);
+    const second = applyAutomaticDelegation({ ...input, additionalInstructions: first.additionalInstructions });
+    expect(second.additionalInstructions).toBe(first.additionalInstructions);
   });
 
   it('preserves configured agents and does not change an opted-out agent', () => {
