@@ -45,9 +45,9 @@ describe('OllamaClient.chatCompletion', () => {
   test('defaults to a non-streaming request when stream is omitted', async () => {
     chat.mockResolvedValue({ message: { content: 'LOCAL_OK' } });
 
-    await expect(client.chatCompletion({ payload: payload(), onProgress: jest.fn() })).resolves.toBe(
-      'LOCAL_OK',
-    );
+    await expect(
+      client.chatCompletion({ payload: payload(), onProgress: jest.fn() }),
+    ).resolves.toBe('LOCAL_OK');
     expect(chat).toHaveBeenCalledWith(expect.objectContaining({ stream: false }));
   });
 

@@ -45,7 +45,9 @@ describe('OllamaClient.fetchModels redirect safety', () => {
 
     try {
       await expect(
-        OllamaClient.fetchModels(sourceURL, { headers: { 'x-local-probe': 'sensitive-test-value' } }),
+        OllamaClient.fetchModels(sourceURL, {
+          headers: { 'x-local-probe': 'sensitive-test-value' },
+        }),
       ).rejects.toThrow();
       expect(redirectedRequests).toBe(0);
     } finally {
