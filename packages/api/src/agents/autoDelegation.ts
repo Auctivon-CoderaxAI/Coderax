@@ -28,6 +28,8 @@ const COMPLEX_TASK_SIGNAL =
 const MULTI_STAGE_SIGNAL =
   /\b(?:implement|fix|build|create|change|repair|investigate|diagnose|review|audit|plan)\b[\s\S]{0,180}\b(?:test|validate|verify|review|document|recommend|compare|then|and)\b/i;
 const SPECIAL_CONTROL = /^\s*(?:approve|deny|reject|cancel|abort|stop)\b/i;
+const USER_DELEGATION_OPTOUT =
+  /\b(?:do not|don't|dont|never)\s+(?:(?:use|run|spawn|enable|invoke)\s+(?:any\s+)?(?:subagents?|child agents?)|delegate\b)|\bwithout\s+(?:subagents?|child agents?)\b/i;
 
 export const AUTOMATIC_DELEGATION_INSTRUCTIONS: string = [
   'Automatic delegation is enabled for this complex turn; do not ask the user to choose an agent.',
@@ -40,7 +42,9 @@ export const AUTOMATIC_DELEGATION_INSTRUCTIONS: string = [
 
 export function isComplexRequest(value: unknown): value is string {
   const text = typeof value === 'string' ? value.trim() : '';
-  if (text.length < 35 || SPECIAL_CONTROL.test(text)) return false;
+  if (text.length < 35 || SPECIAL_CONTROL.test(text) || USER_DELEGATION_OPTOUT.test(text)) {
+    return false;
+  }
   return COMPLEX_TASK_SIGNAL.test(text) || (text.length >= 100 && MULTI_STAGE_SIGNAL.test(text));
 }
 
@@ -117,16 +121,15 @@ export function applyAutomaticDelegation({
     runtimeAvailable,
   });
   if (!decision.delegate) return { ...decision, subagentsConfig, additionalInstructions };
+  const existingInstructions = typeof additionalInstructions === 'string' ? additionalInstructions : '';
+  const mergedInstructions = existingInstructions.includes(AUTOMATIC_DELEGATION_INSTRUCTIONS)
+    ? existingInstructions
+    : [existingInstructions, AUTOMATIC_DELEGATION_INSTRUCTIONS].filter(Boolean).join('\n\n');
   return {
     ...decision,
     subagentsConfig: subagentsConfig?.enabled
       ? subagentsConfig
       : { enabled: true, allowSelf: true, shareFiles: false },
-    additionalInstructions: [additionalInstructions, AUTOMATIC_DELEGATION_INSTRUCTIONS]
-      .filter(
-        (instruction): instruction is string =>
-          typeof instruction === 'string' && instruction.length > 0,
-      )
-      .join('\n\n'),
+    additionalInstructions: mergedInstructions,
   };
 }
