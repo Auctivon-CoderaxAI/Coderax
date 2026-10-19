@@ -284,6 +284,9 @@ export async function fetchModels({
     if (user && userIdQuery) {
       url.searchParams.append('user', user);
     }
+    if (name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
+      options.maxRedirects = 0;
+    }
     applyAxiosProxyConfig(options, url);
     applyUserProvidedBaseURLProtection(options, ssrfAgents);
     const res = await axios.get(url.toString(), options);
