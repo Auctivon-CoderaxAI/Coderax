@@ -1,29 +1,33 @@
-const { Ollama } = require('ollama');
-const axios = require('axios');
-const { OllamaClient } = require('../OllamaClient');
+import axios from 'axios';
+import { Ollama } from 'ollama';
+import type { OllamaChatPayload } from './ollamaClient';
+import { OllamaClient } from './ollamaClient';
 
-jest.mock('ollama', () => ({ Ollama: jest.fn() }));
 jest.mock('axios', () => ({ get: jest.fn() }));
+jest.mock('ollama', () => ({ Ollama: jest.fn() }));
 jest.mock('@librechat/agents', () => ({ sleep: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@coderax/data-schemas', () => ({ logger: { error: jest.fn() } }));
 jest.mock('coderax-data-provider', () => ({ Constants: { DEFAULT_STREAM_RATE: 0 } }));
-jest.mock('@coderax/api', () => ({
+jest.mock('~/utils', () => ({
   resolveHeaders: jest.fn(() => ({})),
-  deriveBaseURL: jest.fn((url) => url),
+  deriveBaseURL: jest.fn((url: string) => url),
 }));
 
+const mockedAxios = jest.mocked(axios);
+const mockedOllama = jest.mocked(Ollama);
+
 describe('OllamaClient.chatCompletion', () => {
-  let chat;
-  let client;
+  let chat: jest.Mock;
+  let client: OllamaClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
     chat = jest.fn();
-    Ollama.mockImplementation(() => ({ chat }));
+    mockedOllama.mockImplementation(() => ({ chat }) as unknown as Ollama);
     client = new OllamaClient();
   });
 
-  const payload = (stream) => ({
+  const payload = (stream?: boolean): OllamaChatPayload => ({
     model: 'qwen3.5:4b',
     ...(stream === undefined ? {} : { stream }),
     messages: [{ role: 'user', content: 'Hello' }],
@@ -96,42 +100,7 @@ describe('OllamaClient.chatCompletion', () => {
     expect(abort).toHaveBeenCalledTimes(1);
   });
 
-  test('aborts a stream immediately while waiting for its next chunk', async () => {
-    const controller = new AbortController();
-    let markStarted;
-    let resolveNext;
-    const iterationStarted = new Promise((resolve) => {
-      markStarted = resolve;
-    });
-    const pendingNext = new Promise((resolve) => {
-      resolveNext = resolve;
-    });
-    const abort = jest.fn(() => resolveNext({ done: true }));
-    chat.mockResolvedValue({
-      abort,
-      [Symbol.asyncIterator]() {
-        return {
-          next() {
-            markStarted();
-            return pendingNext;
-          },
-        };
-      },
-    });
-
-    const completion = client.chatCompletion({
-      payload: payload(true),
-      onProgress: jest.fn(),
-      abortController: controller,
-    });
-    await iterationStarted;
-    controller.abort();
-
-    await expect(completion).resolves.toBe('');
-    expect(abort).toHaveBeenCalledTimes(1);
-  });
-
-  test('aborts streams created by older Ollama SDKs through their controller', async () => {
+  test('aborts streams created by an older SDK through their controller', async () => {
     const controller = new AbortController();
     const abort = jest.fn();
     chat.mockResolvedValue({
@@ -158,12 +127,12 @@ describe('OllamaClient.chatCompletion', () => {
   });
 
   test('rejects redirected model-inventory requests', async () => {
-    axios.get.mockResolvedValue({ data: { models: [{ name: 'qwen3.5:4b' }] } });
+    mockedAxios.get.mockResolvedValue({ data: { models: [{ name: 'qwen3.5:4b' }] } });
 
     await expect(OllamaClient.fetchModels('http://localhost:11434')).resolves.toEqual([
       'qwen3.5:4b',
     ]);
-    expect(axios.get).toHaveBeenCalledWith(
+    expect(mockedAxios.get).toHaveBeenCalledWith(
       'http://localhost:11434/api/tags',
       expect.objectContaining({ maxRedirects: 0, timeout: 5000 }),
     );

@@ -5,12 +5,11 @@ describe('isKeylessLocalOllama', () => {
     expect(isKeylessLocalOllama({ name: 'Ollama', baseURL: 'http://127.0.0.1:11434/v1' })).toBe(
       true,
     );
-    expect(isKeylessLocalOllama({ name: 'Ollama-local', baseURL: 'http://localhost:11434/v1' })).toBe(
-      true,
-    );
-    expect(isKeylessLocalOllama({ name: 'Ollama', baseURL: 'https://example.com/v1' })).toBe(
-      false,
-    );
+    expect(
+      isKeylessLocalOllama({ name: 'Ollama-local', baseURL: 'http://localhost:11434/v1' }),
+    ).toBe(true);
+    expect(isKeylessLocalOllama({ name: 'Ollama', baseURL: 'http://[::1]:11434/v1' })).toBe(true);
+    expect(isKeylessLocalOllama({ name: 'Ollama', baseURL: 'https://example.com/v1' })).toBe(false);
     expect(isKeylessLocalOllama({ name: 'Remote', baseURL: 'http://127.0.0.1:11434/v1' })).toBe(
       false,
     );
