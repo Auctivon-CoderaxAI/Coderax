@@ -73,6 +73,7 @@ class OllamaClient {
     const response = await axios.get(`${ollamaEndpoint}/api/tags`, {
       headers: resolvedHeaders,
       timeout: 5000,
+      maxRedirects: 0,
     });
 
     const models = response.data.models.map((tag) => tag.name);
@@ -125,42 +126,93 @@ class OllamaClient {
    * @param {Object} params
    * @param {ChatCompletionPayload} params.payload
    * @param {onTokenProgress} params.onProgress
-   * @param {AbortController} params.abortController
+   * @param {AbortController} [params.abortController]
    */
   async chatCompletion({ payload, onProgress, abortController = null }) {
     let intermediateReply = '';
 
-    const parameters = ollamaPayloadSchema.parse(payload);
-    const messages = OllamaClient.formatOpenAIMessages(payload.messages);
+    try {
+      const parameters = ollamaPayloadSchema.parse(payload);
+      const messages = OllamaClient.formatOpenAIMessages(payload.messages);
+      const isStreaming = parameters.stream === true;
 
-    if (parameters.stream) {
-      const stream = await this.client.chat({
+      // Do not start a local inference request when its caller has already cancelled it.
+      if (abortController?.signal?.aborted) {
+        return intermediateReply;
+      }
+
+      const response = await this.client.chat({
         messages,
         ...parameters,
+        stream: isStreaming,
       });
 
-      for await (const chunk of stream) {
-        const token = chunk.message.content;
-        intermediateReply += token;
-        onProgress(token);
-        if (abortController.signal.aborted) {
-          stream.controller.abort();
-          break;
+      if (!isStreaming) {
+        if (abortController?.signal?.aborted) {
+          return intermediateReply;
         }
 
-        await sleep(this.streamRate);
+        const content = response?.message?.content;
+        if (typeof content === 'string') {
+          intermediateReply = content;
+          if (content.length > 0) {
+            onProgress(content);
+          }
+        }
+        return intermediateReply;
       }
-    }
-    // TODO: regular completion
-    else {
-      // const generation = await this.client.generate(payload);
-    }
 
-    return intermediateReply;
-  }
-  catch(err) {
-    logger.error('[OllamaClient.chatCompletion]', err);
-    throw err;
+      let streamAborted = false;
+      const abortStream = () => {
+        if (streamAborted) {
+          return;
+        }
+        streamAborted = true;
+
+        if (typeof response.abort === 'function') {
+          response.abort();
+        } else {
+          response.controller?.abort?.();
+        }
+      };
+      const signal = abortController?.signal;
+
+      if (signal?.aborted) {
+        abortStream();
+        return intermediateReply;
+      }
+
+      signal?.addEventListener('abort', abortStream, { once: true });
+
+      try {
+        for await (const chunk of response) {
+          if (signal?.aborted) {
+            abortStream();
+            break;
+          }
+
+          const token = chunk.message?.content ?? '';
+          if (token.length > 0) {
+            intermediateReply += token;
+            onProgress(token);
+          }
+
+          if (signal?.aborted) {
+            abortStream();
+            break;
+          }
+
+          await sleep(this.streamRate);
+        }
+
+        return intermediateReply;
+      } finally {
+        signal?.removeEventListener('abort', abortStream);
+      }
+    } catch (err) {
+      logger.error('[OllamaClient.chatCompletion]', err);
+      throw err;
+    }
   }
 }
 
