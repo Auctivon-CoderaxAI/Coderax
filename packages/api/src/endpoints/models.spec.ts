@@ -631,6 +631,7 @@ describe('fetchModels with Ollama specific logic', () => {
     expect(mockedAxios.get).toHaveBeenCalledWith('https://api.ollama.test.com/api/tags', {
       headers: {},
       timeout: 5000,
+      maxRedirects: 0,
     });
   });
 
@@ -664,6 +665,7 @@ describe('fetchModels with Ollama specific logic', () => {
     expect(mockedAxios.get).toHaveBeenCalledWith('https://api.ollama.test.com/api/tags', {
       headers: customHeaders,
       timeout: 5000,
+      maxRedirects: 0,
     });
   });
 

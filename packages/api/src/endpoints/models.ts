@@ -106,6 +106,7 @@ async function fetchOllamaModels(
   } = {
     headers: resolvedHeaders,
     timeout: 5000,
+    maxRedirects: 0,
   };
   applyUserProvidedBaseURLProtection(requestOptions, options.ssrfAgents);
 
