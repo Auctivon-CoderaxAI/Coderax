@@ -1250,6 +1250,89 @@ describe('initializeClient — subagent loading', () => {
     maxContextTokens: 4096,
   });
 
+  it('automatically enables isolated subagents for a complex authorized request', async () => {
+    mockInitializeAgent.mockResolvedValue(makePrimaryConfig({}));
+    const requestBody = {
+      conversationId: 'conv_sub',
+      messages: [
+        {
+          role: 'user',
+          content: 'Compare two database options and recommend one with operational trade-offs.',
+        },
+      ],
+    };
+
+    await initializeClient({
+      req: makeSubagentReq(),
+      res: {},
+      signal: new AbortController().signal,
+      endpointOption: makeEndpointOption(),
+      requestBody,
+    });
+
+    expect(agentClientArgs.agent.subagents).toEqual({
+      enabled: true,
+      allowSelf: true,
+      shareFiles: false,
+    });
+    expect(agentClientArgs.agent.additional_instructions).toMatch(/up to two focused subtasks/);
+  });
+
+  it.each([
+    {
+      reason: 'a simple request',
+      text: 'What does this error mean?',
+      subagents: undefined,
+      capabilityEnabled: true,
+      expectedSubagents: undefined,
+    },
+    {
+      reason: 'an explicit per-agent opt-out',
+      text: 'Compare two database options and recommend one with operational trade-offs.',
+      subagents: { enabled: false },
+      capabilityEnabled: true,
+      expectedSubagents: { enabled: false },
+    },
+    {
+      reason: 'an unavailable deployment capability',
+      text: 'Compare two database options and recommend one with operational trade-offs.',
+      subagents: undefined,
+      capabilityEnabled: false,
+      expectedSubagents: undefined,
+    },
+    {
+      reason: 'no available self or configured subagent target',
+      text: 'Compare two database options and recommend one with operational trade-offs.',
+      subagents: { enabled: true, allowSelf: false },
+      capabilityEnabled: true,
+      expectedSubagents: { enabled: true, allowSelf: false },
+    },
+  ])(
+    'keeps the parent agent for $reason',
+    async ({ text, subagents, capabilityEnabled, expectedSubagents }) => {
+      const primaryConfig = makePrimaryConfig({ subagents });
+      primaryConfig.additional_instructions = 'Keep responses concise.';
+      mockInitializeAgent.mockResolvedValue(primaryConfig);
+
+      const req = makeSubagentReq();
+      if (!capabilityEnabled) req.config.endpoints.agents.capabilities = [];
+
+      await initializeClient({
+        req,
+        res: {},
+        signal: new AbortController().signal,
+        endpointOption: makeEndpointOption(),
+        requestBody: {
+          conversationId: 'conv_sub',
+          messages: [{ role: 'user', content: text }],
+        },
+      });
+
+      expect(agentClientArgs.agent.subagents).toEqual(expectedSubagents);
+      expect(agentClientArgs.agent.additional_instructions).toBe('Keep responses concise.');
+    },
+  );
+
   const makeNestedSubagentConfig = (id, childIds = []) => ({
     ...makeSubagentConfig(id),
     subagents: { enabled: true, allowSelf: false, agent_ids: childIds },
@@ -1389,6 +1472,7 @@ describe('initializeClient — subagent loading', () => {
     const primaryConfig = makePrimaryConfig({
       subagents: { enabled: true, allowSelf: true, agent_ids: [] },
     });
+    primaryConfig.additional_instructions = 'Keep responses concise.';
     mockInitializeAgent.mockResolvedValue(primaryConfig);
     const req = makeSubagentReq();
     req.config.endpoints.agents.capabilities.push('run_in_background');
@@ -1402,11 +1486,21 @@ describe('initializeClient — subagent loading', () => {
       res: {},
       signal: new AbortController().signal,
       endpointOption: makeEndpointOption(),
+      requestBody: {
+        conversationId: 'conv_sub',
+        messages: [
+          {
+            role: 'user',
+            content: 'Compare two database options and recommend one with operational trade-offs.',
+          },
+        ],
+      },
     });
 
     expect(agentClientArgs.subagentTasks).toBeUndefined();
     expect(capturedToolExecuteOptions.subagentTasks).toBeUndefined();
     expect(agentClientArgs.agent.subagents).toBeUndefined();
+    expect(agentClientArgs.agent.additional_instructions).toBe('Keep responses concise.');
   });
 
   it('keeps detached subagents disabled without the admin background capability', async () => {
