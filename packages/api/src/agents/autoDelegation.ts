@@ -79,8 +79,10 @@ export function latestUserRequest(body: Record<string, unknown> = {}): string {
       ) {
         const content = 'content' in message ? message.content : undefined;
         const parts = 'parts' in message ? message.parts : undefined;
-        const text = contentText(content ?? parts);
+        const text = contentText(content);
         if (text.trim()) return text.trim();
+        const partsText = contentText(parts);
+        if (partsText.trim()) return partsText.trim();
       }
     }
   }
