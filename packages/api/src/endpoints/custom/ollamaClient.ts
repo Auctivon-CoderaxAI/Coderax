@@ -57,7 +57,9 @@ export type OllamaChatPayload = OllamaChatParameters & {
   messages: InputMessage[];
 };
 
-type OllamaStreamResponse = AbortableAsyncIterator<ChatResponse>;
+type OllamaStreamResponse = AbortableAsyncIterator<ChatResponse> & {
+  controller?: { abort?: () => void };
+};
 
 export interface OllamaClientOptions {
   baseURL?: string;
@@ -210,7 +212,11 @@ export class OllamaClient {
           return;
         }
         streamAborted = true;
-        response.abort();
+        if (typeof response.abort === 'function') {
+          response.abort();
+        } else {
+          response.controller?.abort?.();
+        }
       };
 
       if (signal?.aborted) {
