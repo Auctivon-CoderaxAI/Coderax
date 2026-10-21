@@ -9,7 +9,7 @@ export function isKeylessLocalOllama(endpoint: Partial<TEndpoint>): boolean {
 
   try {
     const url = new URL(extractEnvVariable(endpoint.baseURL ?? ''));
-    return url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname);
+    return url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
   } catch {
     return false;
   }
