@@ -57,9 +57,7 @@ export type OllamaChatPayload = OllamaChatParameters & {
   messages: InputMessage[];
 };
 
-type OllamaStreamResponse = AbortableAsyncIterator<ChatResponse> & {
-  controller?: { abort?: () => void };
-};
+type OllamaStreamResponse = AbortableAsyncIterator<ChatResponse>;
 
 export interface OllamaClientOptions {
   baseURL?: string;
@@ -78,12 +76,28 @@ function getValidBase64(imageUrl: string): string | undefined {
 
 export class OllamaClient {
   private readonly streamRate: number;
-  private readonly client: Ollama;
+  private readonly host: string;
 
   constructor(options: OllamaClientOptions = {}) {
-    const host = deriveBaseURL(options.baseURL ?? 'http://localhost:11434');
+    this.host = deriveBaseURL(options.baseURL ?? 'http://localhost:11434');
     this.streamRate = options.streamRate ?? Constants.DEFAULT_STREAM_RATE;
-    this.client = new Ollama({ host });
+  }
+
+  /** Create one SDK client per completion so cancellation is isolated to that request. */
+  private createClient(signal?: AbortSignal): Ollama {
+    if (!signal) {
+      return new Ollama({ host: this.host });
+    }
+
+    const fetchWithSignal: typeof fetch = (input, init) => {
+      const requestSignal = init?.signal;
+      return fetch(input, {
+        ...init,
+        signal: requestSignal ? AbortSignal.any([requestSignal, signal]) : signal,
+      });
+    };
+
+    return new Ollama({ host: this.host, fetch: fetchWithSignal });
   }
 
   /** Fetch model names without forwarding resolved headers across a redirect. */
@@ -157,18 +171,20 @@ export class OllamaClient {
     abortController?: AbortController | null;
   }): Promise<string> {
     let intermediateReply = '';
+    const signal = abortController?.signal;
 
     try {
       const { stream: isStreaming, ...parameters } = ollamaPayloadSchema.parse(payload);
       const messages = OllamaClient.formatOpenAIMessages(payload.messages);
-      const signal = abortController?.signal;
 
       if (signal?.aborted) {
         return intermediateReply;
       }
 
+      const client = this.createClient(signal);
+
       if (isStreaming !== true) {
-        const response = await this.client.chat({ ...parameters, messages, stream: false });
+        const response = await client.chat({ ...parameters, messages, stream: false });
         if (signal?.aborted) {
           return intermediateReply;
         }
@@ -183,7 +199,7 @@ export class OllamaClient {
         return intermediateReply;
       }
 
-      const response = (await this.client.chat({
+      const response = (await client.chat({
         ...parameters,
         messages,
         stream: true,
@@ -194,11 +210,7 @@ export class OllamaClient {
           return;
         }
         streamAborted = true;
-        if (typeof response.abort === 'function') {
-          response.abort();
-        } else {
-          response.controller?.abort?.();
-        }
+        response.abort();
       };
 
       if (signal?.aborted) {
@@ -231,6 +243,9 @@ export class OllamaClient {
         signal?.removeEventListener('abort', abortStream);
       }
     } catch (error) {
+      if (signal?.aborted) {
+        return intermediateReply;
+      }
       logger.error('[OllamaClient.chatCompletion]', error);
       throw error;
     }
