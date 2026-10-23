@@ -101,7 +101,7 @@ export default defineConfig(({ command }) => ({
       workbox: {
         globPatterns: [
           '**/*.{js,css,html}',
-          'assets/cyvox-*.png',
+          'assets/coderax-*.svg',
           /** `manifest.webmanifest` is not listed: vite-plugin-pwa always appends it as an
            * additional manifest entry, so globbing it too duplicates the precache entry. */
         ],
@@ -154,11 +154,7 @@ export default defineConfig(({ command }) => ({
         background_color: '#000000',
         theme_color: '#009688',
         icons: [
-          { src: 'assets/cyvox-favicon-32.png', sizes: '32x32', type: 'image/png' },
-          { src: 'assets/cyvox-favicon-16.png', sizes: '16x16', type: 'image/png' },
-          { src: 'assets/cyvox-apple-touch-180.png', sizes: '180x180', type: 'image/png' },
-          { src: 'assets/cyvox-icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'assets/cyvox-icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          { src: 'assets/coderax-mark.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
         ],
       },
     }),

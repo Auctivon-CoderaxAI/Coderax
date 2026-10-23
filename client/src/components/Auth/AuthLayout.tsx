@@ -93,7 +93,7 @@ function AuthLayout({
       <BlinkAnimation active={isFetching}>
         <div className="mt-6 h-10 w-full bg-cover">
           <img
-            src="assets/cyvox-icon.png"
+            src="assets/coderax-wordmark.svg"
             className="h-full w-full object-contain"
             alt={localize('com_ui_logo', { 0: startupConfig?.appTitle ?? 'Coderax' })}
           />
