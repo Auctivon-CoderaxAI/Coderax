@@ -6,11 +6,16 @@ import test from 'node:test';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const config = JSON.parse(readFileSync(resolve(projectRoot, 'client', 'vercel.json'), 'utf8'));
+const clientPackage = JSON.parse(readFileSync(resolve(projectRoot, 'client', 'package.json'), 'utf8'));
 const rewrite = config.rewrites.find(({ destination }) => destination === '/index.html');
 
 test('Vercel client-workspace settings remain managed by the project', () => {
   assert.equal(config.buildCommand, undefined);
   assert.equal(config.outputDirectory, undefined);
+});
+
+test('Vercel can run the monorepo frontend build from the client workspace', () => {
+  assert.equal(clientPackage.scripts.frontend, 'cd .. && npm run frontend');
 });
 
 test('client-side routes are rewritten to the application shell', () => {
