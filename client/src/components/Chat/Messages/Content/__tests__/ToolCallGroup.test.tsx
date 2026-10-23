@@ -9,6 +9,7 @@ import { scheduleMessageContentLayoutReconcile } from '~/hooks';
 import ToolCallGroup from '../ToolCallGroup';
 import { FoldHeaderContext } from '../rail';
 import { ToolAuthWarning } from '../auth';
+import store from '~/store';
 
 const mockMCPServerNames: string[] = [];
 
@@ -494,6 +495,50 @@ describe('ToolCallGroup image hoisting', () => {
 
     expect(screen.queryByTestId('inner-0')).not.toBeInTheDocument();
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps a completed phase group collapsed when auto-expand-tools is enabled', () => {
+    const phaseHeader = {
+      header: { current: null },
+      expanded: false,
+    } as NonNullable<React.ContextType<typeof FoldHeaderContext>>;
+
+    render(
+      <RecoilRoot initializeState={({ set }) => set(store.autoExpandTools, true)}>
+        <FoldHeaderContext.Provider value={phaseHeader}>
+          <ToolCallGroup {...baseProps} withinActivityPhase />
+        </FoldHeaderContext.Provider>
+      </RecoilRoot>,
+    );
+
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('inner-0')).not.toBeInTheDocument();
+  });
+
+  it('collapses a previously expanded group when its activity phase folds', async () => {
+    const phaseHeader = {
+      header: { current: null },
+      expanded: true,
+    } as NonNullable<React.ContextType<typeof FoldHeaderContext>>;
+    const tree = (withinActivityPhase: boolean, expanded: boolean) => (
+      <RecoilRoot initializeState={({ set }) => set(store.autoExpandTools, true)}>
+        <FoldHeaderContext.Provider value={{ ...phaseHeader, expanded }}>
+          <ToolCallGroup
+            {...baseProps}
+            isSubmitting={!withinActivityPhase}
+            withinActivityPhase={withinActivityPhase}
+          />
+        </FoldHeaderContext.Provider>
+      </RecoilRoot>
+    );
+    const { rerender } = render(tree(false, true));
+    expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+
+    rerender(tree(true, false));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'false'),
+    );
   });
 
   /** A phase can resolve while an approval inside it still blocks the run

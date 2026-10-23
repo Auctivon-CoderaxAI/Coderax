@@ -337,7 +337,7 @@ export default function ToolCallGroup({
   const suppressAutoExpand = withinActivityPhase && !hasPendingApproval;
   const initialState = initialExpansionState?.userOverride === true ? initialExpansionState : null;
   const [isExpanded, setIsExpanded] = useState(
-    initialState?.isExpanded ?? (autoExpand || (!autoCollapse && !suppressAutoExpand)),
+    initialState?.isExpanded ?? (!suppressAutoExpand && (autoExpand || !autoCollapse)),
   );
   const [userOverride, setUserOverride] = useState(initialState != null);
   const [shouldRenderBody, setShouldRenderBody] = useState(isExpanded);
@@ -382,6 +382,18 @@ export default function ToolCallGroup({
       setIsExpanded(false);
     }
   }, [autoCollapse, userOverride]);
+
+  useEffect(() => {
+    if (
+      withinActivityPhase &&
+      phaseHeader != null &&
+      !phaseHeader.expanded &&
+      !userOverride &&
+      !hasPendingApproval
+    ) {
+      setIsExpanded(false);
+    }
+  }, [withinActivityPhase, phaseHeader, userOverride, hasPendingApproval]);
 
   const handleToggle = useCallback(() => {
     const nextExpanded = !isExpanded;
