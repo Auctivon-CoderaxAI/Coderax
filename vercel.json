@@ -4,7 +4,7 @@
   "outputDirectory": "client/dist",
   "rewrites": [
     {
-      "source": "^/(?!api(?:/|$)|oauth(?:/|$)|assets(?:/|$)|metrics(?:/|$)|\\.well-known(?:/|$)|sw\\.js$|manifest\\.webmanifest$)(.*)$",
+      "source": "/((?!api|oauth|assets|metrics|\\.well-known|sw\\.js|manifest\\.webmanifest).*)",
       "destination": "/index.html"
     }
   ]
