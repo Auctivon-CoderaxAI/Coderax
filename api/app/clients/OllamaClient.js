@@ -127,11 +127,15 @@ class OllamaClient {
    * @param {onTokenProgress} params.onProgress
    * @param {AbortController} params.abortController
    */
-  async chatCompletion({ payload, onProgress, abortController = null }) {
+  async chatCompletion({ payload, onProgress = () => {}, abortController = null }) {
     let intermediateReply = '';
 
     const parameters = ollamaPayloadSchema.parse(payload);
     const messages = OllamaClient.formatOpenAIMessages(payload.messages);
+
+    if (abortController?.signal?.aborted) {
+      return intermediateReply;
+    }
 
     if (parameters.stream) {
       const stream = await this.client.chat({
@@ -143,17 +147,26 @@ class OllamaClient {
         const token = chunk.message.content;
         intermediateReply += token;
         onProgress(token);
-        if (abortController.signal.aborted) {
-          stream.controller.abort();
+        if (abortController?.signal?.aborted) {
+          if (typeof stream.abort === 'function') {
+            stream.abort();
+          } else {
+            stream.controller?.abort?.();
+          }
           break;
         }
 
         await sleep(this.streamRate);
       }
     }
-    // TODO: regular completion
     else {
-      // const generation = await this.client.generate(payload);
+      const response = await this.client.chat({ messages, ...parameters, stream: false });
+      if (!abortController?.signal?.aborted) {
+        intermediateReply = response?.message?.content ?? '';
+        if (intermediateReply) {
+          onProgress(intermediateReply);
+        }
+      }
     }
 
     return intermediateReply;
