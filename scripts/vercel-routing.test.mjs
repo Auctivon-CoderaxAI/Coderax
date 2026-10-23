@@ -8,9 +8,9 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const config = JSON.parse(readFileSync(resolve(projectRoot, 'vercel.json'), 'utf8'));
 const rewrite = config.rewrites.find(({ destination }) => destination === '/index.html');
 
-test('Vercel serves the actual workspace build output', () => {
-  assert.equal(config.buildCommand, 'npm run frontend');
-  assert.equal(config.outputDirectory, 'client/dist');
+test('existing Vercel client-workspace build settings remain untouched', () => {
+  assert.equal(config.buildCommand, undefined);
+  assert.equal(config.outputDirectory, undefined);
 });
 
 test('client-side routes are rewritten to the application shell', () => {
