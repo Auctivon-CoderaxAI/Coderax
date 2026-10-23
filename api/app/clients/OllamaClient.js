@@ -144,6 +144,16 @@ class OllamaClient {
       });
 
       for await (const chunk of stream) {
+        // Cancellation can arrive while the SDK is connecting or awaiting a
+        // chunk. Never surface a token fetched after the request was aborted.
+        if (abortController?.signal?.aborted) {
+          if (typeof stream.abort === 'function') {
+            stream.abort();
+          } else {
+            stream.controller?.abort?.();
+          }
+          break;
+        }
         const token = chunk.message.content;
         intermediateReply += token;
         onProgress(token);
