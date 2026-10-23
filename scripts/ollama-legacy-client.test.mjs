@@ -128,3 +128,47 @@ test('streaming cancellation calls iterator abort and does not emit another chun
   assert.deepEqual(progress, ['A']);
   assert.equal(aborts, 1);
 });
+
+test('stream abort during model transport never emits the first late chunk', async () => {
+  const signal = { aborted: false };
+  let aborts = 0;
+  const { OllamaClient, calls } = harness(async () => {
+    signal.aborted = true;
+    return {
+      abort: () => { aborts += 1; },
+      async *[Symbol.asyncIterator]() {
+        yield { message: { content: 'LATE' } };
+      },
+    };
+  });
+  const progress = [];
+  const result = await new OllamaClient().chatCompletion({
+    payload: payload(true), abortController: { signal },
+    onProgress: (text) => progress.push(text),
+  });
+  assert.equal(result, '');
+  assert.deepEqual(progress, []);
+  assert.equal(calls.length, 1);
+  assert.equal(aborts, 1);
+});
+
+test('stream abort between chunks discards a chunk already fetched by iterator', async () => {
+  const signal = { aborted: false };
+  let aborts = 0;
+  const { OllamaClient } = harness(async () => ({
+    abort: () => { aborts += 1; },
+    async *[Symbol.asyncIterator]() {
+      yield { message: { content: 'A' } };
+      signal.aborted = true;
+      yield { message: { content: 'LATE' } };
+    },
+  }));
+  const progress = [];
+  const result = await new OllamaClient().chatCompletion({
+    payload: payload(true), abortController: { signal },
+    onProgress: (text) => progress.push(text),
+  });
+  assert.equal(result, 'A');
+  assert.deepEqual(progress, ['A']);
+  assert.equal(aborts, 1);
+});
