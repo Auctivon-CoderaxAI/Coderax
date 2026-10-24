@@ -13,7 +13,7 @@
       "entrypoint": "api/server/index.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "npm run build:packages"
+      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api"
     }
   },
   "rewrites": [
