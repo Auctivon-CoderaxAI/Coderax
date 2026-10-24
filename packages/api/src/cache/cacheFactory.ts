@@ -1,11 +1,3 @@
-/**
- * @keyv/redis exports its default class in a non-standard way:
- * module.exports = { default: KeyvRedis, ... } instead of module.exports = KeyvRedis
- * This breaks ES6 imports when the module is marked as external in rollup.
- * We must use require() to access the .default property directly.
- */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const KeyvRedis = require('@keyv/redis').default as typeof import('@keyv/redis').default;
 import { Keyv } from 'keyv';
 import createMemoryStore from 'memorystore';
 import { RedisStore } from 'rate-limit-redis';
@@ -104,6 +96,10 @@ export const standardCache = (
     }
     try {
       const { throwOnErrors = false } = options;
+      // Only load the Redis adapter when an actual Redis client exists.
+      // Its CommonJS default export is non-standard; use .default explicitly.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const KeyvRedis = require('@keyv/redis').default as typeof import('@keyv/redis').default;
       const keyvRedis = new KeyvRedis(keyvRedisClient, { throwOnErrors });
       const cache = new Keyv(keyvRedis, { namespace, ttl, throwOnErrors });
       keyvRedis.namespace = cacheConfig.REDIS_KEY_PREFIX;
