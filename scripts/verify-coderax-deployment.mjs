@@ -29,9 +29,27 @@ export const validateLiveURL = (value) => {
   return url.origin;
 };
 
+/**
+ * Vercel Services traces the backend entrypoint from the repository root.
+ * Keep a runtime dependency used by @coderax/api visible to the root tracer,
+ * rather than relying solely on npm workspace hoisting.
+ */
+export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage) {
+  const required = apiPackage.dependencies?.mathjs;
+  assert.equal(typeof required, 'string', '@coderax/api must declare mathjs as a runtime dependency');
+  assert.equal(backendPackage.dependencies?.mathjs, required, 'Express mathjs version must match @coderax/api');
+  assert.equal(rootPackage.dependencies?.mathjs, required, 'Vercel root must declare mathjs for function tracing');
+  assert.equal(lock.packages?.['']?.dependencies?.mathjs, required, 'root lockfile must include mathjs for npm ci');
+  assert.ok(lock.packages?.['node_modules/mathjs']?.version, 'lockfile must resolve mathjs');
+}
+
 export async function verifyRepositoryContracts(root = repoRoot) {
   const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
+  const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
+  const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
