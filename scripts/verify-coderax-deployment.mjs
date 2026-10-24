@@ -77,12 +77,21 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     'backend service must build the shared client package',
   );
   assert.ok(
+    rootPackage.devDependencies?.['@tsdown/css'],
+    'root workspace must expose @tsdown/css to the backend service build',
+  );
+  assert.ok(
     rootPackage.devDependencies?.tsdown,
     'root workspace must expose tsdown to the backend service build',
   );
   assert.ok(
     rootPackage.devDependencies?.typescript,
     'root workspace must expose TypeScript to the backend service build',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.['@tsdown/css'],
+    rootPackage.devDependencies['@tsdown/css'],
+    'root lockfile must include @tsdown/css for npm ci',
   );
   assert.equal(
     lock.packages?.['']?.devDependencies?.tsdown,
