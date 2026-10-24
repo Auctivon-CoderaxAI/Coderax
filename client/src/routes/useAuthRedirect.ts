@@ -4,13 +4,14 @@ import { buildLoginRedirectUrl } from 'coderax-data-provider';
 import { useAuthContext } from '~/hooks';
 
 export default function useAuthRedirect() {
-  const { user, roles, isAuthenticated } = useAuthContext();
+  const { user, roles, isAuthenticated, isAuthReady } = useAuthContext();
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (isAuthenticated) {
+      // Do not redirect before silent refresh and guest bootstrap finish.
+      if (isAuthenticated || !isAuthReady) {
         return;
       }
 
@@ -22,7 +23,7 @@ export default function useAuthRedirect() {
     return () => {
       clearTimeout(timeout);
     };
-  }, [isAuthenticated, navigate, location]);
+  }, [isAuthenticated, isAuthReady, navigate, location]);
 
   return {
     user,
