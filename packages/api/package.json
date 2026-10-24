@@ -160,7 +160,6 @@
     "coderax-data-provider": "*",
     "lodash": "^4.17.23",
     "mammoth": "^1.11.0",
-    "mathjs": "^15.2.0",
     "memorystore": "^1.6.7",
     "mongodb": "^6.14.2",
     "mongoose": "^8.24.1",
@@ -184,6 +183,7 @@
     "croner": "^10.0.1",
     "express-rate-limit": "^8.5.1",
     "helmet": "^8.3.0",
+    "mathjs": "^15.2.0",
     "ollama": "^0.5.0",
     "proxy-from-env": "^2.1.0",
     "re2js": "^2.8.6"
