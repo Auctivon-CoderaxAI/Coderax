@@ -53,7 +53,7 @@ export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, bac
 
 /** Validate that Vercel's clean install can resolve both root and workspace build tools. */
 export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services) {
-  for (const name of ['tsdown', 'typescript']) {
+  for (const name of ['@tsdown/css', 'tsdown', 'typescript']) {
     const version = rootPackage.devDependencies?.[name];
     assert.equal(typeof version, 'string', `Vercel root must declare ${name} for clean workspace builds`);
     assert.equal(

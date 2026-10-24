@@ -22,11 +22,12 @@ test('backend service builds its client shell and preserves API paths', async ()
 });
 
 test('Vercel clean installs resolve root and workspace build tools', () => {
-  const root = { devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } };
+  const root = { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } };
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
   const lock = { packages: {
-    '': { devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } },
+    '': { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } },
+    'node_modules/@tsdown/css': { version: '0.22.2' },
     'node_modules/tsdown': { version: '0.22.14' },
     'node_modules/typescript': { version: '5.9.3' },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
@@ -43,6 +44,10 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
   assert.throws(
     () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'node_modules/tsdown': undefined } }, client, api, services),
     /root lockfile must resolve tsdown/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } }, lock, client, api, services),
+    /Vercel root must declare @tsdown\/css/,
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services),
