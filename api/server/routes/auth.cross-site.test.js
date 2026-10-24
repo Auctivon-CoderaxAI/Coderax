@@ -6,6 +6,7 @@ const mockLoginLimiter = jest.fn((req, res, next) => next());
 const mockRequireLocalAuth = jest.fn((req, res, next) => next());
 const mockSetTwoFactorTempUser = jest.fn((req, res, next) => next());
 const mockLoginController = jest.fn((req, res) => res.status(204).end());
+const mockGuestController = jest.fn((req, res) => res.status(204).end());
 const mockVerify2FAWithTempToken = jest.fn((req, res) => res.status(204).end());
 
 jest.mock('@coderax/data-schemas', () => ({
@@ -57,6 +58,10 @@ jest.mock('~/server/controllers/auth/LogoutController', () => ({
 
 jest.mock('~/server/controllers/auth/LoginController', () => ({
   loginController: (...args) => mockLoginController(...args),
+}));
+
+jest.mock('~/server/controllers/auth/GuestController', () => ({
+  guestController: (...args) => mockGuestController(...args),
 }));
 
 jest.mock('~/models', () => ({
@@ -123,6 +128,30 @@ describe('local login endpoints reject cross-site submissions', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('rejects cross-site guest session creation before issuing tokens', async () => {
+    await request(app)
+      .post('/api/auth/guest')
+      .set('Host', 'chat.example.com')
+      .set('Sec-Fetch-Site', 'cross-site')
+      .set('Origin', OTHER_ORIGIN)
+      .send({})
+      .expect(403);
+
+    expect(mockGuestController).not.toHaveBeenCalled();
+  });
+
+  it('permits a same-origin guest request to reach the opt-in controller', async () => {
+    await request(app)
+      .post('/api/auth/guest')
+      .set('Host', 'chat.example.com')
+      .set('Sec-Fetch-Site', 'same-origin')
+      .set('Origin', APP_ORIGIN)
+      .send({})
+      .expect(204);
+
+    expect(mockGuestController).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a login form submitted from another site before authenticating', async () => {
