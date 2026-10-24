@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -12,6 +12,24 @@ const headers = (type, extras = {}) => ({
 test('repository contains a complete frontend build command and preserves API paths', async () => {
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
+});
+
+test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {
+  const version = '^15.2.0';
+  const root = { dependencies: { mathjs: version } };
+  const lock = { packages: { '': { dependencies: { mathjs: version } }, 'node_modules/mathjs': { version: '15.2.0' } } };
+  const api = { dependencies: { mathjs: version } };
+  const backend = { dependencies: { mathjs: version } };
+
+  assert.doesNotThrow(() => verifyVercelRuntimeDependency(root, lock, api, backend));
+  assert.throws(
+    () => verifyVercelRuntimeDependency({ dependencies: {} }, lock, api, backend),
+    /Vercel root must declare mathjs/,
+  );
+  assert.throws(
+    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
+    /root lockfile must include mathjs/,
+  );
 });
 
 test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () => {
