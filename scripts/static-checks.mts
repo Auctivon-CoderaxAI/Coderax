@@ -221,6 +221,11 @@ const DESIGN_METADATA_FILES = [
   'packages/client/tsconfig.json',
 ];
 
+/** Static files copied into `dist` keep their source mtimes. Check the theme
+ *  export against its source content instead of comparing its timestamp with
+ *  generated bundle files. */
+const DESIGN_COPIED_OUTPUT_SOURCES = new Map([['dist/tokens.css', 'src/theme/tokens.css']]);
+
 /** The two trees the design rules police, and what `lint:design:record` records. */
 const DESIGN_ROOTS = ['client/src', 'packages/client/src'];
 
@@ -1589,10 +1594,22 @@ function editedEntries(target: string, context: CheckContext): string[] {
  * toward rebuilding, which is the safe direction.
  */
 function designMetadataIsFresh(): boolean {
-  const dist = resolve(ROOT, 'packages/client/dist');
+  const clientPackage = resolve(ROOT, 'packages/client');
+  const dist = resolve(clientPackage, 'dist');
   if (!existsSync(dist)) return false;
-  const declared = declaredBundleFiles().map((file) => resolve(ROOT, 'packages/client', file));
+  const declared = declaredBundleFiles().map((file) => resolve(clientPackage, file));
   if (declared.length === 0 || declared.some((file) => !existsSync(file))) return false;
+  for (const [output, source] of DESIGN_COPIED_OUTPUT_SOURCES) {
+    const outputPath = resolve(clientPackage, output);
+    const sourcePath = resolve(clientPackage, source);
+    if (
+      !declared.includes(outputPath) ||
+      !existsSync(sourcePath) ||
+      !readFileSync(outputPath).equals(readFileSync(sourcePath))
+    ) {
+      return false;
+    }
+  }
   let sourcedAt = newestModification(resolve(ROOT, 'packages/client/src'), (path) =>
     DESIGN_TEST_SOURCE.test(path),
   );
@@ -1600,7 +1617,11 @@ function designMetadataIsFresh(): boolean {
     const path = resolve(ROOT, file);
     if (existsSync(path)) sourcedAt = Math.max(sourcedAt, statSync(path).mtimeMs);
   }
-  return declared.every((file) => statSync(file).mtimeMs >= sourcedAt);
+  const copiedOutputs = new Set(
+    [...DESIGN_COPIED_OUTPUT_SOURCES.keys()].map((output) => resolve(clientPackage, output)),
+  );
+  const generated = declared.filter((file) => !copiedOutputs.has(file));
+  return generated.every((file) => statSync(file).mtimeMs >= sourcedAt);
 }
 
 /**
