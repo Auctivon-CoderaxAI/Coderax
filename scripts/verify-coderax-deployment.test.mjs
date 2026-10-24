@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -21,12 +21,46 @@ test('backend service builds its client shell and preserves API paths', async ()
   assert.equal(result.backendIncludesClientBuild, true);
 });
 
-test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {
+test('Vercel clean installs resolve root and workspace build tools', () => {
+  const root = { devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } };
+  const client = { devDependencies: { tsdown: '^0.22.2' } };
+  const api = { devDependencies: { tsdown: '^0.22.2' } };
+  const lock = { packages: {
+    '': { devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } },
+    'node_modules/tsdown': { version: '0.22.14' },
+    'node_modules/typescript': { version: '5.9.3' },
+    'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
+    'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
+    'packages/client/node_modules/tsdown': { version: '0.22.2' },
+    'packages/api/node_modules/tsdown': { version: '0.22.2' },
+  } };
+  const services = { services: {
+    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
+    backend: { installCommand: 'npm ci --include=dev' },
+  } };
+
+  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services));
+  assert.throws(
+    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'node_modules/tsdown': undefined } }, client, api, services),
+    /root lockfile must resolve tsdown/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services),
+    /packages\/client must declare tsdown/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
+    /backend service must install workspace development build tools/,
+  );
+});
+
+test('Vercel backend tracing requires lockfile-backed mathjs and rate-limit-redis runtime dependencies', () => {
   const version = '^15.2.0';
-  const root = { dependencies: { mathjs: version } };
-  const lock = { packages: { '': { dependencies: { mathjs: version } }, 'node_modules/mathjs': { version: '15.2.0' } } };
-  const api = { dependencies: { mathjs: version } };
-  const backend = { dependencies: { mathjs: version } };
+  const redisVersion = '^4.2.0';
+  const root = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } };
+  const lock = { packages: { '': { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } }, 'node_modules/mathjs': { version: '15.2.0' }, 'node_modules/rate-limit-redis': { version: '4.2.0' } } };
+  const api = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion }, peerDependencies: {} };
+  const backend = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } };
 
   assert.doesNotThrow(() => verifyVercelRuntimeDependency(root, lock, api, backend));
   assert.throws(
@@ -36,6 +70,10 @@ test('Vercel backend tracing requires a lockfile-backed root mathjs runtime depe
   assert.throws(
     () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
     /root lockfile must include mathjs/,
+  );
+  assert.throws(
+    () => verifyVercelRuntimeDependency(root, lock, { ...api, dependencies: { mathjs: version, 'rate-limit-redis': undefined } }, backend),
+    /rate-limit-redis as a runtime dependency/,
   );
 });
 

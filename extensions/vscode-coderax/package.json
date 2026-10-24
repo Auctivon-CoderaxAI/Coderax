@@ -1,0 +1,55 @@
+{
+  "name": "coderax-vscode",
+  "displayName": "Coderax",
+  "description": "Use Coderax agents from Visual Studio Code through the authenticated Coderax API.",
+  "version": "0.1.0",
+  "publisher": "nnabdelshahid",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nnabdelshahid/Coderax.git",
+    "directory": "extensions/vscode-coderax"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onCommand:coderax.connect",
+    "onCommand:coderax.useApiKey",
+    "onCommand:coderax.checkConnection",
+    "onCommand:coderax.askAgent",
+    "onCommand:coderax.openWorkspace",
+    "onCommand:coderax.disconnect"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "coderax.connect", "title": "Coderax: Connect" },
+      { "command": "coderax.useApiKey", "title": "Coderax: Use Existing API Key" },
+      { "command": "coderax.checkConnection", "title": "Coderax: Check Connection" },
+      { "command": "coderax.askAgent", "title": "Coderax: Ask an Agent" },
+      { "command": "coderax.openWorkspace", "title": "Coderax: Open Web Workspace" },
+      { "command": "coderax.disconnect", "title": "Coderax: Clear Local Credentials" }
+    ],
+    "configuration": {
+      "title": "Coderax",
+      "properties": {
+        "coderax.apiBaseUrl": {
+          "type": "string",
+          "default": "https://coderax-eta.vercel.app",
+          "description": "HTTPS origin of the Coderax service. Local HTTP is allowed only for localhost development."
+        },
+        "coderax.defaultModel": {
+          "type": "string",
+          "default": "",
+          "description": "Agent/model ID to use by default. Leave empty to choose from models available to your API key."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check extension.js && node --check client.js"
+  }
+}
