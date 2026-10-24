@@ -31,7 +31,7 @@ test('compiled API does not load @keyv/redis when Redis is disabled', () => {
     cwd: root,
     encoding: 'utf8',
     // The emitted API is large; allow slower Windows CI runners to load it.
-    timeout: 30_000,
+    timeout: 60_000,
     env: { ...process.env, USE_REDIS: 'false', REDIS_URI: '' },
   });
   assert.equal(child.error, undefined, String(child.error));
