@@ -51,21 +51,29 @@ test('CI rejects undeclared root tsdown resolution and missing workspace build t
   );
 });
 
-test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {
-  const version = '^15.2.0';
-  const root = { dependencies: { mathjs: version } };
-  const lock = { packages: { '': { dependencies: { mathjs: version } }, 'node_modules/mathjs': { version: '15.2.0' } } };
-  const api = { dependencies: { mathjs: version } };
-  const backend = { dependencies: { mathjs: version } };
+test('Vercel backend tracing requires root runtime dependencies for API workspace peers', () => {
+  const mathjs = '^15.2.0';
+  const redis = '^4.2.0';
+  const root = { dependencies: { mathjs, 'rate-limit-redis': redis } };
+  const lock = { packages: {
+    '': { dependencies: { mathjs, 'rate-limit-redis': redis } },
+    'node_modules/mathjs': { version: '15.2.0' },
+    'node_modules/rate-limit-redis': { version: '4.2.0' },
+  } };
+  const api = { dependencies: { mathjs }, peerDependencies: { 'rate-limit-redis': redis } };
+  const backend = { dependencies: { mathjs, 'rate-limit-redis': redis } };
 
-  assert.doesNotThrow(() => verifyVercelRuntimeDependency(root, lock, api, backend));
+  assert.doesNotThrow(() => {
+    verifyVercelRuntimeDependency(root, lock, api, backend, 'mathjs');
+    verifyVercelRuntimeDependency(root, lock, api, backend, 'rate-limit-redis');
+  });
   assert.throws(
-    () => verifyVercelRuntimeDependency({ dependencies: {} }, lock, api, backend),
-    /Vercel root must declare mathjs/,
+    () => verifyVercelRuntimeDependency({ dependencies: { mathjs } }, lock, api, backend, 'rate-limit-redis'),
+    /Vercel root must declare rate-limit-redis/,
   );
   assert.throws(
-    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
-    /root lockfile must include mathjs/,
+    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend, 'rate-limit-redis'),
+    /root lockfile must include rate-limit-redis/,
   );
 });
 
