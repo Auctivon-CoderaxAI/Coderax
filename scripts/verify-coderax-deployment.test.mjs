@@ -43,7 +43,7 @@ test('CI rejects undeclared root tsdown resolution and missing workspace build t
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling({ devDependencies: {} }, { packages: { ...lock.packages, 'packages/client/node_modules/tsdown': undefined } }, client, api, services),
-    /packages\\/client tsdown package must be resolved/,
+    /packages.client tsdown package must be resolved/,
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
