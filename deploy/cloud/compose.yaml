@@ -1,0 +1,95 @@
+# Cloud-only stack: deploy on a remote Linux host with an NVIDIA GPU.
+# Only Caddy is reachable from the internet. No service is bound to localhost on
+# the developer's Windows computer, and Ollama's cloud features are disabled.
+name: coderax-cloud
+services:
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CODERAX_DOMAIN: "${CODERAX_DOMAIN:?set CODERAX_DOMAIN in .env}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3080"
+      NODE_ENV: production
+      ALLOW_REGISTRATION: "false"
+      ALLOW_SOCIAL_REGISTRATION: "false"
+      SESSION_COOKIE_SECURE: "true"
+      TRUST_PROXY: "1"
+      NO_INDEX: "true"
+      DOMAIN_CLIENT: "https://${CODERAX_DOMAIN:?set CODERAX_DOMAIN}"
+      DOMAIN_SERVER: "https://${CODERAX_DOMAIN:?set CODERAX_DOMAIN}"
+      MONGO_URI: "mongodb://root:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}@mongodb:27017/Coderax?authSource=admin"
+      MEILI_HOST: "http://meilisearch:7700"
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY:?set MEILI_MASTER_KEY}"
+      CYVOX_ADDON_ENABLED: "${CYVOX_ADDON_ENABLED:-false}"
+      CYVOX_BASE_URL: "${CYVOX_BASE_URL:-}"
+      CYVOX_AUTH_TOKEN: "${CYVOX_AUTH_TOKEN:-}"
+    volumes:
+      - ./coderax.yaml:/app/coderax.yaml:ro
+      - coderax-data:/app/data
+      - uploads:/app/uploads
+      - images:/app/client/public/images
+      - logs:/app/logs
+      - skills:/app/skill
+    depends_on:
+      - mongodb
+      - ollama
+
+  mongodb:
+    image: mongo:8.0.20
+    restart: unless-stopped
+    command: ["mongod", "--auth", "--bind_ip_all"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: "${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD}"
+    volumes:
+      - mongo-data:/data/db
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.35.1
+    restart: unless-stopped
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY:?set MEILI_MASTER_KEY}"
+    volumes:
+      - meili-data:/meili_data
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    gpus: all
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_NO_CLOUD: "1"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  caddy-data:
+  caddy-config:
+  coderax-data:
+  mongo-data:
+  meili-data:
+  ollama-models:
+  uploads:
+  images:
+  logs:
+  skills:

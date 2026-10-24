@@ -1,5 +1,6 @@
 export * from './avatars';
 export * from './attachments';
+export * from './autoDelegation';
 export * from './chain';
 export * from './callerCapabilities';
 export * from './client';

@@ -55,6 +55,8 @@ const {
   getScheduleMCPExecution,
   getMCPRequestContext,
   createSubagentCodeRouting,
+  applyAutomaticDelegation,
+  latestUserRequest,
 } = require('@coderax/api');
 const {
   ResourceType,
@@ -1800,6 +1802,23 @@ const initializeClientWithProvider = async ({
 
   for (const config of rootSubagentConfigs) {
     await resolveGraphSubagentsFor(config);
+  }
+
+  const hasConfiguredSubagent =
+    (primaryConfig.subagentAgentConfigs?.length ?? 0) > 0 ||
+    (primaryConfig.lazySubagentConfigs?.length ?? 0) > 0 ||
+    (primaryConfig.subagentGraphConfigs?.length ?? 0) > 0;
+  const hasSubagentTarget = primaryConfig.subagents?.allowSelf !== false || hasConfiguredSubagent;
+  const autoDelegation = applyAutomaticDelegation({
+    text: latestUserRequest(runtimeRequestBody),
+    capabilityEnabled: subagentsCapabilityEnabled,
+    subagentsConfig: primaryConfig.subagents,
+    runtimeAvailable: subagentsAvailableForRun && hasSubagentTarget,
+    additionalInstructions: primaryConfig.additional_instructions,
+  });
+  if (autoDelegation.delegate) {
+    primaryConfig.subagents = autoDelegation.subagentsConfig;
+    primaryConfig.additional_instructions = autoDelegation.additionalInstructions;
   }
 
   /** Build detached execution only for an attributable owner/thread. New
