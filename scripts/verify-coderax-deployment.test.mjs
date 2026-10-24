@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -19,6 +19,36 @@ test('backend service builds its client shell and preserves API paths', async ()
   assert.equal(result.frontendIncludesBuildDependencies, true);
   assert.equal(result.backendIncludesClientBuildTools, true);
   assert.equal(result.backendIncludesClientBuild, true);
+});
+
+
+test('CI rejects undeclared root tsdown resolution and missing workspace build tools', () => {
+  const client = { devDependencies: { tsdown: '^0.22.2' } };
+  const api = { devDependencies: { tsdown: '^0.22.2' } };
+  const services = { services: {
+    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
+    backend: { installCommand: 'npm ci --include=dev' },
+  } };
+  const lock = { packages: {
+    '': { devDependencies: {} },
+    'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
+    'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
+    'packages/client/node_modules/tsdown': { version: '0.22.2' },
+    'packages/api/node_modules/tsdown': { version: '0.22.2' },
+  } };
+  assert.doesNotThrow(() => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, services));
+  assert.throws(
+    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2' } }, lock, client, api, services),
+    /root tsdown manifest and lockfile/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, { packages: { ...lock.packages, 'packages/client/node_modules/tsdown': undefined } }, client, api, services),
+    /packages\\/client tsdown package must be resolved/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
+    /backend service must install workspace development/,
+  );
 });
 
 test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {
