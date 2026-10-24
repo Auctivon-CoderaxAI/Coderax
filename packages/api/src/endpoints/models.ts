@@ -106,6 +106,7 @@ async function fetchOllamaModels(
   } = {
     headers: resolvedHeaders,
     timeout: 5000,
+    maxRedirects: 0,
   };
   applyUserProvidedBaseURLProtection(requestOptions, options.ssrfAgents);
 
@@ -282,6 +283,9 @@ export async function fetchModels({
     const url = new URL(`${(baseURL ?? '').replace(/\/+$/, '')}${azure ? '' : '/models'}`);
     if (user && userIdQuery) {
       url.searchParams.append('user', user);
+    }
+    if (name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
+      options.maxRedirects = 0;
     }
     applyAxiosProxyConfig(options, url);
     applyUserProvidedBaseURLProtection(options, ssrfAgents);

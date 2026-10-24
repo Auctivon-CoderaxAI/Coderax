@@ -631,6 +631,7 @@ describe('fetchModels with Ollama specific logic', () => {
     expect(mockedAxios.get).toHaveBeenCalledWith('https://api.ollama.test.com/api/tags', {
       headers: {},
       timeout: 5000,
+      maxRedirects: 0,
     });
   });
 
@@ -664,6 +665,7 @@ describe('fetchModels with Ollama specific logic', () => {
     expect(mockedAxios.get).toHaveBeenCalledWith('https://api.ollama.test.com/api/tags', {
       headers: customHeaders,
       timeout: 5000,
+      maxRedirects: 0,
     });
   });
 
@@ -689,6 +691,33 @@ describe('fetchModels with Ollama specific logic', () => {
       error: expect.any(Error),
     });
     expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects redirects on the Ollama fallback while preserving resolved headers', async () => {
+    const customHeaders = { 'x-local-probe': 'sensitive-test-value' };
+    (resolveHeaders as jest.Mock)
+      .mockReturnValueOnce(customHeaders)
+      .mockReturnValueOnce(customHeaders);
+    mockedAxios.get.mockRejectedValueOnce(new Error('Ollama API redirect'));
+    mockedAxios.get.mockRejectedValueOnce(new Error('OpenAI-compatible redirect'));
+
+    const models = await fetchModels({
+      apiKey: 'testApiKey',
+      baseURL: 'https://api.ollama.test.com',
+      name: 'OllamaAPI',
+      headers: customHeaders,
+      skipCache: true,
+    });
+
+    expect(models).toEqual([]);
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(
+      2,
+      'https://api.ollama.test.com/models',
+      expect.objectContaining({
+        maxRedirects: 0,
+        headers: expect.objectContaining(customHeaders),
+      }),
+    );
   });
 
   it('should return an empty array if no baseURL is provided', async () => {
