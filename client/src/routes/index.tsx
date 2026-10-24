@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
 import {
   Login,
   VerifyEmail,
@@ -16,6 +16,7 @@ import RouteErrorBoundary from './RouteErrorBoundary';
 import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
 import LoginLayout from './Layouts/Login';
+import GuestEntry from './GuestEntry';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
 import ShareRoute from './ShareRoute';
@@ -23,6 +24,17 @@ import ChatRoute from './ChatRoute';
 import Search from './Search';
 import CyVoxAddon from './CyVoxAddon';
 import Root from './Root';
+
+/** Keep the former login URL as a redirect; only explicit administrator/manual
+ * access can open the existing account sign-in form. Never show it by default.
+ */
+const LegacyLoginEntry = () => {
+  const location = useLocation();
+  if (new URLSearchParams(location.search).get('manual') === '1') {
+    return <Login />;
+  }
+  return <Navigate to={{ pathname: '/connect', search: location.search }} replace />;
+};
 
 const AuthLayout = () => (
   <AuthContextProvider>
@@ -119,7 +131,11 @@ export const router = createBrowserRouter(
               children: [
                 {
                   path: 'login',
-                  element: <Login />,
+                  element: <LegacyLoginEntry />,
+                },
+                {
+                  path: 'connect',
+                  element: <GuestEntry />,
                 },
                 {
                   path: 'login/2fa',
