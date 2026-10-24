@@ -1,10 +1,6 @@
-/**
- * @keyv/redis's CommonJS default export requires the same interop as cacheFactory.
- */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const KeyvRedis = require('@keyv/redis').default as typeof import('@keyv/redis').default;
 import type { Keyv, DeserializedData } from 'keyv';
 import { observeRedisOperation } from './redisTelemetry';
+import { cacheConfig } from './cacheConfig';
 
 /** Removes a Keyv entry atomically, including its serialized expiry. */
 export async function consumeCacheEntry<T>(cache: Keyv, key: string): Promise<T | undefined> {
@@ -18,7 +14,13 @@ export async function consumeCacheEntry<T>(cache: Keyv, key: string): Promise<T 
   if (store instanceof Map) {
     raw = store.get(prefixedKey);
     store.delete(prefixedKey);
-  } else if (store instanceof KeyvRedis) {
+  } else if (cacheConfig.USE_REDIS) {
+    // Redis is optional. Avoid importing its provider in the in-memory startup path.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const KeyvRedis = require('@keyv/redis').default as typeof import('@keyv/redis').default;
+    if (!(store instanceof KeyvRedis)) {
+      throw new Error('Atomic cache consumption requires an in-memory or Redis store');
+    }
     const client = await store.getClient();
     try {
       raw = await observeRedisOperation('keyv', cache.namespace ?? '', 'getDel', () =>
