@@ -1,0 +1,38 @@
+name: Coderax self-hosted deployment validation
+
+on:
+  pull_request:
+    paths:
+      - "deploy/selfhost/**"
+      - "scripts/check-selfhost*.mjs"
+      - ".github/workflows/coderax-selfhost.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/selfhost/**"
+      - "scripts/check-selfhost*.mjs"
+      - ".github/workflows/coderax-selfhost.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  selfhost-contract:
+    name: Full-stack Compose and Express route gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Check readiness contract with simulated endpoints
+        run: node --test scripts/check-selfhost.test.mjs
+      - name: Validate the Compose stack without deploying or exposing secrets
+        run: |
+          cp .env.example .env
+          printf '\nCODERAX_DB_USER=ci_user\nCODERAX_DB_PASSWORD=0123456789abcdef0123456789abcdef\n' >> .env
+          docker compose --env-file .env -f deploy/selfhost/compose.yaml config --quiet
+          rm -f .env
