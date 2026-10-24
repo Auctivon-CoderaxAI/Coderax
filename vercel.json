@@ -18,13 +18,19 @@
   },
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/api",
       "destination": {
         "service": "backend"
       }
     },
     {
-      "source": "/oauth/:path*",
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/oauth/(.*)",
       "destination": {
         "service": "backend"
       }
@@ -48,7 +54,7 @@
       }
     },
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "destination": {
         "service": "frontend"
       }
