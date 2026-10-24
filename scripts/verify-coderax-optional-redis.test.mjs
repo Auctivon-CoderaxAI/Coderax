@@ -15,24 +15,23 @@ const entry = path.join(root, 'packages/api/dist/index.cjs');
 
 test('compiled API does not load @keyv/redis when Redis is disabled', () => {
   const code = `
-    const Module = require('node:module');
-    const original = Module._load;
-    Module._load = function(request, ...rest) {
-      if (request === '@keyv/redis') {
-        throw new Error('OPTIONAL_REDIS_PROVIDER_LOADED');
-      }
-      return original.call(this, request, ...rest);
-    };
     process.env.USE_REDIS = 'false';
     delete process.env.REDIS_URI;
     require(process.argv[1]);
+    const redisModules = Object.keys(require.cache).filter((filename) =>
+      filename.split(String.fromCharCode(92)).join('/').includes('/node_modules/@keyv/redis/'),
+    );
+    if (redisModules.length > 0) {
+      throw new Error('OPTIONAL_REDIS_PROVIDER_LOADED');
+    }
     process.stdout.write('OFFLINE_API_IMPORT_OK\\n');
     process.exit(0);
   `;
   const child = spawnSync(process.execPath, ['-e', code, entry], {
     cwd: root,
     encoding: 'utf8',
-    timeout: 20_000,
+    // The emitted API is large; allow slower Windows CI runners to load it.
+    timeout: 30_000,
     env: { ...process.env, USE_REDIS: 'false', REDIS_URI: '' },
   });
   assert.equal(child.error, undefined, String(child.error));
