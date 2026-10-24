@@ -83,6 +83,8 @@ const AuthContextProvider = ({
   children: ReactNode;
 }) => {
   const isExternalRedirectRef = useRef(false);
+  // Invalidate an in-flight guest response when another authentication flow wins.
+  const guestAttemptRef = useRef(0);
   const [user, setUser] = useRecoilState(store.user);
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
@@ -159,6 +161,7 @@ const AuthContextProvider = ({
 
   const { mutate: loginMutate } = useLoginUserMutation({
     onSuccess: (data: t.TLoginResponse) => {
+      guestAttemptRef.current += 1;
       const { user, token, twoFAPending, twoFASetupRequired, tempToken } = data;
       /**
        * A sign-in supersedes whatever enrollment the tab was holding. An abandoned setup token
@@ -234,6 +237,7 @@ const AuthContextProvider = ({
 
   const logout = useCallback(
     (redirect?: string) => {
+      guestAttemptRef.current += 1;
       clearPostLoginRedirect();
       clearTwoFactorSetupToken();
       if (redirect) {
@@ -246,6 +250,7 @@ const AuthContextProvider = ({
 
   const completeAuthentication = useCallback(
     (authenticatedToken: string, authenticatedUser: t.TUser) => {
+      guestAttemptRef.current += 1;
       const redirect =
         getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? '/c/new';
       /** The enrollment credential has done its job; do not leave it live in the tab. */
@@ -266,7 +271,8 @@ const AuthContextProvider = ({
    * to the login page. The endpoint is 404 when guest access is disabled, so
    * existing manual-account and mandatory 2FA flows keep working unchanged.
    */
-  const tryGuestSession = useCallback(async (): Promise<boolean> => {
+  const tryGuestSession = useCallback(async (): Promise<'created' | 'failed' | 'stale'> => {
+    const attemptId = ++guestAttemptRef.current;
     const pathname = window.location.pathname;
     if (
       authConfig?.test === true ||
@@ -275,7 +281,7 @@ const AuthContextProvider = ({
       pathname.startsWith('/login/2fa') ||
       new URLSearchParams(window.location.search).get('manual') === '1'
     ) {
-      return false;
+      return 'failed';
     }
 
     try {
@@ -286,16 +292,19 @@ const AuthContextProvider = ({
         signal: AbortSignal.timeout(8000),
       });
       if (!response.ok) {
-        return false;
+        return attemptId === guestAttemptRef.current ? 'failed' : 'stale';
       }
       const session = await response.json();
-      if (!session?.token || !session?.user || isExternalRedirectRef.current) {
-        return false;
+      if (attemptId !== guestAttemptRef.current || isExternalRedirectRef.current) {
+        return 'stale';
+      }
+      if (!session?.token || !session?.user) {
+        return 'failed';
       }
       completeAuthentication(session.token, session.user);
-      return true;
+      return 'created';
     } catch {
-      return false;
+      return attemptId === guestAttemptRef.current ? 'failed' : 'stale';
     }
   }, [authConfig?.test, authConfig?.optional, completeAuthentication]);
 
@@ -318,6 +327,7 @@ const AuthContextProvider = ({
 
   const login = useCallback(
     (data: t.TLoginUser) => {
+      guestAttemptRef.current += 1;
       loginMutate(data);
     },
     [loginMutate],
@@ -337,6 +347,7 @@ const AuthContextProvider = ({
         }
         const { user, token = '', twoFASetupRequired, tempToken } = data ?? {};
         if (twoFASetupRequired && tempToken) {
+          guestAttemptRef.current += 1;
           persistTwoFactorSetupToken(tempToken);
           /**
            * Already on the setup route, reached by an enforcement redirect that parked the
@@ -358,6 +369,7 @@ const AuthContextProvider = ({
           return;
         }
         if (token) {
+          guestAttemptRef.current += 1;
           const baseUrl = apiBaseUrl();
           const rawPath = window.location.pathname;
           const strippedPath =
@@ -377,8 +389,8 @@ const AuthContextProvider = ({
           setIsAuthReady(true);
           return;
         }
-        void tryGuestSession().then((created) => {
-          if (created || isExternalRedirectRef.current) {
+        void tryGuestSession().then((status) => {
+          if (status !== 'failed' || isExternalRedirectRef.current) {
             return;
           }
           setIsAuthReady(true);
@@ -395,8 +407,8 @@ const AuthContextProvider = ({
           setIsAuthReady(true);
           return;
         }
-        void tryGuestSession().then((created) => {
-          if (created || isExternalRedirectRef.current) {
+        void tryGuestSession().then((status) => {
+          if (status !== 'failed' || isExternalRedirectRef.current) {
             return;
           }
           setIsAuthReady(true);
