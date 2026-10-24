@@ -209,7 +209,8 @@
     "tsdown": "^0.22.2",
     "turbo": "^2.10.5",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.60.1"
+    "typescript-eslint": "^8.60.1",
+    "vite": "8.2.2"
   },
   "overrides": {
     "minimatch@3": {

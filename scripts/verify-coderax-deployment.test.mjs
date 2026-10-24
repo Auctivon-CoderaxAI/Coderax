@@ -22,17 +22,19 @@ test('backend service builds its client shell and preserves API paths', async ()
 });
 
 test('Vercel clean installs resolve root and workspace build tools', () => {
-  const root = { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } };
+  const tools = { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3', vite: '8.2.2' };
+  const root = { devDependencies: tools };
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
   const frontend = { devDependencies: { 'cross-env': '^7.0.3' } };
   const lock = { packages: {
-    '': { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } },
+    '': { devDependencies: tools },
     client: { devDependencies: { 'cross-env': '^7.0.3' } },
     'node_modules/@tsdown/css': { version: '0.22.2' },
     'node_modules/cross-env': { version: '7.0.3' },
     'node_modules/tsdown': { version: '0.22.14' },
     'node_modules/typescript': { version: '5.9.3' },
+    'node_modules/vite': { version: '8.2.2' },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/client/node_modules/tsdown': { version: '0.22.2' },
