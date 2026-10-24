@@ -74,13 +74,13 @@ export async function verifyLiveBackend(value, fetcher = fetch) {
     assert.equal(body.trim(), 'OK', '/health must come from the Express application');
   }, fetcher);
   const config = await check(origin, '/api/config', (response, body) => {
-    assert.match(response.headers.get('content-type') || '', /application\\/json/i, 'API served HTML instead of JSON');
+    assert.match(response.headers.get('content-type') || '', /application[/]json/i, 'API served HTML instead of JSON');
     const payload = JSON.parse(body);
     assert.equal(typeof payload.appTitle, 'string', 'missing application startup configuration');
     return payload;
   }, fetcher);
   await check(origin, '/login', (response, body) => {
-    assert.match(response.headers.get('content-type') || '', /text\\/html/i);
+    assert.match(response.headers.get('content-type') || '', /text[/]html/i);
     assert.match(body, /<html/i, 'login SPA is not served');
   }, fetcher);
   return { origin, health: 'OK', apiConfig: 'JSON', spa: 'HTML', appTitle: config.appTitle };
