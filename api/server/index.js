@@ -280,11 +280,18 @@ const startServer = async () => {
   const routes = require('./routes');
 
   const indexPath = path.join(appConfig.paths.dist, 'index.html');
-  let indexHTML = fs.readFileSync(indexPath, 'utf8');
+  const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);
+  let indexHTML = clientShellAvailable ? fs.readFileSync(indexPath, 'utf8') : '';
+
+  if (!clientShellAvailable) {
+    logger.warn(
+      'Vercel backend service has no client shell; non-API requests are handled by the frontend service.',
+    );
+  }
 
   // In order to provide support to serving the application in a sub-directory
   // We need to update the base href if the DOMAIN_CLIENT is specified and not the root path
-  if (process.env.DOMAIN_CLIENT) {
+  if (clientShellAvailable && process.env.DOMAIN_CLIENT) {
     const clientUrl = new URL(process.env.DOMAIN_CLIENT);
     const baseHref = clientUrl.pathname.endsWith('/')
       ? clientUrl.pathname
@@ -308,6 +315,9 @@ const startServer = async () => {
   const shellCache = shellCacheHeaders(cspPolicy != null);
 
   const sendIndexHtml = (req, res) => {
+    if (!clientShellAvailable) {
+      return res.status(404).end();
+    }
     res.set(shellCache);
     res.vary(QUERY_DEVTOOLS_HEADER);
 
@@ -369,9 +379,11 @@ const startServer = async () => {
   }
 
   app.get('/index.html', sendIndexHtml);
-  app.use(staticCache(appConfig.paths.dist));
-  app.use(staticCache(appConfig.paths.fonts));
-  app.use(staticCache(appConfig.paths.assets));
+  if (clientShellAvailable) {
+    app.use(staticCache(appConfig.paths.dist));
+    app.use(staticCache(appConfig.paths.fonts));
+    app.use(staticCache(appConfig.paths.assets));
+  }
 
   if (telemetry.enabled) {
     app.use(telemetry.telemetryMiddleware);

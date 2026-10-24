@@ -13,13 +13,11 @@ const headers = (type, extras = {}) => ({
   },
 });
 
-test('backend service builds its client shell and preserves API paths', async () => {
+test('Vercel routes the client and API through separate services', async () => {
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
   assert.equal(result.frontendIncludesBuildDependencies, true);
-  assert.equal(result.backendIncludesClientBuildTools, true);
-  assert.equal(result.backendIncludesClientBuild, true);
-  assert.equal(result.clientBuildUsesViteDirectly, true);
+  assert.equal(result.backendExcludesFrontendBuild, true);
 });
 
 
@@ -31,19 +29,14 @@ test('CI rejects undeclared root tsdown resolution and missing workspace build t
     backend: { installCommand: 'npm ci --include=dev' },
   } };
   const lock = { packages: {
-    '': { devDependencies: { '@tsdown/css': '^0.22.2' } },
-    'node_modules/@tsdown/css': { version: '0.22.2' },
+    '': { devDependencies: {} },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/client/node_modules/tsdown': { version: '0.22.2' },
     'packages/api/node_modules/tsdown': { version: '0.22.2' },
   } };
-  const root = { devDependencies: { '@tsdown/css': '^0.22.2' } };
+  const root = { devDependencies: {} };
   assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services));
-  assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, services),
-    /root workspace must expose @tsdown\/css/,
-  );
   assert.throws(
     () => verifyWorkspaceBuildTooling({ devDependencies: { ...root.devDependencies, tsdown: '^0.22.2' } }, lock, client, api, services),
     /root tsdown manifest and lockfile/,

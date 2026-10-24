@@ -48,20 +48,6 @@ export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, bac
  * versions. A root tsdown range without a root lockfile package breaks npm ci.
  */
 export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, apiPackage, services) {
-  assert.equal(
-    typeof rootPackage.devDependencies?.['@tsdown/css'], 'string',
-    'root workspace must expose @tsdown/css to the backend service build',
-  );
-  assert.equal(
-    lock.packages?.['']?.devDependencies?.['@tsdown/css'],
-    rootPackage.devDependencies['@tsdown/css'],
-    'root @tsdown/css manifest and lockfile must match for npm ci',
-  );
-  assert.ok(
-    lock.packages?.['node_modules/@tsdown/css']?.version,
-    'root @tsdown/css package must be resolved in the npm lockfile',
-  );
-
   for (const name of ['tsdown', 'typescript']) {
     if (rootPackage.devDependencies?.[name] !== undefined) {
       assert.equal(
@@ -114,17 +100,17 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const workspaceClientPackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
-  assert.match(
-    clientPackage.scripts?.build ?? '',
-    /^\s*vite\s+build(?:\s|$)/,
-    'client production build must invoke Vite directly for backend service builds',
-  );
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
+  assert.ok(
+    backendSource.includes('const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);'),
+    'Vercel backend must start without frontend assets supplied by its separate service',
+  );
   assert.ok(
     vercel.rewrites?.some((rule) =>
       typeof rule.source === 'string' &&
@@ -142,17 +128,12 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  assert.match(
+  assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client-package\b/,
-    'backend service must build the shared client package',
+    /\bnpm run build:client(?:-package)?\b/,
+    'backend service must not build frontend assets owned by the frontend service',
   );
   verifyWorkspaceBuildTooling(rootPackage, lock, workspaceClientPackage, apiPackage, services);
-  assert.match(
-    services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client\b/,
-    'backend service must build client/dist/index.html before Express startup',
-  );
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
@@ -162,9 +143,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     clientFrontend: true,
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
-    backendIncludesClientBuildTools: true,
-    backendIncludesClientBuild: true,
-    clientBuildUsesViteDirectly: true,
+    backendExcludesFrontendBuild: true,
   };
 }
 
