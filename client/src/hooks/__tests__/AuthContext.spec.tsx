@@ -746,6 +746,78 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
   });
 });
 
+describe('AuthContextProvider — passwordless guest bootstrap', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedAuthContext = undefined;
+    window.history.replaceState({}, '', '/c/new');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('does not replace a completed sign-in with a delayed guest response', async () => {
+    let resolveGuest!: (response: Response) => void;
+    const guestFetch = jest.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise<Response>((resolve) => {
+        resolveGuest = resolve;
+      }),
+    );
+    const { getByTestId } = renderProviderLive();
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (data: unknown) => void },
+    ];
+
+    await act(async () => {
+      refreshOptions.onSuccess({});
+    });
+    expect(guestFetch).toHaveBeenCalledWith(
+      '/api/auth/guest',
+      expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
+    );
+
+    act(() => {
+      capturedAuthContext?.completeAuthentication('manual-token', { id: 'manual-user' } as never);
+    });
+    await act(async () => {
+      resolveGuest({
+        ok: true,
+        json: async () => ({ token: 'guest-token', user: { id: 'guest-user' } }),
+      } as Response);
+    });
+
+    expect(getByTestId('consumer')).toHaveAttribute('data-authenticated', 'true');
+    expect(capturedAuthContext?.user?.id).toBe('manual-user');
+    expect(jest.requireMock('coderax-data-provider').setTokenHeader).not.toHaveBeenCalledWith(
+      'guest-token',
+    );
+    expect(mockNavigate).not.toHaveBeenCalledWith('/login', expect.anything());
+  });
+
+  it('still completes a guest session when no other sign-in supersedes it', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'guest-token', user: { id: 'guest-user' } }),
+    } as Response);
+    const { getByTestId } = renderProviderLive();
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: Error) => void },
+    ];
+
+    await act(async () => {
+      refreshOptions.onError(new Error('No existing session'));
+    });
+
+    expect(getByTestId('consumer')).toHaveAttribute('data-authenticated', 'true');
+    expect(capturedAuthContext?.user?.id).toBe('guest-user');
+    expect(mockNavigate).toHaveBeenCalledWith('/c/new', { replace: true });
+  });
+});
+
 describe('AuthContextProvider — optional authentication', () => {
   beforeEach(() => {
     jest.clearAllMocks();
