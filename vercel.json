@@ -6,7 +6,10 @@
       "framework": "vite",
       "installCommand": "cd .. && npm ci",
       "buildCommand": "cd .. && npm run frontend",
-      "outputDirectory": "dist"
+      "outputDirectory": "dist",
+      "rewrites": [
+        { "source": "/(.*)", "destination": "/index.html" }
+      ]
     },
     "backend": {
       "root": ".",
