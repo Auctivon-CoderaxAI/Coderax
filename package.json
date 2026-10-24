@@ -170,6 +170,9 @@
     "url": "https://github.com/Coderax-AI/Coderax/issues"
   },
   "homepage": "https://coderax/",
+  "dependencies": {
+    "mathjs": "^15.2.0"
+  },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",
     "@axe-core/playwright": "^4.10.1",
