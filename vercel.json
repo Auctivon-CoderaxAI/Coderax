@@ -1,9 +1,57 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "frontend": {
+      "root": "client",
+      "framework": "vite",
+      "installCommand": "cd .. && npm ci",
+      "buildCommand": "cd .. && npm run frontend",
+      "outputDirectory": "dist"
+    },
+    "backend": {
+      "root": ".",
+      "entrypoint": "api/server/index.js",
+      "framework": "express",
+      "installCommand": "npm ci --include=dev",
+      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api"
+    }
+  },
   "rewrites": [
     {
-      "source": "/((?!api|oauth|assets|metrics|\\.well-known|sw\\.js|manifest\\.webmanifest).*)",
-      "destination": "/index.html"
+      "source": "/api/:path*",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/oauth/:path*",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/health",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/livez",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/readyz",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/:path*",
+      "destination": {
+        "service": "frontend"
+      }
     }
   ]
 }
