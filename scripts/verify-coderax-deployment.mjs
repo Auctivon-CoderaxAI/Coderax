@@ -52,7 +52,7 @@ export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, bac
 }
 
 /** Validate that Vercel's clean install can resolve both root and workspace build tools. */
-export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services) {
+export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services, frontendWorkspacePackage) {
   for (const name of ['@tsdown/css', 'tsdown', 'typescript']) {
     const version = rootPackage.devDependencies?.[name];
     assert.equal(typeof version, 'string', `Vercel root must declare ${name} for clean workspace builds`);
@@ -80,6 +80,18 @@ export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePa
       `${workspace} tsdown package must be resolved in the npm lockfile`,
     );
   }
+
+  const crossEnvVersion = frontendWorkspacePackage.devDependencies?.['cross-env'];
+  assert.equal(typeof crossEnvVersion, 'string', 'client frontend workspace must declare cross-env for its build script');
+  assert.equal(
+    lock.packages?.client?.devDependencies?.['cross-env'],
+    crossEnvVersion,
+    'client frontend cross-env must match the npm lockfile',
+  );
+  assert.ok(
+    lock.packages?.['client/node_modules/cross-env']?.version || lock.packages?.['node_modules/cross-env']?.version,
+    'client frontend cross-env package must be resolved in the npm lockfile',
+  );
 
   for (const [name, service] of Object.entries({
     frontend: services.services?.frontend,
@@ -115,7 +127,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
   assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
-  verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services);
+  verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services, clientPackage);
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
   assert.match(

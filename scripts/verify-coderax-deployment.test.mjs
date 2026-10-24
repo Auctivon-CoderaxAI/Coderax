@@ -25,9 +25,12 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
   const root = { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } };
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
+  const frontend = { devDependencies: { 'cross-env': '^7.0.3' } };
   const lock = { packages: {
     '': { devDependencies: { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3' } },
+    client: { devDependencies: { 'cross-env': '^7.0.3' } },
     'node_modules/@tsdown/css': { version: '0.22.2' },
+    'node_modules/cross-env': { version: '7.0.3' },
     'node_modules/tsdown': { version: '0.22.14' },
     'node_modules/typescript': { version: '5.9.3' },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
@@ -40,22 +43,26 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     backend: { installCommand: 'npm ci --include=dev' },
   } };
 
-  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services));
+  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services, frontend));
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'node_modules/tsdown': undefined } }, client, api, services),
+    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'node_modules/tsdown': undefined } }, client, api, services, frontend),
     /root lockfile must resolve tsdown/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } }, lock, client, api, services),
+    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } }, lock, client, api, services, frontend),
     /Vercel root must declare @tsdown\/css/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services),
+    () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services, frontend),
     /packages\/client must declare tsdown/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }, frontend),
     /backend service must install workspace development build tools/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, services, { devDependencies: {} }),
+    /client frontend workspace must declare cross-env/,
   );
 });
 
