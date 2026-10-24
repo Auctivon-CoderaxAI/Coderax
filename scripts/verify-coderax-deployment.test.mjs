@@ -39,8 +39,8 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     'packages/api/node_modules/tsdown': { version: '0.22.2' },
   } };
   const services = { services: {
-    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
-    backend: { installCommand: 'npm ci --include=dev' },
+    frontend: { installCommand: 'cd .. && npm ci --include=dev --workspaces --include-workspace-root' },
+    backend: { installCommand: 'npm ci --include=dev --workspaces --include-workspace-root' },
   } };
 
   assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services, frontend));
@@ -57,8 +57,8 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     /packages\/client must declare tsdown/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }, frontend),
-    /backend service must install workspace development build tools/,
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --include=dev' } } }, frontend),
+    /backend service must install development dependencies for every workspace and the root package/,
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling(root, lock, client, api, services, { devDependencies: {} }),

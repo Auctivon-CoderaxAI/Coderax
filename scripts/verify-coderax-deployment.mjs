@@ -99,8 +99,8 @@ export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePa
   })) {
     assert.match(
       service?.installCommand ?? '',
-      /npm ci --include=dev/,
-      `${name} service must install workspace development build tools`,
+      /npm ci --include=dev --workspaces --include-workspace-root/,
+      `${name} service must install development dependencies for every workspace and the root package`,
     );
   }
 }
