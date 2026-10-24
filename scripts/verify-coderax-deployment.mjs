@@ -45,9 +45,10 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
-  assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
+  // SPA fallback belongs to client/vercel.json; the root Services catch-all selects the frontend.
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.ok(services.services?.backend?.includeFiles?.includes('node_modules/mathjs/**'), 'backend must include the mathjs runtime package');
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
