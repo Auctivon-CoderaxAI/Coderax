@@ -8,7 +8,10 @@
       "buildCommand": "cd .. && npm run frontend",
       "outputDirectory": "dist",
       "rewrites": [
-        { "source": "/(.*)", "destination": "/index.html" }
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
       ]
     },
     "backend": {
@@ -16,7 +19,7 @@
       "entrypoint": "api/server/index.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api"
+      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api"
     }
   },
   "rewrites": [
