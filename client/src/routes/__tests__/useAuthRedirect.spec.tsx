@@ -62,6 +62,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: { id: '123', email: 'test@example.com' },
       isAuthenticated: true,
+      isAuthReady: true,
     });
 
     const router = createTestRouter();
@@ -78,10 +79,26 @@ describe('useAuthRedirect', () => {
     expect(getByTestId('test-component')).toBeInTheDocument();
   });
 
+  it('keeps the chat route visible while passwordless guest bootstrap is pending', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isAuthReady: false,
+    });
+
+    const router = createTestRouter();
+    const { getByTestId } = render(<RouterProvider router={router} />);
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(router.state.location.pathname).toBe('/');
+    expect(getByTestId('test-component')).toBeInTheDocument();
+  });
+
   it('should redirect to /login when user is not authenticated', async () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createTestRouter();
@@ -109,6 +126,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     // Test with basename="/coderax" (simulates subdirectory deployment)
@@ -137,6 +155,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createTestRouter('/coderax');
@@ -160,6 +179,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createTestRouter();
@@ -180,6 +200,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: mockUser,
       isAuthenticated: true,
+      isAuthReady: true,
     });
 
     const router = createTestRouter();
@@ -197,6 +218,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createTestRouter('/', '/c/abc123');
@@ -219,6 +241,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createTestRouter('/', '/c/abc123?q=hello&submit=true#section');
@@ -239,6 +262,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     /**
@@ -270,6 +294,7 @@ describe('useAuthRedirect', () => {
     (useAuthContext as jest.Mock).mockReturnValue({
       user: null,
       isAuthenticated: false,
+      isAuthReady: true,
     });
 
     const router = createMemoryRouter(
