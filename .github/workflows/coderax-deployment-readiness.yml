@@ -1,0 +1,52 @@
+name: Coderax deployment readiness
+
+on:
+  pull_request:
+    paths:
+      - 'vercel.json'
+      - 'client/vercel.json'
+      - 'client/package.json'
+      - 'package.json'
+      - 'scripts/verify-coderax-deployment*.mjs'
+      - '.github/workflows/coderax-deployment-readiness.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vercel.json'
+      - 'client/vercel.json'
+      - 'client/package.json'
+      - 'package.json'
+      - 'scripts/verify-coderax-deployment*.mjs'
+      - '.github/workflows/coderax-deployment-readiness.yml'
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: 'Full HTTPS Coderax Vercel deployment origin; no credentials'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Validate build and API smoke gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Check deployment configuration contract
+        run: node scripts/verify-coderax-deployment.mjs --repo-only
+      - name: Run release-gate regression tests
+        run: node --test scripts/verify-coderax-deployment.test.mjs
+      - name: Verify actual deployed Express API and UI
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CODERAX_DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+        run: node scripts/verify-coderax-deployment.mjs --live-url "$CODERAX_DEPLOYMENT_URL"
