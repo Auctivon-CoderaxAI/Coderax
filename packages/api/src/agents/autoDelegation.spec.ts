@@ -35,6 +35,17 @@ describe('automatic subagent delegation policy', () => {
     ).toBe('Compare the options and evaluate the risks.');
   });
 
+  it('reads parts when message content is empty', () => {
+    const instruction = 'Compare the options and evaluate the risks.';
+    for (const content of ['', [], null]) {
+      expect(
+        latestUserRequest({
+          messages: [{ role: 'user', content, parts: [{ type: 'text', text: instruction }] }],
+        }),
+      ).toBe(instruction);
+    }
+  });
+
   it('requires the deployment capability and respects a per-agent opt-out', () => {
     const text = 'Compare two deployment designs and recommend one with reasons.';
     expect(

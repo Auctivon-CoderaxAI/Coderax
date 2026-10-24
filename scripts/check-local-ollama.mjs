@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULT_HOST = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen3.5:4b';
-const DEFAULT_TIMEOUT_MS = 90000;
 
 export function localOllamaOrigin(host = DEFAULT_HOST) {
   const url = new URL(host);
@@ -23,7 +22,7 @@ export function localOllamaOrigin(host = DEFAULT_HOST) {
 }
 
 async function readJson(fetchImpl, url, options) {
-  const response = await fetchImpl(url, { ...options, redirect: 'error' });
+  const response = await fetchImpl(url, options);
   if (!response.ok) {
     throw new Error(`Local Ollama returned HTTP ${response.status}`);
   }
@@ -38,7 +37,7 @@ export async function checkLocalOllama({
   host = DEFAULT_HOST,
   model = DEFAULT_MODEL,
   fetchImpl = globalThis.fetch,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  timeoutMs = 15000,
 } = {}) {
   const origin = localOllamaOrigin(host);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) {
@@ -59,7 +58,6 @@ export async function checkLocalOllama({
       model,
       messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
       stream: false,
-      think: false,
       options: { num_predict: 32 },
     }),
   });
@@ -71,10 +69,7 @@ export async function checkLocalOllama({
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  checkLocalOllama({
-    host: process.env.CODERAX_OLLAMA_HOST || DEFAULT_HOST,
-    timeoutMs: Number(process.env.CODERAX_OLLAMA_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
-  })
+  checkLocalOllama({ host: process.env.CODERAX_OLLAMA_HOST || DEFAULT_HOST })
     .then((result) => console.log(JSON.stringify(result)))
     .catch((error) => {
       console.error(`Coderax local Ollama readiness failed: ${error.message}`);
