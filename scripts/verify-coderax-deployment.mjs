@@ -76,6 +76,24 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     /\bnpm run build:client-package\b/,
     'backend service must build the shared client package',
   );
+  assert.ok(
+    rootPackage.devDependencies?.tsdown,
+    'root workspace must expose tsdown to the backend service build',
+  );
+  assert.ok(
+    rootPackage.devDependencies?.typescript,
+    'root workspace must expose TypeScript to the backend service build',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.tsdown,
+    rootPackage.devDependencies.tsdown,
+    'root lockfile must include tsdown for npm ci',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.typescript,
+    rootPackage.devDependencies.typescript,
+    'root lockfile must include TypeScript for npm ci',
+  );
   assert.match(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client\b/,
@@ -90,6 +108,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     clientFrontend: true,
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
+    backendIncludesClientBuildTools: true,
     backendIncludesClientBuild: true,
   };
 }

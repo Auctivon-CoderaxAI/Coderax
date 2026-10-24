@@ -17,6 +17,7 @@ test('backend service builds its client shell and preserves API paths', async ()
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
   assert.equal(result.frontendIncludesBuildDependencies, true);
+  assert.equal(result.backendIncludesClientBuildTools, true);
   assert.equal(result.backendIncludesClientBuild, true);
 });
 
