@@ -48,6 +48,20 @@ export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, bac
  * versions. A root tsdown range without a root lockfile package breaks npm ci.
  */
 export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, apiPackage, services) {
+  assert.equal(
+    typeof rootPackage.devDependencies?.['@tsdown/css'], 'string',
+    'root workspace must expose @tsdown/css to the backend service build',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.['@tsdown/css'],
+    rootPackage.devDependencies['@tsdown/css'],
+    'root @tsdown/css manifest and lockfile must match for npm ci',
+  );
+  assert.ok(
+    lock.packages?.['node_modules/@tsdown/css']?.version,
+    'root @tsdown/css package must be resolved in the npm lockfile',
+  );
+
   for (const name of ['tsdown', 'typescript']) {
     if (rootPackage.devDependencies?.[name] !== undefined) {
       assert.equal(

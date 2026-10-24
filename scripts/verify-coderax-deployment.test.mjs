@@ -30,23 +30,29 @@ test('CI rejects undeclared root tsdown resolution and missing workspace build t
     backend: { installCommand: 'npm ci --include=dev' },
   } };
   const lock = { packages: {
-    '': { devDependencies: {} },
+    '': { devDependencies: { '@tsdown/css': '^0.22.2' } },
+    'node_modules/@tsdown/css': { version: '0.22.2' },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/client/node_modules/tsdown': { version: '0.22.2' },
     'packages/api/node_modules/tsdown': { version: '0.22.2' },
   } };
-  assert.doesNotThrow(() => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, services));
+  const root = { devDependencies: { '@tsdown/css': '^0.22.2' } };
+  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services));
   assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2' } }, lock, client, api, services),
+    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, services),
+    /root workspace must expose @tsdown\/css/,
+  );
+  assert.throws(
+    () => verifyWorkspaceBuildTooling({ devDependencies: { ...root.devDependencies, tsdown: '^0.22.2' } }, lock, client, api, services),
     /root tsdown manifest and lockfile/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, { packages: { ...lock.packages, 'packages/client/node_modules/tsdown': undefined } }, client, api, services),
+    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'packages/client/node_modules/tsdown': undefined } }, client, api, services),
     /packages.client tsdown package must be resolved/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: {} }, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
     /backend service must install workspace development/,
   );
 });
