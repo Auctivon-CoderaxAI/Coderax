@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { OpenIDIcon, useToastContext } from '@coderax/client';
-import { apiBaseUrl, ErrorTypes, registerPage } from 'coderax-data-provider';
+import { ErrorTypes, registerPage } from 'coderax-data-provider';
 import { useOutletContext, useSearchParams, useLocation } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
 import type { TranslationKeys } from '~/hooks';
@@ -25,8 +25,7 @@ const oauthErrorKeys: Record<string, TranslationKeys> = {
 function Login() {
   const localize = useLocalize();
   const { showToast } = useToastContext();
-  const { error, setError, login, isAuthReady, isAuthenticated, completeAuthentication } =
-    useAuthContext();
+  const { error, setError, login, isAuthReady } = useAuthContext();
   const { startupConfig } = useOutletContext<TLoginLayoutContext>();
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -34,7 +33,6 @@ function Login() {
   const disableAutoRedirect = searchParams.get('redirect') === 'false';
 
   const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
-  const [guestAttemptPending, setGuestAttemptPending] = useState(true);
   const manualSignIn = searchParams.get('manual') === '1';
 
   useEffect(() => {
@@ -87,44 +85,6 @@ function Login() {
     }
   }, [shouldAutoRedirect, startupConfig]);
 
-  // Sign in without a form when the backend explicitly permits isolated guest sessions.
-  // Keep a manual login escape hatch for existing account holders.
-  useEffect(() => {
-    if (!isAuthReady || isAuthenticated || manualSignIn || shouldAutoRedirect) {
-      return;
-    }
-
-    const controller = new AbortController();
-    fetch(`${apiBaseUrl()}/api/auth/guest`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error('Guest sessions are unavailable');
-        }
-        return response.json();
-      })
-      .then((session) => {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (!session?.token || !session?.user) {
-          throw new Error('Invalid guest session response');
-        }
-        completeAuthentication(session.token, session.user);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setGuestAttemptPending(false);
-        }
-      });
-
-    return () => controller.abort();
-  }, [isAuthReady, isAuthenticated, manualSignIn, shouldAutoRedirect, completeAuthentication]);
-
   if (shouldAutoRedirect) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-4">
@@ -152,7 +112,7 @@ function Login() {
     );
   }
 
-  if (!manualSignIn && (!isAuthReady || guestAttemptPending)) {
+  if (!manualSignIn && !isAuthReady) {
     return (
       <div className="text-text-secondary py-6 text-center" role="status">
         Opening Coderax…
