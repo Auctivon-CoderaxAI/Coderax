@@ -19,7 +19,11 @@
       "entrypoint": "api/server/index.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api"
+      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api",
+      "includeFiles": [
+        "node_modules/mathjs/**",
+        "packages/api/node_modules/mathjs/**"
+      ]
     }
   },
   "rewrites": [
