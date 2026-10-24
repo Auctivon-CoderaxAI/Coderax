@@ -43,6 +43,14 @@ export async function verifyRepositoryContracts(root = repoRoot) {
       rule.destination === '/index.html'),
     'SPA routing must not swallow /api requests',
   );
+  const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
+  assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
+  assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
+  assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.ok(services.rewrites?.some((r) => r.source === '/api/:path*' && r.destination?.service === 'backend'), '/api not routed to backend service');
+  assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
+  assert.ok(services.rewrites?.some((r) => r.source === '/:path*' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
+
   return { rootFrontend: true, clientFrontend: true, spaExcludesApi: true };
 }
 
@@ -70,8 +78,8 @@ const check = async (origin, route, checkResponse, fetcher = fetch) => {
 
 export async function verifyLiveBackend(value, fetcher = fetch) {
   const origin = validateLiveURL(value);
-  await check(origin, '/health', (_response, body) => {
-    assert.equal(body.trim(), 'OK', '/health must come from the Express application');
+  await check(origin, '/readyz', (_response, body) => {
+    assert.equal(body.trim(), 'OK', '/readyz must confirm Express startup');
   }, fetcher);
   const config = await check(origin, '/api/config', (response, body) => {
     assert.match(response.headers.get('content-type') || '', /application[/]json/i, 'API served HTML instead of JSON');
@@ -83,7 +91,7 @@ export async function verifyLiveBackend(value, fetcher = fetch) {
     assert.match(response.headers.get('content-type') || '', /text[/]html/i);
     assert.match(body, /<html/i, 'login SPA is not served');
   }, fetcher);
-  return { origin, health: 'OK', apiConfig: 'JSON', spa: 'HTML', appTitle: config.appTitle };
+  return { origin, readiness: 'OK', apiConfig: 'JSON', spa: 'HTML', appTitle: config.appTitle };
 }
 
 async function main() {
