@@ -40,6 +40,7 @@ const {
 } = require('~/server/controllers/auth/TwoFactorAuthController');
 const { logoutController } = require('~/server/controllers/auth/LogoutController');
 const { loginController } = require('~/server/controllers/auth/LoginController');
+const { guestController } = require('~/server/controllers/auth/GuestController');
 const { findBalanceByUser, upsertBalanceFields } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const middleware = require('~/server/middleware');
@@ -66,6 +67,8 @@ const getCloudFrontAuthCookieRefreshResult = (req, res) => {
 
 const ldapAuth = !!process.env.LDAP_URL && !!process.env.LDAP_USER_SEARCH_BASE;
 //Local
+// Same-origin only and registration-rate-limited; a guest receives a separate USER session.
+router.post('/guest', middleware.requireSameOrigin, middleware.registerLimiter, guestController);
 router.post('/logout', middleware.requireJwtAuth, logoutController);
 router.post(
   '/login',
