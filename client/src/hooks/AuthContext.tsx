@@ -262,6 +262,43 @@ const AuthContextProvider = ({
     [navigate, setQueriesEnabled, setUser],
   );
 
+  /** Obtain an isolated USER guest session before sending a passwordless visitor
+   * to the login page. The endpoint is 404 when guest access is disabled, so
+   * existing manual-account and mandatory 2FA flows keep working unchanged.
+   */
+  const tryGuestSession = useCallback(async (): Promise<boolean> => {
+    const pathname = window.location.pathname;
+    if (
+      authConfig?.test === true ||
+      authConfig?.optional === true ||
+      isRequiredTwoFactorSetupRoute() ||
+      pathname.startsWith('/login/2fa') ||
+      new URLSearchParams(window.location.search).get('manual') === '1'
+    ) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${apiBaseUrl()}/api/auth/guest`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const session = await response.json();
+      if (!session?.token || !session?.user || isExternalRedirectRef.current) {
+        return false;
+      }
+      completeAuthentication(session.token, session.user);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [authConfig?.test, authConfig?.optional, completeAuthentication]);
+
   /**
    * The enrollment hand-off normally replaces the document, which discards the session it is
    * redirecting away from. Where session storage is blocked it has to keep the document instead,
@@ -334,18 +371,19 @@ const AuthContextProvider = ({
           setUserContext({ user, token, isAuthenticated: true, redirect });
           return;
         }
-        console.log('Token is not present. User is not authenticated.');
+        console.log('Token is not present. Attempting passwordless guest entry.');
         endSessionClientState();
-        setIsAuthReady(true);
-        if (authConfig?.test === true) {
+        if (authConfig?.test === true || isRequiredTwoFactorSetupRoute() || authConfig?.optional === true) {
+          setIsAuthReady(true);
           return;
         }
-        if (isRequiredTwoFactorSetupRoute()) {
-          return;
-        }
-        if (authConfig?.optional !== true) {
-          navigate(buildLoginRedirectUrl());
-        }
+        void tryGuestSession().then((created) => {
+          if (created || isExternalRedirectRef.current) {
+            return;
+          }
+          setIsAuthReady(true);
+          navigate(buildLoginRedirectUrl(), { replace: true });
+        });
       },
       onError: (error) => {
         if (isExternalRedirectRef.current) {
@@ -353,16 +391,17 @@ const AuthContextProvider = ({
         }
         console.log('refreshToken mutation error:', error);
         endSessionClientState();
-        setIsAuthReady(true);
-        if (authConfig?.test === true) {
+        if (authConfig?.test === true || isRequiredTwoFactorSetupRoute() || authConfig?.optional === true) {
+          setIsAuthReady(true);
           return;
         }
-        if (isRequiredTwoFactorSetupRoute()) {
-          return;
-        }
-        if (authConfig?.optional !== true) {
-          navigate(buildLoginRedirectUrl());
-        }
+        void tryGuestSession().then((created) => {
+          if (created || isExternalRedirectRef.current) {
+            return;
+          }
+          setIsAuthReady(true);
+          navigate(buildLoginRedirectUrl(), { replace: true });
+        });
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are stable at mount; adding refreshToken causes infinite re-fire
