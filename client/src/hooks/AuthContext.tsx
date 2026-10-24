@@ -394,6 +394,14 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
+          // Explicit account owners may still open /login?manual=1.
+          // Do not strip the manual flag and bounce them back to guest entry.
+          if (
+            window.location.pathname === '/login' &&
+            new URLSearchParams(window.location.search).get('manual') === '1'
+          ) {
+            return;
+          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
@@ -412,6 +420,14 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
+          // Explicit account owners may still open /login?manual=1.
+          // Do not strip the manual flag and bounce them back to guest entry.
+          if (
+            window.location.pathname === '/login' &&
+            new URLSearchParams(window.location.search).get('manual') === '1'
+          ) {
+            return;
+          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
