@@ -19,7 +19,7 @@
       "entrypoint": "api/server/index.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-api-bundle.mjs && node --test scripts/verify-coderax-optional-redis.test.mjs"
+      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-api-bundle.mjs && node --test scripts/verify-coderax-optional-redis.test.mjs && npm run build:client-package && npm run build:client"
     }
   },
   "rewrites": [

@@ -13,9 +13,10 @@ const headers = (type, extras = {}) => ({
   },
 });
 
-test('repository contains a complete frontend build command and preserves API paths', async () => {
+test('backend service builds its client shell and preserves API paths', async () => {
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
+  assert.equal(result.backendIncludesClientBuild, true);
 });
 
 test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {

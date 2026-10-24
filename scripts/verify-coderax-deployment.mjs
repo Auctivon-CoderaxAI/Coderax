@@ -66,11 +66,21 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.match(
+    services.services?.backend?.buildCommand ?? '',
+    /\bnpm run build:client-package\b/,
+    'backend service must build the shared client package',
+  );
+  assert.match(
+    services.services?.backend?.buildCommand ?? '',
+    /\bnpm run build:client\b/,
+    'backend service must build client/dist/index.html before Express startup',
+  );
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
 
-  return { rootFrontend: true, clientFrontend: true, spaExcludesApi: true };
+  return { rootFrontend: true, clientFrontend: true, spaExcludesApi: true, backendIncludesClientBuild: true };
 }
 
 const readBounded = async (response, maxBytes = 1_048_576) => {
