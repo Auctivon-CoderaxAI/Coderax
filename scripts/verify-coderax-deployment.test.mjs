@@ -23,7 +23,7 @@ test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () =
 
 test('rejects the broken configuration where /api/config is served as HTML', async () => {
   const fakeFetch = async (url) => {
-    const isHealth = url.endsWith('/health');
+    const isHealth = url.endsWith('/readyz');
     return {
       status: 200,
       headers: headers(isHealth ? 'text/plain' : 'text/html'),
@@ -36,7 +36,7 @@ test('rejects the broken configuration where /api/config is served as HTML', asy
   );
 });
 
-test('rejects a green Vercel static deployment without an Express /health endpoint', async () => {
+test('rejects a green Vercel static deployment without an Express /readyz endpoint', async () => {
   const fakeFetch = async () => ({
     status: 404,
     headers: headers('text/plain'),
@@ -44,15 +44,15 @@ test('rejects a green Vercel static deployment without an Express /health endpoi
   });
   await assert.rejects(
     verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch),
-    /health returned HTTP 404/,
+    /readyz returned HTTP 404/,
   );
 });
 
-test('accepts a real-shaped Express health, startup config and Vite shell', async () => {
+test('accepts a real-shaped Express readiness, startup config and Vite shell', async () => {
   const fakeFetch = async (url) => ({
     status: 200,
     headers: headers(url.endsWith('/api/config') ? 'application/json' : url.endsWith('/login') ? 'text/html' : 'text/plain'),
-    text: async () => url.endsWith('/health') ? 'OK' : url.endsWith('/api/config')
+    text: async () => url.endsWith('/readyz') ? 'OK' : url.endsWith('/api/config')
       ? JSON.stringify({ appTitle: 'Coderax' }) : '<html><body>Coderax</body></html>',
   });
   const result = await verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch);
