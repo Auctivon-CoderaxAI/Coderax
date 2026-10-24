@@ -29,9 +29,27 @@ export const validateLiveURL = (value) => {
   return url.origin;
 };
 
+/**
+ * Vercel Services traces the backend entrypoint from the repository root.
+ * Keep a runtime dependency used by @coderax/api visible to the root tracer,
+ * rather than relying solely on npm workspace hoisting.
+ */
+export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage) {
+  const required = apiPackage.dependencies?.mathjs;
+  assert.equal(typeof required, 'string', '@coderax/api must declare mathjs as a runtime dependency');
+  assert.equal(backendPackage.dependencies?.mathjs, required, 'Express mathjs version must match @coderax/api');
+  assert.equal(rootPackage.dependencies?.mathjs, required, 'Vercel root must declare mathjs for function tracing');
+  assert.equal(lock.packages?.['']?.dependencies?.mathjs, required, 'root lockfile must include mathjs for npm ci');
+  assert.ok(lock.packages?.['node_modules/mathjs']?.version, 'lockfile must resolve mathjs');
+}
+
 export async function verifyRepositoryContracts(root = repoRoot) {
   const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
+  const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
+  const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
@@ -46,13 +64,53 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
   assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
+  assert.match(
+    services.services?.frontend?.installCommand ?? '',
+    /npm ci --include=dev/,
+    'frontend service must install the build toolchain used by the client package',
+  );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.match(
+    services.services?.backend?.buildCommand ?? '',
+    /\bnpm run build:client-package\b/,
+    'backend service must build the shared client package',
+  );
+  assert.ok(
+    rootPackage.devDependencies?.tsdown,
+    'root workspace must expose tsdown to the backend service build',
+  );
+  assert.ok(
+    rootPackage.devDependencies?.typescript,
+    'root workspace must expose TypeScript to the backend service build',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.tsdown,
+    rootPackage.devDependencies.tsdown,
+    'root lockfile must include tsdown for npm ci',
+  );
+  assert.equal(
+    lock.packages?.['']?.devDependencies?.typescript,
+    rootPackage.devDependencies.typescript,
+    'root lockfile must include TypeScript for npm ci',
+  );
+  assert.match(
+    services.services?.backend?.buildCommand ?? '',
+    /\bnpm run build:client\b/,
+    'backend service must build client/dist/index.html before Express startup',
+  );
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
 
-  return { rootFrontend: true, clientFrontend: true, spaExcludesApi: true };
+  return {
+    rootFrontend: true,
+    clientFrontend: true,
+    spaExcludesApi: true,
+    frontendIncludesBuildDependencies: true,
+    backendIncludesClientBuildTools: true,
+    backendIncludesClientBuild: true,
+  };
 }
 
 const readBounded = async (response, maxBytes = 1_048_576) => {

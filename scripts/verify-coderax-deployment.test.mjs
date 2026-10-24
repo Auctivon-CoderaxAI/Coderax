@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts } from './verify-coderax-deployment.mjs';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
+import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -9,9 +13,44 @@ const headers = (type, extras = {}) => ({
   },
 });
 
-test('repository contains a complete frontend build command and preserves API paths', async () => {
+test('backend service builds its client shell and preserves API paths', async () => {
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
+  assert.equal(result.frontendIncludesBuildDependencies, true);
+  assert.equal(result.backendIncludesClientBuildTools, true);
+  assert.equal(result.backendIncludesClientBuild, true);
+});
+
+test('Vercel backend tracing requires a lockfile-backed root mathjs runtime dependency', () => {
+  const version = '^15.2.0';
+  const root = { dependencies: { mathjs: version } };
+  const lock = { packages: { '': { dependencies: { mathjs: version } }, 'node_modules/mathjs': { version: '15.2.0' } } };
+  const api = { dependencies: { mathjs: version } };
+  const backend = { dependencies: { mathjs: version } };
+
+  assert.doesNotThrow(() => verifyVercelRuntimeDependency(root, lock, api, backend));
+  assert.throws(
+    () => verifyVercelRuntimeDependency({ dependencies: {} }, lock, api, backend),
+    /Vercel root must declare mathjs/,
+  );
+  assert.throws(
+    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
+    /root lockfile must include mathjs/,
+  );
+});
+
+test('compiled API bundle rejects unresolved mathjs even after a successful build', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'coderax-bundle-'));
+  const dist = path.join(root, 'packages/api/dist');
+  try {
+    await mkdir(dist, { recursive: true });
+    await writeFile(path.join(dist, 'index.cjs'), 'const math = require("mathjs");');
+    await assert.rejects(verifyApiBundle(root), /still requires external mathjs/);
+    await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () => {

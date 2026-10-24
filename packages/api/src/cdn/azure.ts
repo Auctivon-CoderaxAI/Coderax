@@ -1,5 +1,4 @@
 import { logger } from '@coderax/data-schemas';
-import { DefaultAzureCredential } from '@azure/identity';
 import type { ContainerClient, BlobServiceClient } from '@azure/storage-blob';
 
 let blobServiceClient: BlobServiceClient | null = null;
@@ -33,6 +32,7 @@ export const initializeAzureBlobService = async (): Promise<BlobServiceClient | 
       return null;
     }
     const url = `https://${accountName}.blob.core.windows.net`;
+    const { DefaultAzureCredential } = await import('@azure/identity');
     const credential = new DefaultAzureCredential();
     const { BlobServiceClient } = await import('@azure/storage-blob');
     blobServiceClient = new BlobServiceClient(url, credential);

@@ -170,6 +170,9 @@
     "url": "https://github.com/Coderax-AI/Coderax/issues"
   },
   "homepage": "https://coderax/",
+  "dependencies": {
+    "mathjs": "^15.2.0"
+  },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",
     "@axe-core/playwright": "^4.10.1",
@@ -201,7 +204,9 @@
     "lint-staged": "^15.4.3",
     "prettier": "^3.5.0",
     "prettier-plugin-tailwindcss": "^0.6.11",
+    "tsdown": "^0.22.2",
     "turbo": "^2.10.5",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1"
   },
   "overrides": {

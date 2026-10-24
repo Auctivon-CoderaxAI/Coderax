@@ -1,7 +1,6 @@
 import IoRedis from 'ioredis';
 import calculateSlot from 'cluster-key-slot';
 import { logger } from '@coderax/data-schemas';
-import { createClient, createCluster } from '@keyv/redis';
 import type { ScanOptions } from '@redis/client/dist/lib/commands/SCAN';
 import type { RedisClientType, RedisClusterType } from '@redis/client';
 import type { Redis, Cluster } from 'ioredis';
@@ -197,6 +196,9 @@ async function evalKeyvRedisScript(script: string, options: RedisEvalOptions): P
 }
 
 if (cacheConfig.USE_REDIS) {
+  // Redis is optional: a non-Redis deployment must not load this provider at startup.
+  // Keep the require inside the enabled branch; Vercel may omit unused peer packages.
+  const { createClient, createCluster } = require('@keyv/redis') as typeof import('@keyv/redis');
   /**
    * ** WARNING ** Keyv Redis client does not support Prefix like ioredis above.
    * The prefix feature will be handled by the Keyv-Redis store in cacheFactory.js
