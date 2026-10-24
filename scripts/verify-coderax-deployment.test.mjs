@@ -19,6 +19,7 @@ test('backend service builds its client shell and preserves API paths', async ()
   assert.equal(result.frontendIncludesBuildDependencies, true);
   assert.equal(result.backendIncludesClientBuildTools, true);
   assert.equal(result.backendIncludesClientBuild, true);
+  assert.equal(result.clientBuildUsesViteDirectly, true);
 });
 
 

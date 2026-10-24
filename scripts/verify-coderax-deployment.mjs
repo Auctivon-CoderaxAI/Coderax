@@ -119,6 +119,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
+  assert.match(
+    clientPackage.scripts?.build ?? '',
+    /^\s*vite\s+build(?:\s|$)/,
+    'client production build must invoke Vite directly for backend service builds',
+  );
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
   assert.ok(
     vercel.rewrites?.some((rule) =>
@@ -159,6 +164,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     frontendIncludesBuildDependencies: true,
     backendIncludesClientBuildTools: true,
     backendIncludesClientBuild: true,
+    clientBuildUsesViteDirectly: true,
   };
 }
 
