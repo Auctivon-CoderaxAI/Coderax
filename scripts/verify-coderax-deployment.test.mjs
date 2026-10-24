@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
 import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
@@ -30,6 +34,20 @@ test('Vercel backend tracing requires a lockfile-backed root mathjs runtime depe
     () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
     /root lockfile must include mathjs/,
   );
+});
+
+test('compiled API bundle rejects unresolved mathjs even after a successful build', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'coderax-bundle-'));
+  const dist = path.join(root, 'packages/api/dist');
+  try {
+    await mkdir(dist, { recursive: true });
+    await writeFile(path.join(dist, 'index.cjs'), 'const math = require("mathjs");');
+    await assert.rejects(verifyApiBundle(root), /still requires external mathjs/);
+    await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () => {
