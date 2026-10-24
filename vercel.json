@@ -12,7 +12,7 @@
       "root": ".",
       "entrypoint": "api/server/index.js",
       "framework": "express",
-      "installCommand": "npm ci",
+      "installCommand": "npm ci --include=dev",
       "buildCommand": "npm run build:packages"
     }
   },
