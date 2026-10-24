@@ -6,25 +6,37 @@
       "framework": "vite",
       "installCommand": "cd .. && npm ci",
       "buildCommand": "cd .. && npm run frontend",
-      "outputDirectory": "dist"
+      "outputDirectory": "dist",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
     },
     "backend": {
       "root": ".",
       "entrypoint": "api/server/index.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api"
+      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api"
     }
   },
   "rewrites": [
     {
-      "source": "/api/:path*",
+      "source": "/api",
       "destination": {
         "service": "backend"
       }
     },
     {
-      "source": "/oauth/:path*",
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/oauth/(.*)",
       "destination": {
         "service": "backend"
       }
@@ -48,7 +60,7 @@
       }
     },
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "destination": {
         "service": "frontend"
       }
