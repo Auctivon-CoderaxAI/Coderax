@@ -64,6 +64,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
   assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
   assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
+  assert.match(
+    services.services?.frontend?.installCommand ?? '',
+    /npm ci --include=dev/,
+    'frontend service must install the build toolchain used by the client package',
+  );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
   assert.match(
@@ -80,7 +85,13 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
 
-  return { rootFrontend: true, clientFrontend: true, spaExcludesApi: true, backendIncludesClientBuild: true };
+  return {
+    rootFrontend: true,
+    clientFrontend: true,
+    spaExcludesApi: true,
+    frontendIncludesBuildDependencies: true,
+    backendIncludesClientBuild: true,
+  };
 }
 
 const readBounded = async (response, maxBytes = 1_048_576) => {

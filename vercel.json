@@ -4,7 +4,7 @@
     "frontend": {
       "root": "client",
       "framework": "vite",
-      "installCommand": "cd .. && npm ci",
+      "installCommand": "cd .. && npm ci --include=dev",
       "buildCommand": "cd .. && npm run frontend",
       "outputDirectory": "dist",
       "rewrites": [
