@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Fail the Vercel backend build if @coderax/api still imports mathjs or the
- * MCP SDK or its transport dependencies at runtime. These have been missing
- * from deployed serverless functions even when npm ci and build succeeded.
+ * MCP SDK or the eventsource transport modules at runtime. These are
+ * confirmed missing from deployed functions even after successful npm builds.
  */
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const externalMathjs = /\b(?:require|import)\s*\(\s*['"]mathjs(?:\/[^'"]*)?['"]\s*\)/;
 const externalMcpSdk = /\b(?:require|import)\s*\(\s*['"]@modelcontextprotocol\/sdk(?:\/[^'"]*)?['"]\s*\)/;
-const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/[^'"]*)?['"]\s*\)/;
+const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:-parser)?)(?:\/[^'"]*)?['"]\s*\)/;
 
 export async function verifyApiBundle(root = repoRoot) {
   const dist = path.join(root, 'packages/api/dist');

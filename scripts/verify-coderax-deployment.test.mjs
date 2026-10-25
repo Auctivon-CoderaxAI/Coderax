@@ -84,7 +84,7 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
   );
 });
 
-test('compiled API bundle rejects unresolved mathjs or MCP SDK even after a successful build', async () => {
+test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'coderax-bundle-'));
   const dist = path.join(root, 'packages/api/dist');
   try {
