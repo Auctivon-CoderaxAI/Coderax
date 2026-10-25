@@ -22,12 +22,7 @@
       "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && node scripts/verify-coderax-runtime-model-export.mjs && npm run build:api && node scripts/verify-coderax-api-bundle.mjs && node --test scripts/verify-coderax-optional-redis.test.mjs",
       "functions": {
         "api/server/index.js": {
-          "includeFiles": [
-            "api/**/*",
-            "packages/api/dist/**/*",
-            "packages/data-provider/dist/**/*",
-            "packages/data-schemas/dist/**/*"
-          ]
+          "includeFiles": "{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}"
         }
       }
     }
