@@ -5,7 +5,14 @@ const { logger } = require('@coderax/data-schemas');
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
 
-instrumentMongooseQueryMetrics(mongoose);
+// Query metrics are optional. Vercel's API function bundle may not expose
+// the telemetry helper even when the database and application can run.
+// Never crash the entire API on an unavailable instrumentation hook.
+if (typeof instrumentMongooseQueryMetrics === 'function') {
+  instrumentMongooseQueryMetrics(mongoose);
+} else {
+  logger.warn('[connectDb] Optional Mongoose query-metrics instrumentation is unavailable.');
+}
 
 if (!MONGO_URI) {
   throw new Error('Please define the MONGO_URI environment variable');
