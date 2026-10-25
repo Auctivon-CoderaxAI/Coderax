@@ -171,7 +171,9 @@
   },
   "homepage": "https://coderax/",
   "dependencies": {
-    "mathjs": "^15.2.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mathjs": "^15.2.0",
+    "rate-limit-redis": "^4.2.0"
   },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",
@@ -181,7 +183,6 @@
     "@eslint/js": "^9.20.0",
     "@playwright/test": "^1.62.1",
     "@shadcn/lint": "^0.1.0",
-    "@tsdown/css": "^0.22.2",
     "@types/react-virtualized": "^9.22.0",
     "brace-expansion": "^2.1.2",
     "caniuse-lite": "^1.0.30001741",
@@ -205,9 +206,7 @@
     "lint-staged": "^15.4.3",
     "prettier": "^3.5.0",
     "prettier-plugin-tailwindcss": "^0.6.11",
-    "tsdown": "^0.22.2",
     "turbo": "^2.10.5",
-    "typescript": "^5.9.3",
     "typescript-eslint": "^8.60.1"
   },
   "overrides": {

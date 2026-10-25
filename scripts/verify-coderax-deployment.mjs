@@ -34,26 +34,85 @@ export const validateLiveURL = (value) => {
  * Keep a runtime dependency used by @coderax/api visible to the root tracer,
  * rather than relying solely on npm workspace hoisting.
  */
-export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage) {
-  const required = apiPackage.dependencies?.mathjs;
-  assert.equal(typeof required, 'string', '@coderax/api must declare mathjs as a runtime dependency');
-  assert.equal(backendPackage.dependencies?.mathjs, required, 'Express mathjs version must match @coderax/api');
-  assert.equal(rootPackage.dependencies?.mathjs, required, 'Vercel root must declare mathjs for function tracing');
-  assert.equal(lock.packages?.['']?.dependencies?.mathjs, required, 'root lockfile must include mathjs for npm ci');
-  assert.ok(lock.packages?.['node_modules/mathjs']?.version, 'lockfile must resolve mathjs');
+export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, name) {
+  const required = apiPackage.dependencies?.[name];
+  assert.equal(typeof required, 'string', `@coderax/api must declare ${name} as a dependency`);
+  assert.equal(backendPackage.dependencies?.[name], required, `Express ${name} version must match @coderax/api`);
+  assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare ${name} for function tracing`);
+  assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include ${name} for npm ci`);
+  assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve ${name}`);
+}
+
+
+/** Validate installed workspace build tools rather than declaring untraced root
+ * versions. A root tsdown range without a root lockfile package breaks npm ci.
+ */
+export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, apiPackage, services) {
+  for (const name of ['tsdown', 'typescript']) {
+    if (rootPackage.devDependencies?.[name] !== undefined) {
+      assert.equal(
+        lock.packages?.['']?.devDependencies?.[name],
+        rootPackage.devDependencies[name],
+        `root ${name} manifest and lockfile must match for npm ci`,
+      );
+      assert.ok(
+        lock.packages?.[`node_modules/${name}`]?.version,
+        `root ${name} is not resolved: pin and regenerate the lockfile or use workspace dependencies`,
+      );
+    }
+  }
+
+  for (const [workspace, pkg] of [
+    ['packages/client', clientPackage],
+    ['packages/api', apiPackage],
+  ]) {
+    assert.equal(
+      typeof pkg.devDependencies?.tsdown, 'string',
+      `${workspace} must declare tsdown`,
+    );
+    assert.equal(
+      lock.packages?.[workspace]?.devDependencies?.tsdown,
+      pkg.devDependencies.tsdown,
+      `${workspace} tsdown must match the npm lockfile`,
+    );
+    assert.ok(
+      lock.packages?.[`${workspace}/node_modules/tsdown`]?.version ||
+      lock.packages?.['node_modules/tsdown']?.version,
+      `${workspace} tsdown package must be resolved in the npm lockfile`,
+    );
+  }
+
+  for (const [name, service] of Object.entries({
+    frontend: services.services?.frontend,
+    backend: services.services?.backend,
+  })) {
+    assert.match(
+      service?.installCommand ?? '',
+      /npm ci --include=dev/,
+      `${name} service must install workspace development build tools`,
+    );
+  }
 }
 
 export async function verifyRepositoryContracts(root = repoRoot) {
   const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
+  const workspaceClientPackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
+  for (const dependency of ['mathjs', 'rate-limit-redis', '@modelcontextprotocol/sdk']) {
+    verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, dependency);
+  }
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
+  assert.ok(
+    backendSource.includes('const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);'),
+    'Vercel backend must start without frontend assets supplied by its separate service',
+  );
   assert.ok(
     vercel.rewrites?.some((rule) =>
       typeof rule.source === 'string' &&
@@ -71,43 +130,12 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  assert.match(
+  assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client-package\b/,
-    'backend service must build the shared client package',
+    /\bnpm run build:client(?:-package)?\b/,
+    'backend service must not build frontend assets owned by the frontend service',
   );
-  assert.ok(
-    rootPackage.devDependencies?.['@tsdown/css'],
-    'root workspace must expose @tsdown/css to the backend service build',
-  );
-  assert.ok(
-    rootPackage.devDependencies?.tsdown,
-    'root workspace must expose tsdown to the backend service build',
-  );
-  assert.ok(
-    rootPackage.devDependencies?.typescript,
-    'root workspace must expose TypeScript to the backend service build',
-  );
-  assert.equal(
-    lock.packages?.['']?.devDependencies?.['@tsdown/css'],
-    rootPackage.devDependencies['@tsdown/css'],
-    'root lockfile must include @tsdown/css for npm ci',
-  );
-  assert.equal(
-    lock.packages?.['']?.devDependencies?.tsdown,
-    rootPackage.devDependencies.tsdown,
-    'root lockfile must include tsdown for npm ci',
-  );
-  assert.equal(
-    lock.packages?.['']?.devDependencies?.typescript,
-    rootPackage.devDependencies.typescript,
-    'root lockfile must include TypeScript for npm ci',
-  );
-  assert.match(
-    services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client\b/,
-    'backend service must build client/dist/index.html before Express startup',
-  );
+  verifyWorkspaceBuildTooling(rootPackage, lock, workspaceClientPackage, apiPackage, services);
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
@@ -117,8 +145,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     clientFrontend: true,
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
-    backendIncludesClientBuildTools: true,
-    backendIncludesClientBuild: true,
+    backendExcludesFrontendBuild: true,
   };
 }
 

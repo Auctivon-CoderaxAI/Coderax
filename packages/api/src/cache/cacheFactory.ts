@@ -1,11 +1,10 @@
 import { Keyv } from 'keyv';
 import createMemoryStore from 'memorystore';
-import { RedisStore } from 'rate-limit-redis';
+import type { RedisStore as ConnectRedisStore } from 'connect-redis';
+import type { RedisStore as RedisStoreType, SendCommandFn } from 'rate-limit-redis';
 import { logger } from '@coderax/data-schemas';
 import session, { MemoryStore } from 'express-session';
 import { Time, CacheKeys } from 'coderax-data-provider';
-import { RedisStore as ConnectRedis } from 'connect-redis';
-import type { SendCommandFn } from 'rate-limit-redis';
 import { keyvRedisClient, ioredisClient, handleKeyvRedisError } from './redisClients';
 import { createClusterSafeSendCommand } from './limiterSendCommand';
 import { batchDeleteKeys, scanKeys } from './redisUtils';
@@ -167,12 +166,16 @@ export const violationCache = (
  * @param ttl - Time to live for session entries.
  * @returns Session store instance.
  */
-export const sessionCache = (namespace: string, ttl?: number): MemoryStore | ConnectRedis => {
+export const sessionCache = (namespace: string, ttl?: number): MemoryStore | ConnectRedisStore => {
   namespace = namespace.endsWith(':') ? namespace : `${namespace}:`;
   if (!cacheConfig.USE_REDIS) {
     const MemoryStore = createMemoryStore(session);
     return new MemoryStore({ ttl, checkPeriod: Time.ONE_DAY });
   }
+  // The session adapter is only needed in Redis mode; keep MongoDB deployments
+  // from loading it while the Express service initializes.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { RedisStore: ConnectRedis } = require('connect-redis') as typeof import('connect-redis');
   const redisClient = ioredisClient
     ? instrumentIORedisClient(ioredisClient, namespace)
     : ioredisClient;
@@ -190,13 +193,17 @@ export const sessionCache = (namespace: string, ttl?: number): MemoryStore | Con
  * @param prefix - The key prefix for rate limiting.
  * @returns RedisStore instance or undefined if Redis is not used.
  */
-export const limiterCache = (prefix: string): RedisStore | undefined => {
+export const limiterCache = (prefix: string): RedisStoreType | undefined => {
   if (!prefix) {
     throw new Error('prefix is required');
   }
   if (!cacheConfig.USE_REDIS) {
     return undefined;
   }
+  // Keep the Redis adapter optional for deployments that use MongoDB and the
+  // in-memory cache. Vercel loads this module at startup even when Redis is off.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { RedisStore } = require('rate-limit-redis') as typeof import('rate-limit-redis');
   // rate-limit-redis supplies uppercase command names to `call()`. In the
   // pinned ioredis version, dynamic-command key metadata is case-sensitive,
   // so those calls bypass the configured keyPrefix, including EVALSHA keys.
