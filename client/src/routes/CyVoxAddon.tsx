@@ -170,7 +170,7 @@ function WorkView() {
   return <div className="space-y-5">
     <div className="border-border-light bg-surface-primary-alt rounded-lg border p-4">
       <div className="mb-4 flex items-center justify-between">
-        <p className="font-medium">CyVox Work · Fast routing (Auto)</p>
+        <p className="font-medium">CyVox Work · Fast routing</p>
         <span className="text-text-secondary text-xs">Actual speed depends on model capacity</span>
       </div>
       <label htmlFor="cyvox-work-task" className="mb-2 block text-sm">Describe the work to perform</label>
@@ -204,7 +204,7 @@ function WorkView() {
           disabled={action.busy || !task.trim()} onClick={() => void action.send('actions/startTask', { task, mode },
             'Start this CyVox Work task with permission and approval controls?')}>Start Work</button>
       </div>
-      <p className="text-text-secondary mt-2 text-xs">Work uses AUTO routing by default. Model selection above is shared CyVox configuration; apply it before submitting a task. Actions remain subject to CyVox approval policy.</p>
+      <p className="text-text-secondary mt-2 text-xs">Work requests FAST routing by default. Model selection above is shared CyVox configuration; apply it before submitting a task. Actions remain subject to CyVox approval policy.</p>
       {models.isError && <p role="alert">Model inventory unavailable. Automatic routing may still be attempted.</p>}
       {action.message && <p role="status">{action.message}</p>}
     </div>
