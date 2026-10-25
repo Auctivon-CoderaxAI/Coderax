@@ -27,6 +27,6 @@ export default defineConfig({
     // Vercel Services traces this workspace as a function. The calculator and
     // MCP SDK (including its /types.js subpath) must be in the emitted API
     // bundle: both have been missing from deployed function traces.
-    alwaysBundle: ['mathjs', '@modelcontextprotocol/sdk'],
+    alwaysBundle: ['mathjs', /^@modelcontextprotocol\/sdk(?:\/|$)/],
   },
 });
