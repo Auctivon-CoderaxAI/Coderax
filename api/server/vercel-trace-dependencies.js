@@ -3,6 +3,12 @@
  * module-alias. Resolve (without loading) the packages used by backend files
  * reachable only through those aliases so the function artifact includes them.
  */
+require.resolve('@librechat/agents');
+require.resolve('@librechat/agents/langchain/messages');
+require.resolve('@librechat/agents/langchain/prompts');
+require.resolve('@librechat/agents/langchain/tools');
+require.resolve('@librechat/agents/langchain/utils/env');
+require.resolve('@librechat/agents/openai');
 require.resolve('@azure/search-documents');
 require.resolve('@google/genai');
 require.resolve('@microsoft/microsoft-graph-client');

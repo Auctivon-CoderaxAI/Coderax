@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { tmpdir } from 'node:os';
@@ -250,6 +251,28 @@ test('Vercel file markers trace alias-hidden packages without loading them', () 
     () => verifyVercelAliasRuntimeDependencies({ packages: { api: { dependencies } } }, backend, source),
     /lockfile must resolve alias-hidden dependency nodemailer/,
   );
+});
+
+test('Vercel traces @librechat/agents subpaths used by module-aliased backend files', async () => {
+  const traceFile = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../api/server/vercel-trace-dependencies.js',
+  );
+  const source = await readFile(traceFile, 'utf8');
+  const resolve = createRequire(import.meta.url).resolve;
+  const specifiers = [
+    '@librechat/agents',
+    '@librechat/agents/langchain/messages',
+    '@librechat/agents/langchain/prompts',
+    '@librechat/agents/langchain/tools',
+    '@librechat/agents/langchain/utils/env',
+    '@librechat/agents/openai',
+  ];
+
+  for (const specifier of specifiers) {
+    assert.ok(source.includes(`require.resolve('${specifier}')`), `Vercel must trace ${specifier}`);
+    assert.doesNotThrow(() => resolve(specifier), `Express dependencies must resolve ${specifier}`);
+  }
 });
 
 test('Vercel CommonJS backend loads the ESM OpenID client dynamically', () => {
