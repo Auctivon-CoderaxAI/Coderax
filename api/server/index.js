@@ -347,13 +347,13 @@ const startServer = async () => {
     res.send(updatedIndexHtml);
   };
 
-  app.get('/health', (_req, res) => res.status(200).send('OK'));
-  app.get('/livez', (_req, res) => res.status(200).send('OK'));
+  app.get('/health', (_req, res) => res.status(200).type('text/plain').send('OK'));
+  app.get('/livez', (_req, res) => res.status(200).type('text/plain').send('OK'));
   app.get('/readyz', (_req, res) => {
     if (!serverReady) {
-      return res.status(503).send('NOT_READY');
+      return res.status(503).type('text/plain').send('NOT_READY');
     }
-    return res.status(200).send('OK');
+    return res.status(200).type('text/plain').send('OK');
   });
 
   /* Middleware */

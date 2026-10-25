@@ -20,6 +20,8 @@ services:
     environment:
       OLLAMA_HOST: 127.0.0.1:11434
       OLLAMA_NO_CLOUD: "1"
+    dns:
+      - 169.254.169.254
     volumes:
       - ollama-models:/root/.ollama
     networks:
@@ -61,6 +63,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "3080"
+      SCHEDULES_SINGLE_PROCESS: "true"
       TRUST_PROXY: "1"
       DOMAIN_CLIENT: https://coderax-eta.vercel.app
       DOMAIN_SERVER: https://coderax-eta.vercel.app

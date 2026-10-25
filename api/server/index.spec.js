@@ -67,10 +67,11 @@ describe('Telemetry wiring', () => {
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)
-      .slice(0, 2);
+      .slice(0, 3);
 
     expect(firstStatements).toEqual([
       "require('../config/credentials');",
+      "global.EventSource = require('eventsource').EventSource;",
       "const telemetry = require('./telemetry');",
     ]);
   });
@@ -122,6 +123,15 @@ describe('Telemetry wiring', () => {
 
 describe('Startup readiness wiring', () => {
   const source = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+
+  it('returns health and readiness responses as plain text', () => {
+    const healthRoute = source.slice(
+      source.indexOf("app.get('/health'"),
+      source.indexOf('/* Middleware */'),
+    );
+    expect(healthRoute).toContain("res.status(200).type('text/plain').send('OK')");
+    expect(healthRoute).toContain("res.status(503).type('text/plain').send('NOT_READY')");
+  });
 
   it('starts code-environment lifecycle reconciliation only after Mongo connects', () => {
     const connectIndex = source.indexOf('await connectDb();');
@@ -326,6 +336,14 @@ describe('Server Configuration', () => {
     const response = await request(app).get('/health');
     expect(response.status).toBe(200);
     expect(response.text).toBe('OK');
+    expect(response.headers['content-type']).toMatch(/^text\/plain/);
+  });
+
+  it('should return a plain-text OK from /readyz after startup', async () => {
+    const response = await request(app).get('/readyz');
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('OK');
+    expect(response.headers['content-type']).toMatch(/^text\/plain/);
   });
 
   it('should set baseline security headers on health checks', async () => {
