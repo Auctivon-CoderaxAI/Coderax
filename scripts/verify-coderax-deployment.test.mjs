@@ -103,8 +103,12 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
       await writeFile(path.join(dist, 'index.cjs'), `const missing = require("${dependency}");`);
       await assert.rejects(verifyApiBundle(root), /external WebAuthn runtime dependency/);
     }
+    for (const dependency of ['helmet', 'express-rate-limit', 'croner', '@langchain/langgraph-checkpoint-mongodb', 'rate-limit-redis']) {
+      await writeFile(path.join(dist, 'index.cjs'), `const missing = require("${dependency}");`);
+      await assert.rejects(verifyApiBundle(root), /external @coderax\/api production dependency/);
+    }
     await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
-    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false });
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false, externalDirectRuntime: false });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
