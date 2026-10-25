@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -193,6 +193,14 @@ test('Vercel root traces third-party dependencies imported by the backend bootst
   assert.throws(
     () => verifyVercelBackendBootstrapDependencies(root, { packages: { ...lock.packages, api: { dependencies: {} } } }, backend, "require('eventsource');"),
     /Express lockfile must include bootstrap dependency eventsource/,
+  );
+});
+
+test('Vercel statically traces EventSource imported by the Express entrypoint', () => {
+  assert.equal(verifyVercelEntrypointDependency("global.EventSource = require('eventsource').EventSource;", 'eventsource'), 'eventsource');
+  assert.throws(
+    () => verifyVercelEntrypointDependency("require('~/config');", 'eventsource'),
+    /must directly import eventsource/,
   );
 });
 

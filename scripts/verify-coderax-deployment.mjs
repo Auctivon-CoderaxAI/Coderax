@@ -74,6 +74,19 @@ export function verifyVercelBackendBootstrapDependencies(rootPackage, lock, back
   return [...new Set(imports)].sort();
 }
 
+/** Keep dependencies hidden behind module-alias visible to Vercel's static
+ * function tracer by importing them directly from the Express entrypoint.
+ */
+export function verifyVercelEntrypointDependency(source, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(
+    source,
+    new RegExp(`\\brequire\\s*\\(\\s*['\"]${escaped}['\"]\\s*\\)`),
+    `Vercel function entrypoint must directly import ${name} so it is traced`,
+  );
+  return name;
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -163,6 +176,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
+  verifyVercelEntrypointDependency(backendSource, 'eventsource');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
   const backendBootstrapDependencies = verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, backendBootstrapSource);

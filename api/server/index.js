@@ -1,5 +1,7 @@
 require('../config/credentials');
 
+global.EventSource = require('eventsource').EventSource;
+
 const telemetry = require('./telemetry');
 const fs = require('fs');
 const path = require('path');
