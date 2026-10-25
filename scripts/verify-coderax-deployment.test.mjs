@@ -21,6 +21,16 @@ test('Vercel routes the client and API through separate services', async () => {
 });
 
 
+test('Vercel packages CommonJS module-alias source files needed by Express', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
+  const config = JSON.parse(await readFile(vercelPath, 'utf8'));
+  assert.equal(config.services.backend.entrypoint, 'api/server/index.js');
+  assert.ok(config.services.backend.includeFiles?.includes('api/**/*'));
+  assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
+});
+
 test('CI rejects undeclared root tsdown resolution and missing workspace build tools', () => {
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
