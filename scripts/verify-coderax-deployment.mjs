@@ -279,9 +279,9 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   assert.equal(services.services?.backend?.framework, 'express', 'Express API proxy service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/proxy.js', 'backend proxy entrypoint missing');
   assert.ok(
-    Number.isInteger(services.services?.backend?.maxDuration) &&
-      services.services.backend.maxDuration >= 60 &&
-      services.services.backend.maxDuration <= 300,
+    Number.isInteger(services.services?.backend?.functions?.['api/proxy.js']?.maxDuration) &&
+      services.services.backend.functions['api/proxy.js'].maxDuration >= 60 &&
+      services.services.backend.functions['api/proxy.js'].maxDuration <= 300,
     'backend proxy must allow streaming within the Vercel Hobby function limit',
   );
   assert.equal(

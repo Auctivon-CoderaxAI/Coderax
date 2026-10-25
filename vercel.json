@@ -19,11 +19,11 @@
       "entrypoint": "api/proxy.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "maxDuration": 300,
       "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs api/proxy.spec.js scripts/verify-oci-deployment.test.mjs",
       "functions": {
         "api/proxy.js": {
-          "includeFiles": "{api/proxy.js,api/proxy-handler.js}"
+          "includeFiles": "{api/proxy.js,api/proxy-handler.js}",
+          "maxDuration": 300
         }
       }
     }

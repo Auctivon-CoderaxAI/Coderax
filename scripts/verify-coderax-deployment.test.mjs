@@ -78,7 +78,7 @@ test('Vercel uses a narrow authenticated proxy instead of booting the database A
   const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
   const config = JSON.parse(await readFile(vercelPath, 'utf8'));
   assert.equal(config.services.backend.entrypoint, 'api/proxy.js');
-  assert.equal(config.services.backend.maxDuration, 300);
+  assert.equal(config.services.backend.functions?.['api/proxy.js']?.maxDuration, 300);
   assert.equal(
     config.services.backend.functions?.['api/proxy.js']?.includeFiles,
     '{api/proxy.js,api/proxy-handler.js}',
