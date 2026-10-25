@@ -1,5 +1,13 @@
 require('dotenv').config();
-const { optionalEnabled, instrumentMongooseQueryMetrics } = require('@coderax/api');
+const { instrumentMongooseQueryMetrics } = require('@coderax/api');
+// This tiny tri-state configuration parser must work before @coderax/api has
+// finished loading through its CommonJS dependency cycle. Match its
+// optionalEnabled semantics without requiring an early named export.
+const optionalEnabled = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  return value.trim().toLowerCase() === 'true';
+};
 // This module can load during a CommonJS import cycle before the shared logger
 // has been assigned. Resolve lazily and use console until logger is available.
 const getLogger = () => require('@coderax/data-schemas').logger || console;
