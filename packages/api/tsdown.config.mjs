@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { defineConfig } from 'tsdown';
 
-// Some dependencies of the MCP SDK are dynamically imported by its transports.
+// Vercel's function tracer has omitted MCP SDK and WebAuthn modules at runtime.\n// Some dependencies of the MCP SDK are dynamically imported by its transports.
 // Vercel's function tracing omitted these modules even though npm ci installed
 // them: keep them in the emitted API bundle alongside the SDK itself.
-const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/|$)/;
+const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|@simplewebauthn\/server|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/|$)/;
 
 export default defineConfig({
   // The telemetry entry is a thin shim (`src/telemetry.ts`) rather than the
