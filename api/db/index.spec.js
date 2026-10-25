@@ -4,7 +4,7 @@ describe('api/db/index.js', () => {
 
     const callOrder = [];
 
-    jest.mock('@coderax/data-schemas', () => ({
+    jest.mock('@coderax/data-schemas/models', () => ({
       createModels: jest.fn((m) => {
         callOrder.push('createModels');
         m.models.Message = { name: 'Message' };

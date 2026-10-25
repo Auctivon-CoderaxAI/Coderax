@@ -27,6 +27,16 @@
         "types": "./dist/capabilities.d.cts",
         "default": "./dist/admin/capabilities.cjs"
       }
+    },
+    "./models": {
+      "import": {
+        "types": "./dist/createModels.d.mts",
+        "default": "./dist/createModels.mjs"
+      },
+      "require": {
+        "types": "./dist/createModels.d.cts",
+        "default": "./dist/createModels.cjs"
+      }
     }
   },
   "files": [

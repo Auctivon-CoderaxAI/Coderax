@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -199,6 +199,19 @@ test('Vercel root resolves every local workspace used by the Express backend', (
   assert.throws(
     () => verifyVercelBackendWorkspaceDependencies(root, { packages: { ...lock.packages, 'node_modules/@coderax/data-schemas': { resolved: 'packages/data-schemas' } } }, backend),
     /must resolve as an npm workspace link/,
+  );
+});
+
+test('data-schemas exposes the dedicated models entry to CommonJS and ESM consumers', () => {
+  const dataSchemas = { exports: { './models': {
+    require: { default: './dist/createModels.cjs', types: './dist/createModels.d.cts' },
+    import: { default: './dist/createModels.mjs', types: './dist/createModels.d.mts' },
+  } } };
+  assert.equal(verifyDataSchemasModelsExport(dataSchemas), true);
+  assert.throws(() => verifyDataSchemasModelsExport({ exports: {} }), /CommonJS models export is missing/);
+  assert.throws(
+    () => verifyDataSchemasModelsExport({ exports: { './models': { require: { default: './dist/index.cjs' } } } }),
+    /CommonJS models export is missing/,
   );
 });
 

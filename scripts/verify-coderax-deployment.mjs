@@ -73,6 +73,16 @@ export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, back
   return Object.keys(workspaces);
 }
 
+/** Ensure model bootstrap has a dedicated CommonJS/ESM workspace export. */
+export function verifyDataSchemasModelsExport(dataSchemasPackage) {
+  const modelExport = dataSchemasPackage.exports?.['./models'];
+  assert.equal(modelExport?.require?.default, './dist/createModels.cjs', 'data-schemas CommonJS models export is missing');
+  assert.equal(modelExport?.require?.types, './dist/createModels.d.cts', 'data-schemas CommonJS models types are missing');
+  assert.equal(modelExport?.import?.default, './dist/createModels.mjs', 'data-schemas ESM models export is missing');
+  assert.equal(modelExport?.import?.types, './dist/createModels.d.mts', 'data-schemas ESM models types are missing');
+  return true;
+}
+
 
 /** Validate installed workspace build tools rather than declaring untraced root
  * versions. A root tsdown range without a root lockfile package breaks npm ci.
@@ -129,11 +139,13 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
   const workspaceClientPackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
+  const dataSchemasPackage = JSON.parse(await readFile(path.join(root, 'packages/data-schemas/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
   const backendWorkspaceDependencies = verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage);
+  verifyDataSchemasModelsExport(dataSchemasPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
@@ -181,6 +193,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     backendExcludesFrontendBuild: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
+    dataSchemasModelsExport: true,
   };
 }
 
