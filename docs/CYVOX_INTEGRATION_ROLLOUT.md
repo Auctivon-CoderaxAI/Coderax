@@ -30,7 +30,7 @@ The proxy rejects remote targets without HTTPS and a token.
 
 ## Limitations
 
-- The integrated Work screen routes tasks to CyVox's `AUTO` policy.
+- The integrated Work screen requests CyVox's per-task `FAST` routing policy.
   Fast selection is a policy preference, **not a latency guarantee**.
 - Model selection through CyVox currently updates shared runtime settings,
   not a per-task model parameter. Do not change the model during another run.
