@@ -1,10 +1,10 @@
 import { Keyv } from 'keyv';
 import createMemoryStore from 'memorystore';
+import type { RedisStore as ConnectRedisStore } from 'connect-redis';
 import type { RedisStore as RedisStoreType, SendCommandFn } from 'rate-limit-redis';
 import { logger } from '@coderax/data-schemas';
 import session, { MemoryStore } from 'express-session';
 import { Time, CacheKeys } from 'coderax-data-provider';
-import type { RedisStore as ConnectRedisType } from 'connect-redis';
 import { keyvRedisClient, ioredisClient, handleKeyvRedisError } from './redisClients';
 import { createClusterSafeSendCommand } from './limiterSendCommand';
 import { batchDeleteKeys, scanKeys } from './redisUtils';
@@ -166,13 +166,14 @@ export const violationCache = (
  * @param ttl - Time to live for session entries.
  * @returns Session store instance.
  */
-export const sessionCache = (namespace: string, ttl?: number): MemoryStore | ConnectRedisType => {
+export const sessionCache = (namespace: string, ttl?: number): MemoryStore | ConnectRedisStore => {
   namespace = namespace.endsWith(':') ? namespace : `${namespace}:`;
   if (!cacheConfig.USE_REDIS) {
     const MemoryStore = createMemoryStore(session);
     return new MemoryStore({ ttl, checkPeriod: Time.ONE_DAY });
   }
-  // Redis session storage is optional; avoid loading its adapter in Mongo and memory deployments.
+  // The session adapter is only needed in Redis mode; keep MongoDB deployments
+  // from loading it while the Express service initializes.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { RedisStore: ConnectRedis } = require('connect-redis') as typeof import('connect-redis');
   const redisClient = ioredisClient
@@ -199,7 +200,8 @@ export const limiterCache = (prefix: string): RedisStoreType | undefined => {
   if (!cacheConfig.USE_REDIS) {
     return undefined;
   }
-  // Redis rate limiting is optional; load the adapter only when configured.
+  // Keep the Redis adapter optional for deployments that use MongoDB and the
+  // in-memory cache. Vercel loads this module at startup even when Redis is off.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { RedisStore } = require('rate-limit-redis') as typeof import('rate-limit-redis');
   // rate-limit-redis supplies uppercase command names to `call()`. In the

@@ -1,5 +1,3 @@
-import IoRedis from 'ioredis';
-import calculateSlot from 'cluster-key-slot';
 import { logger } from '@coderax/data-schemas';
 import type { ScanOptions } from '@redis/client/dist/lib/commands/SCAN';
 import type { RedisClientType, RedisClusterType } from '@redis/client';
@@ -41,6 +39,10 @@ async function waitForKeyvRedisClient(): Promise<void> {
 
 let ioredisClient: Redis | Cluster | null = null;
 if (cacheConfig.USE_REDIS) {
+  // Only MongoDB/in-memory deployments should be able to import the API
+  // package without installing or initializing Redis clients.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const IoRedis = require('ioredis') as typeof import('ioredis').default;
   const redisOptions: Record<string, unknown> = {
     username: username,
     password: password,
@@ -164,6 +166,8 @@ async function runKeyvRedisScript(
     return client.eval(script, options);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const calculateSlot = require('cluster-key-slot') as typeof import('cluster-key-slot');
   const slot = calculateSlot(options.keys[0]);
   if (options.keys.some((key) => calculateSlot(key) !== slot)) {
     throw new Error('Redis catalog script keys must share one cluster slot');

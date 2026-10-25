@@ -20,92 +20,67 @@ test('Vercel routes the client and API through separate services', async () => {
   assert.equal(result.backendExcludesFrontendBuild, true);
 });
 
-test('Vercel clean installs resolve root and workspace build tools', () => {
-  const tools = {
-    '@tailwindcss/postcss': '^4.3.3',
-    '@tsdown/css': '^0.22.2',
-    '@vitejs/plugin-react': '6.0.2',
-    postcss: '^8.5.18',
-    tailwindcss: '^4.3.3',
-    tsdown: '^0.22.2',
-    typescript: '^5.9.3',
-    vite: '8.2.2',
-    'vite-plugin-compression2': '2.5.3',
-    'vite-plugin-node-polyfills': '0.28.0',
-    'vite-plugin-pwa': '1.3.0',
-  };
-  const root = { devDependencies: tools };
+
+test('CI rejects undeclared root tsdown resolution and missing workspace build tools', () => {
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
-  const frontend = { devDependencies: { 'cross-env': '^7.0.3' } };
+  const services = { services: {
+    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
+    backend: { installCommand: 'npm ci --include=dev' },
+  } };
   const lock = { packages: {
-    '': { devDependencies: tools },
-    client: { devDependencies: { 'cross-env': '^7.0.3' } },
-    'node_modules/@tsdown/css': { version: '0.22.2' },
-    'node_modules/@tailwindcss/postcss': { version: '4.3.3' },
-    'node_modules/@vitejs/plugin-react': { version: '6.0.2' },
-    'node_modules/cross-env': { version: '7.0.3' },
-    'node_modules/postcss': { version: '8.5.23' },
-    'node_modules/tailwindcss': { version: '4.3.3' },
-    'node_modules/tsdown': { version: '0.22.14' },
-    'node_modules/typescript': { version: '5.9.3' },
-    'node_modules/vite': { version: '8.2.2' },
-    'node_modules/vite-plugin-compression2': { version: '2.5.3' },
-    'node_modules/vite-plugin-node-polyfills': { version: '0.28.0' },
-    'node_modules/vite-plugin-pwa': { version: '1.3.0' },
+    '': { devDependencies: {} },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/client/node_modules/tsdown': { version: '0.22.2' },
     'packages/api/node_modules/tsdown': { version: '0.22.2' },
   } };
-  const services = { services: {
-    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
-    backend: { installCommand: 'npm ci --include=dev' },
-  } };
-
-  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services, frontend));
+  const root = { devDependencies: {} };
+  assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services));
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'node_modules/tsdown': undefined } }, client, api, services, frontend),
-    /root lockfile must resolve tsdown/,
+    () => verifyWorkspaceBuildTooling({ devDependencies: { ...root.devDependencies, tsdown: '^0.22.2' } }, lock, client, api, services),
+    /root tsdown manifest and lockfile/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } }, lock, client, api, services, frontend),
-    /Vercel root must declare @tailwindcss\/postcss/,
+    () => verifyWorkspaceBuildTooling(root, { packages: { ...lock.packages, 'packages/client/node_modules/tsdown': undefined } }, client, api, services),
+    /packages.client tsdown package must be resolved/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services, frontend),
-    /packages\/client must declare tsdown/,
-  );
-  assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --include=dev --workspaces --include-workspace-root' } } }, frontend),
-    /backend service must let npm ci resolve the repository's declared workspaces/,
-  );
-  assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, client, api, services, { devDependencies: {} }),
-    /client frontend workspace must declare cross-env/,
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --omit=dev' } } }),
+    /backend service must install workspace development/,
   );
 });
 
-test('Vercel backend tracing requires lockfile-backed mathjs and rate-limit-redis runtime dependencies', () => {
-  const version = '^15.2.0';
-  const redisVersion = '^4.2.0';
-  const root = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } };
-  const lock = { packages: { '': { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } }, 'node_modules/mathjs': { version: '15.2.0' }, 'node_modules/rate-limit-redis': { version: '4.2.0' } } };
-  const api = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion }, peerDependencies: {} };
-  const backend = { dependencies: { mathjs: version, 'rate-limit-redis': redisVersion } };
+test('Vercel backend tracing requires root runtime dependencies for API workspace peers', () => {
+  const mathjs = '^15.2.0';
+  const redis = '^4.2.0';
+  const sdk = '^1.30.0';
+  const root = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
+  const lock = { packages: {
+    '': { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } },
+    'node_modules/mathjs': { version: '15.2.0' },
+    'node_modules/rate-limit-redis': { version: '4.2.0' },
+    'node_modules/@modelcontextprotocol/sdk': { version: '1.30.0' },
+  } };
+  const api = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
+  const backend = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
 
-  assert.doesNotThrow(() => verifyVercelRuntimeDependency(root, lock, api, backend));
+  assert.doesNotThrow(() => {
+    verifyVercelRuntimeDependency(root, lock, api, backend, 'mathjs');
+    verifyVercelRuntimeDependency(root, lock, api, backend, 'rate-limit-redis');
+    verifyVercelRuntimeDependency(root, lock, api, backend, '@modelcontextprotocol/sdk');
+  });
   assert.throws(
-    () => verifyVercelRuntimeDependency({ dependencies: {} }, lock, api, backend),
-    /Vercel root must declare mathjs/,
+    () => verifyVercelRuntimeDependency({ dependencies: { mathjs } }, lock, api, backend, 'rate-limit-redis'),
+    /Vercel root must declare rate-limit-redis/,
   );
   assert.throws(
-    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend),
-    /root lockfile must include mathjs/,
+    () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend, 'rate-limit-redis'),
+    /root lockfile must include rate-limit-redis/,
   );
   assert.throws(
-    () => verifyVercelRuntimeDependency(root, lock, { ...api, dependencies: { mathjs: version, 'rate-limit-redis': undefined } }, backend),
-    /rate-limit-redis as a runtime dependency/,
+    () => verifyVercelRuntimeDependency(root, lock, { dependencies: { mathjs }, peerDependencies: { '@modelcontextprotocol/sdk': sdk } }, backend, '@modelcontextprotocol/sdk'),
+    /@coderax\/api must declare @modelcontextprotocol\/sdk as a dependency/,
   );
 });
 

@@ -20,9 +20,13 @@ test('compiled API does not load Redis adapters when Redis is disabled', () => {
     require(process.argv[1]);
     const redisModules = Object.keys(require.cache).filter((filename) => {
       const path = filename.split(String.fromCharCode(92)).join('/');
-      return path.includes('/node_modules/@keyv/redis/') ||
-        path.includes('/node_modules/rate-limit-redis/') ||
-        path.includes('/node_modules/connect-redis/');
+      return [
+        '/node_modules/@keyv/redis/',
+        '/node_modules/cluster-key-slot/',
+        '/node_modules/connect-redis/',
+        '/node_modules/ioredis/',
+        '/node_modules/rate-limit-redis/',
+      ].some((modulePath) => path.includes(modulePath));
     });
     if (redisModules.length > 0) {
       throw new Error('OPTIONAL_REDIS_PROVIDER_LOADED');
@@ -34,7 +38,7 @@ test('compiled API does not load Redis adapters when Redis is disabled', () => {
     cwd: root,
     encoding: 'utf8',
     // The emitted API is large; allow slower Windows CI runners to load it.
-    timeout: 180_000,
+    timeout: 120_000,
     env: { ...process.env, USE_REDIS: 'false', REDIS_URI: '' },
   });
   assert.equal(child.error, undefined, String(child.error));
