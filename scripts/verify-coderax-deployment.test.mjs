@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
@@ -11,6 +13,42 @@ const headers = (type, extras = {}) => ({
     const values = { 'content-type': type, ...extras };
     return values[name.toLowerCase()] ?? null;
   },
+});
+
+test('database startup tolerates an absent optional Mongoose telemetry export', async () => {
+  const filename = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../api/db/connect.js');
+  const source = await readFile(filename, 'utf8');
+
+  for (const hasTelemetry of [false, true]) {
+    const warnings = [];
+    let called = false;
+    const mongoose = { connection: { on() {} } };
+    const module = { exports: {} };
+    vm.runInNewContext(source, {
+      module,
+      global: {},
+      process: { env: { MONGO_URI: 'mongodb://localhost/coderax-test' } },
+      require(name) {
+        if (name === 'dotenv') return { config() {} };
+        if (name === 'mongoose') return mongoose;
+        if (name === '@coderax/data-schemas') {
+          return { logger: { warn(message) { warnings.push(message); }, error() {} } };
+        }
+        if (name === '@coderax/api') return {
+          optionalEnabled: () => undefined,
+          ...(hasTelemetry ? { instrumentMongooseQueryMetrics(value) {
+            assert.equal(value, mongoose);
+            called = true;
+          } } : {}),
+        };
+        throw new Error('Unexpected import: ' + name);
+      },
+    }, { filename });
+
+    assert.equal(typeof module.exports.connectDb, 'function');
+    assert.equal(called, hasTelemetry);
+    assert.equal(warnings.length, hasTelemetry ? 0 : 1);
+  }
 });
 
 test('Vercel routes the client and API through separate services', async () => {
