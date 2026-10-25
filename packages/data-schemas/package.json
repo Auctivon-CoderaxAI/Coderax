@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "clean": "rimraf dist",
-    "build": "npm run clean && tsdown",
+    "build": "npm run clean && tsdown && node scripts/normalize-cjs-runtime.mjs",
     "build:watch": "tsdown --watch",
     "test": "jest --coverage --watch",
     "test:ci": "jest --coverage --ci",
