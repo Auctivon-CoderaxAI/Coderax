@@ -22,6 +22,7 @@ const { logger, runAsSystem } = require('@coderax/data-schemas');
 const {
   isEnabled,
   issueCsp,
+  createInitializationGate,
   apiNotFound,
   createMetrics,
   applyCspNonce,
@@ -114,6 +115,16 @@ const trusted_proxy = Number(TRUST_PROXY) || 1; /* trust first proxy by default 
 
 const app = express();
 app.locals.codeApiUploadRegistry = createCodeApiUploadRegistry();
+let resolveRoutesReady;
+let rejectRoutesReady;
+const routesReady = new Promise((resolve, reject) => {
+  resolveRoutesReady = resolve;
+  rejectRoutesReady = reject;
+});
+// An early failed bootstrap is handled by startServer's fail-fast path. Keep the
+// promise rejection observed even when no request arrives to await route setup.
+routesReady.catch(() => {});
+app.use(createInitializationGate(routesReady));
 let serverReady = false;
 /** @type {import('@coderax/api').ScheduleEngineState} */
 let scheduleEngineState = 'starting';
@@ -502,6 +513,7 @@ const startServer = async () => {
   app.use(ErrorController);
 
   configureGenerationStreams();
+  resolveRoutesReady();
 
   const server = app.listen(port, host, async (err) => {
     if (err) {
@@ -584,6 +596,7 @@ const startServer = async () => {
  * `experimental.js`.
  */
 startServer().catch((err) => {
+  rejectRoutesReady(err);
   logger.error('Failed to start server:', err);
   process.exit(1);
 });

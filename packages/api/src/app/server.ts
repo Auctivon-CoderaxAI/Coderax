@@ -1,5 +1,18 @@
 import { logger } from '@coderax/data-schemas';
+import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
+
+/** Hold Vercel's first Express requests until the asynchronous app bootstrap has mounted routes. */
+export const createInitializationGate = (
+  routesReady: Promise<void>,
+): ((req: Request, res: Response, next: NextFunction) => void) => {
+  return (_req, _res, next) => {
+    void routesReady.then(
+      () => next(),
+      (error: unknown) => next(error),
+    );
+  };
+};
 
 /**
  * Node detects header/request timeout expiry only on `connectionsCheckingInterval`, a

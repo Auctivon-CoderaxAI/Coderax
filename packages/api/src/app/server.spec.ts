@@ -1,6 +1,34 @@
 import { createServer } from 'node:http';
 import { logger } from '@coderax/data-schemas';
-import { configureServerTimeouts } from './server';
+import { createInitializationGate, configureServerTimeouts } from './server';
+
+describe('createInitializationGate', () => {
+  it('holds requests until asynchronous route registration completes', async () => {
+    let resolveRoutes!: () => void;
+    const routesReady = new Promise<void>((resolve) => {
+      resolveRoutes = resolve;
+    });
+    const next = jest.fn();
+
+    createInitializationGate(routesReady)({} as never, {} as never, next);
+    await Promise.resolve();
+    expect(next).not.toHaveBeenCalled();
+
+    resolveRoutes();
+    await routesReady;
+    await Promise.resolve();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes bootstrap errors to Express error handling', async () => {
+    const error = new Error('route setup failed');
+    const next = jest.fn();
+
+    createInitializationGate(Promise.reject(error))({} as never, {} as never, next);
+    await Promise.resolve();
+    expect(next).toHaveBeenCalledWith(error);
+  });
+});
 
 describe('configureServerTimeouts', () => {
   const NODE = {};
