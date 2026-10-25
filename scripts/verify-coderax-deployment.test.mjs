@@ -54,18 +54,21 @@ test('CI rejects undeclared root tsdown resolution and missing workspace build t
 test('Vercel backend tracing requires root runtime dependencies for API workspace peers', () => {
   const mathjs = '^15.2.0';
   const redis = '^4.2.0';
-  const root = { dependencies: { mathjs, 'rate-limit-redis': redis } };
+  const sdk = '^1.30.0';
+  const root = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
   const lock = { packages: {
-    '': { dependencies: { mathjs, 'rate-limit-redis': redis } },
+    '': { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } },
     'node_modules/mathjs': { version: '15.2.0' },
     'node_modules/rate-limit-redis': { version: '4.2.0' },
+    'node_modules/@modelcontextprotocol/sdk': { version: '1.30.0' },
   } };
-  const api = { dependencies: { mathjs, 'rate-limit-redis': redis } };
-  const backend = { dependencies: { mathjs, 'rate-limit-redis': redis } };
+  const api = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
+  const backend = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
 
   assert.doesNotThrow(() => {
     verifyVercelRuntimeDependency(root, lock, api, backend, 'mathjs');
     verifyVercelRuntimeDependency(root, lock, api, backend, 'rate-limit-redis');
+    verifyVercelRuntimeDependency(root, lock, api, backend, '@modelcontextprotocol/sdk');
   });
   assert.throws(
     () => verifyVercelRuntimeDependency({ dependencies: { mathjs } }, lock, api, backend, 'rate-limit-redis'),
@@ -74,6 +77,10 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
   assert.throws(
     () => verifyVercelRuntimeDependency(root, { packages: {} }, api, backend, 'rate-limit-redis'),
     /root lockfile must include rate-limit-redis/,
+  );
+  assert.throws(
+    () => verifyVercelRuntimeDependency(root, lock, { dependencies: { mathjs }, peerDependencies: { '@modelcontextprotocol/sdk': sdk } }, backend, '@modelcontextprotocol/sdk'),
+    /@coderax\/api must declare @modelcontextprotocol\/sdk as a dependency/,
   );
 });
 

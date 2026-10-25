@@ -35,8 +35,8 @@ export const validateLiveURL = (value) => {
  * rather than relying solely on npm workspace hoisting.
  */
 export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, name) {
-  const required = apiPackage.dependencies?.[name] ?? apiPackage.peerDependencies?.[name];
-  assert.equal(typeof required, 'string', `@coderax/api must declare ${name} as a runtime dependency`);
+  const required = apiPackage.dependencies?.[name];
+  assert.equal(typeof required, 'string', `@coderax/api must declare ${name} as a dependency`);
   assert.equal(backendPackage.dependencies?.[name], required, `Express ${name} version must match @coderax/api`);
   assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare ${name} for function tracing`);
   assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include ${name} for npm ci`);
@@ -102,7 +102,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  for (const dependency of ['mathjs', 'rate-limit-redis']) {
+  for (const dependency of ['mathjs', 'rate-limit-redis', '@modelcontextprotocol/sdk']) {
     verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, dependency);
   }
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));

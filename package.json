@@ -171,6 +171,7 @@
   },
   "homepage": "https://coderax/",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "mathjs": "^15.2.0",
     "rate-limit-redis": "^4.2.0"
   },
