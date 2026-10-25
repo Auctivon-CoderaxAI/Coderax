@@ -1,0 +1,17 @@
+# The public listener exists only for the authenticated Vercel API proxy.
+# The Ollama port and the Coderax application port are never published.
+{$CODERAX_API_HOST} {
+	encode zstd gzip
+
+	@unauthorized not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
+	respond @unauthorized 403
+
+	reverse_proxy app:3080 {
+		flush_interval -1
+		header_up Host {http.request.header.X-Forwarded-Host}
+		header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+		header_up -X-Coderax-Proxy-Secret
+	}
+}

@@ -276,14 +276,26 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     /npm ci --include=dev/,
     'frontend service must install the build toolchain used by the client package',
   );
-  assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
-  assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  const backendFunctionFiles = services.services?.backend?.functions?.['api/server/index.js']?.includeFiles;
+  assert.equal(services.services?.backend?.framework, 'express', 'Express API proxy service not configured');
+  assert.equal(services.services?.backend?.entrypoint, 'api/proxy.js', 'backend proxy entrypoint missing');
   assert.ok(
-    backendFunctionFiles ===
-      '{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}',
-    'Vercel backend must include API source and built workspace runtime files in one supported glob',
+    Number.isInteger(services.services?.backend?.maxDuration) &&
+      services.services.backend.maxDuration >= 60 &&
+      services.services.backend.maxDuration <= 300,
+    'backend proxy must allow streaming within the Vercel Hobby function limit',
   );
+  assert.equal(
+    services.services?.backend?.functions?.['api/proxy.js']?.includeFiles,
+    '{api/proxy.js,api/proxy-handler.js}',
+    'Vercel backend must include the small proxy entrypoint and handler',
+  );
+  const proxySource = await readFile(path.join(root, 'api/proxy.js'), 'utf8');
+  const proxyHandlerSource = await readFile(path.join(root, 'api/proxy-handler.js'), 'utf8');
+  assert.match(proxySource, /require\(['"]\.\/proxy-handler['"]\)/, 'Express service must load the isolated proxy handler');
+  assert.match(proxyHandlerSource, /CODERAX_API_ORIGIN/, 'proxy must require a configured API origin');
+  assert.match(proxyHandlerSource, /CODERAX_PROXY_SECRET/, 'proxy must require a private origin secret');
+  assert.match(proxyHandlerSource, /function isApiPath/, 'proxy must allowlist forwarded routes');
+  assert.doesNotMatch(proxySource + proxyHandlerSource, /api\/server\/index/, 'Vercel proxy must not start the database-backed API locally');
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client(?:-package)?\b/,
@@ -300,6 +312,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
+    backendApiProxy: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
     backendBootstrapDependencies,
     backendEntrypointDependencies,

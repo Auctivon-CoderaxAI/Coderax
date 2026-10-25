@@ -72,15 +72,16 @@ test('Vercel routes the client and API through separate services', async () => {
 });
 
 
-test('Vercel packages CommonJS module-alias source files needed by Express', async () => {
+test('Vercel uses a narrow authenticated proxy instead of booting the database API', async () => {
   const { readFile } = await import('node:fs/promises');
   const { fileURLToPath } = await import('node:url');
   const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
   const config = JSON.parse(await readFile(vercelPath, 'utf8'));
-  assert.equal(config.services.backend.entrypoint, 'api/server/index.js');
+  assert.equal(config.services.backend.entrypoint, 'api/proxy.js');
+  assert.equal(config.services.backend.maxDuration, 300);
   assert.equal(
-    config.services.backend.functions?.['api/server/index.js']?.includeFiles,
-    '{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}',
+    config.services.backend.functions?.['api/proxy.js']?.includeFiles,
+    '{api/proxy.js,api/proxy-handler.js}',
   );
   assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
 });

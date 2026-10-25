@@ -16,13 +16,14 @@
     },
     "backend": {
       "root": ".",
-      "entrypoint": "api/server/index.js",
+      "entrypoint": "api/proxy.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-runtime-model-export.mjs && node scripts/verify-coderax-api-bundle.mjs && node --test scripts/verify-coderax-optional-redis.test.mjs",
+      "maxDuration": 300,
+      "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs api/proxy.spec.js scripts/verify-oci-deployment.test.mjs",
       "functions": {
-        "api/server/index.js": {
-          "includeFiles": "{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}"
+        "api/proxy.js": {
+          "includeFiles": "{api/proxy.js,api/proxy-handler.js}"
         }
       }
     }
