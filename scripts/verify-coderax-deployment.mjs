@@ -54,6 +54,26 @@ export function verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage
   return dependencies;
 }
 
+/** Keep third-party imports used by the backend bootstrap visible to Vercel's
+ * root tracer. Workspace imports are verified separately below.
+ */
+export function verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, source) {
+  const imports = [...source.matchAll(/\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g)]
+    .map((match) => match[1])
+    .filter((name) => !name.startsWith('.') && !name.startsWith('node:'))
+    .filter((name) => !['@coderax/api', 'coderax-data-provider'].includes(name));
+
+  for (const name of imports) {
+    const required = backendPackage.dependencies?.[name];
+    assert.equal(typeof required, 'string', `Express must declare bootstrap dependency ${name}`);
+    assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare bootstrap dependency ${name}`);
+    assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include bootstrap dependency ${name}`);
+    assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include bootstrap dependency ${name}`);
+    assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve bootstrap dependency ${name}`);
+  }
+  return [...new Set(imports)].sort();
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -142,8 +162,10 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const dataSchemasPackage = JSON.parse(await readFile(path.join(root, 'packages/data-schemas/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
+  const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
+  const backendBootstrapDependencies = verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, backendBootstrapSource);
   const backendWorkspaceDependencies = verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage);
   verifyDataSchemasModelsExport(dataSchemasPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
@@ -194,6 +216,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
+    backendBootstrapDependencies,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
     dataSchemasModelsExport: true,
   };

@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -170,6 +170,29 @@ test('Vercel traces every direct API runtime dependency from the root and server
   assert.throws(
     () => verifyVercelApiRuntimeDependencies(root, { packages: { ...lock.packages, api: { dependencies: { mathjs: '^15.2.0' } } } }, api, backend),
     /Express lockfile must include helmet/,
+  );
+});
+
+test('Vercel root traces third-party dependencies imported by the backend bootstrap', () => {
+  const dependencies = { eventsource: '^3.0.2' };
+  const root = { dependencies };
+  const backend = { dependencies };
+  const lock = { packages: {
+    '': { dependencies },
+    api: { dependencies },
+    'node_modules/eventsource': { version: '3.0.2' },
+  } };
+  assert.deepEqual(
+    verifyVercelBackendBootstrapDependencies(root, lock, backend, "const { EventSource } = require('eventsource');"),
+    ['eventsource'],
+  );
+  assert.throws(
+    () => verifyVercelBackendBootstrapDependencies({ dependencies: {} }, lock, backend, "require('eventsource');"),
+    /Vercel root must declare bootstrap dependency eventsource/,
+  );
+  assert.throws(
+    () => verifyVercelBackendBootstrapDependencies(root, { packages: { ...lock.packages, api: { dependencies: {} } } }, backend, "require('eventsource');"),
+    /Express lockfile must include bootstrap dependency eventsource/,
   );
 });
 

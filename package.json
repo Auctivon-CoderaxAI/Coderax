@@ -180,6 +180,7 @@
     "coderax-data-provider": "*",
     "cluster-key-slot": "^1.1.2",
     "croner": "^10.0.1",
+    "eventsource": "^3.0.2",
     "express-rate-limit": "^8.5.1",
     "helmet": "^8.3.0",
     "mathjs": "^15.2.0",
