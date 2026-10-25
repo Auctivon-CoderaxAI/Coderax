@@ -22,7 +22,7 @@
       "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs packages/api/proxy.test.mjs scripts/verify-oci-deployment.test.mjs",
       "functions": {
         "api/proxy.js": {
-          "includeFiles": "{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/rolldown-runtime-*.cjs}",
+          "includeFiles": "{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}",
           "maxDuration": 300
         }
       }

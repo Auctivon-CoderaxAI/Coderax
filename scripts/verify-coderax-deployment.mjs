@@ -286,12 +286,13 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(
     services.services?.backend?.functions?.['api/proxy.js']?.includeFiles,
-    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
+    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
     'Vercel backend must include the small proxy entrypoint and compiled TypeScript handler',
   );
   const proxySource = await readFile(path.join(root, 'api/proxy.js'), 'utf8');
   const proxyHandlerSource = await readFile(path.join(root, 'packages/api/src/proxy.ts'), 'utf8');
   const apiPackageSource = await readFile(path.join(root, 'packages/api/package.json'), 'utf8');
+  assert.match(apiPackageSource, /normalize-cjs-runtime\.mjs dist\/proxy\.cjs/, 'API build must normalize the proxy CommonJS entrypoint for Vercel');
   assert.match(proxySource, /require\(['"]@coderax\/api\/proxy['"]\)/, 'Express wiring must load the TypeScript API workspace export');
   assert.match(apiPackageSource, /"\.\/proxy"\s*:/, 'API workspace must export the compiled proxy entry');
   assert.match(proxyHandlerSource, /CODERAX_API_ORIGIN/, 'proxy must require a configured API origin');

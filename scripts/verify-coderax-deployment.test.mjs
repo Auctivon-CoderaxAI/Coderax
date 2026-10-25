@@ -81,8 +81,11 @@ test('Vercel uses a narrow authenticated proxy instead of booting the database A
   assert.equal(config.services.backend.functions?.['api/proxy.js']?.maxDuration, 300);
   assert.equal(
     config.services.backend.functions?.['api/proxy.js']?.includeFiles,
-    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
+    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
   );
+  const apiPackagePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../packages/api/package.json');
+  const apiPackage = JSON.parse(await readFile(apiPackagePath, 'utf8'));
+  assert.match(apiPackage.scripts.build, /normalize-cjs-runtime\.mjs dist\/proxy\.cjs/);
   assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
 });
 
