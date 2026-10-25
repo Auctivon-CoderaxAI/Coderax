@@ -15,6 +15,7 @@ const externalMcpSdk = /\b(?:require|import)\s*\(\s*['"]@modelcontextprotocol\/s
 const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:-parser)?)(?:\/[^'"]*)?['"]\s*\)/;
 const externalWebauthn = /\b(?:require|import)\s*\(\s*['"]@simplewebauthn\/server(?:\/[^'"]*)?['"]\s*\)/;
 const externalWebauthnRuntime = /\b(?:require|import)\s*\(\s*['"](?:@hexagon\/base64|@levischuck\/tiny-cbor|@peculiar\/[^'"]+|reflect-metadata)(?:\/[^'"]*)?['"]\s*\)/;
+const externalDirectRuntime = /\b(?:require|import)\s*\(\s*['"](?:@langchain\/langgraph-checkpoint(?:-mongodb)?|cluster-key-slot|croner|express-rate-limit|helmet|ollama|proxy-from-env|rate-limit-redis|re2js)(?:\/[^'"]*)?['"]\s*\)/;
 
 export async function verifyApiBundle(root = repoRoot) {
   const dist = path.join(root, 'packages/api/dist');
@@ -27,8 +28,9 @@ export async function verifyApiBundle(root = repoRoot) {
     assert.ok(!externalMcpTransitive.test(code), name + ' still requires an external MCP SDK transport dependency');
     assert.ok(!externalWebauthn.test(code), name + ' still requires external WebAuthn server');
     assert.ok(!externalWebauthnRuntime.test(code), name + ' still requires external WebAuthn runtime dependency');
+    assert.ok(!externalDirectRuntime.test(code), name + ' still requires external @coderax/api production dependency');
   }
-  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false };
+  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false, externalDirectRuntime: false };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
