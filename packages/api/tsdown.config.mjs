@@ -23,9 +23,10 @@ export default defineConfig({
   // only first-party code: relative imports and the `~/*` tsconfig alias (-> src).
   // `neverBundle` is the 0.22 replacement for the deprecated `external` option.
   deps: {
-    neverBundle: (id) => id !== 'mathjs' && !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
-    // Vercel Services traces this workspace as a function; keep calculator evaluation
-    // in the emitted API bundle rather than relying on an omitted peer at runtime.
-    alwaysBundle: ['mathjs'],
+    neverBundle: (id) => id !== 'mathjs' && !id.startsWith('@modelcontextprotocol/sdk') && !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
+    // Vercel Services traces this workspace as a function. The calculator and
+    // MCP SDK (including its /types.js subpath) must be in the emitted API
+    // bundle: both have been missing from deployed function traces.
+    alwaysBundle: ['mathjs', '@modelcontextprotocol/sdk'],
   },
 });
