@@ -18,6 +18,7 @@ test('Vercel routes the client and API through separate services', async () => {
   assert.equal(result.spaExcludesApi, true);
   assert.equal(result.frontendIncludesBuildDependencies, true);
   assert.equal(result.backendExcludesFrontendBuild, true);
+  assert.equal(result.backendIncludesRateLimitRedis, true);
 });
 
 test('Vercel clean installs resolve root and workspace build tools', () => {

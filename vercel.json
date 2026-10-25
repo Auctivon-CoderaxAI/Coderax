@@ -18,6 +18,9 @@
       "root": ".",
       "entrypoint": "api/server/index.js",
       "framework": "express",
+      "includeFiles": [
+        "node_modules/rate-limit-redis/**/*"
+      ],
       "installCommand": "npm ci --include=dev",
       "buildCommand": "node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs && npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-api-bundle.mjs && node --test scripts/verify-coderax-optional-redis.test.mjs"
     }

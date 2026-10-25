@@ -140,6 +140,10 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services, clientPackage);
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.ok(
+    services.services?.backend?.includeFiles?.includes('node_modules/rate-limit-redis/**/*'),
+    'backend service must include rate-limit-redis for Vercel runtime tracing',
+  );
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client(?:-package)?\b/,
@@ -155,6 +159,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
+    backendIncludesRateLimitRedis: true,
   };
 }
 
