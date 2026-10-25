@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { createModels } = require('@coderax/data-schemas');
+const { createModels } = require('@coderax/data-schemas/models');
 const { connectDb } = require('./connect');
 
 // createModels MUST run before requiring indexSync.

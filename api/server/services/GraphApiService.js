@@ -1,9 +1,5 @@
-const client = require('openid-client');
-const {
-  isEnabled,
-  getTokenCacheTtlMs,
-  DEFAULT_OAUTH_TOKEN_TTL_SECONDS,
-} = require('@coderax/api');
+const { openIdClient: client } = require('~/server/utils/openIdClient');
+const { isEnabled, getTokenCacheTtlMs, DEFAULT_OAUTH_TOKEN_TTL_SECONDS } = require('@coderax/api');
 const { logger } = require('@coderax/data-schemas');
 const { CacheKeys } = require('coderax-data-provider');
 const { Client } = require('@microsoft/microsoft-graph-client');

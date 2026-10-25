@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const winston = require('winston');
 require('winston-daily-rotate-file');
+const { shouldUseMeiliFileLogging } = require('@coderax/api');
 
 /**
  * Determine the log directory.
@@ -35,9 +36,10 @@ const useDebugLogging =
   (typeof DEBUG_LOGGING === 'string' && DEBUG_LOGGING?.toLowerCase() === 'true') ||
   DEBUG_LOGGING === true;
 
-const useFileLogging =
-  (typeof LOG_TO_FILE === 'string' && LOG_TO_FILE?.toLowerCase() !== 'false') ||
-  LOG_TO_FILE === true;
+const useFileLogging = shouldUseMeiliFileLogging({
+  vercel: process.env.VERCEL,
+  logToFile: LOG_TO_FILE,
+});
 
 const levels = {
   error: 0,

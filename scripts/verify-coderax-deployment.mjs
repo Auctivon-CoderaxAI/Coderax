@@ -54,6 +54,90 @@ export function verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage
   return dependencies;
 }
 
+/** Keep third-party imports used by the backend bootstrap visible to Vercel's
+ * root tracer. Workspace imports are verified separately below.
+ */
+export function verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, source) {
+  const imports = [...source.matchAll(/\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g)]
+    .map((match) => match[1])
+    .filter((name) => !name.startsWith('.') && !name.startsWith('node:'))
+    .filter((name) => !['@coderax/api', 'coderax-data-provider'].includes(name));
+
+  for (const name of imports) {
+    const required = backendPackage.dependencies?.[name];
+    assert.equal(typeof required, 'string', `Express must declare bootstrap dependency ${name}`);
+    assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare bootstrap dependency ${name}`);
+    assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include bootstrap dependency ${name}`);
+    assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include bootstrap dependency ${name}`);
+    assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve bootstrap dependency ${name}`);
+  }
+  return [...new Set(imports)].sort();
+}
+
+/** Keep dependencies hidden behind module-alias visible to Vercel's static
+ * function tracer by importing them directly from the Express entrypoint.
+ */
+export function verifyVercelEntrypointDependency(source, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  assert.match(
+    source,
+    new RegExp(`\\brequire\\s*\\(\\s*['"]${escaped}['"]\\s*\\)`),
+    `Vercel function entrypoint must directly import ${name} so it is traced`,
+  );
+  return name;
+}
+
+/** Keep a dependency hidden behind module-alias traceable from the Vercel root. */
+export function verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, source, specifier) {
+  verifyVercelEntrypointDependency(source, specifier);
+  const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+  const required = backendPackage.dependencies?.[name];
+  assert.equal(typeof required, 'string', `Express must declare entrypoint dependency ${name}`);
+  assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare entrypoint dependency ${name}`);
+  assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include entrypoint dependency ${name}`);
+  assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include entrypoint dependency ${name}`);
+  assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve entrypoint dependency ${name}`);
+  return name;
+}
+
+/** Verify package markers for dependencies that Vercel cannot reach through
+ * module-alias. The marker uses require.resolve so tracing does not eagerly
+ * initialize optional providers and authentication integrations.
+ */
+export function verifyVercelAliasRuntimeDependencies(lock, backendPackage, source) {
+  const specifiers = [...source.matchAll(/\brequire\.resolve\s*\(\s*['"]([^'"]+)['"]\s*\)/g)]
+    .map((match) => match[1]);
+  assert.ok(specifiers.length > 0, 'Vercel alias-hidden runtime dependency markers are missing');
+  for (const specifier of specifiers) {
+    const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+    const required = backendPackage.dependencies?.[name];
+    assert.equal(typeof required, 'string', `Express must declare alias-hidden runtime dependency ${name}`);
+    assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include alias-hidden dependency ${name}`);
+    assert.ok(
+      lock.packages?.[`api/node_modules/${name}`]?.version || lock.packages?.[`node_modules/${name}`]?.version,
+      `lockfile must resolve alias-hidden dependency ${name}`,
+    );
+  }
+  return [...new Set(specifiers.map((specifier) => (
+    specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+  )))].sort();
+}
+
+/** openid-client v6 is ESM; backend CommonJS modules must reach it through import(). */
+export function verifyVercelOpenIdClientEsmCompatibility(sources, loaderSource) {
+  const directRequire = /\brequire\s*\(\s*['"]openid-client(?:\/passport)?['"]\s*\)/;
+  for (const [filename, source] of Object.entries(sources)) {
+    assert.doesNotMatch(
+      source,
+      directRequire,
+      `${filename} cannot synchronously require the ESM-only openid-client package`,
+    );
+  }
+  assert.match(loaderSource, /\bimport\s*\(\s*['"]openid-client['"]\s*\)/, 'OpenID loader must use import()');
+  assert.match(loaderSource, /\bimport\s*\(\s*['"]openid-client\/passport['"]\s*\)/, 'OpenID Passport loader must use import()');
+  return Object.keys(sources).sort();
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -71,6 +155,16 @@ export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, back
     assert.ok(lock.packages?.[workspace], `lockfile is missing workspace ${workspace}`);
   }
   return Object.keys(workspaces);
+}
+
+/** Ensure model bootstrap has a dedicated CommonJS/ESM workspace export. */
+export function verifyDataSchemasModelsExport(dataSchemasPackage) {
+  const modelExport = dataSchemasPackage.exports?.['./models'];
+  assert.equal(modelExport?.require?.default, './dist/createModels.cjs', 'data-schemas CommonJS models export is missing');
+  assert.equal(modelExport?.require?.types, './dist/createModels.d.cts', 'data-schemas CommonJS models types are missing');
+  assert.equal(modelExport?.import?.default, './dist/createModels.mjs', 'data-schemas ESM models export is missing');
+  assert.equal(modelExport?.import?.types, './dist/createModels.d.mts', 'data-schemas ESM models types are missing');
+  return true;
 }
 
 
@@ -129,11 +223,36 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
   const workspaceClientPackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
+  const dataSchemasPackage = JSON.parse(await readFile(path.join(root, 'packages/data-schemas/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
+  const backendAliasTraceSource = await readFile(path.join(root, 'api/server/vercel-trace-dependencies.js'), 'utf8');
+  const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
+  const openIdRuntimePaths = [
+    'api/strategies/openidStrategy.js',
+    'api/server/routes/oauth.js',
+    'api/server/routes/admin/auth.js',
+    'api/server/services/OpenIDSessionRefresh.js',
+    'api/server/services/OboTokenService.js',
+    'api/server/services/GraphApiService.js',
+    'api/server/utils/openIdClient.js',
+  ];
+  const openIdRuntimeSources = Object.fromEntries(await Promise.all(
+    openIdRuntimePaths.map(async (filename) => [filename, await readFile(path.join(root, filename), 'utf8')]),
+  ));
+  const openIdLoaderSource = await readFile(path.join(root, 'packages/api/src/auth/openid/client.ts'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  verifyVercelEntrypointDependency(backendSource, './vercel-trace-dependencies');
+  const backendAliasRuntimeDependencies = verifyVercelAliasRuntimeDependencies(lock, backendPackage, backendAliasTraceSource);
+  const openIdClientEsmSafeSources = verifyVercelOpenIdClientEsmCompatibility(openIdRuntimeSources, openIdLoaderSource);
+  const backendEntrypointDependencies = [
+    verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'eventsource'),
+    verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'lodash/partialRight'),
+  ];
   const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
+  const backendBootstrapDependencies = verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, backendBootstrapSource);
   const backendWorkspaceDependencies = verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage);
+  verifyDataSchemasModelsExport(dataSchemasPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
@@ -159,9 +278,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  const backendFunctionFiles = services.services?.backend?.functions?.['api/server/index.js']?.includeFiles;
   assert.ok(
-    services.services?.backend?.functions?.['api/server/index.js']?.includeFiles === 'api/**/*',
-    'Vercel backend must include the CommonJS api/ source tree for module-alias runtime paths (e.g. ~/db)',
+    backendFunctionFiles ===
+      '{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}',
+    'Vercel backend must include API source and built workspace runtime files in one supported glob',
   );
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
@@ -180,7 +301,12 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
+    backendBootstrapDependencies,
+    backendEntrypointDependencies,
+    backendAliasRuntimeDependencies,
+    openIdClientEsmSafeSources: openIdClientEsmSafeSources.length,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
+    dataSchemasModelsExport: true,
   };
 }
 

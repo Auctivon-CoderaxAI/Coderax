@@ -27,6 +27,16 @@
         "types": "./dist/capabilities.d.cts",
         "default": "./dist/admin/capabilities.cjs"
       }
+    },
+    "./models": {
+      "import": {
+        "types": "./dist/createModels.d.mts",
+        "default": "./dist/createModels.mjs"
+      },
+      "require": {
+        "types": "./dist/createModels.d.cts",
+        "default": "./dist/createModels.cjs"
+      }
     }
   },
   "files": [
@@ -34,13 +44,13 @@
   ],
   "scripts": {
     "clean": "rimraf dist",
-    "build": "npm run clean && tsdown",
+    "build": "npm run clean && tsdown && node ../../scripts/normalize-cjs-runtime.mjs dist/index.cjs",
     "build:watch": "tsdown --watch",
     "test": "jest --coverage --watch",
     "test:ci": "jest --coverage --ci",
     "verify": "npm run test:ci",
     "b:clean": "bun run rimraf dist",
-    "b:build": "bun run b:clean && bun run tsdown"
+    "b:build": "bun run b:clean && bun run tsdown && node ../../scripts/normalize-cjs-runtime.mjs dist/index.cjs"
   },
   "repository": {
     "type": "git",

@@ -1,5 +1,5 @@
 const crypto = require('node:crypto');
-const client = require('openid-client');
+const { openIdClient: client } = require('~/server/utils/openIdClient');
 const { logger } = require('@coderax/data-schemas');
 const { CacheKeys } = require('coderax-data-provider');
 const {

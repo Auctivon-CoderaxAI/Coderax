@@ -36,6 +36,36 @@ const loadConsoleTransport = async (
   }
 };
 
+const loadLoggerTransports = async (
+  env: Record<string, string | undefined>,
+  loggerModule: 'winston' | 'meiliLogger' = 'winston',
+): Promise<winston.transport[]> => {
+  const previous: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    previous[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
+
+  try {
+    jest.resetModules();
+    const { default: logger } =
+      loggerModule === 'meiliLogger' ? await import('./meiliLogger') : await import('./winston');
+    return logger.transports;
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+        continue;
+      }
+      process.env[key] = value;
+    }
+  }
+};
+
 describe('console transport level', () => {
   const baseEnv = { LOG_TO_FILE: 'false', CONSOLE_JSON: undefined, DEBUG_CONSOLE: undefined };
 
@@ -43,6 +73,28 @@ describe('console transport level', () => {
     const transport = await loadConsoleTransport({ ...baseEnv, CONSOLE_LOG_LEVEL: undefined });
     expect(transport.level).toBe('info');
     expect(transport.silent).toBeFalsy();
+  });
+
+  it('uses console-only logging on Vercel when file logging is otherwise enabled by default', async () => {
+    const transports = await loadLoggerTransports({
+      LOG_TO_FILE: undefined,
+      VERCEL: '1',
+      CONSOLE_JSON: undefined,
+      DEBUG_CONSOLE: undefined,
+    });
+    expect(transports.map((transport) => transport.constructor.name)).toEqual(['Console']);
+  });
+
+  it('uses console-only logging for the Meilisearch logger on Vercel too', async () => {
+    const transports = await loadLoggerTransports(
+      {
+        LOG_TO_FILE: undefined,
+        VERCEL: '1',
+        CONSOLE_LOG_LEVEL: undefined,
+      },
+      'meiliLogger',
+    );
+    expect(transports.map((transport) => transport.constructor.name)).toEqual(['Console']);
   });
 
   it('honors an explicit level', async () => {

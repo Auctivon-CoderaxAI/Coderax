@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const cookies = require('cookie');
 const crypto = require('node:crypto');
-const openIdClient = require('openid-client');
+const { openIdClient } = require('~/server/utils/openIdClient');
 const api = require('@coderax/api');
 const { logger, DEFAULT_REFRESH_TOKEN_EXPIRY } = require('@coderax/data-schemas');
 const { upsertSession, deleteSession } = require('~/models');

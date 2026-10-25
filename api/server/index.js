@@ -1,9 +1,15 @@
 require('../config/credentials');
 
+global.EventSource = require('eventsource').EventSource;
+
+// Keep dependencies used behind module-alias visible to Vercel's function tracer.
+require('lodash/partialRight');
+
 const telemetry = require('./telemetry');
 const fs = require('fs');
 const path = require('path');
 require('module-alias')({ base: path.resolve(__dirname, '..') });
+require('./vercel-trace-dependencies');
 const cors = require('cors');
 const axios = require('axios');
 const express = require('express');
@@ -16,6 +22,7 @@ const { logger, runAsSystem } = require('@coderax/data-schemas');
 const {
   isEnabled,
   issueCsp,
+  createInitializationGate,
   apiNotFound,
   createMetrics,
   applyCspNonce,
@@ -108,6 +115,8 @@ const trusted_proxy = Number(TRUST_PROXY) || 1; /* trust first proxy by default 
 
 const app = express();
 app.locals.codeApiUploadRegistry = createCodeApiUploadRegistry();
+const initializationGate = createInitializationGate();
+app.use(initializationGate.middleware);
 let serverReady = false;
 /** @type {import('@coderax/api').ScheduleEngineState} */
 let scheduleEngineState = 'starting';
@@ -496,6 +505,7 @@ const startServer = async () => {
   app.use(ErrorController);
 
   configureGenerationStreams();
+  initializationGate.markReady();
 
   const server = app.listen(port, host, async (err) => {
     if (err) {
@@ -578,6 +588,7 @@ const startServer = async () => {
  * `experimental.js`.
  */
 startServer().catch((err) => {
+  initializationGate.fail(err);
   logger.error('Failed to start server:', err);
   process.exit(1);
 });

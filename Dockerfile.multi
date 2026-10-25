@@ -21,6 +21,7 @@ ENV LD_PRELOAD=/usr/lib/libjemalloc.so.2
 ENV SCARF_ANALYTICS=false
 
 WORKDIR /app
+COPY scripts/normalize-cjs-runtime.mjs ./scripts/normalize-cjs-runtime.mjs
 RUN apk --no-cache add curl
 RUN npm config set fetch-retry-maxtimeout 600000 && \
     npm config set fetch-retries 5 && \

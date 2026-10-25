@@ -18,7 +18,10 @@ const useDebugConsole = typeof DEBUG_CONSOLE === 'string' && DEBUG_CONSOLE.toLow
 
 const useDebugLogging = typeof DEBUG_LOGGING === 'string' && DEBUG_LOGGING.toLowerCase() === 'true';
 
-const useFileLogging = typeof LOG_TO_FILE !== 'string' || LOG_TO_FILE.toLowerCase() !== 'false';
+// Vercel function bundles are read-only; platform logs are captured from stdout/stderr.
+const useFileLogging =
+  process.env.VERCEL !== '1' &&
+  (typeof LOG_TO_FILE !== 'string' || LOG_TO_FILE.toLowerCase() !== 'false');
 
 const requestContextFormat = winston.format(attachRequestContext);
 

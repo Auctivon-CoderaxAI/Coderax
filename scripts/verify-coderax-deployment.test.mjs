@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -77,7 +78,10 @@ test('Vercel packages CommonJS module-alias source files needed by Express', asy
   const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
   const config = JSON.parse(await readFile(vercelPath, 'utf8'));
   assert.equal(config.services.backend.entrypoint, 'api/server/index.js');
-  assert.ok(config.services.backend.functions?.['api/server/index.js']?.includeFiles === 'api/**/*');
+  assert.equal(
+    config.services.backend.functions?.['api/server/index.js']?.includeFiles,
+    '{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}',
+  );
   assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
 });
 
@@ -170,6 +174,128 @@ test('Vercel traces every direct API runtime dependency from the root and server
   );
 });
 
+test('Vercel root traces third-party dependencies imported by the backend bootstrap', () => {
+  const dependencies = { eventsource: '^3.0.2' };
+  const root = { dependencies };
+  const backend = { dependencies };
+  const lock = { packages: {
+    '': { dependencies },
+    api: { dependencies },
+    'node_modules/eventsource': { version: '3.0.2' },
+  } };
+  assert.deepEqual(
+    verifyVercelBackendBootstrapDependencies(root, lock, backend, "const { EventSource } = require('eventsource');"),
+    ['eventsource'],
+  );
+  assert.throws(
+    () => verifyVercelBackendBootstrapDependencies({ dependencies: {} }, lock, backend, "require('eventsource');"),
+    /Vercel root must declare bootstrap dependency eventsource/,
+  );
+  assert.throws(
+    () => verifyVercelBackendBootstrapDependencies(root, { packages: { ...lock.packages, api: { dependencies: {} } } }, backend, "require('eventsource');"),
+    /Express lockfile must include bootstrap dependency eventsource/,
+  );
+});
+
+test('Vercel statically traces EventSource imported by the Express entrypoint', () => {
+  assert.equal(verifyVercelEntrypointDependency("global.EventSource = require('eventsource').EventSource;", 'eventsource'), 'eventsource');
+  assert.equal(verifyVercelEntrypointDependency("require('lodash/partialRight');", 'lodash/partialRight'), 'lodash/partialRight');
+  assert.throws(
+    () => verifyVercelEntrypointDependency("require('~/config');", 'eventsource'),
+    /must directly import eventsource/,
+  );
+});
+
+test('Vercel traces module-alias dependencies from the backend entrypoint', () => {
+  const dependencies = { eventsource: '^3.0.2', lodash: '^4.17.23' };
+  const root = { dependencies };
+  const backend = { dependencies };
+  const lock = { packages: {
+    '': { dependencies },
+    api: { dependencies },
+    'node_modules/eventsource': { version: '3.0.2' },
+    'node_modules/lodash': { version: '4.17.23' },
+  } };
+
+  assert.deepEqual(
+    verifyVercelEntrypointRuntimeDependency(root, lock, backend, "require('lodash/partialRight');", 'lodash/partialRight'),
+    'lodash',
+  );
+  assert.throws(
+    () => verifyVercelEntrypointRuntimeDependency({ dependencies: { eventsource: dependencies.eventsource } }, lock, backend, "require('lodash/partialRight');", 'lodash/partialRight'),
+    /Vercel root must declare entrypoint dependency lodash/,
+  );
+});
+
+test('Vercel file markers trace alias-hidden packages without loading them', () => {
+  const dependencies = {
+    nodemailer: '^10.0.2',
+    'zod-to-json-schema': '^3.25.1',
+  };
+  const backend = { dependencies };
+  const lock = { packages: {
+    api: { dependencies },
+    'node_modules/nodemailer': { version: '10.0.2' },
+    'node_modules/zod-to-json-schema': { version: '3.25.1' },
+  } };
+  const source = [
+    "require.resolve('nodemailer');",
+    "require.resolve('zod-to-json-schema');",
+  ].join('\n');
+
+  assert.deepEqual(
+    verifyVercelAliasRuntimeDependencies(lock, backend, source),
+    ['nodemailer', 'zod-to-json-schema'],
+  );
+  assert.throws(
+    () => verifyVercelAliasRuntimeDependencies({ packages: { api: { dependencies } } }, backend, source),
+    /lockfile must resolve alias-hidden dependency nodemailer/,
+  );
+});
+
+test('Vercel traces @librechat/agents subpaths used by module-aliased backend files', async () => {
+  const traceFile = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../api/server/vercel-trace-dependencies.js',
+  );
+  const source = await readFile(traceFile, 'utf8');
+  const resolve = createRequire(import.meta.url).resolve;
+  const specifiers = [
+    '@librechat/agents',
+    '@librechat/agents/langchain/messages',
+    '@librechat/agents/langchain/prompts',
+    '@librechat/agents/langchain/tools',
+    '@librechat/agents/langchain/utils/env',
+    '@librechat/agents/openai',
+  ];
+
+  for (const specifier of specifiers) {
+    assert.ok(source.includes(`require.resolve('${specifier}')`), `Vercel must trace ${specifier}`);
+    assert.doesNotThrow(() => resolve(specifier), `Express dependencies must resolve ${specifier}`);
+  }
+});
+
+test('Vercel CommonJS backend loads the ESM OpenID client dynamically', () => {
+  const sources = {
+    'api/strategies/openidStrategy.js': 'loadOpenIdClient()',
+    'api/server/routes/oauth.js': 'loadOpenIdClient()',
+  };
+  const loader = "import('openid-client'); import('openid-client/passport');";
+
+  assert.deepEqual(
+    verifyVercelOpenIdClientEsmCompatibility(sources, loader),
+    Object.keys(sources).sort(),
+  );
+  assert.throws(
+    () => verifyVercelOpenIdClientEsmCompatibility({ ...sources, 'api/server/routes/oauth.js': "require('openid-client')" }, loader),
+    /cannot synchronously require the ESM-only openid-client package/,
+  );
+  assert.throws(
+    () => verifyVercelOpenIdClientEsmCompatibility(sources, "require('openid-client')"),
+    /OpenID loader must use import\(\)/,
+  );
+});
+
 test('Vercel root resolves every local workspace used by the Express backend', () => {
   const dependencies = {
     '@coderax/api': '*',
@@ -199,6 +325,19 @@ test('Vercel root resolves every local workspace used by the Express backend', (
   assert.throws(
     () => verifyVercelBackendWorkspaceDependencies(root, { packages: { ...lock.packages, 'node_modules/@coderax/data-schemas': { resolved: 'packages/data-schemas' } } }, backend),
     /must resolve as an npm workspace link/,
+  );
+});
+
+test('data-schemas exposes the dedicated models entry to CommonJS and ESM consumers', () => {
+  const dataSchemas = { exports: { './models': {
+    require: { default: './dist/createModels.cjs', types: './dist/createModels.d.cts' },
+    import: { default: './dist/createModels.mjs', types: './dist/createModels.d.mts' },
+  } } };
+  assert.equal(verifyDataSchemasModelsExport(dataSchemas), true);
+  assert.throws(() => verifyDataSchemasModelsExport({ exports: {} }), /CommonJS models export is missing/);
+  assert.throws(
+    () => verifyDataSchemasModelsExport({ exports: { './models': { require: { default: './dist/index.cjs' } } } }),
+    /CommonJS models export is missing/,
   );
 });
 
