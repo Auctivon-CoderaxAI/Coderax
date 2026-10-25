@@ -171,9 +171,15 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  const backendFunctionFiles = services.services?.backend?.functions?.['api/server/index.js']?.includeFiles;
   assert.ok(
-    services.services?.backend?.functions?.['api/server/index.js']?.includeFiles === 'api/**/*',
+    Array.isArray(backendFunctionFiles) && backendFunctionFiles.includes('api/**/*'),
     'Vercel backend must include the CommonJS api/ source tree for module-alias runtime paths (e.g. ~/db)',
+  );
+  assert.ok(
+    ['packages/api/dist/**/*', 'packages/data-provider/dist/**/*', 'packages/data-schemas/dist/**/*']
+      .every((pattern) => backendFunctionFiles.includes(pattern)),
+    'Vercel backend must include built workspace package files used by the Express runtime',
   );
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
