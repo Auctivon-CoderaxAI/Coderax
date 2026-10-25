@@ -22,7 +22,19 @@ test('backend service builds its client shell and preserves API paths', async ()
 });
 
 test('Vercel clean installs resolve root and workspace build tools', () => {
-  const tools = { '@tsdown/css': '^0.22.2', tsdown: '^0.22.2', typescript: '^5.9.3', vite: '8.2.2' };
+  const tools = {
+    '@tailwindcss/postcss': '^4.3.3',
+    '@tsdown/css': '^0.22.2',
+    '@vitejs/plugin-react': '6.0.2',
+    postcss: '^8.5.18',
+    tailwindcss: '^4.3.3',
+    tsdown: '^0.22.2',
+    typescript: '^5.9.3',
+    vite: '8.2.2',
+    'vite-plugin-compression2': '2.5.3',
+    'vite-plugin-node-polyfills': '0.28.0',
+    'vite-plugin-pwa': '1.3.0',
+  };
   const root = { devDependencies: tools };
   const client = { devDependencies: { tsdown: '^0.22.2' } };
   const api = { devDependencies: { tsdown: '^0.22.2' } };
@@ -31,10 +43,17 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     '': { devDependencies: tools },
     client: { devDependencies: { 'cross-env': '^7.0.3' } },
     'node_modules/@tsdown/css': { version: '0.22.2' },
+    'node_modules/@tailwindcss/postcss': { version: '4.3.3' },
+    'node_modules/@vitejs/plugin-react': { version: '6.0.2' },
     'node_modules/cross-env': { version: '7.0.3' },
+    'node_modules/postcss': { version: '8.5.23' },
+    'node_modules/tailwindcss': { version: '4.3.3' },
     'node_modules/tsdown': { version: '0.22.14' },
     'node_modules/typescript': { version: '5.9.3' },
     'node_modules/vite': { version: '8.2.2' },
+    'node_modules/vite-plugin-compression2': { version: '2.5.3' },
+    'node_modules/vite-plugin-node-polyfills': { version: '0.28.0' },
+    'node_modules/vite-plugin-pwa': { version: '1.3.0' },
     'packages/client': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/api': { devDependencies: { tsdown: '^0.22.2' } },
     'packages/client/node_modules/tsdown': { version: '0.22.2' },
@@ -52,7 +71,7 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling({ devDependencies: { tsdown: '^0.22.2', typescript: '^5.9.3' } }, lock, client, api, services, frontend),
-    /Vercel root must declare @tsdown\/css/,
+    /Vercel root must declare @tailwindcss\/postcss/,
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling(root, lock, { devDependencies: {} }, api, services, frontend),
