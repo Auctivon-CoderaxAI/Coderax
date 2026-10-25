@@ -39,6 +39,8 @@ export type OpenIDProfile = {
   idOnTheSource?: string;
 };
 
+export * from './openid/client';
+
 const OPENID_DISCOVERY_PATH = '/.well-known/openid-configuration';
 const LEGACY_ISSUER_FILTERS: Array<FilterQuery<IUser>['openidIssuer']> = [
   { $exists: false },

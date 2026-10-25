@@ -4,18 +4,14 @@ import { createInitializationGate, configureServerTimeouts } from './server';
 
 describe('createInitializationGate', () => {
   it('holds requests until asynchronous route registration completes', async () => {
-    let resolveRoutes!: () => void;
-    const routesReady = new Promise<void>((resolve) => {
-      resolveRoutes = resolve;
-    });
+    const gate = createInitializationGate();
     const next = jest.fn();
 
-    createInitializationGate(routesReady)({} as never, {} as never, next);
+    gate.middleware({} as never, {} as never, next);
     await Promise.resolve();
     expect(next).not.toHaveBeenCalled();
 
-    resolveRoutes();
-    await routesReady;
+    gate.markReady();
     await Promise.resolve();
     expect(next).toHaveBeenCalledTimes(1);
   });
@@ -23,8 +19,10 @@ describe('createInitializationGate', () => {
   it('passes bootstrap errors to Express error handling', async () => {
     const error = new Error('route setup failed');
     const next = jest.fn();
+    const gate = createInitializationGate();
 
-    createInitializationGate(Promise.reject(error))({} as never, {} as never, next);
+    gate.middleware({} as never, {} as never, next);
+    gate.fail(error);
     await Promise.resolve();
     expect(next).toHaveBeenCalledWith(error);
   });

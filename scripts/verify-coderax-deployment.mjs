@@ -81,7 +81,7 @@ export function verifyVercelEntrypointDependency(source, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   assert.match(
     source,
-    new RegExp(`\\brequire\\s*\\(\\s*['\"]${escaped}['\"]\\s*\\)`),
+    new RegExp(`\\brequire\\s*\\(\\s*['"]${escaped}['"]\\s*\\)`),
     `Vercel function entrypoint must directly import ${name} so it is traced`,
   );
   return name;
@@ -235,11 +235,12 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     'api/server/services/OpenIDSessionRefresh.js',
     'api/server/services/OboTokenService.js',
     'api/server/services/GraphApiService.js',
+    'api/server/utils/openIdClient.js',
   ];
   const openIdRuntimeSources = Object.fromEntries(await Promise.all(
     openIdRuntimePaths.map(async (filename) => [filename, await readFile(path.join(root, filename), 'utf8')]),
   ));
-  const openIdLoaderSource = await readFile(path.join(root, 'api/server/utils/openIdClient.js'), 'utf8');
+  const openIdLoaderSource = await readFile(path.join(root, 'packages/api/src/auth/openid/client.ts'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   verifyVercelEntrypointDependency(backendSource, './vercel-trace-dependencies');
   const backendAliasRuntimeDependencies = verifyVercelAliasRuntimeDependencies(lock, backendPackage, backendAliasTraceSource);

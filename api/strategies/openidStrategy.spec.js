@@ -286,6 +286,17 @@ describe('setupOpenId', () => {
     verifyCallback = require('openid-client/passport').__getVerifyCallbackByName('openid');
   });
 
+  it('registers an admin OpenID strategy with the dynamically loaded strategy constructor', () => {
+    expect(require('passport').use).toHaveBeenCalledWith(
+      'openidAdmin',
+      expect.objectContaining({
+        options: expect.objectContaining({
+          callbackURL: 'https://example.com/api/admin/oauth/openid/callback',
+        }),
+      }),
+    );
+  });
+
   describe('clientMetadata construction in setupOpenId', () => {
     let openidClient;
 

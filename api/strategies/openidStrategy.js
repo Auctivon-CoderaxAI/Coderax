@@ -960,7 +960,7 @@ async function setupOpenId() {
       createOpenIDCallback(),
     );
     passport.use('openid', openidLogin);
-    setupOpenIdAdmin(openidConfig);
+    setupOpenIdAdmin(openidConfig, CustomOpenIDStrategy);
     return openidConfig;
   } catch (err) {
     logger.error('[openidStrategy]', err);

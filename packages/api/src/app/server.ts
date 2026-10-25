@@ -2,15 +2,33 @@ import { logger } from '@coderax/data-schemas';
 import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
 
-/** Hold Vercel's first Express requests until the asynchronous app bootstrap has mounted routes. */
-export const createInitializationGate = (
-  routesReady: Promise<void>,
-): ((req: Request, res: Response, next: NextFunction) => void) => {
-  return (_req, _res, next) => {
-    void routesReady.then(
-      () => next(),
-      (error: unknown) => next(error),
-    );
+export type InitializationGate = {
+  middleware: (req: Request, res: Response, next: NextFunction) => void;
+  markReady: () => void;
+  fail: (error: unknown) => void;
+};
+
+/** Hold the first Express requests until the asynchronous app bootstrap has mounted routes. */
+export const createInitializationGate = (): InitializationGate => {
+  let markReady!: () => void;
+  let fail!: (error: unknown) => void;
+  const routesReady = new Promise<void>((resolve, reject) => {
+    markReady = resolve;
+    fail = (error: unknown) => reject(error);
+  });
+  // Bootstrap errors are also sent to the first waiting request. Keep rejection observed if
+  // startup fails before a request reaches the middleware.
+  void routesReady.catch(() => {});
+
+  return {
+    middleware: (_req, _res, next) => {
+      void routesReady.then(
+        () => next(),
+        (error: unknown) => next(error),
+      );
+    },
+    markReady,
+    fail,
   };
 };
 
