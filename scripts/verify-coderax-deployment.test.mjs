@@ -22,13 +22,21 @@ test('database startup tolerates an absent optional Mongoose telemetry export', 
   for (const hasTelemetry of [false, true]) for (const hasLogger of [false, true]) {
     const warnings = [];
     let called = false;
-    const mongoose = { connection: { on() {} } };
+    let mongoOptions;
+    const mongoose = {
+      connection: { on() {} },
+      set() {},
+      async connect(_uri, options) {
+        mongoOptions = options;
+        return mongoose;
+      },
+    };
     const module = { exports: {} };
     vm.runInNewContext(source, {
       module,
       global: {},
       console: { warn(message) { warnings.push(message); }, error() {}, info() {} },
-      process: { env: { MONGO_URI: 'mongodb://localhost/coderax-test' } },
+      process: { env: { MONGO_URI: 'mongodb://localhost/coderax-test', MONGO_AUTO_INDEX: ' true ', MONGO_AUTO_CREATE: 'false' } },
       require(name) {
         if (name === 'dotenv') return { config() {} };
         if (name === 'mongoose') return mongoose;
@@ -47,6 +55,9 @@ test('database startup tolerates an absent optional Mongoose telemetry export', 
     }, { filename });
 
     assert.equal(typeof module.exports.connectDb, 'function');
+    await module.exports.connectDb();
+    assert.equal(mongoOptions.autoIndex, true);
+    assert.equal(mongoOptions.autoCreate, false);
     assert.equal(called, hasTelemetry);
     assert.equal(warnings.length, hasTelemetry ? 0 : 1);
   }
