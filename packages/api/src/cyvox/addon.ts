@@ -41,8 +41,13 @@ export function createCyvoxAddonRouter(
       const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
       if (
         (loopback ? url.protocol !== 'http:' : url.protocol !== 'https:' || !authToken) ||
-        url.username || url.password || url.pathname !== '/' || url.search || url.hash
-      ) return null;
+        url.username ||
+        url.password ||
+        url.pathname !== '/' ||
+        url.search ||
+        url.hash
+      )
+        return null;
       return url;
     } catch {
       return null;
@@ -68,7 +73,12 @@ export function createCyvoxAddonRouter(
     return true;
   }
 
-  async function forward(res: Response, path: string, method = 'GET', payload?: object): Promise<void> {
+  async function forward(
+    res: Response,
+    path: string,
+    method = 'GET',
+    payload?: object,
+  ): Promise<void> {
     try {
       const response = await fetch(new URL(path, target!), {
         method,
@@ -136,7 +146,10 @@ export function createCyvoxAddonRouter(
       }
       const mode = body.mode === 'Coding Team' ? 'Coding Team' : 'Autonomous Run';
       await forward(res, '/api/tasks', 'POST', {
-        task: body.task.trim(), mode, max_steps: 15, routing_mode: 'FAST',
+        task: body.task.trim(),
+        mode,
+        max_steps: 15,
+        routing_mode: 'FAST',
       });
     } else if (action === 'startComputerTask') {
       if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) {
@@ -144,14 +157,12 @@ export function createCyvoxAddonRouter(
         return;
       }
       await forward(res, '/api/computer-use/tasks', 'POST', {
-        goal: body.goal.trim(), max_steps: 15,
+        goal: body.goal.trim(),
+        max_steps: 15,
       });
     } else if (action === 'selectModel') {
       const model = body.model;
-      if (
-        typeof model !== 'string' || model.length > 150 ||
-        !isCyvoxFreeOrLocalModel(model)
-      ) {
+      if (typeof model !== 'string' || model.length > 150 || !isCyvoxFreeOrLocalModel(model)) {
         res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
         return;
       }
@@ -164,8 +175,11 @@ export function createCyvoxAddonRouter(
   router.post('/tasks/:taskId/approvals/:approvalId', async (req: Request, res: Response) => {
     if (!allowed(req, res, true)) return;
     const { taskId, approvalId } = req.params;
-    if (!isSafeId(taskId) || !isSafeId(approvalId) ||
-        !['approve_once', 'deny'].includes(req.body?.decision)) {
+    if (
+      !isSafeId(taskId) ||
+      !isSafeId(approvalId) ||
+      !['approve_once', 'deny'].includes(req.body?.decision)
+    ) {
       res.status(400).json({ code: 'CYVOX_INVALID_APPROVAL' });
       return;
     }
