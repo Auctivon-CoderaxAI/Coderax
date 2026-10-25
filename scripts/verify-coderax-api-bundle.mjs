@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Fail the Vercel backend build if @coderax/api still imports mathjs or the
- * MCP SDK at runtime. Both have been missing from deployed serverless bundles
- * even when npm ci and the frontend build succeeded.
+ * MCP SDK or its transport dependencies at runtime. These have been missing
+ * from deployed serverless functions even when npm ci and build succeeded.
  */
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const externalMathjs = /\b(?:require|import)\s*\(\s*['"]mathjs(?:\/[^'"]*)?['"]\s*\)/;
 const externalMcpSdk = /\b(?:require|import)\s*\(\s*['"]@modelcontextprotocol\/sdk(?:\/[^'"]*)?['"]\s*\)/;
+const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/[^'"]*)?['"]\s*\)/;
 
 export async function verifyApiBundle(root = repoRoot) {
   const dist = path.join(root, 'packages/api/dist');
@@ -21,8 +22,9 @@ export async function verifyApiBundle(root = repoRoot) {
     const code = await readFile(path.join(dist, name), 'utf8');
     assert.ok(!externalMathjs.test(code), name + ' still requires external mathjs');
     assert.ok(!externalMcpSdk.test(code), name + ' still requires external MCP SDK');
+    assert.ok(!externalMcpTransitive.test(code), name + ' still requires an external MCP SDK transport dependency');
   }
-  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false };
+  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

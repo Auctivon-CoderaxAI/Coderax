@@ -93,8 +93,12 @@ test('compiled API bundle rejects unresolved mathjs or MCP SDK even after a succ
     await assert.rejects(verifyApiBundle(root), /still requires external mathjs/);
     await writeFile(path.join(dist, 'index.cjs'), 'const sdk = require("@modelcontextprotocol/sdk/types.js");');
     await assert.rejects(verifyApiBundle(root), /still requires external MCP SDK/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const source = require("eventsource");');
+    await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const parser = require("eventsource-parser");');
+    await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
     await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
-    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false });
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
