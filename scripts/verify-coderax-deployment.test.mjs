@@ -1,16 +1,66 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
     const values = { 'content-type': type, ...extras };
     return values[name.toLowerCase()] ?? null;
   },
+});
+
+test('database startup tolerates an absent optional Mongoose telemetry export', async () => {
+  const filename = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../api/db/connect.js');
+  const source = await readFile(filename, 'utf8');
+
+  for (const hasTelemetry of [false, true]) for (const hasLogger of [false, true]) {
+    const warnings = [];
+    let called = false;
+    let mongoOptions;
+    const mongoose = {
+      connection: { on() {} },
+      set() {},
+      async connect(_uri, options) {
+        mongoOptions = options;
+        return mongoose;
+      },
+    };
+    const module = { exports: {} };
+    vm.runInNewContext(source, {
+      module,
+      global: {},
+      console: { warn(message) { warnings.push(message); }, error() {}, info() {} },
+      process: { env: { MONGO_URI: 'mongodb://localhost/coderax-test', MONGO_AUTO_INDEX: ' true ', MONGO_AUTO_CREATE: 'false' } },
+      require(name) {
+        if (name === 'dotenv') return { config() {} };
+        if (name === 'mongoose') return mongoose;
+        if (name === '@coderax/data-schemas') {
+          return hasLogger ? { logger: { warn(message) { warnings.push(message); }, error() {}, info() {} } } : {};
+        }
+        if (name === '@coderax/api') return {
+          optionalEnabled: () => undefined,
+          ...(hasTelemetry ? { instrumentMongooseQueryMetrics(value) {
+            assert.equal(value, mongoose);
+            called = true;
+          } } : {}),
+        };
+        throw new Error('Unexpected import: ' + name);
+      },
+    }, { filename });
+
+    assert.equal(typeof module.exports.connectDb, 'function');
+    await module.exports.connectDb();
+    assert.equal(mongoOptions.autoIndex, true);
+    assert.equal(mongoOptions.autoCreate, false);
+    assert.equal(called, hasTelemetry);
+    assert.equal(warnings.length, hasTelemetry ? 0 : 1);
+  }
 });
 
 test('Vercel routes the client and API through separate services', async () => {
@@ -20,6 +70,16 @@ test('Vercel routes the client and API through separate services', async () => {
   assert.equal(result.backendExcludesFrontendBuild, true);
 });
 
+
+test('Vercel packages CommonJS module-alias source files needed by Express', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
+  const config = JSON.parse(await readFile(vercelPath, 'utf8'));
+  assert.equal(config.services.backend.entrypoint, 'api/server/index.js');
+  assert.ok(config.services.backend.functions?.['api/server/index.js']?.includeFiles === 'api/**/*');
+  assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
+});
 
 test('CI rejects undeclared root tsdown resolution and missing workspace build tools', () => {
   const client = { devDependencies: { tsdown: '^0.22.2' } };
@@ -58,6 +118,7 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
   const root = { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } };
   const lock = { packages: {
     '': { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } },
+    api: { dependencies: { mathjs, 'rate-limit-redis': redis, '@modelcontextprotocol/sdk': sdk } },
     'node_modules/mathjs': { version: '15.2.0' },
     'node_modules/rate-limit-redis': { version: '4.2.0' },
     'node_modules/@modelcontextprotocol/sdk': { version: '1.30.0' },
@@ -79,8 +140,65 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
     /root lockfile must include rate-limit-redis/,
   );
   assert.throws(
+    () => verifyVercelRuntimeDependency(root, { packages: { ...lock.packages, api: { dependencies: {} } } }, api, backend, 'helmet'),
+    /@coderax\/api must declare helmet/,
+  );
+  assert.throws(
     () => verifyVercelRuntimeDependency(root, lock, { dependencies: { mathjs }, peerDependencies: { '@modelcontextprotocol/sdk': sdk } }, backend, '@modelcontextprotocol/sdk'),
     /@coderax\/api must declare @modelcontextprotocol\/sdk as a dependency/,
+  );
+});
+
+test('Vercel traces every direct API runtime dependency from the root and server workspace', () => {
+  const api = { dependencies: { mathjs: '^15.2.0', helmet: '^8.3.0' } };
+  const backend = { dependencies: { mathjs: '^15.2.0', helmet: '^8.3.0' } };
+  const root = { dependencies: { mathjs: '^15.2.0', helmet: '^8.3.0' } };
+  const lock = { packages: {
+    '': { dependencies: root.dependencies },
+    api: { dependencies: backend.dependencies },
+    'node_modules/mathjs': { version: '15.2.0' },
+    'node_modules/helmet': { version: '8.3.0' },
+  } };
+  assert.deepEqual(verifyVercelApiRuntimeDependencies(root, lock, api, backend), ['helmet', 'mathjs']);
+  assert.throws(
+    () => verifyVercelApiRuntimeDependencies({ dependencies: { mathjs: '^15.2.0' } }, lock, api, backend),
+    /Vercel root must declare helmet/,
+  );
+  assert.throws(
+    () => verifyVercelApiRuntimeDependencies(root, { packages: { ...lock.packages, api: { dependencies: { mathjs: '^15.2.0' } } } }, api, backend),
+    /Express lockfile must include helmet/,
+  );
+});
+
+test('Vercel root resolves every local workspace used by the Express backend', () => {
+  const dependencies = {
+    '@coderax/api': '*',
+    '@coderax/data-schemas': '*',
+    'coderax-data-provider': '*',
+  };
+  const root = { dependencies };
+  const backend = { dependencies };
+  const lock = { packages: {
+    '': { dependencies },
+    api: { dependencies },
+    'node_modules/@coderax/api': { resolved: 'packages/api', link: true },
+    'node_modules/@coderax/data-schemas': { resolved: 'packages/data-schemas', link: true },
+    'node_modules/coderax-data-provider': { resolved: 'packages/data-provider', link: true },
+    'packages/api': { version: '1.0.0' },
+    'packages/data-schemas': { version: '1.0.0' },
+    'packages/data-provider': { version: '1.0.0' },
+  } };
+  assert.deepEqual(
+    verifyVercelBackendWorkspaceDependencies(root, lock, backend),
+    ['@coderax/api', '@coderax/data-schemas', 'coderax-data-provider'],
+  );
+  assert.throws(
+    () => verifyVercelBackendWorkspaceDependencies({ dependencies: {} }, lock, backend),
+    /Vercel root must declare workspace dependency @coderax\/api/,
+  );
+  assert.throws(
+    () => verifyVercelBackendWorkspaceDependencies(root, { packages: { ...lock.packages, 'node_modules/@coderax/data-schemas': { resolved: 'packages/data-schemas' } } }, backend),
+    /must resolve as an npm workspace link/,
   );
 });
 
@@ -89,6 +207,9 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
   const dist = path.join(root, 'packages/api/dist');
   try {
     await mkdir(dist, { recursive: true });
+    await mkdir(path.join(root, 'api'), { recursive: true });
+    await writeFile(path.join(root, 'packages/api/package.json'), JSON.stringify({ dependencies: { helmet: '^8.3.0' }, peerDependencies: { 'custom-runtime-addon': '^1.0.0' } }));
+    await writeFile(path.join(root, 'api/package.json'), JSON.stringify({ dependencies: {} }));
     await writeFile(path.join(dist, 'index.cjs'), 'const math = require("mathjs");');
     await assert.rejects(verifyApiBundle(root), /still requires external mathjs/);
     await writeFile(path.join(dist, 'index.cjs'), 'const sdk = require("@modelcontextprotocol/sdk/types.js");');
@@ -97,8 +218,29 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
     await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
     await writeFile(path.join(dist, 'index.cjs'), 'const parser = require("eventsource-parser");');
     await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const passkey = require("@simplewebauthn/server");');
+    await assert.rejects(verifyApiBundle(root), /external WebAuthn server/);
+    for (const dependency of ['@hexagon/base64', '@levischuck/tiny-cbor', '@peculiar/asn1-schema', '@peculiar/x509', 'reflect-metadata']) {
+      await writeFile(path.join(dist, 'index.cjs'), `const missing = require("${dependency}");`);
+      await assert.rejects(verifyApiBundle(root), /external WebAuthn runtime dependency/);
+    }
+    for (const dependency of ['helmet', 'express-rate-limit', 'croner', '@langchain/langgraph-checkpoint-mongodb', 'rate-limit-redis']) {
+      await writeFile(path.join(dist, 'index.cjs'), `const missing = require("${dependency}");`);
+      await assert.rejects(verifyApiBundle(root), /external @coderax\/api production dependency/);
+    }
+    await writeFile(path.join(dist, 'index.cjs'), 'const missing = require("custom-runtime-addon");');
+    await assert.rejects(verifyApiBundle(root), /external Vercel-untraced dependency custom-runtime-addon/);
     await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
-    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false });
+    assert.deepEqual(await verifyApiBundle(root), {
+      filesScanned: 1,
+      externalMathjs: false,
+      externalMcpSdk: false,
+      externalMcpTransitive: false,
+      externalWebauthn: false,
+      externalWebauthnRuntime: false,
+      externalDirectRuntime: false,
+      externalVercelUntracedRuntimeDependencies: [],
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -89,11 +89,12 @@ test.describe('auth session', () => {
       await page.getByTestId('nav-user').click();
       await page.getByRole('menuitem', { name: 'Log out' }).click();
 
-      await page.waitForURL(/\/login/, { timeout: 10000 });
-      await expect(page.getByLabel('Email')).toBeVisible();
+      await page.waitForURL(/\/connect/, { timeout: 10000 });
+      await expect(page.getByText('Coderax is unavailable')).toBeVisible();
 
       await page.goto(NEW_CHAT_PATH, { timeout: 10000 });
-      await expect(page).toHaveURL(/\/login/);
+      await expect(page).toHaveURL(/\/connect/);
+      await expect(page.getByText('Coderax is unavailable')).toBeVisible();
     } finally {
       await context.close().catch(() => undefined);
       await cleanupUser(user);

@@ -1,10 +1,15 @@
 import path from 'node:path';
 import { defineConfig } from 'tsdown';
 
+// Vercel's function tracer omitted multiple @coderax/api production dependencies.
+// Bundle the production dependency set instead of fixing missing modules one by one.
+// In addition to WebAuthn and MCP, the healthy-build preview crashed on helmet.
+// Include the WebAuthn dependency graph, not just @simplewebauthn/server:
+// the original preview next failed to load @hexagon/base64.
 // Some dependencies of the MCP SDK are dynamically imported by its transports.
 // Vercel's function tracing omitted these modules even though npm ci installed
 // them: keep them in the emitted API bundle alongside the SDK itself.
-const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/|$)/;
+const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|@langchain\/langgraph-checkpoint(?:-mongodb)?|@simplewebauthn\/server|@hexagon\/base64|@levischuck\/tiny-cbor|@peculiar\/[^/]+|reflect-metadata|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server|cluster-key-slot|croner|express-rate-limit|helmet|mathjs|ollama|proxy-from-env|rate-limit-redis|re2js|asn1js|pvtsutils|pvutils|tslib|tsyringe)(?:\/|$)/;
 
 export default defineConfig({
   // The telemetry entry is a thin shim (`src/telemetry.ts`) rather than the

@@ -1,11 +1,28 @@
 require('dotenv').config();
-const { optionalEnabled, instrumentMongooseQueryMetrics } = require('@coderax/api');
-const { logger } = require('@coderax/data-schemas');
+const { instrumentMongooseQueryMetrics } = require('@coderax/api');
+// This tiny tri-state configuration parser must work before @coderax/api has
+// finished loading through its CommonJS dependency cycle. Match its
+// optionalEnabled semantics without requiring an early named export.
+const optionalEnabled = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  return value.trim().toLowerCase() === 'true';
+};
+// This module can load during a CommonJS import cycle before the shared logger
+// has been assigned. Resolve lazily and use console until logger is available.
+const getLogger = () => require('@coderax/data-schemas').logger || console;
 
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
 
-instrumentMongooseQueryMetrics(mongoose);
+// Query metrics are optional. Vercel's API function bundle may not expose
+// the telemetry helper even when the database and application can run.
+// Never crash the entire API on an unavailable instrumentation hook.
+if (typeof instrumentMongooseQueryMetrics === 'function') {
+  instrumentMongooseQueryMetrics(mongoose);
+} else {
+  getLogger().warn('[connectDb] Optional Mongoose query-metrics instrumentation is unavailable.');
+}
 
 if (!MONGO_URI) {
   throw new Error('Please define the MONGO_URI environment variable');
@@ -37,7 +54,7 @@ if (!cached) {
 }
 
 mongoose.connection.on('error', (err) => {
-  logger.error('[connectDb] MongoDB connection error:', err);
+  getLogger().error('[connectDb] MongoDB connection error:', err);
 });
 
 async function connectDb() {
@@ -62,8 +79,8 @@ async function connectDb() {
       // useFindAndModify: true,
       // useCreateIndex: true
     };
-    logger.info('Mongo Connection options');
-    logger.info(JSON.stringify(opts, null, 2));
+    getLogger().info('Mongo Connection options');
+    getLogger().info(JSON.stringify(opts, null, 2));
     mongoose.set('strictQuery', true);
     cached.promise = mongoose.connect(MONGO_URI, opts).then((mongoose) => {
       return mongoose;
