@@ -1,5 +1,5 @@
 import express from 'express';
-import { SystemRoles } from 'coderax-data-provider';
+import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
 import type { Request, Response, Router } from 'express';
 
 const resources = {
@@ -148,12 +148,9 @@ export function createCyvoxAddonRouter(
       });
     } else if (action === 'selectModel') {
       const model = body.model;
-      // Free-provider and local models only. A billed remote SKU must not
-      // become reachable just because someone can submit a forged POST.
       if (
         typeof model !== 'string' || model.length > 150 ||
-        !(model === 'cyvox/auto' || model === 'openrouter/free' ||
-          model.endsWith(':free') || /^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/.test(model))
+        !isCyvoxFreeOrLocalModel(model)
       ) {
         res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
         return;

@@ -113,10 +113,32 @@ describe('CyVox privileged Work and Robot boundary', () => {
 
   it('whitelists free and local model IDs but rejects billed provider IDs', async () => {
     const fetchMock = jest.spyOn(global, 'fetch');
-    const rejected = await request(admin()).post('/actions/selectModel')
-      .set('X-CyVox-Confirm', 'yes').send({ model: 'google/lyria-3-pro-preview' });
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ selected: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const rejected = await request(admin())
+      .post('/actions/selectModel')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ model: 'openai:gpt-4o' });
     expect(rejected.status).toBe(400);
     expect(fetchMock).not.toHaveBeenCalled();
+
+    const accepted = await request(admin())
+      .post('/actions/selectModel')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ model: 'ollama:llama3:latest' });
+    expect(accepted.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://cyvox.example.com/api/models/select'),
+      expect.objectContaining({
+        body: JSON.stringify({
+          chat_model: 'ollama:llama3:latest',
+          agent_model: 'ollama:llama3:latest',
+        }),
+      }),
+    );
   });
 
   it('does not accept path traversal for task approvals', async () => {

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@coderax/client';
-import { QueryKeys } from 'coderax-data-provider';
 import { RefreshCw } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { isCyvoxFreeOrLocalModel, QueryKeys } from 'coderax-data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
 
 type Check = { id: string; area?: string; label: string; status: string; detail: string; action?: string };
@@ -157,15 +157,8 @@ function WorkView() {
   const action = useCyVoxAction();
   const models = useCyVox<CyVoxModelList>('models');
   const tasks = useCyVox<CyVoxTaskList>('tasks');
-  // Free provider IDs and self-hosted local models are eligible.
-  // Billing and actual runtime readiness are independently enforced upstream.
   const choices = (models.data?.models ?? []).filter((item) =>
-    item.compatible_now !== false && (
-      item.name.endsWith(':free') ||
-      item.name === 'openrouter/free' ||
-      item.name === 'cyvox/auto' ||
-      /^[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$/.test(item.name)
-    )
+    item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name)
   );
   return <div className="space-y-5">
     <div className="border-border-light bg-surface-primary-alt rounded-lg border p-4">
