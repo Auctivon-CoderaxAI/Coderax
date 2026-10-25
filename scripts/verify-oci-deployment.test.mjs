@@ -73,6 +73,13 @@ test('OCI uses private local Qwen and never opens cloud inference', async () => 
   assert.match(compose, /REGISTER_MAX: "5"/);
 });
 
+test('production image starts Node without depending on pruned dev tools', async () => {
+  const dockerfile = await read('Dockerfile');
+  assert.match(dockerfile, /^ENV NODE_ENV=production$/m);
+  assert.match(dockerfile, /^CMD \["node", "api\/server\/index\.js"\]$/m);
+  assert.doesNotMatch(dockerfile, /^CMD \["npm", "run", "backend"\]$/m);
+});
+
 test('environment setup writes only protected, untracked secret files', async () => {
   const setup = await read('deploy/oci/prepare-env.sh');
   const ignore = await readIfPresent('.gitignore');
