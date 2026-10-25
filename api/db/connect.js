@@ -1,6 +1,8 @@
 require('dotenv').config();
 const { optionalEnabled, instrumentMongooseQueryMetrics } = require('@coderax/api');
-const { logger } = require('@coderax/data-schemas');
+// This module can load during a CommonJS import cycle before the shared logger
+// has been assigned. Resolve lazily and use console until logger is available.
+const getLogger = () => require('@coderax/data-schemas').logger || console;
 
 const mongoose = require('mongoose');
 const MONGO_URI = process.env.MONGO_URI;
@@ -11,7 +13,7 @@ const MONGO_URI = process.env.MONGO_URI;
 if (typeof instrumentMongooseQueryMetrics === 'function') {
   instrumentMongooseQueryMetrics(mongoose);
 } else {
-  logger.warn('[connectDb] Optional Mongoose query-metrics instrumentation is unavailable.');
+  getLogger().warn('[connectDb] Optional Mongoose query-metrics instrumentation is unavailable.');
 }
 
 if (!MONGO_URI) {
@@ -44,7 +46,7 @@ if (!cached) {
 }
 
 mongoose.connection.on('error', (err) => {
-  logger.error('[connectDb] MongoDB connection error:', err);
+  getLogger().error('[connectDb] MongoDB connection error:', err);
 });
 
 async function connectDb() {
@@ -69,8 +71,8 @@ async function connectDb() {
       // useFindAndModify: true,
       // useCreateIndex: true
     };
-    logger.info('Mongo Connection options');
-    logger.info(JSON.stringify(opts, null, 2));
+    getLogger().info('Mongo Connection options');
+    getLogger().info(JSON.stringify(opts, null, 2));
     mongoose.set('strictQuery', true);
     cached.promise = mongoose.connect(MONGO_URI, opts).then((mongoose) => {
       return mongoose;
