@@ -143,3 +143,28 @@ describe('CyVox privileged Work and Robot boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+  // This test remains inside the same privileged bridge suite.
+describe('CyVox fast routing contract', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('sends FAST for a confirmed owner Work task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ id: 'task-1' }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const app = express().use(express.json())
+      .use((req, _res, next) => {
+        Object.assign(req, { user: { role: 'ADMIN' } });
+        next();
+      }).use(createCyvoxAddonRouter('https://cyvox.example.com', true, 'secret'));
+    const response = await request(app).post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes').send({ task: 'Inspect tests', mode: 'Autonomous Run' });
+    expect(response.status).toBe(200);
+    const options = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(String(options.body))).toEqual({
+      task: 'Inspect tests', mode: 'Autonomous Run', max_steps: 15, routing_mode: 'FAST',
+    });
+  });
+});
