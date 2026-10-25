@@ -286,7 +286,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(
     services.services?.backend?.functions?.['api/proxy.js']?.includeFiles,
-    '{api/proxy.js,packages/api/dist/proxy.cjs}',
+    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
     'Vercel backend must include the small proxy entrypoint and compiled TypeScript handler',
   );
   const proxySource = await readFile(path.join(root, 'api/proxy.js'), 'utf8');
