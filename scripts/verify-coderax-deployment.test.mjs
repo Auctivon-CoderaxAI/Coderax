@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -198,9 +198,31 @@ test('Vercel root traces third-party dependencies imported by the backend bootst
 
 test('Vercel statically traces EventSource imported by the Express entrypoint', () => {
   assert.equal(verifyVercelEntrypointDependency("global.EventSource = require('eventsource').EventSource;", 'eventsource'), 'eventsource');
+  assert.equal(verifyVercelEntrypointDependency("require('lodash/partialRight');", 'lodash/partialRight'), 'lodash/partialRight');
   assert.throws(
     () => verifyVercelEntrypointDependency("require('~/config');", 'eventsource'),
     /must directly import eventsource/,
+  );
+});
+
+test('Vercel traces module-alias dependencies from the backend entrypoint', () => {
+  const dependencies = { eventsource: '^3.0.2', lodash: '^4.17.23' };
+  const root = { dependencies };
+  const backend = { dependencies };
+  const lock = { packages: {
+    '': { dependencies },
+    api: { dependencies },
+    'node_modules/eventsource': { version: '3.0.2' },
+    'node_modules/lodash': { version: '4.17.23' },
+  } };
+
+  assert.deepEqual(
+    verifyVercelEntrypointRuntimeDependency(root, lock, backend, "require('lodash/partialRight');", 'lodash/partialRight'),
+    'lodash',
+  );
+  assert.throws(
+    () => verifyVercelEntrypointRuntimeDependency({ dependencies: { eventsource: dependencies.eventsource } }, lock, backend, "require('lodash/partialRight');", 'lodash/partialRight'),
+    /Vercel root must declare entrypoint dependency lodash/,
   );
 });
 

@@ -2,6 +2,9 @@ require('../config/credentials');
 
 global.EventSource = require('eventsource').EventSource;
 
+// Keep dependencies used behind module-alias visible to Vercel's function tracer.
+require('lodash/partialRight');
+
 const telemetry = require('./telemetry');
 const fs = require('fs');
 const path = require('path');

@@ -87,6 +87,19 @@ export function verifyVercelEntrypointDependency(source, name) {
   return name;
 }
 
+/** Keep a dependency hidden behind module-alias traceable from the Vercel root. */
+export function verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, source, specifier) {
+  verifyVercelEntrypointDependency(source, specifier);
+  const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+  const required = backendPackage.dependencies?.[name];
+  assert.equal(typeof required, 'string', `Express must declare entrypoint dependency ${name}`);
+  assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare entrypoint dependency ${name}`);
+  assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include entrypoint dependency ${name}`);
+  assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include entrypoint dependency ${name}`);
+  assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve entrypoint dependency ${name}`);
+  return name;
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -176,8 +189,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
-  verifyVercelEntrypointDependency(backendSource, 'eventsource');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  const backendEntrypointDependencies = [
+    verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'eventsource'),
+    verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'lodash/partialRight'),
+  ];
   const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
   const backendBootstrapDependencies = verifyVercelBackendBootstrapDependencies(rootPackage, lock, backendPackage, backendBootstrapSource);
   const backendWorkspaceDependencies = verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage);
@@ -231,6 +247,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     backendExcludesFrontendBuild: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
     backendBootstrapDependencies,
+    backendEntrypointDependencies,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
     dataSchemasModelsExport: true,
   };
