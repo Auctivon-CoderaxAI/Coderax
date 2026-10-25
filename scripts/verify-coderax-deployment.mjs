@@ -276,14 +276,31 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     /npm ci --include=dev/,
     'frontend service must install the build toolchain used by the client package',
   );
-  assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
-  assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  const backendFunctionFiles = services.services?.backend?.functions?.['api/server/index.js']?.includeFiles;
+  assert.equal(services.services?.backend?.framework, 'express', 'Express API proxy service not configured');
+  assert.equal(services.services?.backend?.entrypoint, 'api/proxy.js', 'backend proxy entrypoint missing');
   assert.ok(
-    backendFunctionFiles ===
-      '{api/**/*,packages/api/dist/**/*,packages/data-provider/dist/**/*,packages/data-schemas/dist/**/*}',
-    'Vercel backend must include API source and built workspace runtime files in one supported glob',
+    Number.isInteger(services.services?.backend?.functions?.['api/proxy.js']?.maxDuration) &&
+      services.services.backend.functions['api/proxy.js'].maxDuration >= 60 &&
+      services.services.backend.functions['api/proxy.js'].maxDuration <= 300,
+    'backend proxy must allow streaming within the Vercel Hobby function limit',
   );
+  assert.equal(
+    services.services?.backend?.functions?.['api/proxy.js']?.includeFiles,
+    '{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}',
+    'Vercel backend must include the small proxy entrypoint and compiled TypeScript handler',
+  );
+  const proxySource = await readFile(path.join(root, 'api/proxy.js'), 'utf8');
+  const proxyHandlerSource = await readFile(path.join(root, 'packages/api/src/proxy.ts'), 'utf8');
+  const apiPackageSource = await readFile(path.join(root, 'packages/api/package.json'), 'utf8');
+  assert.match(apiPackageSource, /normalize-cjs-runtime\.mjs dist\/proxy\.cjs/, 'API build must normalize the proxy CommonJS entrypoint for Vercel');
+  assert.match(proxySource, /require\(['"]@coderax\/api\/proxy['"]\)/, 'Express wiring must load the TypeScript API workspace export');
+  assert.match(apiPackageSource, /"\.\/proxy"\s*:/, 'API workspace must export the compiled proxy entry');
+  assert.match(proxyHandlerSource, /CODERAX_API_ORIGIN/, 'proxy must require a configured API origin');
+  assert.match(proxyHandlerSource, /CODERAX_PROXY_SECRET/, 'proxy must require a private origin secret');
+  assert.match(proxyHandlerSource, /function isApiPath/, 'proxy must allowlist forwarded routes');
+  assert.match(proxyHandlerSource, /response\.on\('error'/, 'proxy must handle upstream response stream errors');
+  assert.doesNotMatch(proxySource + proxyHandlerSource, /api\/server\/index/, 'Vercel proxy must not start the database-backed API locally');
+  assert.match(services.services?.backend?.buildCommand ?? '', /npm run build:api/, 'Vercel must build the TypeScript proxy workspace before bundling');
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client(?:-package)?\b/,
@@ -300,6 +317,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
+    backendApiProxy: true,
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
     backendBootstrapDependencies,
     backendEntrypointDependencies,

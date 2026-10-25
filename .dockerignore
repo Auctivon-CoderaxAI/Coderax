@@ -5,6 +5,7 @@
 **/.DS_Store
 **/.vscode
 **/node_modules
+deploy/oci/*.env
 
 # Specific patterns to ignore
 data-node
