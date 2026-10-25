@@ -84,15 +84,21 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
   );
 });
 
-test('compiled API bundle rejects unresolved mathjs even after a successful build', async () => {
+test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'coderax-bundle-'));
   const dist = path.join(root, 'packages/api/dist');
   try {
     await mkdir(dist, { recursive: true });
     await writeFile(path.join(dist, 'index.cjs'), 'const math = require("mathjs");');
     await assert.rejects(verifyApiBundle(root), /still requires external mathjs/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const sdk = require("@modelcontextprotocol/sdk/types.js");');
+    await assert.rejects(verifyApiBundle(root), /still requires external MCP SDK/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const source = require("eventsource");');
+    await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
+    await writeFile(path.join(dist, 'index.cjs'), 'const parser = require("eventsource-parser");');
+    await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
     await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
-    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false });
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { defineConfig } from 'tsdown';
 
+// Some dependencies of the MCP SDK are dynamically imported by its transports.
+// Vercel's function tracing omitted these modules even though npm ci installed
+// them: keep them in the emitted API bundle alongside the SDK itself.
+const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server)(?:\/|$)/;
+
 export default defineConfig({
   // The telemetry entry is a thin shim (`src/telemetry.ts`) rather than the
   // `src/telemetry/index.ts` barrel: oxc emits declarations flat into outDir keyed
@@ -23,9 +28,10 @@ export default defineConfig({
   // only first-party code: relative imports and the `~/*` tsconfig alias (-> src).
   // `neverBundle` is the 0.22 replacement for the deprecated `external` option.
   deps: {
-    neverBundle: (id) => id !== 'mathjs' && !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
-    // Vercel Services traces this workspace as a function; keep calculator evaluation
-    // in the emitted API bundle rather than relying on an omitted peer at runtime.
-    alwaysBundle: ['mathjs'],
+    neverBundle: (id) => id !== 'mathjs' && !mcpRuntimeModules.test(id) && !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
+    // Vercel Services traces this workspace as a function. The calculator and
+    // MCP SDK, plus its SDK-specific transport/auth dependencies, must be in the
+    // emitted API bundle. Vercel's function tracer omitted these at runtime.
+    alwaysBundle: ['mathjs', mcpRuntimeModules],
   },
 });
