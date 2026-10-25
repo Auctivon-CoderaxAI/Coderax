@@ -7,6 +7,8 @@ const mockEndpoint = { current: 'agents' };
 
 jest.mock('react-router-dom', () => ({
   useParams: () => ({ conversationId: 'convo-1' }),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) =>
+    <a href={to}>{children}</a>,
 }));
 jest.mock('recoil', () => ({
   useRecoilValue: (selector: string) =>
@@ -68,6 +70,8 @@ describe('Header stacking', () => {
 
     expect(container.firstElementChild).toHaveClass('absolute', 'top-0', 'z-20');
     expect(backgroundTasks).toHaveBeenCalled();
+    expect(screen.getByRole('navigation', { name: 'Conversation mode' })).toHaveTextContent('Chat');
+    expect(screen.getByRole('link', { name: 'Work' })).toHaveAttribute('href', '/cyvox/work');
   });
 
   test('keeps conversation task controls mounted across endpoint switches', () => {
