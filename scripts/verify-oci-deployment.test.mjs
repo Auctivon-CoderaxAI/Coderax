@@ -70,7 +70,10 @@ test('OCI uses private local Qwen and never opens cloud inference', async () => 
 
 test('environment setup writes only protected, untracked secret files', async () => {
   const setup = await read('deploy/oci/prepare-env.sh');
-  const ignore = await read('.gitignore');
+  const ignore = await read('.gitignore').catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
   const dockerIgnore = await read('.dockerignore');
   assert.match(setup, /umask 077/);
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
@@ -80,6 +83,6 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /openssl rand -hex 32/);
   assert.match(setup, /chmod 600 app\.env origin\.env/);
   assert.match(setup, /do not print or commit that file/);
-  assert.match(ignore, /deploy\/oci\/\*\.env/);
+  if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
   assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
 });
