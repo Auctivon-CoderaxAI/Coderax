@@ -35,9 +35,11 @@ const useDebugLogging =
   (typeof DEBUG_LOGGING === 'string' && DEBUG_LOGGING?.toLowerCase() === 'true') ||
   DEBUG_LOGGING === true;
 
+// Vercel function bundles are read-only; platform logs are captured from stdout/stderr.
 const useFileLogging =
-  (typeof LOG_TO_FILE === 'string' && LOG_TO_FILE?.toLowerCase() !== 'false') ||
-  LOG_TO_FILE === true;
+  process.env.VERCEL !== '1' &&
+  ((typeof LOG_TO_FILE === 'string' && LOG_TO_FILE.toLowerCase() !== 'false') ||
+    LOG_TO_FILE === true);
 
 const levels = {
   error: 0,
