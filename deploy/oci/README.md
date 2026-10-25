@@ -11,6 +11,7 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 - Allow inbound TCP 80 and 443 from the Internet for Caddy TLS and Vercel API traffic.
 - Allow inbound TCP 22 only from the operator's current public IP while provisioning; remove that temporary rule when SSH setup is complete.
 - Do not publish ports 3080, 11434, 27017, or 7700.
+- Keep the API at one Compose replica while `SCHEDULES_SINGLE_PROCESS=true`; do not scale it horizontally without adding a shared stream store.
 - Add only the VM's public IPv4 `/32` to the MongoDB Atlas IP access list. Do not use `0.0.0.0/0`.
 - Use a database user with `readWrite` on the `Coderax` database only. Do not reuse an Atlas administrator account.
 - Ollama's runtime container is attached only to an internal Docker network. Its cloud features are disabled; its model-download container exits after pulling `qwen3.5:4b`.
