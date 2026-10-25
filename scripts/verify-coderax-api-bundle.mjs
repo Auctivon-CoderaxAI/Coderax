@@ -13,6 +13,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const externalMathjs = /\b(?:require|import)\s*\(\s*['"]mathjs(?:\/[^'"]*)?['"]\s*\)/;
 const externalMcpSdk = /\b(?:require|import)\s*\(\s*['"]@modelcontextprotocol\/sdk(?:\/[^'"]*)?['"]\s*\)/;
 const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:-parser)?)(?:\/[^'"]*)?['"]\s*\)/;
+const externalWebauthn = /\b(?:require|import)\s*\(\s*['"]@simplewebauthn\/server(?:\/[^'"]*)?['"]\s*\)/;
 
 export async function verifyApiBundle(root = repoRoot) {
   const dist = path.join(root, 'packages/api/dist');
@@ -23,8 +24,9 @@ export async function verifyApiBundle(root = repoRoot) {
     assert.ok(!externalMathjs.test(code), name + ' still requires external mathjs');
     assert.ok(!externalMcpSdk.test(code), name + ' still requires external MCP SDK');
     assert.ok(!externalMcpTransitive.test(code), name + ' still requires an external MCP SDK transport dependency');
+    assert.ok(!externalWebauthn.test(code), name + ' still requires external WebAuthn server');
   }
-  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false };
+  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
