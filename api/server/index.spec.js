@@ -136,6 +136,12 @@ describe('Startup readiness wiring', () => {
     ).toHaveLength(1);
   });
 
+  it('binds the Vercel service to its network interface while keeping local binding unchanged', () => {
+    expect(source).toContain(
+      "const host = HOST || (process.env.VERCEL === '1' ? '0.0.0.0' : 'localhost');",
+    );
+  });
+
   it('configures social logins with the app config loaded at startup in both server entries', () => {
     const experimental = fs.readFileSync(path.join(__dirname, 'experimental.js'), 'utf8');
 
