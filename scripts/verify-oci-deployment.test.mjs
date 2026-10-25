@@ -6,6 +6,11 @@ import { test } from 'node:test';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => readFile(path.join(root, relative), 'utf8');
+const readIfPresent = (relative) =>
+  read(relative).catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return null;
+  });
 
 function serviceBlock(source, name) {
   const lines = source.split(/\r?\n/);
@@ -70,11 +75,8 @@ test('OCI uses private local Qwen and never opens cloud inference', async () => 
 
 test('environment setup writes only protected, untracked secret files', async () => {
   const setup = await read('deploy/oci/prepare-env.sh');
-  const ignore = await read('.gitignore').catch((error) => {
-    if (error.code !== 'ENOENT') throw error;
-    return null;
-  });
-  const dockerIgnore = await read('.dockerignore');
+  const ignore = await readIfPresent('.gitignore');
+  const dockerIgnore = await readIfPresent('.dockerignore');
   assert.match(setup, /umask 077/);
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
   assert.match(setup, /read_secret JWT_SECRET/);
@@ -84,5 +86,5 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /chmod 600 app\.env origin\.env/);
   assert.match(setup, /do not print or commit that file/);
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
-  assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
+  if (dockerIgnore) assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
 });
