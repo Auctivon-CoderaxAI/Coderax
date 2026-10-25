@@ -136,7 +136,7 @@ export function createCyvoxAddonRouter(
       }
       const mode = body.mode === 'Coding Team' ? 'Coding Team' : 'Autonomous Run';
       await forward(res, '/api/tasks', 'POST', {
-        task: body.task.trim(), mode, max_steps: 15, routing_mode: 'AUTO',
+        task: body.task.trim(), mode, max_steps: 15, routing_mode: 'FAST',
       });
     } else if (action === 'startComputerTask') {
       if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) {
