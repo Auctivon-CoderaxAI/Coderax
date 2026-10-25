@@ -1,10 +1,11 @@
-'use strict';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { EventEmitter } from 'node:events';
+import { PassThrough, Writable } from 'node:stream';
+import { test } from 'node:test';
 
-const assert = require('node:assert/strict');
-const { EventEmitter } = require('node:events');
-const { PassThrough, Writable } = require('node:stream');
-const { test } = require('node:test');
-const { createProxyHandler, isApiPath, parseApiOrigin } = require('./proxy-handler');
+const require = createRequire(import.meta.url);
+const { createProxyHandler, isApiPath, parseApiOrigin } = require('./dist/proxy.cjs');
 
 const ENV = {
   CODERAX_API_ORIGIN: 'https://coderax-93-184-216-34.sslip.io',
@@ -19,13 +20,12 @@ function responseStub() {
   res.statusCode = 200;
   res.headersSent = false;
   res.writableEnded = false;
+  res.destroyed = false;
   res.setHeader = (name, value) => {
     res.headers[name.toLowerCase()] = value;
   };
-  res.writeHead = (status, headers) => {
-    res.statusCode = status;
-    for (const [name, value] of Object.entries(headers || {})) res.setHeader(name, value);
-    res.headersSent = true;
+  res.removeHeader = (name) => {
+    delete res.headers[name.toLowerCase()];
   };
   res.write = (chunk) => {
     res.headersSent = true;
@@ -80,7 +80,7 @@ test('the configured origin must be HTTPS and point to a public Coderax sslip.io
   }
 });
 
-test('missing secret fails closed without contacting the configured origin', async () => {
+test('missing secret fails closed without contacting the configured origin', () => {
   const res = responseStub();
   let requested = false;
   const handler = createProxyHandler({
@@ -175,4 +175,38 @@ test('forwards allowed requests with a private proxy secret and preserves respon
     'coderax-refresh=two; HttpOnly; Secure',
   ]);
   assert.equal(res.headers.connection, undefined);
+});
+
+test('a mid-stream upstream error closes the downstream response without escaping', async () => {
+  const handler = createProxyHandler({
+    env: ENV,
+    request: (_options, callback) => {
+      const upstreamRequest = new Writable({
+        write(_chunk, _encoding, done) {
+          done();
+        },
+      });
+      upstreamRequest.on('finish', () => {
+        const upstreamResponse = new PassThrough();
+        upstreamResponse.statusCode = 200;
+        upstreamResponse.headers = { 'content-type': 'text/event-stream' };
+        callback(upstreamResponse);
+        upstreamResponse.write('data: {"partial":true}\n\n');
+        upstreamResponse.emit('error', new Error('upstream disconnected'));
+      });
+      return upstreamRequest;
+    },
+  });
+
+  const incoming = new PassThrough();
+  incoming.url = '/api/agents/chat';
+  incoming.method = 'POST';
+  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  const res = responseStub();
+  handler(incoming, res);
+  incoming.end('{}');
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(res.body, 'data: {"partial":true}\n\n');
+  assert.equal(res.destroyed, true);
 });

@@ -46,7 +46,7 @@ test('Caddy requires the private proxy header and preserves origin and streaming
 test('Vercel uses the authenticated proxy for every API and health rewrite', async () => {
   const vercel = JSON.parse(await read('vercel.json'));
   assert.equal(vercel.services.backend.entrypoint, 'api/proxy.js');
-  assert.match(vercel.services.backend.functions['api/proxy.js'].includeFiles, /proxy-handler\.js/);
+  assert.match(vercel.services.backend.functions['api/proxy.js'].includeFiles, /packages\/api\/dist\/proxy\.cjs/);
   assert.equal(vercel.services.backend.functions['api/proxy.js'].maxDuration, 300);
   for (const route of ['/api/(.*)', '/oauth/(.*)', '/readyz']) {
     assert.equal(vercel.rewrites.find((item) => item.source === route)?.destination?.service, 'backend');

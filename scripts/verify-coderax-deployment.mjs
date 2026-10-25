@@ -286,16 +286,20 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(
     services.services?.backend?.functions?.['api/proxy.js']?.includeFiles,
-    '{api/proxy.js,api/proxy-handler.js}',
-    'Vercel backend must include the small proxy entrypoint and handler',
+    '{api/proxy.js,packages/api/dist/proxy.cjs}',
+    'Vercel backend must include the small proxy entrypoint and compiled TypeScript handler',
   );
   const proxySource = await readFile(path.join(root, 'api/proxy.js'), 'utf8');
-  const proxyHandlerSource = await readFile(path.join(root, 'api/proxy-handler.js'), 'utf8');
-  assert.match(proxySource, /require\(['"]\.\/proxy-handler['"]\)/, 'Express service must load the isolated proxy handler');
+  const proxyHandlerSource = await readFile(path.join(root, 'packages/api/src/proxy.ts'), 'utf8');
+  const apiPackageSource = await readFile(path.join(root, 'packages/api/package.json'), 'utf8');
+  assert.match(proxySource, /require\(['"]@coderax\/api\/proxy['"]\)/, 'Express wiring must load the TypeScript API workspace export');
+  assert.match(apiPackageSource, /"\.\/proxy"\s*:/, 'API workspace must export the compiled proxy entry');
   assert.match(proxyHandlerSource, /CODERAX_API_ORIGIN/, 'proxy must require a configured API origin');
   assert.match(proxyHandlerSource, /CODERAX_PROXY_SECRET/, 'proxy must require a private origin secret');
   assert.match(proxyHandlerSource, /function isApiPath/, 'proxy must allowlist forwarded routes');
+  assert.match(proxyHandlerSource, /response\.on\('error'/, 'proxy must handle upstream response stream errors');
   assert.doesNotMatch(proxySource + proxyHandlerSource, /api\/server\/index/, 'Vercel proxy must not start the database-backed API locally');
+  assert.match(services.services?.backend?.buildCommand ?? '', /npm run build:api/, 'Vercel must build the TypeScript proxy workspace before bundling');
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client(?:-package)?\b/,

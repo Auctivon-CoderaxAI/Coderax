@@ -1,7 +1,6 @@
-'use strict';
-
-const https = require('node:https');
-const { isIP } = require('node:net');
+import { isIP } from 'node:net';
+import * as https from 'node:https';
+import type { IncomingMessage, OutgoingHttpHeaders, ServerResponse } from 'node:http';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -14,8 +13,12 @@ const HOP_BY_HOP_HEADERS = new Set([
   'upgrade',
 ]);
 
-function parseApiOrigin(value) {
-  let origin;
+export function parseApiOrigin(value: string | undefined): URL {
+  if (!value) {
+    throw new Error('CODERAX_API_ORIGIN must be a valid HTTPS origin');
+  }
+
+  let origin: URL;
   try {
     origin = new URL(value);
   } catch {
@@ -61,7 +64,7 @@ function parseApiOrigin(value) {
   return origin;
 }
 
-function allowedHosts(env) {
+function allowedHosts(env: NodeJS.ProcessEnv): Set<string> {
   const values = [
     env.DOMAIN_CLIENT,
     env.DOMAIN_SERVER,
@@ -69,18 +72,20 @@ function allowedHosts(env) {
     ...(env.CODERAX_ALLOWED_HOSTS ?? '').split(','),
   ];
   return new Set(
-    values.filter(Boolean).flatMap((value) => {
-      try {
-        const url = new URL(value.includes('://') ? value : `https://${value.trim()}`);
-        return url.protocol === 'https:' ? [url.host.toLowerCase()] : [];
-      } catch {
-        return [];
-      }
-    }),
+    values
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      .flatMap((value) => {
+        try {
+          const url = new URL(value.includes('://') ? value : `https://${value.trim()}`);
+          return url.protocol === 'https:' ? [url.host.toLowerCase()] : [];
+        } catch {
+          return [];
+        }
+      }),
   );
 }
 
-function isApiPath(pathname) {
+export function isApiPath(pathname: string): boolean {
   return (
     pathname === '/api' ||
     pathname.startsWith('/api/') ||
@@ -92,16 +97,24 @@ function isApiPath(pathname) {
   );
 }
 
-function json(res, status, body) {
+function json(res: ServerResponse, status: number, body: Record<string, string>): void {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
   res.end(JSON.stringify(body));
 }
 
-function createProxyHandler({ env = process.env, request = https.request } = {}) {
+type ProxyRequest = typeof https.request;
+
+export function createProxyHandler({
+  env = process.env,
+  request = https.request,
+}: {
+  env?: NodeJS.ProcessEnv;
+  request?: ProxyRequest;
+} = {}): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
-    let upstream;
+    let upstream: URL;
     try {
       upstream = parseApiOrigin(env.CODERAX_API_ORIGIN);
     } catch {
@@ -115,7 +128,7 @@ function createProxyHandler({ env = process.env, request = https.request } = {})
       return;
     }
 
-    let pathname;
+    let pathname: string;
     try {
       pathname = new URL(req.url || '/', 'https://coderax.invalid').pathname;
     } catch {
@@ -133,7 +146,7 @@ function createProxyHandler({ env = process.env, request = https.request } = {})
       return;
     }
 
-    const headers = {};
+    const headers: OutgoingHttpHeaders = {};
     for (const [name, value] of Object.entries(req.headers)) {
       const lowerName = name.toLowerCase();
       if (
@@ -156,7 +169,8 @@ function createProxyHandler({ env = process.env, request = https.request } = {})
       headers['x-forwarded-for'] = vercelClientIp;
     }
 
-    let proxyRequest;
+    let proxyRequest: ReturnType<ProxyRequest>;
+    let proxyResponse: IncomingMessage | undefined;
     try {
       proxyRequest = request(
         {
@@ -167,15 +181,25 @@ function createProxyHandler({ env = process.env, request = https.request } = {})
           path: req.url || '/',
           headers,
         },
-        (proxyResponse) => {
-          res.statusCode = proxyResponse.statusCode || 502;
-          for (const [name, value] of Object.entries(proxyResponse.headers || {})) {
+        (response) => {
+          proxyResponse = response;
+          response.on('error', () => fail(response));
+          response.on('aborted', () => fail(response));
+          response.on('close', () => {
+            if (response.complete === false) fail(response);
+          });
+          res.statusCode = response.statusCode || 502;
+          for (const [name, value] of Object.entries(response.headers || {})) {
             const lowerName = name.toLowerCase();
-            if (!HOP_BY_HOP_HEADERS.has(lowerName) && lowerName !== 'x-coderax-proxy-secret') {
+            if (
+              value !== undefined &&
+              !HOP_BY_HOP_HEADERS.has(lowerName) &&
+              lowerName !== 'x-coderax-proxy-secret'
+            ) {
               res.setHeader(name, value);
             }
           }
-          proxyResponse.pipe(res);
+          response.pipe(res);
         },
       );
     } catch {
@@ -183,19 +207,26 @@ function createProxyHandler({ env = process.env, request = https.request } = {})
       return;
     }
 
-    proxyRequest.on('error', () => {
+    function fail(response?: IncomingMessage): void {
+      if (res.writableEnded || res.destroyed) return;
       if (!res.headersSent) {
+        for (const name of Object.keys(response?.headers || {})) {
+          res.removeHeader(name);
+        }
         json(res, 502, { error: 'API origin is unavailable' });
       } else {
         res.destroy();
       }
-    });
+    }
+
+    proxyRequest.on('error', () => fail(proxyResponse));
     req.on('aborted', () => proxyRequest.destroy());
     res.on('close', () => {
-      if (!res.writableEnded) proxyRequest.destroy();
+      if (!res.writableEnded) {
+        proxyRequest.destroy();
+        proxyResponse?.destroy();
+      }
     });
     req.pipe(proxyRequest);
   };
 }
-
-module.exports = { createProxyHandler, isApiPath, parseApiOrigin };

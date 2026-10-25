@@ -1,10 +1,10 @@
 'use strict';
 
 const express = require('express');
-const { createProxyHandler } = require('./proxy-handler');
+const { createProxyHandler } = require('@coderax/api/proxy');
 
-// This Express service deliberately does not import the database-backed API.
-// The origin server owns auth, rate limits, persistence, and model inference.
+// Keep this legacy Express entrypoint as wiring only. The isolated proxy lives
+// in the TypeScript API workspace; the origin server owns database-backed API work.
 const app = express();
 app.use(createProxyHandler());
 
