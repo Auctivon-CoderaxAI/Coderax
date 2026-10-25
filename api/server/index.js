@@ -9,6 +9,7 @@ const telemetry = require('./telemetry');
 const fs = require('fs');
 const path = require('path');
 require('module-alias')({ base: path.resolve(__dirname, '..') });
+require('./vercel-trace-dependencies');
 const cors = require('cors');
 const axios = require('axios');
 const express = require('express');

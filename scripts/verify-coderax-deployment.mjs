@@ -100,6 +100,29 @@ export function verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backe
   return name;
 }
 
+/** Verify package markers for dependencies that Vercel cannot reach through
+ * module-alias. The marker uses require.resolve so tracing does not eagerly
+ * initialize optional providers and authentication integrations.
+ */
+export function verifyVercelAliasRuntimeDependencies(lock, backendPackage, source) {
+  const specifiers = [...source.matchAll(/\brequire\.resolve\s*\(\s*['"]([^'"]+)['"]\s*\)/g)]
+    .map((match) => match[1]);
+  assert.ok(specifiers.length > 0, 'Vercel alias-hidden runtime dependency markers are missing');
+  for (const specifier of specifiers) {
+    const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+    const required = backendPackage.dependencies?.[name];
+    assert.equal(typeof required, 'string', `Express must declare alias-hidden runtime dependency ${name}`);
+    assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include alias-hidden dependency ${name}`);
+    assert.ok(
+      lock.packages?.[`api/node_modules/${name}`]?.version || lock.packages?.[`node_modules/${name}`]?.version,
+      `lockfile must resolve alias-hidden dependency ${name}`,
+    );
+  }
+  return [...new Set(specifiers.map((specifier) => (
+    specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+  )))].sort();
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -188,8 +211,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const dataSchemasPackage = JSON.parse(await readFile(path.join(root, 'packages/data-schemas/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
+  const backendAliasTraceSource = await readFile(path.join(root, 'api/server/vercel-trace-dependencies.js'), 'utf8');
   const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
+  verifyVercelEntrypointDependency(backendSource, './vercel-trace-dependencies');
+  const backendAliasRuntimeDependencies = verifyVercelAliasRuntimeDependencies(lock, backendPackage, backendAliasTraceSource);
   const backendEntrypointDependencies = [
     verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'eventsource'),
     verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'lodash/partialRight'),
@@ -248,6 +274,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     apiRuntimeDependencyCount: apiRuntimeDependencies.length,
     backendBootstrapDependencies,
     backendEntrypointDependencies,
+    backendAliasRuntimeDependencies,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
     dataSchemasModelsExport: true,
   };

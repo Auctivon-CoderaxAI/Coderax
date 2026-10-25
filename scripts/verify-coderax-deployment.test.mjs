@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -223,6 +223,32 @@ test('Vercel traces module-alias dependencies from the backend entrypoint', () =
   assert.throws(
     () => verifyVercelEntrypointRuntimeDependency({ dependencies: { eventsource: dependencies.eventsource } }, lock, backend, "require('lodash/partialRight');", 'lodash/partialRight'),
     /Vercel root must declare entrypoint dependency lodash/,
+  );
+});
+
+test('Vercel file markers trace alias-hidden packages without loading them', () => {
+  const dependencies = {
+    nodemailer: '^10.0.2',
+    'zod-to-json-schema': '^3.25.1',
+  };
+  const backend = { dependencies };
+  const lock = { packages: {
+    api: { dependencies },
+    'node_modules/nodemailer': { version: '10.0.2' },
+    'node_modules/zod-to-json-schema': { version: '3.25.1' },
+  } };
+  const source = [
+    "require.resolve('nodemailer');",
+    "require.resolve('zod-to-json-schema');",
+  ].join('\n');
+
+  assert.deepEqual(
+    verifyVercelAliasRuntimeDependencies(lock, backend, source),
+    ['nodemailer', 'zod-to-json-schema'],
+  );
+  assert.throws(
+    () => verifyVercelAliasRuntimeDependencies({ packages: { api: { dependencies } } }, backend, source),
+    /lockfile must resolve alias-hidden dependency nodemailer/,
   );
 });
 
