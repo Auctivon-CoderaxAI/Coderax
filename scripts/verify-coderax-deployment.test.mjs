@@ -27,7 +27,7 @@ test('Vercel packages CommonJS module-alias source files needed by Express', asy
   const vercelPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../vercel.json');
   const config = JSON.parse(await readFile(vercelPath, 'utf8'));
   assert.equal(config.services.backend.entrypoint, 'api/server/index.js');
-  assert.ok(config.services.backend.includeFiles?.includes('api/**/*'));
+  assert.ok(config.services.backend.functions?.['api/server/index.js']?.includeFiles === 'api/**/*');
   assert.equal(config.rewrites.find((item) => item.source === '/readyz')?.destination?.service, 'backend');
 });
 
