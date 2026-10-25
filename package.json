@@ -171,7 +171,9 @@
   },
   "homepage": "https://coderax/",
   "dependencies": {
-    "mathjs": "^15.2.0"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mathjs": "^15.2.0",
+    "rate-limit-redis": "^4.2.0"
   },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",

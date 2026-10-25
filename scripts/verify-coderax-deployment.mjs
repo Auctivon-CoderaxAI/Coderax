@@ -34,13 +34,13 @@ export const validateLiveURL = (value) => {
  * Keep a runtime dependency used by @coderax/api visible to the root tracer,
  * rather than relying solely on npm workspace hoisting.
  */
-export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage) {
-  const required = apiPackage.dependencies?.mathjs;
-  assert.equal(typeof required, 'string', '@coderax/api must declare mathjs as a runtime dependency');
-  assert.equal(backendPackage.dependencies?.mathjs, required, 'Express mathjs version must match @coderax/api');
-  assert.equal(rootPackage.dependencies?.mathjs, required, 'Vercel root must declare mathjs for function tracing');
-  assert.equal(lock.packages?.['']?.dependencies?.mathjs, required, 'root lockfile must include mathjs for npm ci');
-  assert.ok(lock.packages?.['node_modules/mathjs']?.version, 'lockfile must resolve mathjs');
+export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, name) {
+  const required = apiPackage.dependencies?.[name];
+  assert.equal(typeof required, 'string', `@coderax/api must declare ${name} as a dependency`);
+  assert.equal(backendPackage.dependencies?.[name], required, `Express ${name} version must match @coderax/api`);
+  assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare ${name} for function tracing`);
+  assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include ${name} for npm ci`);
+  assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve ${name}`);
 }
 
 
@@ -100,12 +100,19 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const workspaceClientPackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
+  for (const dependency of ['mathjs', 'rate-limit-redis', '@modelcontextprotocol/sdk']) {
+    verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, dependency);
+  }
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
+  assert.ok(
+    backendSource.includes('const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);'),
+    'Vercel backend must start without frontend assets supplied by its separate service',
+  );
   assert.ok(
     vercel.rewrites?.some((rule) =>
       typeof rule.source === 'string' &&
@@ -123,17 +130,12 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  assert.match(
+  assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client-package\b/,
-    'backend service must build the shared client package',
+    /\bnpm run build:client(?:-package)?\b/,
+    'backend service must not build frontend assets owned by the frontend service',
   );
   verifyWorkspaceBuildTooling(rootPackage, lock, workspaceClientPackage, apiPackage, services);
-  assert.match(
-    services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client\b/,
-    'backend service must build client/dist/index.html before Express startup',
-  );
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/(.*)' && r.destination?.service === 'frontend'), 'frontend catch-all missing');
@@ -143,8 +145,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     clientFrontend: true,
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
-    backendIncludesClientBuildTools: true,
-    backendIncludesClientBuild: true,
+    backendExcludesFrontendBuild: true,
   };
 }
 
