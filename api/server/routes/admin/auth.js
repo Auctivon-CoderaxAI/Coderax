@@ -1,7 +1,7 @@
 const express = require('express');
 const passport = require('passport');
 const crypto = require('node:crypto');
-const openIdClient = require('openid-client');
+const { openIdClient } = require('~/server/utils/openIdClient');
 const { CacheKeys } = require('coderax-data-provider');
 const {
   logger,

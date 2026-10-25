@@ -1,10 +1,9 @@
 const undici = require('undici');
 const { get } = require('lodash');
 const passport = require('passport');
-const client = require('openid-client');
+const { loadOpenIdClient, loadOpenIdPassport } = require('~/server/utils/openIdClient');
 const jwtDecode = require('jsonwebtoken/decode');
 const { hashToken, logger, tenantStorage } = require('@coderax/data-schemas');
-const { Strategy: OpenIDStrategy } = require('openid-client/passport');
 const { CacheKeys, ErrorTypes, SystemRoles } = require('coderax-data-provider');
 const {
   isEnabled,
@@ -47,7 +46,7 @@ const getLogStores = require('~/cache/getLogStores');
 
 /**
  * @param {string} url
- * @param {client.CustomFetchOptions} options
+ * @param {import('openid-client').CustomFetchOptions} options
  */
 async function customFetch(url, options) {
   const urlStr = url.toString();
@@ -125,38 +124,39 @@ const getOpenIdAuthorizationAudience = () =>
  * for consistency and explicit configuration control.
  * More info: https://github.com/panva/openid-client/pull/713
  */
-class CustomOpenIDStrategy extends OpenIDStrategy {
-  currentUrl(req) {
-    const hostAndProtocol = process.env.DOMAIN_SERVER;
-    return new URL(`${hostAndProtocol}${req.originalUrl ?? req.url}`);
-  }
-
-  authorizationRequestParams(req, options) {
-    const params = super.authorizationRequestParams(req, options);
-    if (options?.state && !params.has('state')) {
-      params.set('state', options.state);
+const createCustomOpenIDStrategy = (OpenIDStrategy) =>
+  class CustomOpenIDStrategy extends OpenIDStrategy {
+    currentUrl(req) {
+      const hostAndProtocol = process.env.DOMAIN_SERVER;
+      return new URL(`${hostAndProtocol}${req.originalUrl ?? req.url}`);
     }
 
-    const authorizationAudience = getOpenIdAuthorizationAudience();
-    if (authorizationAudience) {
-      params.set('audience', authorizationAudience);
-      logger.debug(
-        `[openidStrategy] Adding audience to authorization request: ${authorizationAudience}`,
-      );
-    }
+    authorizationRequestParams(req, options) {
+      const params = super.authorizationRequestParams(req, options);
+      if (options?.state && !params.has('state')) {
+        params.set('state', options.state);
+      }
 
-    /** Generate nonce for federated providers that require it */
-    const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
-    if (shouldGenerateNonce && !params.has('nonce') && this._sessionKey) {
-      const crypto = require('crypto');
-      const nonce = crypto.randomBytes(16).toString('hex');
-      params.set('nonce', nonce);
-      logger.debug('[openidStrategy] Generated nonce for federated provider:', nonce);
-    }
+      const authorizationAudience = getOpenIdAuthorizationAudience();
+      if (authorizationAudience) {
+        params.set('audience', authorizationAudience);
+        logger.debug(
+          `[openidStrategy] Adding audience to authorization request: ${authorizationAudience}`,
+        );
+      }
 
-    return params;
-  }
-}
+      /** Generate nonce for federated providers that require it */
+      const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
+      if (shouldGenerateNonce && !params.has('nonce') && this._sessionKey) {
+        const crypto = require('crypto');
+        const nonce = crypto.randomBytes(16).toString('hex');
+        params.set('nonce', nonce);
+        logger.debug('[openidStrategy] Generated nonce for federated provider:', nonce);
+      }
+
+      return params;
+    }
+  };
 
 /**
  * Exchange the access token for a new access token using the on-behalf-of flow if required.
@@ -176,6 +176,7 @@ const exchangeAccessTokenIfNeeded = async (config, accessToken, sub, fromCache =
         return cachedToken.access_token;
       }
     }
+    const client = await loadOpenIdClient();
     const grantResponse = await client.genericGrantRequest(
       config,
       'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -207,6 +208,7 @@ const exchangeAccessTokenIfNeeded = async (config, accessToken, sub, fromCache =
 const getUserInfo = async (config, accessToken, sub) => {
   try {
     const exchangedAccessToken = await exchangeAccessTokenIfNeeded(config, accessToken, sub);
+    const client = await loadOpenIdClient();
     return await client.fetchUserInfo(config, exchangedAccessToken, sub);
   } catch (error) {
     logger.error('[openidStrategy] getUserInfo: Error fetching user info:', error);
@@ -356,6 +358,7 @@ async function exchangeTokenForOverage(accessToken, sub) {
     return cached.access_token;
   }
 
+  const client = await loadOpenIdClient();
   const grantResponse = await client.genericGrantRequest(
     openidConfig,
     'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -870,7 +873,7 @@ function createOpenIDCallback(existingUsersOnly) {
  * Sets up the OpenID strategy specifically for admin authentication.
  * @param {Configuration} openidConfig
  */
-const setupOpenIdAdmin = (openidConfig) => {
+const setupOpenIdAdmin = (openidConfig, CustomOpenIDStrategy) => {
   try {
     if (!openidConfig) {
       throw new Error('OpenID configuration not initialized');
@@ -905,6 +908,8 @@ const setupOpenIdAdmin = (openidConfig) => {
  */
 async function setupOpenId() {
   try {
+    const [client, passportModule] = await Promise.all([loadOpenIdClient(), loadOpenIdPassport()]);
+    const CustomOpenIDStrategy = createCustomOpenIDStrategy(passportModule.Strategy);
     const usePKCE = isEnabled(process.env.OPENID_USE_PKCE);
     const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
 

@@ -123,6 +123,21 @@ export function verifyVercelAliasRuntimeDependencies(lock, backendPackage, sourc
   )))].sort();
 }
 
+/** openid-client v6 is ESM; backend CommonJS modules must reach it through import(). */
+export function verifyVercelOpenIdClientEsmCompatibility(sources, loaderSource) {
+  const directRequire = /\brequire\s*\(\s*['"]openid-client(?:\/passport)?['"]\s*\)/;
+  for (const [filename, source] of Object.entries(sources)) {
+    assert.doesNotMatch(
+      source,
+      directRequire,
+      `${filename} cannot synchronously require the ESM-only openid-client package`,
+    );
+  }
+  assert.match(loaderSource, /\bimport\s*\(\s*['"]openid-client['"]\s*\)/, 'OpenID loader must use import()');
+  assert.match(loaderSource, /\bimport\s*\(\s*['"]openid-client\/passport['"]\s*\)/, 'OpenID Passport loader must use import()');
+  return Object.keys(sources).sort();
+}
+
 /** Make the local packages consumed by Express visible from the Vercel root. */
 export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
   const workspaces = {
@@ -213,9 +228,22 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const backendAliasTraceSource = await readFile(path.join(root, 'api/server/vercel-trace-dependencies.js'), 'utf8');
   const backendBootstrapSource = await readFile(path.join(root, 'api/config/index.js'), 'utf8');
+  const openIdRuntimePaths = [
+    'api/strategies/openidStrategy.js',
+    'api/server/routes/oauth.js',
+    'api/server/routes/admin/auth.js',
+    'api/server/services/OpenIDSessionRefresh.js',
+    'api/server/services/OboTokenService.js',
+    'api/server/services/GraphApiService.js',
+  ];
+  const openIdRuntimeSources = Object.fromEntries(await Promise.all(
+    openIdRuntimePaths.map(async (filename) => [filename, await readFile(path.join(root, filename), 'utf8')]),
+  ));
+  const openIdLoaderSource = await readFile(path.join(root, 'api/server/utils/openIdClient.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   verifyVercelEntrypointDependency(backendSource, './vercel-trace-dependencies');
   const backendAliasRuntimeDependencies = verifyVercelAliasRuntimeDependencies(lock, backendPackage, backendAliasTraceSource);
+  const openIdClientEsmSafeSources = verifyVercelOpenIdClientEsmCompatibility(openIdRuntimeSources, openIdLoaderSource);
   const backendEntrypointDependencies = [
     verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'eventsource'),
     verifyVercelEntrypointRuntimeDependency(rootPackage, lock, backendPackage, backendSource, 'lodash/partialRight'),
@@ -275,6 +303,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     backendBootstrapDependencies,
     backendEntrypointDependencies,
     backendAliasRuntimeDependencies,
+    openIdClientEsmSafeSources: openIdClientEsmSafeSources.length,
     backendWorkspaceDependencies: backendWorkspaceDependencies.length,
     dataSchemasModelsExport: true,
   };

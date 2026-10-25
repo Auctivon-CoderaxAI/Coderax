@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -249,6 +249,27 @@ test('Vercel file markers trace alias-hidden packages without loading them', () 
   assert.throws(
     () => verifyVercelAliasRuntimeDependencies({ packages: { api: { dependencies } } }, backend, source),
     /lockfile must resolve alias-hidden dependency nodemailer/,
+  );
+});
+
+test('Vercel CommonJS backend loads the ESM OpenID client dynamically', () => {
+  const sources = {
+    'api/strategies/openidStrategy.js': 'loadOpenIdClient()',
+    'api/server/routes/oauth.js': 'loadOpenIdClient()',
+  };
+  const loader = "import('openid-client'); import('openid-client/passport');";
+
+  assert.deepEqual(
+    verifyVercelOpenIdClientEsmCompatibility(sources, loader),
+    Object.keys(sources).sort(),
+  );
+  assert.throws(
+    () => verifyVercelOpenIdClientEsmCompatibility({ ...sources, 'api/server/routes/oauth.js': "require('openid-client')" }, loader),
+    /cannot synchronously require the ESM-only openid-client package/,
+  );
+  assert.throws(
+    () => verifyVercelOpenIdClientEsmCompatibility(sources, "require('openid-client')"),
+    /OpenID loader must use import\(\)/,
   );
 });
 

@@ -12,6 +12,7 @@ require.resolve('handlebars');
 require.resolve('nodemailer');
 require.resolve('openai');
 require.resolve('openid-client');
+require.resolve('openid-client/passport');
 require.resolve('passport-apple');
 require.resolve('passport-discord');
 require.resolve('passport-facebook');
