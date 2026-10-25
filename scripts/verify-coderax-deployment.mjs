@@ -130,6 +130,10 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   );
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
+  assert.ok(
+    services.services?.backend?.includeFiles?.includes('api/**/*'),
+    'Vercel backend must include the CommonJS api/ source tree for module-alias runtime paths (e.g. ~/db)',
+  );
   assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
     /\bnpm run build:client(?:-package)?\b/,
