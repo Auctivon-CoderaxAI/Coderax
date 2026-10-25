@@ -1,5 +1,10 @@
 require('../config/credentials');
 
+// Vercel's function tracer cannot follow the package import through the shared API package.
+if (process.env.VERCEL === '1') {
+  require('rate-limit-redis');
+}
+
 const telemetry = require('./telemetry');
 const fs = require('fs');
 const path = require('path');
