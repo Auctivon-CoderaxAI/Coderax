@@ -99,8 +99,12 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
     await assert.rejects(verifyApiBundle(root), /external MCP SDK transport dependency/);
     await writeFile(path.join(dist, 'index.cjs'), 'const passkey = require("@simplewebauthn/server");');
     await assert.rejects(verifyApiBundle(root), /external WebAuthn server/);
+    for (const dependency of ['@hexagon/base64', '@levischuck/tiny-cbor', '@peculiar/asn1-schema', '@peculiar/x509', 'reflect-metadata']) {
+      await writeFile(path.join(dist, 'index.cjs'), `const missing = require("${dependency}");`);
+      await assert.rejects(verifyApiBundle(root), /external WebAuthn runtime dependency/);
+    }
     await writeFile(path.join(dist, 'index.cjs'), 'exports.math = (n) => n;');
-    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false });
+    assert.deepEqual(await verifyApiBundle(root), { filesScanned: 1, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
