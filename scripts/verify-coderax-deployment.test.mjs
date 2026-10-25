@@ -19,7 +19,7 @@ test('database startup tolerates an absent optional Mongoose telemetry export', 
   const filename = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../api/db/connect.js');
   const source = await readFile(filename, 'utf8');
 
-  for (const hasTelemetry of [false, true]) {
+  for (const hasTelemetry of [false, true]) for (const hasLogger of [false, true]) {
     const warnings = [];
     let called = false;
     const mongoose = { connection: { on() {} } };
@@ -27,12 +27,13 @@ test('database startup tolerates an absent optional Mongoose telemetry export', 
     vm.runInNewContext(source, {
       module,
       global: {},
+      console: { warn(message) { warnings.push(message); }, error() {}, info() {} },
       process: { env: { MONGO_URI: 'mongodb://localhost/coderax-test' } },
       require(name) {
         if (name === 'dotenv') return { config() {} };
         if (name === 'mongoose') return mongoose;
         if (name === '@coderax/data-schemas') {
-          return { logger: { warn(message) { warnings.push(message); }, error() {} } };
+          return hasLogger ? { logger: { warn(message) { warnings.push(message); }, error() {}, info() {} } } : {};
         }
         if (name === '@coderax/api') return {
           optionalEnabled: () => undefined,
