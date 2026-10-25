@@ -14,7 +14,7 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 - Keep the API at one Compose replica while `SCHEDULES_SINGLE_PROCESS=true`; do not scale it horizontally without adding a shared stream store.
 - Add only the VM's public IPv4 `/32` to the MongoDB Atlas IP access list. Do not use `0.0.0.0/0`.
 - Use a database user with `readWrite` on the `Coderax` database only. Do not reuse an Atlas administrator account.
-- Ollama's runtime container is attached only to an internal Docker network. Its cloud features are disabled; its model-download container exits after pulling `qwen3.5:4b`.
+- Ollama's runtime container is attached only to an internal Docker network. Its cloud features are disabled; its model-download container exits after pulling `qwen3.5:4b` and `qwen3.5:9b`. The 9B model is the quality option and the 4B model is the faster option; the first 9B response can take about a minute to load on this VM.
 
 ## First deployment
 

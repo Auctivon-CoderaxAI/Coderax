@@ -33,6 +33,8 @@ test('OCI Compose publishes only Caddy and keeps model/app ports private', async
   assert.doesNotMatch(ollama, /^\s+ports:/m);
   assert.match(ollama, /networks:\s+- model\s*$/m);
   assert.match(modelSetup, /networks:\s+- internet\s*$/m);
+  assert.match(modelSetup, /ollama pull qwen3\.5:4b/);
+  assert.match(modelSetup, /ollama pull qwen3\.5:9b/);
   assert.match(compose, /model:\s+internal:\s+true/);
   assert.doesNotMatch(compose, /^\s+mongodb:/m);
   assert.doesNotMatch(compose, /27017:|11434:|7700:/);
@@ -59,12 +61,12 @@ test('Vercel uses the authenticated proxy for every API and health rewrite', asy
 });
 
 test('OCI uses private local Qwen and never opens cloud inference', async () => {
-  const config = await read('deploy/cloud/coderax.yaml');
+  const config = await read('deploy/oci/coderax.oci.yaml');
   const compose = await read('deploy/oci/compose.yaml');
   const app = serviceBlock(compose, 'app');
   assert.match(config, /baseURL: http:\/\/ollama:11434\/v1\//);
-  assert.match(config, /qwen3\.5:4b/);
-  assert.match(app, /\.\.\/cloud\/coderax\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
+  assert.match(config, /qwen3\.5:9b[\s\S]*qwen3\.5:4b/);
+  assert.match(app, /\.\/coderax\.oci\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
   assert.match(compose, /OLLAMA_NO_CLOUD: "1"/);
   assert.match(compose, /OLLAMA_KEEP_ALIVE: "-1"/);
   assert.match(compose, /ALLOW_REGISTRATION: "false"/);
