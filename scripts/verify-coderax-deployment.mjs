@@ -40,7 +40,37 @@ export function verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, bac
   assert.equal(backendPackage.dependencies?.[name], required, `Express ${name} version must match @coderax/api`);
   assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare ${name} for function tracing`);
   assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include ${name} for npm ci`);
+  assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include ${name} for npm ci`);
   assert.ok(lock.packages?.[`node_modules/${name}`]?.version, `lockfile must resolve ${name}`);
+}
+
+/** Keep every API runtime dependency visible to Vercel's root function tracer. */
+export function verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage) {
+  const dependencies = Object.keys(apiPackage.dependencies ?? {}).sort();
+  assert.ok(dependencies.length > 0, '@coderax/api runtime dependencies are missing');
+  for (const name of dependencies) {
+    verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, name);
+  }
+  return dependencies;
+}
+
+/** Make the local packages consumed by Express visible from the Vercel root. */
+export function verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage) {
+  const workspaces = {
+    '@coderax/api': 'packages/api',
+    '@coderax/data-schemas': 'packages/data-schemas',
+    'coderax-data-provider': 'packages/data-provider',
+  };
+  for (const [name, workspace] of Object.entries(workspaces)) {
+    const required = backendPackage.dependencies?.[name];
+    assert.equal(typeof required, 'string', `Express must declare workspace dependency ${name}`);
+    assert.equal(rootPackage.dependencies?.[name], required, `Vercel root must declare workspace dependency ${name}`);
+    assert.equal(lock.packages?.['']?.dependencies?.[name], required, `root lockfile must include workspace ${name}`);
+    assert.equal(lock.packages?.api?.dependencies?.[name], required, `Express lockfile must include workspace ${name}`);
+    assert.equal(lock.packages?.[`node_modules/${name}`]?.link, true, `${name} must resolve as an npm workspace link`);
+    assert.ok(lock.packages?.[workspace], `lockfile is missing workspace ${workspace}`);
+  }
+  return Object.keys(workspaces);
 }
 
 
@@ -102,9 +132,8 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
   const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
-  for (const dependency of ['mathjs', 'rate-limit-redis', '@modelcontextprotocol/sdk']) {
-    verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage, dependency);
-  }
+  const apiRuntimeDependencies = verifyVercelApiRuntimeDependencies(rootPackage, lock, apiPackage, backendPackage);
+  const backendWorkspaceDependencies = verifyVercelBackendWorkspaceDependencies(rootPackage, lock, backendPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
@@ -150,6 +179,8 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
     backendExcludesFrontendBuild: true,
+    apiRuntimeDependencyCount: apiRuntimeDependencies.length,
+    backendWorkspaceDependencies: backendWorkspaceDependencies.length,
   };
 }
 

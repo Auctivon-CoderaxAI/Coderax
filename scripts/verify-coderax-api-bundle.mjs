@@ -16,9 +16,21 @@ const externalMcpTransitive = /\b(?:require|import)\s*\(\s*['"](?:eventsource(?:
 const externalWebauthn = /\b(?:require|import)\s*\(\s*['"]@simplewebauthn\/server(?:\/[^'"]*)?['"]\s*\)/;
 const externalWebauthnRuntime = /\b(?:require|import)\s*\(\s*['"](?:@hexagon\/base64|@levischuck\/tiny-cbor|@peculiar\/[^'"]+|reflect-metadata)(?:\/[^'"]*)?['"]\s*\)/;
 const externalDirectRuntime = /\b(?:require|import)\s*\(\s*['"](?:@langchain\/langgraph-checkpoint(?:-mongodb)?|cluster-key-slot|croner|express-rate-limit|helmet|ollama|proxy-from-env|rate-limit-redis|re2js)(?:\/[^'"]*)?['"]\s*\)/;
+const externalImport = (name) => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b(?:require|import)\\s*\\(\\s*['"]${escaped}(?:/[^'"]*)?['"]\\s*\\)`);
+};
 
 export async function verifyApiBundle(root = repoRoot) {
   const dist = path.join(root, 'packages/api/dist');
+  const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
+  const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const untracedRuntimeDependencies = [
+    ...new Set([
+      ...Object.keys(apiPackage.dependencies ?? {}),
+      ...Object.keys(apiPackage.peerDependencies ?? {}),
+    ]),
+  ].filter((name) => !backendPackage.dependencies?.[name]);
   const files = (await readdir(dist)).filter((name) => /\.(?:cjs|js|mjs)$/.test(name));
   assert.ok(files.includes('index.cjs'), 'built @coderax/api index.cjs is missing');
   for (const name of files) {
@@ -29,8 +41,23 @@ export async function verifyApiBundle(root = repoRoot) {
     assert.ok(!externalWebauthn.test(code), name + ' still requires external WebAuthn server');
     assert.ok(!externalWebauthnRuntime.test(code), name + ' still requires external WebAuthn runtime dependency');
     assert.ok(!externalDirectRuntime.test(code), name + ' still requires external @coderax/api production dependency');
+    for (const dependency of untracedRuntimeDependencies) {
+      assert.ok(
+        !externalImport(dependency).test(code),
+        `${name} still requires external Vercel-untraced dependency ${dependency}`,
+      );
+    }
   }
-  return { filesScanned: files.length, externalMathjs: false, externalMcpSdk: false, externalMcpTransitive: false, externalWebauthn: false, externalWebauthnRuntime: false, externalDirectRuntime: false };
+  return {
+    filesScanned: files.length,
+    externalMathjs: false,
+    externalMcpSdk: false,
+    externalMcpTransitive: false,
+    externalWebauthn: false,
+    externalWebauthnRuntime: false,
+    externalDirectRuntime: false,
+    externalVercelUntracedRuntimeDependencies: [],
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

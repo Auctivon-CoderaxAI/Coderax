@@ -21,8 +21,11 @@ export async function submitRegistration(page: Page, user: User) {
   await page.getByLabel('Submit registration').click();
 }
 
-export async function register(page: Page, user: User) {
-  await page.getByRole('link', { name: 'Sign up' }).click();
+export async function register(page: Page, user: User, baseURL: string) {
+  // The default /login route now redirects to passwordless guest entry, which
+  // intentionally has no account-creation link. E2E still provisions its
+  // named password user through the explicit registration route.
+  await page.goto(appURL(baseURL, 'register'));
   await submitRegistration(page, user);
 }
 
@@ -65,7 +68,7 @@ async function authenticate(config: FullConfig, user: User) {
       throw new Error('🤖: baseURL is not defined');
     }
     const conversationURL = appURL(baseURL, 'c/new');
-    const loginURL = appURL(baseURL, 'login');
+    const loginURL = appURL(baseURL, 'login?manual=1');
 
     // Set localStorage before navigating to the page
     await page.context().addInitScript(() => {
@@ -74,7 +77,7 @@ async function authenticate(config: FullConfig, user: User) {
     console.log('🤖: ✔️  localStorage: set Nav as Visible', storageState);
 
     await page.goto(baseURL, { timeout });
-    await register(page, user);
+    await register(page, user, baseURL);
     try {
       await page.waitForURL(conversationURL, { timeout });
     } catch (error) {
@@ -83,7 +86,7 @@ async function authenticate(config: FullConfig, user: User) {
         console.log('🤖: 🚨  user already exists');
         await cleanupUser(user);
         await page.goto(baseURL, { timeout });
-        await register(page, user);
+        await register(page, user, baseURL);
         await page.waitForURL(conversationURL, { timeout });
       } else {
         throw new Error('🤖: 🚨  user failed to register');
