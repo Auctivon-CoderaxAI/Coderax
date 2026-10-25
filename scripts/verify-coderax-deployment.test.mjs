@@ -13,12 +13,11 @@ const headers = (type, extras = {}) => ({
   },
 });
 
-test('backend service builds its client shell and preserves API paths', async () => {
+test('Vercel routes the client and API through separate services', async () => {
   const result = await verifyRepositoryContracts();
   assert.equal(result.spaExcludesApi, true);
   assert.equal(result.frontendIncludesBuildDependencies, true);
-  assert.equal(result.backendIncludesClientBuildTools, true);
-  assert.equal(result.backendIncludesClientBuild, true);
+  assert.equal(result.backendExcludesFrontendBuild, true);
 });
 
 test('Vercel clean installs resolve root and workspace build tools', () => {
@@ -41,8 +40,8 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     'packages/api/node_modules/tsdown': { version: '0.22.2' },
   } };
   const services = { services: {
-    frontend: { installCommand: 'cd .. && npm ci --include=dev --workspaces --include-workspace-root' },
-    backend: { installCommand: 'npm ci --include=dev --workspaces --include-workspace-root' },
+    frontend: { installCommand: 'cd .. && npm ci --include=dev' },
+    backend: { installCommand: 'npm ci --include=dev' },
   } };
 
   assert.doesNotThrow(() => verifyWorkspaceBuildTooling(root, lock, client, api, services, frontend));
@@ -59,8 +58,8 @@ test('Vercel clean installs resolve root and workspace build tools', () => {
     /packages\/client must declare tsdown/,
   );
   assert.throws(
-    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --include=dev' } } }, frontend),
-    /backend service must install development dependencies for every workspace and the root package/,
+    () => verifyWorkspaceBuildTooling(root, lock, client, api, { services: { ...services.services, backend: { installCommand: 'npm ci --include=dev --workspaces --include-workspace-root' } } }, frontend),
+    /backend service must let npm ci resolve the repository's declared workspaces/,
   );
   assert.throws(
     () => verifyWorkspaceBuildTooling(root, lock, client, api, services, { devDependencies: {} }),

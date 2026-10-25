@@ -99,8 +99,13 @@ export function verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePa
   })) {
     assert.match(
       service?.installCommand ?? '',
-      /npm ci --include=dev --workspaces --include-workspace-root/,
-      `${name} service must install development dependencies for every workspace and the root package`,
+      /npm ci --include=dev/,
+      `${name} service must install development dependencies from the workspace lockfile`,
+    );
+    assert.doesNotMatch(
+      service?.installCommand ?? '',
+      /--workspaces|--include-workspace-root/,
+      `${name} service must let npm ci resolve the repository's declared workspaces`,
     );
   }
 }
@@ -111,12 +116,17 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   const clientWorkspacePackage = JSON.parse(await readFile(path.join(root, 'packages/client/package.json'), 'utf8'));
   const apiPackage = JSON.parse(await readFile(path.join(root, 'packages/api/package.json'), 'utf8'));
   const backendPackage = JSON.parse(await readFile(path.join(root, 'api/package.json'), 'utf8'));
+  const backendSource = await readFile(path.join(root, 'api/server/index.js'), 'utf8');
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   verifyVercelRuntimeDependency(rootPackage, lock, apiPackage, backendPackage);
   const vercel = JSON.parse(await readFile(path.join(root, 'client/vercel.json'), 'utf8'));
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
+  assert.ok(
+    backendSource.includes('const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);'),
+    'Vercel backend must start without frontend assets supplied by its separate service',
+  );
   assert.ok(
     vercel.rewrites?.some((rule) =>
       typeof rule.source === 'string' &&
@@ -130,15 +140,10 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   verifyWorkspaceBuildTooling(rootPackage, lock, clientWorkspacePackage, apiPackage, services, clientPackage);
   assert.equal(services.services?.backend?.framework, 'express', 'Express API service not configured');
   assert.equal(services.services?.backend?.entrypoint, 'api/server/index.js', 'backend entrypoint missing');
-  assert.match(
+  assert.doesNotMatch(
     services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client-package\b/,
-    'backend service must build the shared client package',
-  );
-  assert.match(
-    services.services?.backend?.buildCommand ?? '',
-    /\bnpm run build:client\b/,
-    'backend service must build client/dist/index.html before Express startup',
+    /\bnpm run build:client(?:-package)?\b/,
+    'backend service must not build frontend assets owned by the frontend service',
   );
   assert.ok(services.rewrites?.some((r) => r.source === '/api/(.*)' && r.destination?.service === 'backend'), '/api not routed to backend service');
   assert.ok(services.rewrites?.some((r) => r.source === '/readyz' && r.destination?.service === 'backend'), 'readiness not routed to backend service');
@@ -149,8 +154,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     clientFrontend: true,
     spaExcludesApi: true,
     frontendIncludesBuildDependencies: true,
-    backendIncludesClientBuildTools: true,
-    backendIncludesClientBuild: true,
+    backendExcludesFrontendBuild: true,
   };
 }
 
