@@ -60,7 +60,7 @@ test('Vercel backend tracing requires root runtime dependencies for API workspac
     'node_modules/mathjs': { version: '15.2.0' },
     'node_modules/rate-limit-redis': { version: '4.2.0' },
   } };
-  const api = { dependencies: { mathjs }, peerDependencies: { 'rate-limit-redis': redis } };
+  const api = { dependencies: { mathjs, 'rate-limit-redis': redis } };
   const backend = { dependencies: { mathjs, 'rate-limit-redis': redis } };
 
   assert.doesNotThrow(() => {
