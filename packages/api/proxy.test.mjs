@@ -268,7 +268,7 @@ test('an upstream that stops emitting SSE chunks closes the downstream stream', 
         response.statusCode = 200;
         response.headers = { 'content-type': 'text/event-stream' };
         callback(response);
-        response.write('data: {"token":"hi"}\\n\\n');
+        response.write('data: {"token":"hi"}\n\n');
       });
       return upstream;
     },
@@ -282,12 +282,12 @@ test('an upstream that stops emitting SSE chunks closes the downstream stream', 
   incoming.end('{}');
   await new Promise((resolve) => setTimeout(resolve, 40));
   assert.equal(res.statusCode, 200);
-  assert.equal(res.body, 'data: {"token":"hi"}\\n\\n');
+  assert.equal(res.body, 'data: {"token":"hi"}\n\n');
   assert.equal(res.destroyed, true);
 });
 
 test('active SSE chunks reset the idle deadline and preserve the complete stream', async () => {
-  const chunks = ['data: one\\n\\n', 'data: two\\n\\n', 'data: three\\n\\n'];
+  const chunks = ['data: one\n\n', 'data: two\n\n', 'data: three\n\n'];
   const handler = createProxyHandler({
     env: ENV,
     timeouts: { connectMs: 100, firstResponseMs: 100, streamIdleMs: 35, totalMs: 250 },
