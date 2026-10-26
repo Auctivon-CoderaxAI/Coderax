@@ -574,6 +574,7 @@
   "com_endpoint_search": "Search endpoint by name",
   "com_endpoint_search_endpoint_models": "Search {{0}} models...",
   "com_endpoint_search_models": "Search models...",
+  "com_endpoint_no_models_available": "No models are available. Chat will work once a model service is connected.",
   "com_endpoint_search_var": "Search {{0}}...",
   "com_endpoint_set_custom_name": "Set a custom name, in case you can find this preset",
   "com_endpoint_stop": "Stop Sequences",

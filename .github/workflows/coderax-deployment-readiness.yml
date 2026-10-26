@@ -43,6 +43,8 @@ jobs:
           node-version: '22'
       - name: Check deployment configuration contract
         run: node scripts/verify-coderax-deployment.mjs --repo-only
+      - name: Install dependencies for runtime resolution checks
+        run: npm ci --ignore-scripts
       - name: Run release-gate regression tests
         run: node --test scripts/verify-coderax-deployment.test.mjs
       - name: Verify actual deployed Express API and UI
