@@ -7,6 +7,7 @@ import ChatRoute from '../ChatRoute';
 
 const mockSetConversation = jest.fn();
 const mockFetchConversation = jest.fn();
+const mockUseGetMessagesByConvoId = jest.fn();
 const mockHasSetConversation = { current: true };
 let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
 const mockConfig = {};
@@ -39,6 +40,7 @@ jest.mock('coderax-data-provider/react-query', () => ({
   useGetModelsQuery: () => ({ data: mockConfig }),
 }));
 jest.mock('~/data-provider', () => ({
+  useGetMessagesByConvoId: (...args: unknown[]) => mockUseGetMessagesByConvoId(...args),
   useGetStartupConfig: () => ({ data: mockConfig }),
   useGetEndpointsQuery: () => ({ data: mockConfig }),
   useListAgentsQuery: () => ({}),
@@ -108,6 +110,22 @@ beforeEach(() => {
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
+  mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
+});
+
+it('starts the authenticated transcript query while route metadata is still pending', async () => {
+  mockConversation = { conversationId: 'previous-chat' };
+  mockFetchConversation.mockReturnValue(new Promise(() => {}));
+
+  setup(['/c/chat-a']);
+
+  await waitFor(() =>
+    expect(mockUseGetMessagesByConvoId).toHaveBeenCalledWith(
+      'chat-a',
+      expect.objectContaining({ enabled: true, notifyOnChangeProps: [] }),
+    ),
+  );
+  expect(screen.getByTestId('composer')).not.toBeVisible();
 });
 
 it('reconciles Back and Forward with each route, including new chat', async () => {

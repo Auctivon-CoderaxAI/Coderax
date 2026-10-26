@@ -12,6 +12,8 @@ export interface CustomMenuProps extends Ariakit.MenuButtonProps<'div'> {
   comboboxLabel?: string;
   trigger?: Ariakit.MenuButtonProps['render'];
   defaultOpen?: boolean;
+  trailingAction?: React.ReactNode;
+  groupLabel?: string;
 }
 
 export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(function CustomMenu(
@@ -26,6 +28,8 @@ export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(func
     comboboxLabel,
     trigger,
     defaultOpen,
+    trailingAction,
+    groupLabel,
     ...props
   },
   ref,
@@ -49,22 +53,36 @@ export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(func
     ? 'bg-surface-hover'
     : 'hover:bg-surface-hover data-[active-item]:bg-surface-hover';
 
+  const menuButton = (
+    <Ariakit.MenuButton
+      ref={ref}
+      {...props}
+      className={cn(
+        !parent &&
+          'border-border-light text-text-primary rounded-theme-control flex h-10 w-full items-center justify-center gap-2 border px-3 py-2 text-sm',
+        parent ? nestedMenuStateClass : rootMenuStateClass,
+        props.className,
+      )}
+      render={parent ? <CustomMenuItem render={trigger} /> : trigger}
+    >
+      <span className="flex-1">{label}</span>
+      <Ariakit.MenuButtonArrow className="stroke-1 text-base opacity-75" />
+    </Ariakit.MenuButton>
+  );
+
+  const actionGroup = trailingAction ? (
+    <div
+      role="group"
+      aria-label={groupLabel}
+      className="border-border-light flex w-full items-center justify-end gap-1 border-b px-2 py-1"
+    >
+      {trailingAction}
+    </div>
+  ) : null;
+
   const element = (
     <Ariakit.MenuProvider store={menuStore} values={values} setValues={onValuesChange}>
-      <Ariakit.MenuButton
-        ref={ref}
-        {...props}
-        className={cn(
-          !parent &&
-            'border-border-light text-text-primary rounded-theme-control flex h-10 w-full items-center justify-center gap-2 border px-3 py-2 text-sm',
-          parent ? nestedMenuStateClass : rootMenuStateClass,
-          props.className,
-        )}
-        render={parent ? <CustomMenuItem render={trigger} /> : trigger}
-      >
-        <span className="flex-1">{label}</span>
-        <Ariakit.MenuButtonArrow className="stroke-1 text-base opacity-75" />
-      </Ariakit.MenuButton>
+      {menuButton}
       <Ariakit.Menu
         open={isOpen}
         portal
@@ -81,6 +99,7 @@ export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(func
           searchable && 'p-0',
         )}
       >
+        {actionGroup}
         <SearchableContext.Provider value={searchable}>
           {searchable ? (
             <>
@@ -169,11 +188,13 @@ export const CustomMenuItem = React.forwardRef<HTMLDivElement, CustomMenuItemPro
   function CustomMenuItem({ name, value, ...props }, ref) {
     const menu = Ariakit.useMenuContext();
     const searchable = React.useContext(SearchableContext);
+    const { 'aria-expanded': ariaExpanded, ...itemProps } = props;
     const defaultProps: CustomMenuItemProps = {
       ref,
       focusOnHover: true,
       blurOnHoverEnd: false,
-      ...props,
+      ...itemProps,
+      ...(!searchable && ariaExpanded !== undefined ? { 'aria-expanded': ariaExpanded } : {}),
       className: cn(
         /** Keyboard focus uses the hover surface: the menu sits on
          *  bg-presentation, which resolves to the same value as
@@ -251,7 +272,7 @@ export const CustomMenuItem = React.forwardRef<HTMLDivElement, CustomMenuItemPro
         hideOnClick={(event) => {
           // Make sure that clicking on a combobox item that opens a nested
           // menu/dialog does not close the menu.
-          const expandable = event.currentTarget.hasAttribute('aria-expanded');
+          const expandable = event.currentTarget.hasAttribute('aria-haspopup');
           if (expandable) {
             return false;
           }

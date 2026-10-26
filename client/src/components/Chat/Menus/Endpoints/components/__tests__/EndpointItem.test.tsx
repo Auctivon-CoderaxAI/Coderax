@@ -6,6 +6,7 @@ import { EndpointItem } from '../EndpointItem';
 const mockHandleSelectEndpoint = jest.fn();
 const mockHandleOpenKeyDialog = jest.fn();
 const mockSetEndpointSearchValue = jest.fn();
+const mockEndpointRequiresUserKey = jest.fn(() => false);
 
 let mockSelectedValues: SelectedValues = { endpoint: '', model: '', modelSpec: '' };
 
@@ -23,7 +24,7 @@ jest.mock('~/components/Chat/Menus/Endpoints/ModelSelectorContext', () => ({
     handleOpenKeyDialog: mockHandleOpenKeyDialog,
     handleSelectEndpoint: mockHandleSelectEndpoint,
     setEndpointSearchValue: mockSetEndpointSearchValue,
-    endpointRequiresUserKey: () => false,
+    endpointRequiresUserKey: mockEndpointRequiresUserKey,
   }),
 }));
 
@@ -31,12 +32,37 @@ jest.mock('~/components/Chat/Menus/Endpoints/CustomMenu', () => {
   const React = jest.requireActual<typeof import('react')>('react');
 
   return {
-    CustomMenu: ({ children, label }: { children?: React.ReactNode; label?: React.ReactNode }) =>
-      React.createElement('div', null, label, children),
+    CustomMenu: ({
+      label,
+      trailingAction,
+      groupLabel,
+    }: {
+      label?: React.ReactNode;
+      trailingAction?: React.ReactNode;
+      groupLabel?: string;
+    }) =>
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(
+          'div',
+          { role: 'listbox' },
+          React.createElement('div', { role: 'option' }, label),
+        ),
+        trailingAction &&
+          React.createElement('div', { role: 'group', 'aria-label': groupLabel }, trailingAction),
+      ),
     CustomMenuItem: React.forwardRef(function MockMenuItem(
-      { children, ...rest }: { children?: React.ReactNode },
+      {
+        children,
+        render,
+        ...rest
+      }: { children?: React.ReactNode; render?: React.ReactNode; [key: string]: unknown },
       ref: React.Ref<HTMLButtonElement>,
     ) {
+      if (React.isValidElement(render)) {
+        return render;
+      }
       return React.createElement('button', { ref, type: 'button', ...rest }, children);
     }),
     CustomMenuSeparator: () => React.createElement('hr'),
@@ -60,6 +86,7 @@ const customEndpoint: Endpoint = {
 describe('EndpointItem', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEndpointRequiresUserKey.mockReturnValue(false);
     mockSelectedValues = { endpoint: '', model: '', modelSpec: '' };
   });
 
@@ -76,5 +103,27 @@ describe('EndpointItem', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
 
     expect(mockHandleSelectEndpoint).toHaveBeenCalledWith(customEndpoint);
+  });
+
+  it('keeps endpoint settings outside the endpoint option listbox', () => {
+    const endpoint: Endpoint = {
+      value: 'openAI',
+      label: 'OpenAI',
+      hasModels: true,
+      models: [],
+      icon: null,
+    };
+    mockEndpointRequiresUserKey.mockReturnValue(true);
+
+    render(<EndpointItem endpoint={endpoint} endpointIndex={0} />);
+
+    const option = screen.getByRole('option');
+    const listbox = screen.getByRole('listbox');
+    const settings = screen.getByRole('button', { name: 'com_endpoint_config_key OpenAI' });
+    expect(screen.getByRole('group', { name: 'OpenAI' })).toContainElement(settings);
+    expect(option).not.toContainElement(settings);
+    expect(listbox).not.toContainElement(settings);
+    fireEvent.click(settings);
+    expect(mockHandleOpenKeyDialog).toHaveBeenCalledWith('openAI', expect.anything());
   });
 });

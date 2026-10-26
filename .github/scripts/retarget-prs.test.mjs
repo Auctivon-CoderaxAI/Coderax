@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -43,7 +43,7 @@ esac
     encoding: 'utf8',
     env: {
       ...process.env,
-      PATH: `${scratch}:${process.env.PATH}`,
+      PATH: [scratch, process.env.PATH].join(delimiter),
       FIXTURE_DIR: scratch,
       CALLS_PATH: callsPath,
       REPO: 'Coderax-AI/Coderax',

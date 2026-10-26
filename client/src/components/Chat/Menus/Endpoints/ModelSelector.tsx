@@ -64,6 +64,7 @@ function ModelSelectorContent() {
       }),
     [localize, agentsMap, modelSpecs, selectedValues, mappedEndpoints],
   );
+  const hasNoAvailableModels = !mappedEndpoints?.length && !modelSpecs?.length;
 
   const trigger = (
     <TooltipAnchor
@@ -99,17 +100,23 @@ function ModelSelectorContent() {
           });
         }}
         onSearch={(value) => setSearchValue(value)}
-        combobox={<input id="model-search" placeholder=" " />}
+        combobox={
+          <input
+            id="model-search"
+            aria-label={localize('com_endpoint_search_models')}
+            placeholder=" "
+          />
+        }
         comboboxLabel={localize('com_endpoint_search_models')}
         trigger={trigger}
       >
-        {searchResults ? (
-          renderSearchResults(searchResults, localize, searchValue)
-        ) : !mappedEndpoints?.length && !modelSpecs?.length ? (
+        {searchResults && renderSearchResults(searchResults, localize, searchValue)}
+        {!searchResults && hasNoAvailableModels && (
           <div role="status" className="text-text-secondary px-3 py-2 text-sm">
-            No models are available. Chat will work once a model service is connected.
+            {localize('com_endpoint_no_models_available')}
           </div>
-        ) : (
+        )}
+        {!searchResults && !hasNoAvailableModels && (
           <>
             {/* Render ungrouped modelSpecs (no group field) */}
             {renderModelSpecs(

@@ -4,7 +4,7 @@ import { Ollama } from 'ollama';
 import { sleep } from '@librechat/agents';
 import { logger } from '@coderax/data-schemas';
 import { Constants } from 'coderax-data-provider';
-import type { AbortableAsyncIterator, ChatResponse, Message } from 'ollama';
+import type { AbortableAsyncIterator, ChatResponse, Fetch, Message } from 'ollama';
 import type { IUser } from '@coderax/data-schemas';
 import { resolveHeaders, deriveBaseURL } from '~/utils';
 
@@ -91,13 +91,22 @@ export class OllamaClient {
       return new Ollama({ host: this.host });
     }
 
-    const fetchWithSignal: typeof fetch = (input, init) => {
-      const requestSignal = init?.signal;
-      return fetch(input, {
-        ...init,
-        signal: requestSignal ? AbortSignal.any([requestSignal, signal]) : signal,
-      });
-    };
+    const fetchWithSignal: Fetch = Object.assign(
+      (input: Parameters<Fetch>[0], init: Parameters<Fetch>[1]) => {
+        const requestSignal = init?.signal;
+        return fetch(input, {
+          ...init,
+          signal: requestSignal ? AbortSignal.any([requestSignal, signal]) : signal,
+        });
+      },
+      {
+        preconnect: (...args: Parameters<Fetch['preconnect']>) => {
+          if (typeof fetch.preconnect === 'function') {
+            fetch.preconnect(...args);
+          }
+        },
+      },
+    );
 
     return new Ollama({ host: this.host, fetch: fetchWithSignal });
   }

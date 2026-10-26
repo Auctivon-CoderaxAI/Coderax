@@ -50,7 +50,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: .github/scripts/retarget-prs.sh "$PR_NUMBER"
+        run: |
+          if ! gh api "repos/$REPO/branches/dev" >/dev/null 2>&1; then
+            echo "Development branch is absent; preserving the existing PR base."
+            exit 0
+          fi
+          bash .github/scripts/retarget-prs.sh "$PR_NUMBER"
 
   sweep:
     name: Sweep open pull requests
