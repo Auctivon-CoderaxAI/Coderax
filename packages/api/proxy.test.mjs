@@ -210,3 +210,112 @@ test('a mid-stream upstream error closes the downstream response without escapin
   assert.equal(res.body, 'data: {"partial":true}\n\n');
   assert.equal(res.destroyed, true);
 });
+
+
+test('a silent TLS handshake fails before the function deadline with a 504', async () => {
+  const handler = createProxyHandler({
+    env: ENV,
+    timeouts: { connectMs: 15, firstResponseMs: 100, streamIdleMs: 100, totalMs: 150 },
+    request: () => new Writable({ write(_chunk, _encoding, done) { done(); } }),
+  });
+  const incoming = new PassThrough();
+  incoming.url = '/api/config';
+  incoming.method = 'GET';
+  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  const res = responseStub();
+  handler(incoming, res);
+  incoming.end();
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert.equal(res.statusCode, 504);
+  assert.match(res.body, /"stage":"connect"/);
+});
+
+test('a connected upstream that never sends headers returns a bounded 504', async () => {
+  const handler = createProxyHandler({
+    env: ENV,
+    timeouts: { connectMs: 100, firstResponseMs: 15, streamIdleMs: 100, totalMs: 150 },
+    request: () => {
+      const upstream = new Writable({ write(_chunk, _encoding, done) { done(); } });
+      queueMicrotask(() => {
+        const socket = Object.assign(new EventEmitter(), {
+          encrypted: true, connecting: false, secureConnecting: false,
+        });
+        upstream.emit('socket', socket);
+      });
+      return upstream;
+    },
+  });
+  const incoming = new PassThrough();
+  incoming.url = '/api/config';
+  incoming.method = 'GET';
+  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  const res = responseStub();
+  handler(incoming, res);
+  incoming.end();
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert.equal(res.statusCode, 504);
+  assert.match(res.body, /"stage":"first_response"/);
+});
+
+test('an upstream that stops emitting SSE chunks closes the downstream stream', async () => {
+  const handler = createProxyHandler({
+    env: ENV,
+    timeouts: { connectMs: 100, firstResponseMs: 100, streamIdleMs: 15, totalMs: 150 },
+    request: (_options, callback) => {
+      const upstream = new Writable({ write(_chunk, _encoding, done) { done(); } });
+      upstream.on('finish', () => {
+        const response = new PassThrough();
+        response.statusCode = 200;
+        response.headers = { 'content-type': 'text/event-stream' };
+        callback(response);
+        response.write('data: {"token":"hi"}\\n\\n');
+      });
+      return upstream;
+    },
+  });
+  const incoming = new PassThrough();
+  incoming.url = '/api/agents/chat';
+  incoming.method = 'POST';
+  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  const res = responseStub();
+  handler(incoming, res);
+  incoming.end('{}');
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, 'data: {"token":"hi"}\\n\\n');
+  assert.equal(res.destroyed, true);
+});
+
+test('active SSE chunks reset the idle deadline and preserve the complete stream', async () => {
+  const chunks = ['data: one\\n\\n', 'data: two\\n\\n', 'data: three\\n\\n'];
+  const handler = createProxyHandler({
+    env: ENV,
+    timeouts: { connectMs: 100, firstResponseMs: 100, streamIdleMs: 35, totalMs: 250 },
+    request: (_options, callback) => {
+      const upstream = new Writable({ write(_chunk, _encoding, done) { done(); } });
+      upstream.on('finish', () => {
+        const response = new PassThrough();
+        response.statusCode = 200;
+        response.headers = { 'content-type': 'text/event-stream' };
+        callback(response);
+        chunks.forEach((chunk, index) => setTimeout(() => {
+          response.write(chunk);
+          if (index === chunks.length - 1) response.end();
+        }, 10 + index * 15));
+      });
+      return upstream;
+    },
+  });
+  const incoming = new PassThrough();
+  incoming.url = '/api/agents/chat';
+  incoming.method = 'POST';
+  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  const res = responseStub();
+  handler(incoming, res);
+  incoming.end('{}');
+  await new Promise((resolve) => setTimeout(resolve, 90));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body, chunks.join(''));
+  assert.equal(res.writableEnded, true);
+  assert.equal(res.destroyed, false);
+});
