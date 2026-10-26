@@ -23,6 +23,8 @@ type ActiveJobs = {
   activeJobIds?: string[];
 };
 
+export const MESSAGES_QUERY_STALE_TIME = 30_000;
+
 function isUnhydratedMessage(message: t.TMessage) {
   const messageId = message.messageId ?? '';
   return message.createdAt == null || message.updatedAt == null || messageId.endsWith('_');

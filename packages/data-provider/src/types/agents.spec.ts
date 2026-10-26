@@ -3,7 +3,7 @@ import { agentGitIdentitySchema } from './agents';
 describe('agentGitIdentitySchema', () => {
   it('accepts ordinary and GitHub App bot commit identities', () => {
     expect(
-      agentGitIdentitySchema.safeParse({ name: 'Lia', email: 'lia@coderax' }).success,
+      agentGitIdentitySchema.safeParse({ name: 'Lia', email: 'lia@example.com' }).success,
     ).toBe(true);
     expect(
       agentGitIdentitySchema.safeParse({

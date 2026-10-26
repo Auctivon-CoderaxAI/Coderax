@@ -58,12 +58,14 @@ jest.mock('~/components/Chat/Menus/Endpoints/CustomMenu', () => {
         render,
         ...rest
       }: { children?: React.ReactNode; render?: React.ReactNode; [key: string]: unknown },
-      ref: React.Ref<HTMLButtonElement>,
+      ref: React.Ref<HTMLDivElement>,
     ) {
-      if (React.isValidElement(render)) {
-        return render;
-      }
-      return React.createElement('button', { ref, type: 'button', ...rest }, children);
+      const content = React.isValidElement(render) ? render : children;
+      const role = render == null ? 'option' : 'menuitem';
+      const domProps = Object.fromEntries(
+        Object.entries(rest).filter(([key]) => key !== 'hideOnClick'),
+      );
+      return React.createElement('div', { ref, role, ...domProps }, content);
     }),
     CustomMenuSeparator: () => React.createElement('hr'),
   };
@@ -100,12 +102,12 @@ describe('EndpointItem', () => {
   it('keeps non-agent endpoints without models selectable', () => {
     render(<EndpointItem endpoint={customEndpoint} endpointIndex={0} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Custom' }));
 
     expect(mockHandleSelectEndpoint).toHaveBeenCalledWith(customEndpoint);
   });
 
-  it('keeps endpoint settings outside the endpoint option listbox', () => {
+  it('keeps endpoint settings as a sibling action instead of nesting it inside the option', () => {
     const endpoint: Endpoint = {
       value: 'openAI',
       label: 'OpenAI',
@@ -118,12 +120,37 @@ describe('EndpointItem', () => {
     render(<EndpointItem endpoint={endpoint} endpointIndex={0} />);
 
     const option = screen.getByRole('option');
-    const listbox = screen.getByRole('listbox');
     const settings = screen.getByRole('button', { name: 'com_endpoint_config_key OpenAI' });
     expect(screen.getByRole('group', { name: 'OpenAI' })).toContainElement(settings);
     expect(option).not.toContainElement(settings);
-    expect(listbox).not.toContainElement(settings);
     fireEvent.click(settings);
     expect(mockHandleOpenKeyDialog).toHaveBeenCalledWith('openAI', expect.anything());
+  });
+
+  it('keeps leaf endpoint settings outside the listbox option', () => {
+    const endpoint: Endpoint = {
+      value: 'openAI',
+      label: 'OpenAI',
+      hasModels: false,
+      models: [],
+      icon: null,
+    };
+    mockEndpointRequiresUserKey.mockReturnValue(true);
+
+    render(
+      <div role="listbox">
+        <EndpointItem endpoint={endpoint} endpointIndex={0} />
+      </div>,
+    );
+
+    const listbox = screen.getByRole('listbox');
+    const option = screen.getByRole('option', { name: 'OpenAI' });
+    const settings = screen.getByRole('button', { name: 'com_endpoint_config_key OpenAI' });
+    expect(screen.getByRole('group', { name: 'OpenAI' })).toContainElement(settings);
+    expect(listbox).toContainElement(option);
+    expect(option).not.toContainElement(settings);
+    fireEvent.click(settings);
+    expect(mockHandleOpenKeyDialog).toHaveBeenCalledWith('openAI', expect.anything());
+    expect(mockHandleSelectEndpoint).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ import {
 import {
   useGetConvoIdQuery,
   useGetMessagesByConvoId,
+  MESSAGES_QUERY_STALE_TIME,
   useGetStartupConfig,
   useGetEndpointsQuery,
   useListAgentsQuery,
@@ -151,6 +152,7 @@ export default function ChatRoute() {
       Boolean(conversationId) &&
       conversationId !== Constants.NEW_CONVO &&
       conversationId !== Constants.SEARCH,
+    staleTime: MESSAGES_QUERY_STALE_TIME,
     notifyOnChangeProps: [],
   });
   const initialConvoQuery = useGetConvoIdQuery(conversationId, {

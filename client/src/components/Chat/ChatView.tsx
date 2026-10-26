@@ -24,6 +24,7 @@ import {
   useFileMapContext,
   ComposerRestoreProvider,
 } from '~/Providers';
+import { MESSAGES_QUERY_STALE_TIME, useGetMessagesByConvoId } from '~/data-provider';
 import { QueuedTurnPortalProvider } from './Steering/QueuedTurnPortal';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
 import ConversationStarters from './Input/ConversationStarters';
@@ -31,7 +32,6 @@ import { pendingApprovalActionFamily } from './approval/state';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
 import { OwnerTextProvider } from './Messages/PrivateText';
-import { useGetMessagesByConvoId } from '~/data-provider';
 import Footer, { useConfiguredFooter } from './Footer';
 import { AskAnswerHostProvider } from './ask/state';
 import MessagesView from './Messages/MessagesView';
@@ -102,9 +102,9 @@ function ChatView({
     conversationId ?? '',
     {
       enabled: !!conversationId && conversationId !== Constants.SEARCH,
-      /** Refetch stale caches on mount: navigation invalidates (not removes)
-       * messages now, so a warm conversation renders instantly from cache and
-       * reconciles in the background instead of unmounting into a spinner. */
+      /** Reuse the route's transcript prefetch during initial setup. Explicit
+       * navigation invalidation still makes cached conversations refetch. */
+      staleTime: MESSAGES_QUERY_STALE_TIME,
       refetchOnMount: true,
     },
     { isStreaming: isSubmitting },
