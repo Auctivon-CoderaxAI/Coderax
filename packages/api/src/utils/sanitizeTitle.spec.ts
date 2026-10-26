@@ -207,7 +207,7 @@ describe('sanitizeTitle', () => {
     it('should not produce lone surrogates when truncating emoji titles', () => {
       const input = 'A'.repeat(MAX_TITLE_LENGTH - 2) + '\u{1F389}rest';
       const result = sanitizeTitle(input);
-      expect(result.isWellFormed()).toBe(true);
+      expect(() => encodeURIComponent(result)).not.toThrow();
       expect([...result].length).toBeLessThanOrEqual(MAX_TITLE_LENGTH);
     });
 
@@ -215,7 +215,7 @@ describe('sanitizeTitle', () => {
       const emoji = '\u{1F680}';
       const input = emoji.repeat(MAX_TITLE_LENGTH + 10);
       const result = sanitizeTitle(input);
-      expect(result.isWellFormed()).toBe(true);
+      expect(() => encodeURIComponent(result)).not.toThrow();
       expect(result.endsWith(ellipsis)).toBe(true);
       expect([...result].length).toBeLessThanOrEqual(MAX_TITLE_LENGTH);
     });

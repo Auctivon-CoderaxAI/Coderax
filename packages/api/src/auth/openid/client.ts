@@ -39,7 +39,9 @@ export const openIdClient: Record<PropertyKey, unknown> = new Proxy(
       if (process.env.NODE_ENV === 'test') {
         const client = loadMockableCommonJsModule<OpenIdClientModule>('openid-client');
         const member = client[property as keyof OpenIdClientModule];
-        return typeof member === 'function' ? member.bind(client) : member;
+        return typeof member === 'function'
+          ? (...args: unknown[]) => Reflect.apply(member, client, args)
+          : member;
       }
 
       return (...args: unknown[]) =>
