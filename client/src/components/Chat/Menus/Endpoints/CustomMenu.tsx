@@ -169,11 +169,13 @@ export const CustomMenuItem = React.forwardRef<HTMLDivElement, CustomMenuItemPro
   function CustomMenuItem({ name, value, ...props }, ref) {
     const menu = Ariakit.useMenuContext();
     const searchable = React.useContext(SearchableContext);
+    const { 'aria-expanded': ariaExpanded, ...itemProps } = props;
     const defaultProps: CustomMenuItemProps = {
       ref,
       focusOnHover: true,
       blurOnHoverEnd: false,
-      ...props,
+      ...itemProps,
+      ...(!searchable && ariaExpanded !== undefined ? { 'aria-expanded': ariaExpanded } : {}),
       className: cn(
         /** Keyboard focus uses the hover surface: the menu sits on
          *  bg-presentation, which resolves to the same value as
@@ -251,7 +253,7 @@ export const CustomMenuItem = React.forwardRef<HTMLDivElement, CustomMenuItemPro
         hideOnClick={(event) => {
           // Make sure that clicking on a combobox item that opens a nested
           // menu/dialog does not close the menu.
-          const expandable = event.currentTarget.hasAttribute('aria-expanded');
+          const expandable = event.currentTarget.hasAttribute('aria-haspopup');
           if (expandable) {
             return false;
           }

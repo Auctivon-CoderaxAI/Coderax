@@ -25,6 +25,7 @@ import {
 } from '~/utils';
 import {
   useGetConvoIdQuery,
+  useGetMessagesByConvoId,
   useGetStartupConfig,
   useGetEndpointsQuery,
   useListAgentsQuery,
@@ -136,6 +137,19 @@ export default function ChatRoute() {
   const modelsQuery = useGetModelsQuery({
     enabled: isAuthenticated,
     refetchOnMount: 'always',
+  });
+  /**
+   * Start the transcript read with the conversation metadata request. ChatView mounts only after
+   * route setup resolves the record, model catalog, and endpoints; sharing this query lets it
+   * render from cache instead of starting the message request after that setup has finished.
+   * The messages endpoint still enforces user-scoped conversation access before returning data.
+   */
+  useGetMessagesByConvoId(conversationId, {
+    enabled:
+      isAuthenticated &&
+      Boolean(conversationId) &&
+      conversationId !== Constants.NEW_CONVO &&
+      conversationId !== Constants.SEARCH,
   });
   const initialConvoQuery = useGetConvoIdQuery(conversationId, {
     enabled:

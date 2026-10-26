@@ -99,7 +99,13 @@ function ModelSelectorContent() {
           });
         }}
         onSearch={(value) => setSearchValue(value)}
-        combobox={<input id="model-search" placeholder=" " />}
+        combobox={
+          <input
+            id="model-search"
+            aria-label={localize('com_endpoint_search_models')}
+            placeholder=" "
+          />
+        }
         comboboxLabel={localize('com_endpoint_search_models')}
         trigger={trigger}
       >
