@@ -84,6 +84,7 @@
     "@types/multer": "^1.4.13",
     "@types/node": "^24.12.4",
     "@types/node-fetch": "^2.6.13",
+    "@types/proxy-from-env": "^1.0.4",
     "@types/react": "^18.2.18",
     "@types/sanitize-html": "^2.16.1",
     "@types/supertest": "^7.2.0",

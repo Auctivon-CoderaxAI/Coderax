@@ -3353,9 +3353,8 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
       );
 
       expect(mockExchangeAuthorization).toHaveBeenCalledTimes(1);
-      expect(mockExchangeAuthorization.mock.calls[0][1].resource?.href).toBe(
-        'https://example.com/mcp',
-      );
+      const resource = mockExchangeAuthorization.mock.calls[0][1].resource;
+      expect(resource instanceof URL ? resource.href : resource).toBe('https://example.com/mcp');
     });
 
     it('falls back to origin-based discovery when the well-known endpoint returns no metadata', async () => {
