@@ -26,10 +26,35 @@ jobs:
     if: >
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.run_workflow == 'true')
-    
+    env:
+      HAS_AXE_LINTER_KEY: ${{ secrets.AXE_LINTER_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dequelabs/axe-linter-action@67f0f5c49a4171cb9171213a2e2ae877386b9a80 # v2.0.0 (immutable release)
+      - name: Hosted axe-linter
+        if: env.HAS_AXE_LINTER_KEY == 'true'
+        uses: dequelabs/axe-linter-action@67f0f5c49a4171cb9171213a2e2ae877386b9a80 # v2.0.0
         with:
           api_key: ${{ secrets.AXE_LINTER_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      # When the optional hosted service is unconfigured, run real browser axe scans,
+      # rather than marking accessibility green without any scan.
+      - name: Set up Node.js for local axe-core scans
+        if: env.HAS_AXE_LINTER_KEY != 'true'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install local axe-core scanner
+        if: env.HAS_AXE_LINTER_KEY != 'true'
+        run: npm ci
+      - name: Build application for accessibility scans
+        if: env.HAS_AXE_LINTER_KEY != 'true'
+        run: npm run e2e:prepare
+      - name: Install Playwright Chromium
+        if: env.HAS_AXE_LINTER_KEY != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Run real browser axe-core scans
+        if: env.HAS_AXE_LINTER_KEY != 'true'
+        env:
+          E2E_USE_MEMORY_MONGO: 'true'
+        run: npx playwright test --config=e2e/playwright.config.a11y.ts
