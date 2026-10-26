@@ -38,9 +38,10 @@ The proxy rejects remote targets without HTTPS and a token.
   Vercel function cannot directly operate an unpaired local computer.
 - CyVox hosted temporary SQLite fallback is not durable. Computer tasks
   require durable storage; a green Vercel build is not runtime readiness.
-- Only compatible free remote models and local model names are selectable
-  from the integrated Work controls; actual provider availability is checked
-  by CyVox/ModelGateway. Free services can have rate limits and data policies.
+- Only `cyvox/auto`, `openrouter/free`, IDs ending in `:free`, and Ollama
+  local model IDs (`ollama:` or `ollama/`) are selectable from the integrated
+  Work controls. CyVox/ModelGateway still checks provider availability. Free
+  services can have rate limits and data policies.
 - Coderax and CyVox retain separate persistence stores and lifecycles.
 - Keep both apps independently available during rollout. Disable
   `CYVOX_ADDON_ENABLED` to roll back the integration safely.
