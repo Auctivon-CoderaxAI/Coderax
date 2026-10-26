@@ -106,13 +106,30 @@ function json(res: ServerResponse, status: number, body: Record<string, string>)
 
 type ProxyRequest = typeof https.request;
 
+type ProxyTimeouts = {
+  connectMs: number;
+  firstResponseMs: number;
+  streamIdleMs: number;
+  totalMs: number;
+};
+
+const DEFAULT_PROXY_TIMEOUTS: ProxyTimeouts = {
+  connectMs: 12_000,
+  firstResponseMs: 45_000,
+  streamIdleMs: 60_000,
+  totalMs: 240_000,
+};
+
 export function createProxyHandler({
   env = process.env,
   request = https.request,
+  timeouts = {},
 }: {
   env?: NodeJS.ProcessEnv;
   request?: ProxyRequest;
+  timeouts?: Partial<ProxyTimeouts>;
 } = {}): (req: IncomingMessage, res: ServerResponse) => void {
+  const limits = { ...DEFAULT_PROXY_TIMEOUTS, ...timeouts };
   return (req, res) => {
     let upstream: URL;
     try {
@@ -171,6 +188,39 @@ export function createProxyHandler({
 
     let proxyRequest: ReturnType<ProxyRequest>;
     let proxyResponse: IncomingMessage | undefined;
+    let connectTimer: NodeJS.Timeout | undefined;
+    let firstResponseTimer: NodeJS.Timeout | undefined;
+    let streamIdleTimer: NodeJS.Timeout | undefined;
+    let totalTimer: NodeJS.Timeout | undefined;
+    let streamEnded = false;
+
+    function clearTimers(): void {
+      clearTimeout(connectTimer);
+      clearTimeout(firstResponseTimer);
+      clearTimeout(streamIdleTimer);
+      clearTimeout(totalTimer);
+    }
+
+    function expire(stage: string): void {
+      if (res.writableEnded || res.destroyed) return;
+      clearTimers();
+      if (!res.headersSent) {
+        json(res, 504, { error: 'API upstream timed out', stage });
+      } else {
+        res.destroy();
+      }
+      proxyResponse?.destroy();
+      proxyRequest.destroy();
+    }
+
+    function armIdleTimer(): void {
+      clearTimeout(streamIdleTimer);
+      if (!streamEnded && !res.writableEnded && !res.destroyed) {
+        streamIdleTimer = setTimeout(() => expire('stream_idle'), limits.streamIdleMs);
+        streamIdleTimer.unref();
+      }
+    }
+
     try {
       proxyRequest = request(
         {
@@ -183,6 +233,14 @@ export function createProxyHandler({
         },
         (response) => {
           proxyResponse = response;
+          clearTimeout(connectTimer);
+          clearTimeout(firstResponseTimer);
+          armIdleTimer();
+          response.on('data', armIdleTimer);
+          response.on('end', () => {
+            streamEnded = true;
+            clearTimers();
+          });
           response.on('error', () => fail(response));
           response.on('aborted', () => fail(response));
           response.on('close', () => {
@@ -202,12 +260,27 @@ export function createProxyHandler({
           response.pipe(res);
         },
       );
+      connectTimer = setTimeout(() => expire('connect'), limits.connectMs);
+      connectTimer.unref();
+      firstResponseTimer = setTimeout(() => expire('first_response'), limits.firstResponseMs);
+      firstResponseTimer.unref();
+      totalTimer = setTimeout(() => expire('total'), limits.totalMs);
+      totalTimer.unref();
+      proxyRequest.on('socket', (socket) => {
+        const tlsSocket = socket as typeof socket & { encrypted?: boolean; secureConnecting?: boolean };
+        if (tlsSocket.encrypted && !tlsSocket.connecting && !tlsSocket.secureConnecting) {
+          clearTimeout(connectTimer);
+        } else {
+          socket.once('secureConnect', () => clearTimeout(connectTimer));
+        }
+      });
     } catch {
       json(res, 502, { error: 'API origin is unavailable' });
       return;
     }
 
     function fail(response?: IncomingMessage): void {
+      clearTimers();
       if (res.writableEnded || res.destroyed) return;
       if (!res.headersSent) {
         for (const name of Object.keys(response?.headers || {})) {
@@ -220,8 +293,12 @@ export function createProxyHandler({
     }
 
     proxyRequest.on('error', () => fail(proxyResponse));
-    req.on('aborted', () => proxyRequest.destroy());
+    req.on('aborted', () => {
+      clearTimers();
+      proxyRequest.destroy();
+    });
     res.on('close', () => {
+      clearTimers();
       if (!res.writableEnded) {
         proxyRequest.destroy();
         proxyResponse?.destroy();
