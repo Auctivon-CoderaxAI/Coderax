@@ -44,17 +44,28 @@ jest.mock('~/components/Chat/Menus/Endpoints/CustomMenu', () => {
       React.createElement(
         React.Fragment,
         null,
-        React.createElement('div', { role: 'listbox' }, React.createElement('div', { role: 'option' }, label)),
+        React.createElement(
+          'div',
+          { role: 'listbox' },
+          React.createElement('div', { role: 'option' }, label),
+        ),
         trailingAction &&
           React.createElement('div', { role: 'group', 'aria-label': groupLabel }, trailingAction),
       ),
     CustomMenuItem: React.forwardRef(function MockMenuItem(
-      { children, render, ...rest }: { children?: React.ReactNode; render?: React.ReactNode },
+      {
+        children,
+        render,
+        ...rest
+      }: { children?: React.ReactNode; render?: React.ReactNode; [key: string]: unknown },
       ref: React.Ref<HTMLDivElement>,
     ) {
       const content = React.isValidElement(render) ? render : children;
       const role = render == null ? 'option' : 'menuitem';
-      return React.createElement('div', { ref, role, ...rest }, content);
+      const domProps = Object.fromEntries(
+        Object.entries(rest).filter(([key]) => key !== 'hideOnClick'),
+      );
+      return React.createElement('div', { ref, role, ...domProps }, content);
     }),
     CustomMenuSeparator: () => React.createElement('hr'),
   };

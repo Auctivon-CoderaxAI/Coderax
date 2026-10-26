@@ -7,6 +7,7 @@ import type { TMessage } from 'coderax-data-provider';
 import type { ReactNode } from 'react';
 import {
   getStableMessages,
+  MESSAGES_QUERY_STALE_TIME,
   shouldPreserveMessagesOnNotFound,
   useGetMessagesByConvoId,
 } from '../queries';
@@ -317,6 +318,59 @@ describe('shouldPreserveMessagesOnNotFound', () => {
 });
 
 describe('useGetMessagesByConvoId', () => {
+  it('reuses a route prefetch on mount and refetches after navigation invalidates it', async () => {
+    const conversationId = 'convo-id';
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const serverMessages = [message({ messageId: 'persisted-1' })];
+    const mockGetMessagesByConvoId = dataService.getMessagesByConvoId as jest.MockedFunction<
+      typeof dataService.getMessagesByConvoId
+    >;
+    mockGetMessagesByConvoId.mockResolvedValue(serverMessages);
+
+    const prefetch = renderHook(
+      () =>
+        useGetMessagesByConvoId(conversationId, {
+          staleTime: MESSAGES_QUERY_STALE_TIME,
+          notifyOnChangeProps: [],
+        }),
+      { wrapper: createWrapper(queryClient, `/c/${conversationId}`) },
+    );
+
+    await waitFor(() => {
+      expect(queryClient.getQueryData([QueryKeys.messages, conversationId])).toEqual(
+        serverMessages,
+      );
+    });
+    expect(mockGetMessagesByConvoId).toHaveBeenCalledTimes(1);
+    prefetch.unmount();
+
+    const view = renderHook(
+      () =>
+        useGetMessagesByConvoId(conversationId, {
+          staleTime: MESSAGES_QUERY_STALE_TIME,
+          refetchOnMount: true,
+        }),
+      { wrapper: createWrapper(queryClient, `/c/${conversationId}`) },
+    );
+
+    await waitFor(() => {
+      expect(view.result.current.data).toEqual(serverMessages);
+    });
+    expect(mockGetMessagesByConvoId).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await queryClient.invalidateQueries([QueryKeys.messages, conversationId]);
+    });
+    await waitFor(() => {
+      expect(mockGetMessagesByConvoId).toHaveBeenCalledTimes(2);
+      expect(view.result.current.isFetching).toBe(false);
+    });
+
+    view.unmount();
+  });
+
   it('observes optimistic new-chat messages without requesting them from the API', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
