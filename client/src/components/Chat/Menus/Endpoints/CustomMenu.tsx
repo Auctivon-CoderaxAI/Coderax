@@ -12,6 +12,8 @@ export interface CustomMenuProps extends Ariakit.MenuButtonProps<'div'> {
   comboboxLabel?: string;
   trigger?: Ariakit.MenuButtonProps['render'];
   defaultOpen?: boolean;
+  trailingAction?: React.ReactNode;
+  groupLabel?: string;
 }
 
 export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(function CustomMenu(
@@ -26,6 +28,8 @@ export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(func
     comboboxLabel,
     trigger,
     defaultOpen,
+    trailingAction,
+    groupLabel,
     ...props
   },
   ref,
@@ -49,22 +53,38 @@ export const CustomMenu = React.forwardRef<HTMLDivElement, CustomMenuProps>(func
     ? 'bg-surface-hover'
     : 'hover:bg-surface-hover data-[active-item]:bg-surface-hover';
 
+  const hasSeparateAction = parent != null && trailingAction != null;
+  const menuButton = (
+    <Ariakit.MenuButton
+      ref={ref}
+      {...props}
+      className={cn(
+        !parent &&
+          'border-border-light text-text-primary rounded-theme-control flex h-10 w-full items-center justify-center gap-2 border px-3 py-2 text-sm',
+        parent ? nestedMenuStateClass : rootMenuStateClass,
+        hasSeparateAction && 'min-w-0 flex-1',
+        props.className,
+      )}
+      render={parent ? <CustomMenuItem render={trigger} /> : trigger}
+    >
+      <span className="flex-1">{label}</span>
+      {!hasSeparateAction && <Ariakit.MenuButtonArrow className="stroke-1 text-base opacity-75" />}
+    </Ariakit.MenuButton>
+  );
+
+  const menuButtonRow = hasSeparateAction ? (
+    <div role="group" aria-label={groupLabel} className="flex w-full min-w-0 items-center gap-1.5">
+      {menuButton}
+      {trailingAction}
+      <Ariakit.MenuButtonArrow className="stroke-1 text-base opacity-75" />
+    </div>
+  ) : (
+    menuButton
+  );
+
   const element = (
     <Ariakit.MenuProvider store={menuStore} values={values} setValues={onValuesChange}>
-      <Ariakit.MenuButton
-        ref={ref}
-        {...props}
-        className={cn(
-          !parent &&
-            'border-border-light text-text-primary rounded-theme-control flex h-10 w-full items-center justify-center gap-2 border px-3 py-2 text-sm',
-          parent ? nestedMenuStateClass : rootMenuStateClass,
-          props.className,
-        )}
-        render={parent ? <CustomMenuItem render={trigger} /> : trigger}
-      >
-        <span className="flex-1">{label}</span>
-        <Ariakit.MenuButtonArrow className="stroke-1 text-base opacity-75" />
-      </Ariakit.MenuButton>
+      {menuButtonRow}
       <Ariakit.Menu
         open={isOpen}
         portal

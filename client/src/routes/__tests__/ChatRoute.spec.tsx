@@ -122,7 +122,7 @@ it('starts the authenticated transcript query while route metadata is still pend
   await waitFor(() =>
     expect(mockUseGetMessagesByConvoId).toHaveBeenCalledWith(
       'chat-a',
-      expect.objectContaining({ enabled: true }),
+      expect.objectContaining({ enabled: true, notifyOnChangeProps: [] }),
     ),
   );
   expect(screen.getByTestId('composer')).not.toBeVisible();

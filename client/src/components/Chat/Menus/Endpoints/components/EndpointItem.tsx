@@ -303,13 +303,12 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
         combobox={<input placeholder=" " />}
         comboboxLabel={placeholder}
         onClick={() => handleSelectEndpoint(endpoint)}
-        label={
-          <div className="group flex w-full min-w-0 items-center justify-between gap-1.5 py-1 text-sm">
-            {renderIconLabel()}
+        className={isUserProvided ? 'min-w-0 flex-1' : undefined}
+        groupLabel={isUserProvided ? endpoint.label : undefined}
+        trailingAction={
+          isUserProvided ? (
             <div className="flex shrink-0 items-center gap-1">
-              {isUserProvided && (
-                <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
-              )}
+              <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
               {isEndpointSelected && (
                 <>
                   <CheckCircle2 className="text-text-primary size-4 shrink-0" aria-hidden="true" />
@@ -317,6 +316,17 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
                 </>
               )}
             </div>
+          ) : undefined
+        }
+        label={
+          <div className="group flex w-full min-w-0 items-center justify-between gap-1.5 py-1 text-sm">
+            {renderIconLabel()}
+            {!isUserProvided && isEndpointSelected && (
+              <>
+                <CheckCircle2 className="text-text-primary size-4 shrink-0" aria-hidden="true" />
+                <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+              </>
+            )}
           </div>
         }
       >

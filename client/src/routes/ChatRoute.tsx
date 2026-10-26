@@ -143,6 +143,7 @@ export default function ChatRoute() {
    * route setup resolves the record, model catalog, and endpoints; sharing this query lets it
    * render from cache instead of starting the message request after that setup has finished.
    * The messages endpoint still enforces user-scoped conversation access before returning data.
+   * This observer only primes the cache, so it does not notify the route when the transcript loads.
    */
   useGetMessagesByConvoId(conversationId, {
     enabled:
@@ -150,6 +151,7 @@ export default function ChatRoute() {
       Boolean(conversationId) &&
       conversationId !== Constants.NEW_CONVO &&
       conversationId !== Constants.SEARCH,
+    notifyOnChangeProps: [],
   });
   const initialConvoQuery = useGetConvoIdQuery(conversationId, {
     enabled:
