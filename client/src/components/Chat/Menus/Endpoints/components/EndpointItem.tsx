@@ -285,6 +285,28 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
 
   const isEndpointSelected = !selectedSpec && selectedEndpoint === endpoint.value;
 
+  const renderLeafStatus = () => (
+    <>
+      {isAssistantsNotLoaded && (
+        <TooltipAnchor
+          description={localize('com_ui_click_to_view_var', { 0: endpoint.label })}
+          side="top"
+          render={
+            <span className="flex items-center">
+              <MousePointerClick className="text-text-secondary size-4" aria-hidden="true" />
+            </span>
+          }
+        />
+      )}
+      {isEndpointSelected && !isAssistantsNotLoaded && (
+        <>
+          <CheckCircle2 className="text-text-primary size-4 shrink-0" aria-hidden="true" />
+          <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
+        </>
+      )}
+    </>
+  );
+
   if (!shouldRenderEndpointOption(endpoint)) {
     return null;
   }
@@ -329,41 +351,49 @@ export function EndpointItem({ endpoint, endpointIndex }: EndpointItemProps) {
         <EndpointMenuContent endpoint={endpoint} endpointIndex={endpointIndex} />
       </Menu>
     );
-  } else {
+  }
+
+  const optionClassName = cn(
+    'group flex min-w-0 cursor-pointer items-center justify-between gap-1.5 py-2 text-sm',
+    isUserProvided ? 'flex-1' : 'w-full',
+  );
+
+  if (isUserProvided) {
     return (
-      <MenuItem
-        id={`endpoint-${endpoint.value}-menu`}
-        key={`endpoint-${endpoint.value}-item`}
-        onClick={() => handleSelectEndpoint(endpoint)}
-        aria-selected={isEndpointSelected || undefined}
-        className="group flex w-full cursor-pointer items-center justify-between gap-1.5 py-2 text-sm"
+      <div
+        role="group"
+        aria-label={endpoint.label}
+        className="flex w-full min-w-0 items-center gap-1.5"
       >
-        {renderIconLabel()}
+        <MenuItem
+          id={`endpoint-${endpoint.value}-menu`}
+          key={`endpoint-${endpoint.value}-item`}
+          onClick={() => handleSelectEndpoint(endpoint)}
+          aria-selected={isEndpointSelected || undefined}
+          className={optionClassName}
+        >
+          {renderIconLabel()}
+        </MenuItem>
         <div className="flex shrink-0 items-center gap-2">
-          {endpointRequiresUserKey(endpoint.value) && (
-            <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
-          )}
-          {isAssistantsNotLoaded && (
-            <TooltipAnchor
-              description={localize('com_ui_click_to_view_var', { 0: endpoint.label })}
-              side="top"
-              render={
-                <span className="flex items-center">
-                  <MousePointerClick className="text-text-secondary size-4" aria-hidden="true" />
-                </span>
-              }
-            />
-          )}
-          {isEndpointSelected && !isAssistantsNotLoaded && (
-            <>
-              <CheckCircle2 className="text-text-primary size-4 shrink-0" aria-hidden="true" />
-              <VisuallyHidden>{localize('com_a11y_selected')}</VisuallyHidden>
-            </>
-          )}
+          <SettingsButton endpoint={endpoint} handleOpenKeyDialog={handleOpenKeyDialog} />
+          {renderLeafStatus()}
         </div>
-      </MenuItem>
+      </div>
     );
   }
+
+  return (
+    <MenuItem
+      id={`endpoint-${endpoint.value}-menu`}
+      key={`endpoint-${endpoint.value}-item`}
+      onClick={() => handleSelectEndpoint(endpoint)}
+      aria-selected={isEndpointSelected || undefined}
+      className={optionClassName}
+    >
+      {renderIconLabel()}
+      <div className="flex shrink-0 items-center gap-2">{renderLeafStatus()}</div>
+    </MenuItem>
+  );
 }
 
 export function renderEndpoints(mappedEndpoints: Endpoint[]) {
