@@ -107,6 +107,9 @@ jobs:
         if: steps.cache-api.outputs.cache-hit != 'true'
         run: npm run build:api
 
+      - name: Run API proxy timeout regression tests
+        run: node --test packages/api/proxy.test.mjs
+
       - name: Upload data-provider build
         uses: actions/upload-artifact@v6
         with:
