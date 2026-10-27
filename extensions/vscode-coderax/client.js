@@ -1,6 +1,6 @@
 'use strict';
 
-const DEFAULT_BASE_URL = 'https://coderax-eta.vercel.app';
+const DEFAULT_BASE_URL = 'https://coderaxai.vercel.app';
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 class CoderaxApiError extends Error {

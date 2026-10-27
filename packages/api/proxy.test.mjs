@@ -10,7 +10,7 @@ const { createProxyHandler, isApiPath, parseApiOrigin } = require('./dist/proxy.
 const ENV = {
   CODERAX_API_ORIGIN: 'https://coderax-93-184-216-34.sslip.io',
   CODERAX_PROXY_SECRET: 'a'.repeat(64),
-  DOMAIN_CLIENT: 'https://coderax-eta.vercel.app',
+  DOMAIN_CLIENT: 'https://coderaxai.vercel.app',
 };
 
 function responseStub() {
@@ -90,7 +90,7 @@ test('missing secret fails closed without contacting the configured origin', () 
       throw new Error('must not be called');
     },
   });
-  handler({ url: '/readyz', headers: { host: 'coderax-eta.vercel.app' }, on() {}, pipe() {} }, res);
+  handler({ url: '/readyz', headers: { host: 'coderaxai.vercel.app' }, on() {}, pipe() {} }, res);
   assert.equal(res.statusCode, 503);
   assert.match(res.body, /not configured/);
   assert.equal(requested, false);
@@ -109,7 +109,7 @@ test('rejects unknown hosts and non-API paths before making an upstream request'
   handler(makeReq('/api/config', 'attacker.example'), unknownHost);
   assert.equal(unknownHost.statusCode, 421);
   const frontendPath = responseStub();
-  handler(makeReq('/login', 'coderax-eta.vercel.app'), frontendPath);
+  handler(makeReq('/login', 'coderaxai.vercel.app'), frontendPath);
   assert.equal(frontendPath.statusCode, 404);
   assert.equal(requested, false);
 });
@@ -149,8 +149,8 @@ test('forwards allowed requests with a private proxy secret and preserves respon
   incoming.url = '/api/auth/guest?mode=fast';
   incoming.method = 'POST';
   incoming.headers = {
-    host: 'coderax-eta.vercel.app',
-    origin: 'https://coderax-eta.vercel.app',
+    host: 'coderaxai.vercel.app',
+    origin: 'https://coderaxai.vercel.app',
     'content-type': 'application/json',
     'x-forwarded-host': 'attacker.example',
     'x-coderax-proxy-secret': 'attacker-supplied',
@@ -164,7 +164,7 @@ test('forwards allowed requests with a private proxy secret and preserves respon
   assert.equal(capturedOptions.hostname, 'coderax-93-184-216-34.sslip.io');
   assert.equal(capturedOptions.path, '/api/auth/guest?mode=fast');
   assert.equal(capturedOptions.headers['x-coderax-proxy-secret'], ENV.CODERAX_PROXY_SECRET);
-  assert.equal(capturedOptions.headers['x-forwarded-host'], 'coderax-eta.vercel.app');
+  assert.equal(capturedOptions.headers['x-forwarded-host'], 'coderaxai.vercel.app');
   assert.equal(capturedOptions.headers['x-forwarded-proto'], 'https');
   assert.equal(capturedOptions.headers['x-forwarded-for'], '8.8.8.8');
   assert.equal(capturedOptions.headers['x-forwarded-host'].includes('attacker'), false);
@@ -201,7 +201,7 @@ test('a mid-stream upstream error closes the downstream response without escapin
   const incoming = new PassThrough();
   incoming.url = '/api/agents/chat';
   incoming.method = 'POST';
-  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  incoming.headers = { host: 'coderaxai.vercel.app' };
   const res = responseStub();
   handler(incoming, res);
   incoming.end('{}');
@@ -221,7 +221,7 @@ test('a silent TLS handshake fails before the function deadline with a 504', asy
   const incoming = new PassThrough();
   incoming.url = '/api/config';
   incoming.method = 'GET';
-  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  incoming.headers = { host: 'coderaxai.vercel.app' };
   const res = responseStub();
   handler(incoming, res);
   incoming.end();
@@ -248,7 +248,7 @@ test('a connected upstream that never sends headers returns a bounded 504', asyn
   const incoming = new PassThrough();
   incoming.url = '/api/config';
   incoming.method = 'GET';
-  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  incoming.headers = { host: 'coderaxai.vercel.app' };
   const res = responseStub();
   handler(incoming, res);
   incoming.end();
@@ -276,7 +276,7 @@ test('an upstream that stops emitting SSE chunks closes the downstream stream', 
   const incoming = new PassThrough();
   incoming.url = '/api/agents/chat';
   incoming.method = 'POST';
-  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  incoming.headers = { host: 'coderaxai.vercel.app' };
   const res = responseStub();
   handler(incoming, res);
   incoming.end('{}');
@@ -309,7 +309,7 @@ test('active SSE chunks reset the idle deadline and preserve the complete stream
   const incoming = new PassThrough();
   incoming.url = '/api/agents/chat';
   incoming.method = 'POST';
-  incoming.headers = { host: 'coderax-eta.vercel.app' };
+  incoming.headers = { host: 'coderaxai.vercel.app' };
   const res = responseStub();
   handler(incoming, res);
   incoming.end('{}');
