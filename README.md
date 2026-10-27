@@ -51,6 +51,12 @@
   </a>
 </p>
 
+## 🖥️ Coderax Desktop for Windows
+
+[Download Coderax for Windows x64](https://github.com/CoderaxAI/Coderax/releases/download/desktop-v1.0.0/Coderax-Windows-x64.exe) · [Release details and SHA-256 checksum](https://github.com/CoderaxAI/Coderax/releases/tag/desktop-v1.0.0)
+
+On first launch, enter the HTTPS URL of your Coderax deployment. The installer is unsigned, and downloads require access to this private repository.
+
 ## 🚀 What's New in v0.8.8
 
 - **Agent Management API (beta):** Create, discover, update, and delete Agents; manage Agent files and Skills; and authenticate machine clients through deployment-bound OIDC identities while preserving existing role and Agent access controls. Public OpenAPI and Swagger UI cover inference, events, Agent management, and Skill management.
