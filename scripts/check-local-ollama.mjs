@@ -66,6 +66,12 @@ export async function checkLocalOllama({
   if (typeof reply.message?.content !== 'string' || !reply.message.content.trim()) {
     throw new Error('Local Ollama chat returned an empty reply');
   }
+  if (reply.done !== true) {
+    throw new Error('Local Ollama chat did not finish');
+  }
+  if (reply.model !== model) {
+    throw new Error('Local Ollama chat returned a different model');
+  }
   return { status: 'ready', model, origin };
 }
 
