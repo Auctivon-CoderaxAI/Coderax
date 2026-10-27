@@ -28,6 +28,34 @@ async function close(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
+function createOllamaStub(chatReply) {
+  const requests = [];
+  const server = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/api/tags') {
+      requests.push({ method: request.method, url: request.url });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ models: [{ name: 'qwen3.5:4b' }] }));
+      return;
+    }
+    if (request.method === 'POST' && request.url === '/api/chat') {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        requests.push({ method: request.method, url: request.url, body: JSON.parse(body) });
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(chatReply));
+      });
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  return { server, requests };
+}
+
 test('defaults to the local Ollama loopback endpoint', () => {
   assert.equal(localOllamaOrigin(), 'http://127.0.0.1:11434');
   assert.equal(localOllamaOrigin('http://localhost:11434'), 'http://localhost:11434');
@@ -179,4 +207,45 @@ test('does not follow a chat redirect to another server', async (t) => {
 
   await assert.rejects(checkLocalOllama({ host: sourceURL }));
   assert.equal(redirectedRequests, 0);
+});
+
+test('checks readiness through the real loopback HTTP fetch flow', async (t) => {
+  const stub = createOllamaStub({
+    model: 'qwen3.5:4b',
+    done: true,
+    message: { content: 'LOCAL_OK' },
+  });
+  const host = await listen(stub.server);
+  t.after(() => close(stub.server));
+
+  const result = await checkLocalOllama({ host });
+
+  assert.deepEqual(result, { status: 'ready', model: 'qwen3.5:4b', origin: host });
+  assert.deepEqual(stub.requests, [
+    { method: 'GET', url: '/api/tags' },
+    {
+      method: 'POST',
+      url: '/api/chat',
+      body: {
+        model: 'qwen3.5:4b',
+        messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
+        stream: false,
+        think: false,
+        options: { num_predict: 32 },
+      },
+    },
+  ]);
+});
+
+test('rejects an incomplete reply over the real loopback HTTP flow', async (t) => {
+  const stub = createOllamaStub({
+    model: 'qwen3.5:4b',
+    done: false,
+    message: { content: 'partial' },
+  });
+  const host = await listen(stub.server);
+  t.after(() => close(stub.server));
+
+  await assert.rejects(checkLocalOllama({ host }), /Local Ollama chat did not finish/);
+  assert.equal(stub.requests.length, 2);
 });
