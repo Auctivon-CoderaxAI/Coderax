@@ -49,7 +49,7 @@ test('checks Qwen 3.5 4B with key-free requests and refuses redirects', async ()
   const calls = [];
   const responses = [
     jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-    jsonResponse({ message: { content: 'LOCAL_OK' } }),
+    jsonResponse({ model: 'qwen3.5:4b', done: true, message: { content: 'LOCAL_OK' } }),
   ];
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
@@ -100,6 +100,30 @@ test('rejects an empty local chat response', async () => {
   await assert.rejects(
     checkLocalOllama({ fetchImpl: async () => responses.shift() }),
     /Local Ollama chat returned an empty reply/,
+  );
+});
+
+test('does not report readiness when Ollama returns an incomplete response', async () => {
+  for (const done of [false, undefined]) {
+    const responses = [
+      jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+      jsonResponse({ model: 'qwen3.5:4b', done, message: { content: 'partial' } }),
+    ];
+    await assert.rejects(
+      checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+      /Local Ollama chat did not finish/,
+    );
+  }
+});
+
+test('does not report readiness when a different model answers', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    jsonResponse({ model: 'different:tag', done: true, message: { content: 'LOCAL_OK' } }),
+  ];
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+    /Local Ollama chat returned a different model/,
   );
 });
 
