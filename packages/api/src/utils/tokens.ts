@@ -253,6 +253,8 @@ const deepseekModels = {
   'deepseek-v4': 1048576,
   'deepseek-v4-flash': 1048576,
   'deepseek-v4-pro': 1048576,
+  // Current canonical Flash ID from DeepSeek's /models catalog.
+  'deepseek-flash': 1048576,
 };
 
 const moonshotModels = {
@@ -584,7 +586,10 @@ const anthropicMaxOutputs = {
   'claude-3-7-sonnet': 128000,
 };
 
-/** Outputs from https://api-docs.deepseek.com/quick_start/pricing */
+/**
+ * Outputs from https://api-docs.deepseek.com/api/list-models/ and
+ * https://api-docs.deepseek.com/quick_start/pricing.
+ */
 const deepseekMaxOutputs = {
   deepseek: 8000, // deepseek-chat default: 4K, max: 8K
   'deepseek-chat': 8000,
@@ -592,6 +597,11 @@ const deepseekMaxOutputs = {
   'deepseek-r1': 64000,
   'deepseek-v3': 8000,
   'deepseek.r1': 64000,
+  // Current Flash and Pro limits; legacy Flash IDs are still accepted by the API.
+  'deepseek-flash': 393216,
+  'deepseek-v4-flash': 393216,
+  'deepseek-v4-flash-vision-exp': 393216,
+  'deepseek-v4-pro': 393216,
 };
 
 export const maxOutputTokensMap: Record<string, Record<string, number>> = {

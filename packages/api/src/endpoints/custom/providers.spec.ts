@@ -104,6 +104,19 @@ describe('resolveEndpointProviderId', () => {
     expect(resolveEndpointProviderId({ name: 'Team Gateway', baseURL })).toBe(expected);
   });
 
+
+  it.each([
+    'https://api.deepseek.com.attacker.example/v1',
+    'https://deepseek.com.attacker.example/v1',
+  ])('does not identify a lookalike DeepSeek host: %s', (baseURL) => {
+    expect(
+      resolveEndpointProviderId({
+        name: 'Internal Gateway',
+        baseURL,
+      }),
+    ).toBeUndefined();
+  });
+
   it('carries a host for every provider that one can identify', () => {
     /** Host-unresolvable by nature: bedrock is region-scoped under a shared AWS suffix,
      *  and Lemonade, MLX and Ollama run on operator-defined hosts. Anything else added
