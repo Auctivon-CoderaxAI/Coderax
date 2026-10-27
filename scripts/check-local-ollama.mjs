@@ -22,7 +22,7 @@ export function localOllamaOrigin(host = DEFAULT_HOST) {
 }
 
 async function readJson(fetchImpl, url, options) {
-  const response = await fetchImpl(url, options);
+  const response = await fetchImpl(url, { ...options, redirect: 'error' });
   if (!response.ok) {
     throw new Error(`Local Ollama returned HTTP ${response.status}`);
   }
@@ -58,6 +58,7 @@ export async function checkLocalOllama({
       model,
       messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
       stream: false,
+      think: false,
       options: { num_predict: 32 },
     }),
   });
