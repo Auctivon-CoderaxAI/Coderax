@@ -16,6 +16,10 @@ describe('isCyvoxFreeOrLocalModel', () => {
     'openai:gpt-4o',
     'anthropic:claude-3-7-sonnet',
     'google/gemini-2.5-pro',
+    'deepseek-flash',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp',
+    'deepseek-v4-pro',
     'ollama:',
     'ollama/qwen3:8b;select-paid-model',
   ])('rejects billed or malformed model %s', (model) => {
