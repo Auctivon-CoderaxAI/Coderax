@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { Button } from '@coderax/client';
 import { RefreshCw } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isCyvoxFreeOrLocalModel, QueryKeys } from 'coderax-data-provider';
+import ConversationModeNav from '~/components/Chat/ConversationModeNav';
+import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
+import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import { useAuthContext, useLocalize } from '~/hooks';
 
 type Check = {
@@ -293,7 +296,7 @@ function WorkView() {
           <label className="flex flex-col gap-1 text-sm">
             {localize('com_cyvox_execution')}
             <select
-              className="border-border-medium rounded-lg border p-2"
+              className="border-border-medium bg-surface-primary text-text-primary rounded-lg border p-2"
               value={mode}
               onChange={(event) => setMode(event.target.value as typeof mode)}
             >
@@ -304,7 +307,7 @@ function WorkView() {
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
             {localize('com_cyvox_model')}
             <select
-              className="border-border-medium min-w-0 rounded-lg border p-2"
+              className="border-border-medium bg-surface-primary text-text-primary min-w-0 rounded-lg border p-2"
               value={model}
               onChange={(event) => setModel(event.target.value)}
             >
@@ -603,7 +606,14 @@ const titles = {
 
 export default function CyVoxAddon() {
   const { tool } = useParams();
+  const location = useLocation();
   const localize = useLocalize();
+  const isSmallScreen = useDrawerViewport();
+  const savedChatPath = (location.state as { chatPath?: unknown } | null)?.chatPath;
+  const chatPath =
+    typeof savedChatPath === 'string' && savedChatPath.startsWith('/c/')
+      ? savedChatPath
+      : undefined;
   const selected: Tool =
     tool === 'deployments' || tool === 'robot' || tool === 'activity' || tool === 'work'
       ? tool
@@ -613,34 +623,33 @@ export default function CyVoxAddon() {
     void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
   };
   return (
-    <main className="bg-surface-primary text-text-primary h-full overflow-y-auto p-6">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-text-secondary text-sm">{localize('com_cyvox_brand')}</p>
-            <h1 className="text-2xl font-semibold">
-              {selected === 'work' ? localize('com_cyvox_work') : localize(titles[selected])}
-            </h1>
-            <nav
-              aria-label={localize('com_cyvox_conversation_mode')}
-              className="mt-2 flex gap-3 text-sm"
-            >
-              <Link className="underline" to="/c/new">
-                {localize('com_cyvox_chat')}
-              </Link>
-              <Link
-                className="underline"
-                aria-current={selected === 'work' ? 'page' : undefined}
-                to="/cyvox/work"
-              >
-                {localize('com_cyvox_work')}
-              </Link>
-            </nav>
-          </div>
-          <Button variant="ghost" size="sm" onClick={refresh}>
-            <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-            {localize('com_cyvox_refresh')}
-          </Button>
+    <main className="bg-surface-primary text-text-primary h-full overflow-y-auto">
+      <header className="from-surface-canvas via-surface-canvas/70 sticky top-0 z-20 flex h-[3.25rem] items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold">
+        <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
+          <OpenSidebar />
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <ConversationModeNav
+            active={selected === 'work' ? 'work' : undefined}
+            chatPath={chatPath}
+            labels={{
+              ariaLabel: localize('com_cyvox_conversation_mode'),
+              chat: localize('com_cyvox_chat'),
+              work: localize('com_cyvox_work'),
+            }}
+          />
+        </div>
+        <Button variant="ghost" size="sm" onClick={refresh}>
+          <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+          {localize('com_cyvox_refresh')}
+        </Button>
+      </header>
+      <div className="mx-auto max-w-5xl px-4 pb-6">
+        <header className="mt-4 mb-6">
+          <p className="text-text-secondary text-sm">{localize('com_cyvox_brand')}</p>
+          <h1 className="text-2xl font-semibold">
+            {selected === 'work' ? localize('com_cyvox_work') : localize(titles[selected])}
+          </h1>
         </header>
         {selected === 'readiness' && <ReadinessView />}
         {selected === 'deployments' && <DeploymentsView />}
