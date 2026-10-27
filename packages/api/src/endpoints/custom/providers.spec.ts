@@ -104,7 +104,6 @@ describe('resolveEndpointProviderId', () => {
     expect(resolveEndpointProviderId({ name: 'Team Gateway', baseURL })).toBe(expected);
   });
 
-
   it.each([
     'https://api.deepseek.com.attacker.example/v1',
     'https://deepseek.com.attacker.example/v1',
