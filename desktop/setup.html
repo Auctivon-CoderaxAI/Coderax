@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Connect to Coderax</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="setup.js" defer></script>
+  </head>
+  <body>
+    <main class="card">
+      <div class="mark" aria-hidden="true">C</div>
+      <p class="eyebrow">CODERAX DESKTOP</p>
+      <h1>Connect to your Coderax server</h1>
+      <p class="intro">Enter the address of your Coderax deployment. You can change it later from the File menu.</p>
+
+      <form id="connect-form" novalidate>
+        <label for="server-url">Server address</label>
+        <input
+          id="server-url"
+          name="server-url"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://coderax.example.com"
+          aria-describedby="server-help connection-message"
+          required
+          autofocus
+        />
+        <p id="server-help" class="help">Remote servers need HTTPS. HTTP is available for localhost development servers.</p>
+        <p id="connection-message" class="message" role="alert" aria-live="polite"></p>
+        <button id="connect-button" type="submit">Save and open Coderax</button>
+      </form>
+
+      <p class="privacy">The address is saved on this computer. Sign in through your Coderax deployment as usual.</p>
+    </main>
+  </body>
+</html>
