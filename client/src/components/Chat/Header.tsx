@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { Link, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
 import {
   getConfigDefaults,
   Constants,
@@ -12,13 +12,14 @@ import { OpenSidebar, PresetsMenu, NewChat, HeaderMenu } from './Menus';
 import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import { BackgroundTasksButton } from './BackgroundTasks';
+import ConversationModeNav from './ConversationModeNav';
 import { TraceButton, useTraceControl } from './Trace';
 import { useGetStartupConfig } from '~/data-provider';
 import ExportAndShareMenu from './ExportAndShareMenu';
 import SubagentThreadLink from './SubagentThreadLink';
+import { useHasAccess, useLocalize } from '~/hooks';
 import BookmarkMenu from './Menus/BookmarkMenu';
 import AddMultiConvo from './AddMultiConvo';
-import { useHasAccess } from '~/hooks';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -32,6 +33,8 @@ function Header({
   parentConversationId?: string;
   readOnly?: boolean;
 }) {
+  const localize = useLocalize();
+  const location = useLocation();
   const { data: startupConfig } = useGetStartupConfig();
   const navVisible = useRecoilValue(store.sidebarExpanded);
   const isSubmitting = useRecoilValue(store.isSubmittingFamily(0));
@@ -98,10 +101,15 @@ function Header({
           <SubagentThreadLink threadId={parentConversationId} labelClassName="hidden lg:inline" />
         )}
         {!readOnly && (
-          <nav aria-label="Conversation mode" className="flex items-center gap-1 rounded-lg border border-border-medium bg-surface-secondary p-1 text-xs">
-            <Link to="/c/new" aria-current="page" className="rounded-md bg-surface-active px-3 py-1.5 text-text-primary">Chat</Link>
-            <Link to="/cyvox/work" className="rounded-md px-3 py-1.5 text-text-secondary hover:bg-surface-active">Work</Link>
-          </nav>
+          <ConversationModeNav
+            active="chat"
+            chatPath={`${location.pathname}${location.search}${location.hash}`}
+            labels={{
+              ariaLabel: localize('com_cyvox_conversation_mode'),
+              chat: localize('com_cyvox_chat'),
+              work: localize('com_cyvox_work'),
+            }}
+          />
         )}
         {!readOnly && interfaceConfig.presets === true && interfaceConfig.modelSelect === true && (
           <PresetsMenu />

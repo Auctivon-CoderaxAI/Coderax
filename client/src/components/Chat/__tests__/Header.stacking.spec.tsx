@@ -7,8 +7,10 @@ const mockEndpoint = { current: 'agents' };
 
 jest.mock('react-router-dom', () => ({
   useParams: () => ({ conversationId: 'convo-1' }),
-  Link: ({ to, children }: { to: string; children: React.ReactNode }) =>
-    <a href={to}>{children}</a>,
+  useLocation: () => ({ pathname: '/c/convo-1', search: '', hash: '' }),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 jest.mock('recoil', () => ({
   useRecoilValue: (selector: string) =>
@@ -24,7 +26,15 @@ jest.mock('coderax-data-provider', () => ({
     jest.requireActual('coderax-data-provider').isForcedTemporaryRetention,
 }));
 jest.mock('~/data-provider', () => ({ useGetStartupConfig: () => ({ data: undefined }) }));
-jest.mock('~/hooks', () => ({ useHasAccess: () => false }));
+jest.mock('~/hooks', () => ({
+  useHasAccess: () => false,
+  useLocalize: () => (key: string) =>
+    ({
+      com_cyvox_conversation_mode: 'Conversation mode',
+      com_cyvox_chat: 'Chat',
+      com_cyvox_work: 'Work',
+    })[key] ?? key,
+}));
 jest.mock('~/hooks/Nav/useDrawerViewport', () => () => false);
 jest.mock('~/store', () => ({
   __esModule: true,
