@@ -25,6 +25,7 @@ import ChatRoute from './ChatRoute';
 import Search from './Search';
 import Root from './Root';
 import Studio from './Studio';
+import LandingPage from '~/components/Landing';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
  * access can open the existing account sign-in form. Never show it by default.
@@ -76,6 +77,13 @@ const baseHref = baseEl?.getAttribute('href') || '/';
 
 export const router = createBrowserRouter(
   [
+    {
+      /** Public marketing page. Lives outside the authenticated shell so the
+       *  chat application's providers and routing stay untouched. */
+      path: 'welcome',
+      element: <LandingPage />,
+      errorElement: <RouteErrorBoundary />,
+    },
     {
       path: 'share/:shareId',
       element: <ShareRoute />,
