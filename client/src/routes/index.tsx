@@ -173,6 +173,10 @@ export const router = createBrowserRouter(
                   element: <CyVoxAddon />,
                 },
                 {
+                  path: 'studio',
+                  element: <Studio />,
+                },
+                {
                   path: 'prompts',
                   element: <Navigate to="/c/new" replace={true} />,
                 },
