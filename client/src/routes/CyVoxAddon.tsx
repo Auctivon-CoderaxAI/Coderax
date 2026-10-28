@@ -188,7 +188,11 @@ function useCyVoxAction() {
       if (!response.ok) {
         throw new Error('CYVOX_UNAVAILABLE');
       }
-      const data: unknown = await response.json();
+      // Successful action endpoints may return 204 or an empty/non-JSON body.
+      // Preserve HTTP success while treating absent task metadata as unknown.
+      const data: unknown = response.status === 204
+        ? undefined
+        : await response.json().catch(() => undefined);
       setMessage(localize('com_cyvox_action_accepted'));
       void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
       return { ok: true, data };
