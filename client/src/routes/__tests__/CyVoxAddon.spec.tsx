@@ -267,7 +267,7 @@ describe('Coderax Work route', () => {
     queryClient.clear();
   });
 
-  it.each([204, 200])('accepts HTTP %i action success without a JSON response body', async (status) => {
+  it.each([204, 200])('accepts empty successful action response (%i)', async (status) => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -297,8 +297,9 @@ describe('Coderax Work route', () => {
     expect(
       (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
     ).toHaveLength(1);
-    expect(screen.queryByRole('heading', { name: 'Task without JSON metadata' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('heading', { name: 'Task without JSON metadata' }),
+    ).not.toBeInTheDocument();
     queryClient.clear();
   });
-
 });
