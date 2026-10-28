@@ -119,8 +119,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          cancelled_jobs=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
-            | jq -s '[.[].jobs[]? | select(.conclusion == "cancelled")] | length')
+          jobs=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            | jq -s '[.[].jobs[]?]')
+
+          # Infrastructure failures can finish without ever reaching a job step.
+          # Keep the original failed check visible; do not blindly spend another run.
+          started_failed_jobs=$(jq '[.[] | select((.conclusion == "failure" or .conclusion == "timed_out") and ((.steps // []) | length > 0))] | length' <<< "$jobs")
+          if [ "$started_failed_jobs" -eq 0 ]; then
+            echo "Skipping retry for ${WORKFLOW_NAME} run ${RUN_ID}: no failed/timed-out job reached a recorded step; investigate runner availability."
+            exit 0
+          fi
+
+          cancelled_jobs=$(jq '[.[] | select(.conclusion == "cancelled")] | length' <<< "$jobs")
 
           if [ "$cancelled_jobs" -gt 0 ]; then
             endpoint="rerun"
