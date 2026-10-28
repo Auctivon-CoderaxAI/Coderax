@@ -279,6 +279,10 @@ function canCancelTask(state: string) {
   return !terminalTaskStates.has(state.trim().toLowerCase());
 }
 
+function getTaskLabel(item: CyVoxTask) {
+  return getTaskLabel(item);
+}
+
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
@@ -336,7 +340,7 @@ function WorkView() {
             <div className="flex justify-end">
               <article className="bg-surface-primary-alt max-w-[85%] rounded-3xl px-5 py-3">
                 <h1 className="whitespace-pre-wrap text-left text-base font-normal">
-                  {selectedTask.task || selectedTask.goal || selectedTask.id}
+                  {getTaskLabel(selectedTask)}
                 </h1>
               </article>
             </div>
@@ -344,12 +348,6 @@ function WorkView() {
               aria-label={localize('com_cyvox_work_task_status')}
               className="flex items-start gap-3"
             >
-              <div
-                aria-hidden="true"
-                className="bg-surface-secondary text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
-              >
-                W
-              </div>
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="font-medium">{localize('com_cyvox_work_task_status')}</h2>
@@ -366,7 +364,7 @@ function WorkView() {
                       variant="outline"
                       size="sm"
                       disabled={action.busy}
-                      aria-label={localize('com_cyvox_cancel') + ' ' + (selectedTask.task || selectedTask.goal || selectedTask.id)}
+                      aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(selectedTask))}
                       onClick={() => void cancelTask(selectedTask)}
                     >
                       {localize('com_cyvox_cancel')}
@@ -420,7 +418,7 @@ function WorkView() {
                         onClick={() => setActiveTaskId(item.id)}
                       >
                         <span className="min-w-0 flex-1 truncate text-sm">
-                          {item.task || item.goal || item.id}
+                          {getTaskLabel(item)}
                         </span>
                         <span className="text-text-secondary shrink-0 text-xs">{item.state}</span>
                       </Button>
@@ -429,7 +427,7 @@ function WorkView() {
                           variant="row-action"
                           size="xs"
                           disabled={action.busy}
-                          aria-label={localize('com_cyvox_cancel') + ' ' + (item.task || item.goal || item.id)}
+                          aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(item))}
                           onClick={() => cancelTask(item)}
                         >
                           {localize('com_cyvox_cancel')}

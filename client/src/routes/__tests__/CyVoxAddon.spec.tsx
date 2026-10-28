@@ -59,14 +59,14 @@ jest.mock('~/components/Chat/Menus/OpenSidebar', () => ({
   default: () => <button type="button" aria-label="Open sidebar" />,
 }));
 
-function renderWorkRoute() {
+function renderWorkRoute(initialPath = '/c/chat-42?source=work') {
   const router = createMemoryRouter(
     [
       { path: '/work', element: <CyVoxAddon /> },
       { path: '/cyvox/:tool', element: <CyVoxAddon /> },
       { path: '/c/:conversationId', element: <ChatModeRoute /> },
     ],
-    { initialEntries: ['/c/chat-42?source=work'] },
+    { initialEntries: [initialPath] },
   );
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -122,6 +122,31 @@ describe('Coderax Work route', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/c/chat-42'));
     expect(router.state.location.search).toBe('?source=work');
     expect(screen.getByTestId('chat-workspace')).toBeInTheDocument();
+
+    queryClient.clear();
+  });
+
+  it('opens a recent task in a conversation-style progress view', async () => {
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => {
+        const url = String(input);
+        if (url.endsWith('/models')) return { models: [] };
+        if (url.endsWith('/tasks')) {
+          return { tasks: [{ id: 'task-1', task: 'Prepare a launch plan', state: 'running' }] };
+        }
+        return { approvals: [] };
+      },
+    })) as unknown as typeof fetch;
+
+    const { queryClient } = renderWorkRoute('/work');
+    fireEvent.click(await screen.findByRole('button', { name: 'Prepare a launch plan running' }));
+
+    expect(screen.getByRole('heading', { name: 'Prepare a launch plan' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Task status' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: 'Describe what you want to get done' }),
+    ).toBeInTheDocument();
 
     queryClient.clear();
   });
