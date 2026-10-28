@@ -22,7 +22,7 @@ export function localOllamaOrigin(host = DEFAULT_HOST) {
 }
 
 async function readJson(fetchImpl, url, options) {
-  const response = await fetchImpl(url, options);
+  const response = await fetchImpl(url, { ...options, redirect: 'error' });
   if (!response.ok) {
     throw new Error(`Local Ollama returned HTTP ${response.status}`);
   }
@@ -58,12 +58,19 @@ export async function checkLocalOllama({
       model,
       messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
       stream: false,
+      think: false,
       options: { num_predict: 32 },
     }),
   });
 
   if (typeof reply.message?.content !== 'string' || !reply.message.content.trim()) {
     throw new Error('Local Ollama chat returned an empty reply');
+  }
+  if (reply.done !== true) {
+    throw new Error('Local Ollama chat did not finish');
+  }
+  if (reply.model !== model) {
+    throw new Error('Local Ollama chat returned a different model');
   }
   return { status: 'ready', model, origin };
 }
