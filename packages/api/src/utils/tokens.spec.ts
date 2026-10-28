@@ -311,6 +311,23 @@ describe('Grok 4.7 context window', () => {
   });
 });
 
+describe('DeepSeek V4.1 token limits', () => {
+  it.each([
+    'deepseek-flash',
+    'deepseek-v4-flash',
+    'deepseek-v4-flash-vision-exp',
+    'deepseek-v4-pro',
+  ])('resolves %s to the published context and output limits', (model) => {
+    expect(getModelMaxTokens(model, EModelEndpoint.custom)).toBe(1048576);
+    expect(getModelMaxOutputTokens(model, EModelEndpoint.custom)).toBe(393216);
+  });
+
+  it('keeps earlier DeepSeek chat limits unchanged', () => {
+    expect(getModelMaxTokens('deepseek-chat', EModelEndpoint.custom)).toBe(128000);
+    expect(getModelMaxOutputTokens('deepseek-chat', EModelEndpoint.custom)).toBe(8000);
+  });
+});
+
 describe('Opus 5.5 token limits', () => {
   it.each([
     'claude-opus-5-5',
