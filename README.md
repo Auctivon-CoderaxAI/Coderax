@@ -57,8 +57,6 @@
 
 On first launch, enter the URL of your Coderax deployment. Remote servers require HTTPS; HTTP is accepted only for local loopback development. The installer is unsigned, and downloads require access to this private repository.
 
-The desktop app opens Coderax in a sandboxed window and does not run coding agents or shell commands on your computer. See the [Freebuff feature-parity matrix](docs/product/freebuff-parity.md) for the current comparison and next steps.
-
 ## 🚀 What's New in v0.8.8
 
 - **Agent Management API (beta):** Create, discover, update, and delete Agents; manage Agent files and Skills; and authenticate machine clients through deployment-bound OIDC identities while preserving existing role and Agent access controls. Public OpenAPI and Swagger UI cover inference, events, Agent management, and Skill management.
