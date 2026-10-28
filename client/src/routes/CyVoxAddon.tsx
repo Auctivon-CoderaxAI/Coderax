@@ -166,8 +166,12 @@ function useCyVoxAction() {
   const localize = useLocalize();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const send = async (path: string, body: object = {}, confirmation: string): Promise<boolean> => {
-    if (!window.confirm(confirmation)) return false;
+  const send = async (
+    path: string,
+    body: object = {},
+    confirmation: string,
+  ): Promise<{ ok: boolean; data?: unknown }> => {
+    if (!window.confirm(confirmation)) return { ok: false };
     setBusy(true);
     setMessage('');
     try {
@@ -184,12 +188,13 @@ function useCyVoxAction() {
       if (!response.ok) {
         throw new Error('CYVOX_UNAVAILABLE');
       }
+      const data: unknown = await response.json();
       setMessage(localize('com_cyvox_action_accepted'));
       void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
-      return true;
+      return { ok: true, data };
     } catch {
       setMessage(localize('com_cyvox_unavailable'));
-      return false;
+      return { ok: false };
     } finally {
       setBusy(false);
     }
@@ -283,6 +288,17 @@ function getTaskLabel(item: CyVoxTask) {
   return item.task || item.goal || item.id;
 }
 
+/** Never infer task ownership from a shared, concurrently updated task list. */
+function getCreatedTaskId(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return null;
+  const result = value as Record<string, unknown>;
+  const task = result.task && typeof result.task === 'object'
+    ? (result.task as Record<string, unknown>)
+    : null;
+  const ids = [result.id, result.task_id, result.taskId, task?.id, task?.task_id, task?.taskId];
+  return ids.find((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(id)) ?? null;
+}
+
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
@@ -300,21 +316,22 @@ function WorkView() {
   );
 
   const startTask = async () => {
-    const description = task.trim();
+    const submittedDraft = task;
+    const description = submittedDraft.trim();
     if (!description || action.busy) return;
 
-    const previousTaskIds = new Set(taskItems.map((item) => item.id));
     const started = await action.send(
       'actions/startTask',
       { task: description, mode },
       localize('com_cyvox_start_work_confirmation'),
     );
-    if (!started) return;
+    if (!started.ok) return;
 
-    setTask('');
-    const refreshed = await tasks.refetch();
-    const createdTask = refreshed.data?.tasks?.find((item) => !previousTaskIds.has(item.id));
-    if (createdTask) setActiveTaskId(createdTask.id);
+    // A user may have begun another draft while the first request was pending.
+    setTask((current) => (current === submittedDraft ? '' : current));
+    await tasks.refetch();
+    const createdId = getCreatedTaskId(started.data);
+    if (createdId) setActiveTaskId(createdId);
   };
 
   const cancelTask = (item: CyVoxTask) =>
@@ -461,6 +478,8 @@ function WorkView() {
               value={task}
               onChange={(event) => setTask(event.target.value)}
               onKeyDown={(event) => {
+                // IME Enter commits a composition; it must never submit a task.
+                if (event.nativeEvent.isComposing || event.key === 'Process' || event.keyCode === 229) return;
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
                   void startTask();
