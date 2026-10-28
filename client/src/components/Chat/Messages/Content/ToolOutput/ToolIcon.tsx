@@ -15,6 +15,7 @@ import {
   Zap,
   Wrench,
   ListChecks,
+  Sparkles,
 } from 'lucide-react';
 import LangIcon from '~/components/Messages/Content/LangIcon';
 import CustomIcon from '~/components/ui/CustomIcon';
@@ -39,6 +40,8 @@ export type ToolIconType =
   | 'bash_tool'
   | 'background_tasks'
   | 'ask_user_question'
+  | 'write_todos'
+  | 'followups'
   | 'memory'
   | 'action'
   | 'generic';
@@ -58,6 +61,8 @@ const ICON_MAP: Record<ToolIconType, React.ComponentType<{ className?: string }>
   bash_tool: BashIcon,
   background_tasks: ListChecks,
   ask_user_question: MessageCircleQuestion,
+  write_todos: ListChecks,
+  followups: Sparkles,
   memory: Brain,
   action: Zap,
   generic: Wrench,
@@ -105,6 +110,12 @@ export function getToolIconType(name: string): ToolIconType {
   }
   if (name === 'ask_user_question') {
     return 'ask_user_question';
+  }
+  if (name === 'write_todos') {
+    return 'write_todos';
+  }
+  if (name === 'suggest_followups') {
+    return 'followups';
   }
   if (name === 'set_memory' || name === 'delete_memory') {
     return 'memory';

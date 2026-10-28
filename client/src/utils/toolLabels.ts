@@ -23,6 +23,8 @@ export const TOOL_FRIENDLY_NAME_KEYS: Record<string, TranslationKeys> = {
   code_interpreter: 'com_ui_tool_name_code_analysis',
   retrieval: 'com_ui_tool_name_file_search',
   ask_user_question: 'com_ui_tool_name_ask_user_question',
+  write_todos: 'com_ui_tool_name_plan',
+  suggest_followups: 'com_ui_tool_name_suggest_followups',
   create_file: 'com_ui_tool_name_create_file',
   set_memory: 'com_ui_tool_name_set_memory',
   edit_file: 'com_ui_tool_name_edit_file',

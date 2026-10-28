@@ -573,7 +573,9 @@ export default defineConfig({
       url: baseURL,
       stdout: 'pipe',
       ignoreHTTPSErrors: true,
-      timeout: 120_000,
+      /** Mounting every route can outlast two minutes on a loaded or slower
+       *  machine; raise it with E2E_SERVER_TIMEOUT_MS instead of editing this. */
+      timeout: Number(process.env.E2E_SERVER_TIMEOUT_MS ?? 120_000),
       reuseExistingServer: false,
     },
   ],

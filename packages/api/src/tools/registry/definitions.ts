@@ -5,6 +5,8 @@ import {
 } from '@librechat/agents';
 import type { ExtendedJsonSchema } from './schema';
 import { AskUserQuestionToolDefinition } from '~/agents/hitl/askUserQuestionTool';
+import { WriteTodosToolDefinition } from '~/agents/todos';
+import { SuggestFollowupsToolDefinition } from '~/agents/followups';
 import { geminiToolkit } from '~/tools/toolkits/gemini';
 import { oaiToolkit } from '~/tools/toolkits/oai';
 
@@ -465,6 +467,18 @@ const agentToolDefinitions: Record<string, ToolRegistryDefinition> = {
     name: AskUserQuestionToolDefinition.name,
     description: AskUserQuestionToolDefinition.description,
     schema: AskUserQuestionToolDefinition.schema as ExtendedJsonSchema,
+    toolType: 'builtin',
+  },
+  [WriteTodosToolDefinition.name]: {
+    name: WriteTodosToolDefinition.name,
+    description: WriteTodosToolDefinition.description,
+    schema: WriteTodosToolDefinition.schema as ExtendedJsonSchema,
+    toolType: 'builtin',
+  },
+  [SuggestFollowupsToolDefinition.name]: {
+    name: SuggestFollowupsToolDefinition.name,
+    description: SuggestFollowupsToolDefinition.description,
+    schema: SuggestFollowupsToolDefinition.schema as ExtendedJsonSchema,
     toolType: 'builtin',
   },
 };

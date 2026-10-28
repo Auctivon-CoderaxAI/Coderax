@@ -50,8 +50,8 @@ import type {
 } from 'coderax-data-provider';
 import type { AppConfig, IAgentFadingTier, IUser } from '@coderax/data-schemas';
 import type { CallbackHandlerMethods } from '@langchain/core/callbacks/base';
-import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
 import type { BaseMessage } from '@librechat/agents/langchain/messages';
+import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import type { TerminalSteerHook, SteerPreemption } from '~/agents/steering/runtime';
 import type { ModelBoundChatModelCallback } from '~/middleware/modelBoundContent';
@@ -125,6 +125,8 @@ import { buildAgentInitialToolSessions } from '~/agents/codeFilesSession';
 import { getDirectDispatcher, getProxyDispatcher } from '~/utils/proxy';
 import { getAzureCredentials, constructAzureURL } from '~/utils/azure';
 import { buildEffectiveToolApprovalPolicy } from '~/agents/hitl/allow';
+import { createFollowupTools, isSuggestFollowupsAdminDisabled } from './followups';
+import { createTodoTools, isWriteTodosAdminDisabled } from './todos';
 import { prepareQueuedCodeFileContext } from '~/files/code/queued';
 import { getBuiltInBaseURL } from '~/endpoints/openai/initialize';
 import { getProviderConfig } from '~/endpoints/config/providers';
@@ -2378,6 +2380,10 @@ export async function createRun({
 
   /** Admin kill switch for the ask tool — see {@link isAskUserQuestionAdminDisabled}. */
   const askToolAdminDisabled = isAskUserQuestionAdminDisabled(appConfig);
+  /** Admin kill switch for the plan tool — see {@link isWriteTodosAdminDisabled}. */
+  const todoToolAdminDisabled = isWriteTodosAdminDisabled(appConfig);
+  /** Admin kill switch for the follow-up chips — see {@link isSuggestFollowupsAdminDisabled}. */
+  const followupToolAdminDisabled = isSuggestFollowupsAdminDisabled(appConfig);
 
   // Independently initialized agents must reserve the same live paths before advertising uploads.
   const codeFileAgents = new Map<string, RunAgent>();
@@ -2646,6 +2652,23 @@ export async function createRun({
     };
     if (runFilesActive && runFiles != null && (isSubagent || agent.subagents?.enabled === true)) {
       graphTools = [...(graphTools ?? []), ...createRunFileTools(runFiles, agent.id, signal)];
+    }
+    /**
+     * `write_todos` is stateless and needs no interrupt surface, so it rides the
+     * same in-graph seam: top-level agents only (a child graph's plan would
+     * replace the parent's list in the reader's view). It is attached here rather
+     * than in `loadTools` because it is never part of an agent's saved tool list.
+     */
+    if (!isSubagent && !todoToolAdminDisabled) {
+      graphTools = [...(graphTools ?? []), ...createTodoTools()];
+    }
+    /**
+     * `suggest_followups` rides the same seam and for the same reason: it is a
+     * stateless call whose card only makes sense under the reader's own reply, so
+     * a child graph cannot render it anywhere the reader is looking.
+     */
+    if (!isSubagent && !followupToolAdminDisabled) {
+      graphTools = [...(graphTools ?? []), ...createFollowupTools()];
     }
     if (graphTools) {
       /**
