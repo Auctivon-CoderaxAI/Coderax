@@ -1,5 +1,5 @@
 import { memo, useCallback, Suspense } from 'react';
-import { SquarePen } from 'lucide-react';
+import { PanelsTopLeft, SquarePen } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { Skeleton, Sidebar, Button, TooltipAnchor } from '@coderax/client';
 import type { NavLink } from '~/common';
@@ -179,6 +179,20 @@ function ExpandedPanel({
       />
       <NewChatButton setActive={setActive} switchToHistory={switchToHistory} />
       <AgentMarketplaceButton />
+      <TooltipAnchor
+        side="right"
+        description="Visual App Studio"
+        render={
+          <a
+            href="/studio"
+            aria-label="Open Visual App Studio"
+            data-testid="studio-nav-link"
+            className="hover:bg-surface-hover flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+          >
+            <PanelsTopLeft className="text-text-primary h-5 w-5" aria-hidden="true" />
+          </a>
+        }
+      />
       <div className="border-border-inset mx-2 border-b" />
       <div className="flex flex-col gap-1 overflow-y-auto">
         {links.map((link) => (
