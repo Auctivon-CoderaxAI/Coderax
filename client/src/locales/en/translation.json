@@ -3436,7 +3436,7 @@
   "com_cyvox_no_activity": "No activity recorded yet.",
   "com_cyvox_no_deployments": "No deployments returned by the deployment platform.",
   "com_cyvox_hourly_cost": "Estimated hourly cost",
-  "com_cyvox_action_accepted": "Task started. Progress will appear here.",
+  "com_cyvox_action_accepted": "Request accepted. Refresh to inspect the latest state.",
   "com_cyvox_pending_approvals": "Pending approvals",
   "com_cyvox_approvals_unavailable": "Unable to retrieve task approvals.",
   "com_cyvox_no_pending_approvals": "No approvals pending for this task.",
