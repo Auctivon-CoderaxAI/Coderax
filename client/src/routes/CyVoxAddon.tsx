@@ -190,9 +190,8 @@ function useCyVoxAction() {
       }
       // Successful action endpoints may return 204 or an empty/non-JSON body.
       // Preserve HTTP success while treating absent task metadata as unknown.
-      const data: unknown = response.status === 204
-        ? undefined
-        : await response.json().catch(() => undefined);
+      const data: unknown =
+        response.status === 204 ? undefined : await response.json().catch(() => undefined);
       setMessage(localize('com_cyvox_action_accepted'));
       void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
       return { ok: true, data };
