@@ -91,6 +91,7 @@ describe('Coderax Work route', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    jest.restoreAllMocks();
   });
 
   it('switches between the same Chat route and Work route, with a shared mobile shell and readable controls', async () => {
@@ -180,4 +181,90 @@ describe('Coderax Work route', () => {
     expect(router.state.location.search).toBe('?source=legacy');
     expect(router.state.location.state).toEqual({ chatPath: '/c/chat-42?source=work' });
   });
+  it('ignores IME composition Enter without submitting a task', async () => {
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    const { queryClient } = renderWorkRoute('/work');
+    const input = await screen.findByRole('textbox', {
+      name: 'Describe what you want to get done',
+    });
+    fireEvent.change(input, { target: { value: 'Draft with IME' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(
+      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(0);
+    expect(input).toHaveValue('Draft with IME');
+    queryClient.clear();
+  });
+
+  it('uses the creation response ID rather than a concurrent task-list addition', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    let taskListReads = 0;
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const data = url.endsWith('/models')
+        ? { models: [] }
+        : url.endsWith('/actions/startTask')
+          ? { id: 'our-task' }
+          : url.endsWith('/tasks')
+            ? {
+                tasks:
+                  ++taskListReads === 1
+                    ? []
+                    : [
+                        { id: 'other-task', task: 'Unrelated task', state: 'running' },
+                        { id: 'our-task', task: 'My task', state: 'running' },
+                      ],
+              }
+            : { approvals: [] };
+      return { ok: true, json: async () => data };
+    }) as unknown as typeof fetch;
+    const { queryClient } = renderWorkRoute('/work');
+    const input = await screen.findByRole('textbox', {
+      name: 'Describe what you want to get done',
+    });
+    await waitFor(() => expect(taskListReads).toBeGreaterThan(0));
+    fireEvent.change(input, { target: { value: 'My task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+    expect(await screen.findByRole('heading', { name: 'My task' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Unrelated task' })).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('preserves newer composer edits when a pending task start completes', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    let finishStart: (() => void) | undefined;
+    const pendingStart = new Promise<{ ok: boolean; json: () => Promise<{ id: string }> }>(
+      (resolve) => {
+        finishStart = () => resolve({ ok: true, json: async () => ({ id: 'original' }) });
+      },
+    );
+    let taskListReads = 0;
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/actions/startTask')) return pendingStart;
+      if (url.endsWith('/models')) return { ok: true, json: async () => ({ models: [] }) };
+      if (url.endsWith('/tasks')) {
+        const tasks =
+          ++taskListReads === 1
+            ? []
+            : [{ id: 'original', task: 'Original task', state: 'running' }];
+        return { ok: true, json: async () => ({ tasks }) };
+      }
+      return { ok: true, json: async () => ({ approvals: [] }) };
+    }) as unknown as typeof fetch;
+    const { queryClient } = renderWorkRoute('/work');
+    const input = await screen.findByRole('textbox', {
+      name: 'Describe what you want to get done',
+    });
+    await waitFor(() => expect(taskListReads).toBeGreaterThan(0));
+    fireEvent.change(input, { target: { value: 'Original task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+    fireEvent.change(input, { target: { value: 'New draft' } });
+    finishStart?.();
+    expect(await screen.findByRole('heading', { name: 'Original task' })).toBeInTheDocument();
+    expect(input).toHaveValue('New draft');
+    queryClient.clear();
+  });
+
 });
