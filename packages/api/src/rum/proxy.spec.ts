@@ -12,6 +12,7 @@ import { recordRumProxyRequest } from '~/app/metrics';
 import {
   getRumProxyBodyLimit,
   getRumProxyClientUrl,
+  getRumProxyResponseLimit,
   getRumProxyTimeoutMs,
   getRumProxyTargetBaseUrl,
   isRumProxyEnabled,
@@ -56,6 +57,17 @@ describe('RUM proxy configuration', () => {
     expect(getRumProxyClientUrl()).toBe('/api/rum');
     expect(getRumProxyBodyLimit()).toBe('3mb');
     expect(getRumProxyTimeoutMs()).toBe(10000);
+  });
+
+  it('bounds collector responses with a 1 MiB default and an env override', () => {
+    delete process.env.RUM_PROXY_RESPONSE_LIMIT;
+    expect(getRumProxyResponseLimit()).toBe(1024 * 1024);
+
+    process.env.RUM_PROXY_RESPONSE_LIMIT = '2048';
+    expect(getRumProxyResponseLimit()).toBe(2048);
+
+    process.env.RUM_PROXY_RESPONSE_LIMIT = 'not-a-number';
+    expect(getRumProxyResponseLimit()).toBe(1024 * 1024);
   });
 
   it('uses a positive custom collector timeout', () => {
@@ -463,6 +475,24 @@ describe('RUM proxy upstream HTTP contract', () => {
       expect(recordRumProxyRequest).toHaveBeenCalledWith(signal, 'success');
     },
   );
+
+  it('refuses an oversized collector response instead of buffering it', async () => {
+    process.env.RUM_PROXY_RESPONSE_LIMIT = '1024';
+    collector.on('request', (_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('x'.repeat(4096));
+    });
+
+    const response = await request(createProxy())
+      .post('/v1/traces')
+      .set('Content-Type', 'application/json')
+      .send({ resourceSpans: [] });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ message: 'RUM collector response too large' });
+    expect(response.headers[RUM_COLLECTOR_ACK_HEADER]).toBeUndefined();
+    expect(recordRumProxyRequest).toHaveBeenCalledWith('traces', 'collector_error');
+  });
 
   it('marks a successful collector 204 so clients can distinguish it from an auth drop', async () => {
     collector.on('request', (_req, res) => {

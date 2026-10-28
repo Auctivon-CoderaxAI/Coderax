@@ -34,6 +34,7 @@ import {
 } from './methods';
 import { isSSRFTarget, resolveHostnameSSRF, isOAuthUrlAllowed } from '~/auth';
 import { MCPTokenStorage, MCPTokenRefreshUnavailableError } from './tokens';
+import { readOAuthJson, readOAuthErrorText } from './response';
 import { probeResourceMetadataHint } from './resourceHint';
 import { createHardenedOAuthFetch } from './hardenedFetch';
 import { sanitizeUrlForLogging } from '~/mcp/utils';
@@ -1772,7 +1773,7 @@ export class MCPOAuthHandler {
     }
 
     /** Body is consumed here, so this branch must either retry or throw — never fall through. */
-    const errorText = await response.text();
+    const errorText = await readOAuthErrorText(response);
     if (!this.isScopeParameterRejection(response.status, errorText)) {
       throw new Error(
         `Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`,
@@ -2049,13 +2050,13 @@ export class MCPOAuthHandler {
         );
 
         if (!response.ok) {
-          const errorText = await response.text();
+          const errorText = await readOAuthErrorText(response);
           throw new Error(
             `Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`,
           );
         }
 
-        const tokens = await response.json();
+        const tokens = await readOAuthJson(response);
         return this.processRefreshResponse(tokens, metadata.serverName, 'stored client info');
       }
 
@@ -2138,13 +2139,13 @@ export class MCPOAuthHandler {
         );
 
         if (!response.ok) {
-          const errorText = await response.text();
+          const errorText = await readOAuthErrorText(response);
           throw new Error(
             `Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`,
           );
         }
 
-        const tokens = await response.json();
+        const tokens = await readOAuthJson(response);
         return this.processRefreshResponse(tokens, metadata.serverName, 'pre-configured OAuth');
       }
 
@@ -2209,13 +2210,13 @@ export class MCPOAuthHandler {
 
       await this.assertRefreshEndpointAvailable(response, metadata.serverName);
       if (!response.ok) {
-        const errorText = await response.text();
+        const errorText = await readOAuthErrorText(response);
         throw new Error(
           `Token refresh failed: ${response.status} ${response.statusText} - ${errorText}`,
         );
       }
 
-      const tokens = await response.json();
+      const tokens = await readOAuthJson(response);
       return this.processRefreshResponse(tokens, metadata.serverName, 'auto-discovered OAuth');
     } catch (error) {
       logger.error(`[MCPOAuth] Failed to refresh tokens for ${metadata.serverName}`, error);

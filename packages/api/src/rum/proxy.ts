@@ -1,14 +1,17 @@
-import { validateHeaderValue } from 'node:http';
 import { logger } from '@coderax/data-schemas';
+import { validateHeaderValue } from 'node:http';
 import { RUM_COLLECTOR_ACK_HEADER } from 'coderax-data-provider';
 import type { Request, Response, RequestHandler } from 'express';
 import type { RumProxyEndpoint, RumProxyResult } from '~/app/metrics';
 import { recordRumProxyRequest } from '~/app/metrics';
+import { readBoundedBytes } from '~/utils/http';
 import { isEnabled } from '~/utils';
 
 const DEFAULT_PROXY_PATH = '/api/rum';
 const DEFAULT_BODY_LIMIT = '3mb';
 const DEFAULT_TIMEOUT_MS = 10_000;
+/** Collectors acknowledge with empty or tiny bodies; a larger reply is never forwarded. */
+const DEFAULT_RESPONSE_LIMIT_BYTES = 1024 * 1024;
 const OTLP_PATHS = new Set(['/v1/traces', '/v1/logs']);
 /** OTLP/HTTP encodings; anything else is refused before a body is forwarded. */
 const OTLP_CONTENT_TYPES = new Set([
@@ -31,6 +34,11 @@ export function getRumProxyClientUrl(): string {
 
 export function getRumProxyBodyLimit(): string {
   return process.env.RUM_PROXY_BODY_LIMIT?.trim() || DEFAULT_BODY_LIMIT;
+}
+
+export function getRumProxyResponseLimit(): number {
+  const parsed = Number(process.env.RUM_PROXY_RESPONSE_LIMIT);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_RESPONSE_LIMIT_BYTES;
 }
 
 export function getRumProxyTimeoutMs(): number {
@@ -254,12 +262,19 @@ export async function proxyRumRequest(
       signal: controller.signal,
     });
 
+    const bounded = await readBoundedBytes(response, getRumProxyResponseLimit());
+    if (!bounded.ok) {
+      recordRumProxyRequest(endpoint, 'collector_error');
+      res.status(502).json({ message: 'RUM collector response too large' });
+      return;
+    }
+
     const contentType = response.headers.get('content-type');
     if (contentType) {
       res.set('content-type', contentType);
     }
 
-    const responseBody = Buffer.from(await response.arrayBuffer());
+    const responseBody = Buffer.from(bounded.body);
     recordRumProxyRequest(endpoint, getRumCollectorResult(response.status));
     if (response.status >= 200 && response.status < 300) {
       res.set(RUM_COLLECTOR_ACK_HEADER, 'true');

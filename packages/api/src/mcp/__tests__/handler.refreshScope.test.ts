@@ -203,4 +203,34 @@ describe('MCPOAuthHandler.refreshOAuthTokens — scope parameter fallback', () =
     expect(sentBodies).toHaveLength(1);
     expect(sentBodies[0]).not.toContain('scope=');
   });
+
+  it('rejects a token response that outgrows the read limit', async () => {
+    responseQueue = [
+      new Response(`{"access_token":"${'x'.repeat(1024 * 1024 + 1)}"}`, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ];
+
+    await expect(
+      MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}),
+    ).rejects.toThrow(/exceeded the size limit/);
+    expect(sentBodies).toHaveLength(1);
+  });
+
+  it('quotes only a bounded prefix of a failing error body', async () => {
+    const marker = 'invalid_grant';
+    responseQueue = [new Response('x'.repeat(1000) + marker, { status: 400 })];
+
+    const error = await MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    const message = error instanceof Error ? error.message : '';
+    expect(message).toMatch(/Token refresh failed: 400/);
+    expect(message).not.toContain(marker);
+    expect(message.length).toBeLessThan(400);
+  });
 });
