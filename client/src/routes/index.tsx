@@ -23,6 +23,7 @@ import ShareRoute from './ShareRoute';
 import ChatRoute from './ChatRoute';
 import Search from './Search';
 import CyVoxAddon from './CyVoxAddon';
+import Studio from './Studio';
 import Root from './Root';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
@@ -167,6 +168,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'cyvox/:tool',
                   element: <CyVoxAddon />,
+                },
+                {
+                  path: 'studio',
+                  element: <Studio />,
                 },
                 {
                   path: 'prompts',
