@@ -93,7 +93,7 @@ export default function Studio() {
   };
 
   return (
-    <main className="min-h-screen w-full bg-slate-50 px-4 py-7 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:px-8">
+    <main className="h-full min-h-0 w-full overflow-y-auto bg-slate-50 px-4 py-7 text-slate-900 dark:bg-slate-950 dark:text-slate-100 md:px-8">
       <div className="mx-auto max-w-[1600px]">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div>
