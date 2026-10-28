@@ -70,6 +70,10 @@ const ASK_USER_QUESTION_MARKER = 'E2E_ASK_USER_QUESTION:';
 const ASK_USER_QUESTIONS_MARKER = 'E2E_ASK_USER_QUESTIONS:';
 const ASK_USER_LONG_QUESTIONS_MARKER = 'E2E_ASK_USER_LONG_QUESTIONS:';
 const RESUME_ICON_REPLY_MARKER = 'E2E_RESUME_ICON_REPLY:';
+const FOLLOWUPS_REPLY_MARKER = 'E2E_FOLLOWUPS_REPLY:';
+/** Attached by `createRun` itself (never saved on the agent), so a scenario that
+ *  finds it advertised proves the in-graph seam reached this run. */
+const SUGGEST_FOLLOWUPS_TOOL_NAME = 'suggest_followups';
 const FORCED_ERROR_MARKER = 'E2E_FORCED_ERROR:';
 const MARKDOWN_REPLY_MARKER = 'E2E_MARKDOWN_REPLY';
 const STREAMING_MARKDOWN_REPLY_MARKER = 'E2E_STREAMING_MARKDOWN_REPLY';
@@ -120,6 +124,7 @@ const STEER_SPLIT_FINAL_TEXT = 'E2E steer split reply done';
 const STEER_LATE_FINAL_TEXT = 'E2E steer late reply done';
 const SLOW_REPLY_CONTINUATION_TEXT = 'E2E slow reply continued';
 const ACTIVITY_FINAL_TEXT = 'E2E activity reply done';
+const FOLLOWUPS_ANSWER_TEXT = 'E2E followup answer complete';
 const ACTIVITY_PHASE_FINAL_TEXT = 'E2E activity phase reply done';
 const MCP_APP_PHASE_FINAL_TEXT = 'E2E MCP App phase complete';
 const ACTIVITY_FAILED_FINAL_TEXT = 'E2E activity failed reply done';
@@ -308,6 +313,24 @@ function collectToolDefinitions(agents) {
 
 function collectToolNames(agents) {
   return new Set(collectToolDefinitions(agents).keys());
+}
+
+/**
+ * Tools attached by `createRun` itself live on the agent context's `graphTools`,
+ * not in the agent's saved tool list, so `collectToolNames` cannot see them. The
+ * SDK appends them to the tools bound for the model, which is what makes them
+ * callable; check both views before calling a tool unadvertised.
+ */
+function isToolAdvertised({ graph, toolNames, name }) {
+  if (toolNames?.has(name)) {
+    return true;
+  }
+  for (const agentContext of graph?.agentContexts?.values() ?? []) {
+    if (agentContext?.graphTools?.some((tool) => tool?.name === name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function getStreamAgentView({ graph, messages, options, runManager }) {
@@ -1933,6 +1956,51 @@ function activityFailedReplyResponses(label, toolNames) {
 }
 
 /**
+ * Answer a turn and offer next-step chips in the SAME assistant message: the
+ * text and the tool call stream from one model invocation, so the chips land
+ * under the reply instead of above it. The follow-up turn is empty because the
+ * tool's own card is the payload.
+ */
+function followupsReplyResponses(label, { graph, toolNames }) {
+  if (!isToolAdvertised({ graph, toolNames, name: SUGGEST_FOLLOWUPS_TOOL_NAME })) {
+    return {
+      responses: [`E2E followups unavailable: ${SUGGEST_FOLLOWUPS_TOOL_NAME} was not advertised.`],
+    };
+  }
+  const toolCallId = `call_e2e_followups_${label}`;
+  return {
+    responses: [''],
+    resolveInvocation: (messages) => {
+      if (findLastToolMessage(messages, toolCallId)) {
+        return { response: '' };
+      }
+      return {
+        response: `${FOLLOWUPS_ANSWER_TEXT} ${label}`,
+        toolCalls: [
+          {
+            id: toolCallId,
+            name: SUGGEST_FOLLOWUPS_TOOL_NAME,
+            args: {
+              suggestions: [
+                {
+                  label: 'Add retry tests',
+                  prompt: 'Add retry with backoff to the deploy poller tests.',
+                },
+                {
+                  label: 'Split the provider',
+                  prompt: 'Split the provider into transport and retry modules.',
+                },
+              ],
+            },
+            type: 'tool_call',
+          },
+        ],
+      };
+    },
+  };
+}
+
+/**
  * Pause a real agent run at the ask_user_question tool. The resume controller
  * rebuilds the graph with an empty input-message list, so the test hook selects
  * its ordinary mock reply for the resumed model turn. This deliberately tests
@@ -3552,6 +3620,11 @@ function resolveResponses({ graph, messages, text, toolNames }) {
   const activityFailedLabel = getMarkerValue(text, ACTIVITY_FAILED_REPLY_MARKER);
   if (activityFailedLabel) {
     return activityFailedReplyResponses(activityFailedLabel, toolNames);
+  }
+
+  const followupsLabel = getMarkerValue(text, FOLLOWUPS_REPLY_MARKER);
+  if (followupsLabel) {
+    return followupsReplyResponses(followupsLabel, { graph, toolNames });
   }
 
   const askBatchLabel = getMarkerValue(text, ASK_USER_QUESTIONS_MARKER);

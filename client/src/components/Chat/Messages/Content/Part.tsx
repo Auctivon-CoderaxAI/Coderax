@@ -36,6 +36,11 @@ import {
 import BackgroundTaskCall from './Parts/BackgroundTaskCall';
 import { getAskUserQuestionPart } from '~/utils/approval';
 import AskUserQuestionCall from './AskUserQuestionCall';
+import FollowupSuggestions, {
+  SUGGEST_FOLLOWUPS_TOOL,
+  parseFollowupArgs,
+} from './FollowupSuggestions';
+import TodoCall, { WRITE_TODOS_TOOL, parseTodoArgs } from './TodoCall';
 import { isBashProgrammaticToolCall } from './routing';
 import { isError } from './ToolOutput/OutputRenderer';
 import { ToolPreparation } from './preparation';
@@ -291,6 +296,17 @@ const Part = memo(function Part({
               hideAttachments={hideAttachments}
             />
           );
+        } else if (
+          toolCall.name === SUGGEST_FOLLOWUPS_TOOL &&
+          parseFollowupArgs(toolCall.args) != null
+        ) {
+          /** The chips own the call once its args parse; a still-streaming (or
+           *  rejected) call falls through to the generic row. */
+          return <FollowupSuggestions args={toolCall.args} />;
+        } else if (toolCall.name === WRITE_TODOS_TOOL && parseTodoArgs(toolCall.args) != null) {
+          /** The plan card owns the call whenever its args parse; a still-streaming
+           *  (or rejected) write falls through to the generic row. */
+          return <TodoCall args={toolCall.args} />;
         } else if (toolCall.name === 'ask_user_question') {
           /** Dedicated Q&A record — the generic tool card would label the
            *  interrupt-resolved call "cancelled" and dump raw JSON args. */

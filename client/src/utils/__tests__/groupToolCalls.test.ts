@@ -306,4 +306,21 @@ describe('groupSequentialToolCalls reasoning transparency', () => {
     const result = groupSequentialToolCalls(withIndex([transferPart(), transferPart()]));
     expect(result.map((g) => g.type)).toEqual(['single', 'single']);
   });
+
+  /** These parts render their own full-width card, and a completed group
+   *  auto-collapses — folding one in would hide the card behind a header. */
+  it.each(['write_todos', 'suggest_followups'])(
+    'does not fold %s into a collapsing tool group',
+    (name) => {
+      const card = {
+        type: ContentTypes.TOOL_CALL,
+        [ContentTypes.TOOL_CALL]: { id: `call_${name}`, name, args: '{}' },
+      } as unknown as TMessageContentParts;
+
+      const result = groupSequentialToolCalls(withIndex([toolCall('a'), toolCall('b'), card]));
+
+      expect(result.map((group) => group.type)).toEqual(['tool-group', 'single']);
+      expect(result[1]).toEqual({ type: 'single', part: { part: card, idx: 2 } });
+    },
+  );
 });

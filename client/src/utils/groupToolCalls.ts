@@ -56,12 +56,23 @@ export function hasPendingAuthInPart(part: TMessageContentParts): boolean {
   );
 }
 
+/**
+ * Tools whose part renders its own full-width card rather than a tool row. A
+ * completed group auto-collapses behind its header, so folding one of these in
+ * would hide the card that IS the point — the plan the reader follows, or the
+ * chips they click after the turn ends.
+ */
+const SELF_RENDERING_CARD_TOOLS = new Set(['write_todos', 'suggest_followups']);
+
 function isGroupableToolCall(part: TMessageContentParts): boolean {
   if (part.type !== ContentTypes.TOOL_CALL) {
     return false;
   }
   const toolCall = part[ContentTypes.TOOL_CALL] as Agents.ToolCall | undefined;
   if (!toolCall) {
+    return false;
+  }
+  if (toolCall.name != null && SELF_RENDERING_CARD_TOOLS.has(toolCall.name)) {
     return false;
   }
   const isStandardToolCall =

@@ -4873,6 +4873,14 @@ describe('ask_user_question run wiring', () => {
   const firstAgent = (config: Record<string, unknown>) =>
     (config.graphConfig as { agents: Array<Record<string, unknown>> }).agents[0];
 
+  /** `write_todos` and `suggest_followups` ride `graphTools` on every top-level
+   *  agent; these assertions are about the ask tool, so read the names without
+   *  them. */
+  const graphToolNames = (agent: Record<string, unknown>): string[] =>
+    ((agent.graphTools ?? []) as Array<{ name: string }>)
+      .map((tool) => tool.name)
+      .filter((name) => name !== 'write_todos' && name !== 'suggest_followups');
+
   /**
    * Every run now carries a `PostToolBatch`-only registry for step-budget
    * awareness, so registry presence no longer proves HITL wiring. What still
@@ -4895,7 +4903,7 @@ describe('ask_user_question run wiring', () => {
     const agent = firstAgent(config);
     // The tool rides the in-graph direct path (graphTools) — never the
     // event-dispatched surfaces, where interrupt() cannot pause the run.
-    expect((agent.graphTools as Array<{ name: string }>).map((t) => t.name)).toEqual([ASK]);
+    expect(graphToolNames(agent)).toEqual([ASK]);
     expect((agent.tools as Array<{ name: string }>).map((t) => t.name)).not.toContain(ASK);
   });
 
@@ -4955,9 +4963,7 @@ describe('ask_user_question run wiring', () => {
     });
     const config = await runAndGetConfig(parent, { hitlCapable: true });
     // Parent keeps the tool — as an in-graph direct tool — and gets the checkpointer…
-    expect((firstAgent(config).graphTools as Array<{ name: string }>).map((t) => t.name)).toEqual([
-      ASK,
-    ]);
+    expect(graphToolNames(firstAgent(config))).toEqual([ASK]);
     expect(getCheckpointer(config)).toBeDefined();
     // …the child copy is stripped everywhere, with no graphTools replacement.
     const subagentConfigs = firstAgent(config).subagentConfigs as Array<{
