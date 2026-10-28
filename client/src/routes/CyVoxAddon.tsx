@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@coderax/client';
-import { RefreshCw } from 'lucide-react';
+import { ArrowUp, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { isCyvoxFreeOrLocalModel, QueryKeys } from 'coderax-data-provider';
@@ -66,6 +66,8 @@ function useCyVox<T>(resource: string, enabled = true) {
       return (await response.json()) as T;
     },
     retry: false,
+    refetchInterval: resource === 'tasks' || resource.endsWith('/approvals') ? 5000 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -261,6 +263,22 @@ function TaskApprovals({ taskId }: { taskId: string }) {
   );
 }
 
+const terminalTaskStates = new Set([
+  'complete',
+  'completed',
+  'done',
+  'error',
+  'failed',
+  'success',
+  'succeeded',
+  'canceled',
+  'cancelled',
+]);
+
+function canCancelTask(state: string) {
+  return !terminalTaskStates.has(state.trim().toLowerCase());
+}
+
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
@@ -270,132 +288,269 @@ function WorkView() {
   const action = useCyVoxAction();
   const models = useCyVox<CyVoxModelList>('models');
   const tasks = useCyVox<CyVoxTaskList>('tasks');
+  const taskItems = tasks.data?.tasks ?? [];
+  const recentTasks = taskItems.slice(-12).reverse();
+  const selectedTask = taskItems.find((item) => item.id === activeTaskId);
   const choices = (models.data?.models ?? []).filter(
     (item) => item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name),
   );
+
+  const startTask = async () => {
+    const description = task.trim();
+    if (!description || action.busy) return;
+
+    const previousTaskIds = new Set(taskItems.map((item) => item.id));
+    const started = await action.send(
+      'actions/startTask',
+      { task: description, mode },
+      localize('com_cyvox_start_work_confirmation'),
+    );
+    if (!started) return;
+
+    setTask('');
+    const refreshed = await tasks.refetch();
+    const createdTask = refreshed.data?.tasks?.find((item) => !previousTaskIds.has(item.id));
+    if (createdTask) setActiveTaskId(createdTask.id);
+  };
+
+  const cancelTask = (item: CyVoxTask) =>
+    void action.send(
+      'tasks/' + item.id + '/cancel',
+      {},
+      localize('com_cyvox_cancel_task_confirmation'),
+    );
+
   return (
-    <div className="space-y-5">
-      <div className="border-border-light bg-surface-primary-alt rounded-lg border p-4">
-        <div className="mb-4 flex items-center justify-between">
-          <p className="font-medium">{localize('com_cyvox_work_heading')}</p>
-          <span className="text-text-secondary text-xs">{localize('com_cyvox_speed_note')}</span>
-        </div>
-        <label htmlFor="cyvox-work-task" className="mb-2 block text-sm">
-          {localize('com_cyvox_work_description_label')}
-        </label>
-        <textarea
-          id="cyvox-work-task"
-          className="border-border-medium bg-surface-primary w-full rounded-lg border p-3"
-          rows={5}
-          maxLength={4000}
-          value={task}
-          onChange={(event) => setTask(event.target.value)}
-          placeholder={localize('com_cyvox_work_description_placeholder')}
-        />
-        <div className="mt-3 flex flex-wrap gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            {localize('com_cyvox_execution')}
-            <select
-              className="border-border-medium bg-surface-primary text-text-primary rounded-lg border p-2"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as typeof mode)}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {selectedTask ? (
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="self-start"
+              onClick={() => setActiveTaskId('')}
             >
-              <option value="Autonomous Run">{localize('com_cyvox_autonomous_run')}</option>
-              <option value="Coding Team">{localize('com_cyvox_ai_team')}</option>
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-            {localize('com_cyvox_model')}
-            <select
-              className="border-border-medium bg-surface-primary text-text-primary min-w-0 rounded-lg border p-2"
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-            >
-              <option value="cyvox/auto">{localize('com_cyvox_auto_model')}</option>
-              {choices
-                .filter((item) => item.name !== 'cyvox/auto')
-                .map((item) => (
-                  <option key={item.name} value={item.name}>
-                    {item.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {model !== 'cyvox/auto' && (
-            <button
-              type="button"
-              className="rounded-lg border px-3 py-2 text-sm"
-              disabled={action.busy}
-              onClick={() =>
-                void action.send(
-                  'actions/selectModel',
-                  { model },
-                  localize('com_cyvox_select_model_confirmation', { model }),
-                )
-              }
-            >
-              {localize('com_cyvox_apply_model')}
-            </button>
-          )}
-          <button
-            type="button"
-            className="rounded-lg border px-4 py-2 text-sm font-medium"
-            disabled={action.busy || !task.trim()}
-            onClick={() =>
-              void action.send(
-                'actions/startTask',
-                { task, mode },
-                localize('com_cyvox_start_work_confirmation'),
-              )
-            }
-          >
-            {localize('com_cyvox_start_work')}
-          </button>
-        </div>
-        <p className="text-text-secondary mt-2 text-xs">{localize('com_cyvox_work_policy_note')}</p>
-        {models.isError && <p role="alert">{localize('com_cyvox_models_unavailable')}</p>}
-        {action.message && <p role="status">{action.message}</p>}
-      </div>
-      <div className="border-border-light rounded-lg border p-4">
-        <h3 className="mb-2 font-medium">{localize('com_cyvox_task_progress')}</h3>
-        {tasks.isError && <p role="alert">{localize('com_cyvox_tasks_unavailable')}</p>}
-        {(tasks.data?.tasks ?? [])
-          .slice(-12)
-          .reverse()
-          .map((item) => (
-            <div
-              key={item.id}
-              className="border-border-light flex flex-wrap items-center justify-between gap-2 border-b py-2"
-            >
-              <button
-                className="text-left text-sm underline"
-                onClick={() => setActiveTaskId(item.id)}
-              >
-                {item.task || item.goal || item.id} · {item.state}
-              </button>
-              <button
-                className="rounded border px-2 py-1 text-xs"
-                disabled={action.busy}
-                onClick={() =>
-                  void action.send(
-                    'tasks/' + item.id + '/cancel',
-                    {},
-                    localize('com_cyvox_cancel_task_confirmation'),
-                  )
-                }
-              >
-                {localize('com_cyvox_cancel')}
-              </button>
+              {localize('com_cyvox_work_back_to_recent')}
+            </Button>
+            <div className="flex justify-end">
+              <article className="bg-surface-primary-alt max-w-[85%] rounded-3xl px-5 py-3">
+                <h1 className="whitespace-pre-wrap text-left text-base font-normal">
+                  {selectedTask.task || selectedTask.goal || selectedTask.id}
+                </h1>
+              </article>
             </div>
-          ))}
-        {activeTaskId && <TaskApprovals taskId={activeTaskId} />}
+            <section
+              aria-label={localize('com_cyvox_work_task_status')}
+              className="flex items-start gap-3"
+            >
+              <div
+                aria-hidden="true"
+                className="bg-surface-secondary text-text-secondary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-medium"
+              >
+                W
+              </div>
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-medium">{localize('com_cyvox_work_task_status')}</h2>
+                  <span className="bg-surface-secondary text-text-secondary rounded-full px-2.5 py-1 text-xs">
+                    {selectedTask.state}
+                  </span>
+                </div>
+                <p className="text-text-secondary text-sm">
+                  {localize('com_cyvox_work_progress_note')}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canCancelTask(selectedTask.state) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={action.busy}
+                      aria-label={localize('com_cyvox_cancel') + ' ' + (selectedTask.task || selectedTask.goal || selectedTask.id)}
+                      onClick={() => void cancelTask(selectedTask)}
+                    >
+                      {localize('com_cyvox_cancel')}
+                    </Button>
+                  )}
+                </div>
+                {tasks.isError && (
+                  <p role="alert" className="text-sm">
+                    {localize('com_cyvox_tasks_unavailable')}
+                  </p>
+                )}
+                <TaskApprovals taskId={selectedTask.id} />
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8">
+            <div className="flex flex-1 flex-col items-center justify-center py-10 text-center">
+              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                {localize('com_cyvox_work_welcome_title')}
+              </h1>
+              <p className="text-text-secondary mt-3 max-w-xl text-sm sm:text-base">
+                {localize('com_cyvox_work_welcome_description')}
+              </p>
+            </div>
+            {tasks.isLoading && (
+              <p role="status" className="text-text-secondary py-4 text-center text-sm">
+                {localize('com_cyvox_work_history_loading')}
+              </p>
+            )}
+            {tasks.isError && (
+              <p role="alert" className="text-text-secondary py-4 text-center text-sm">
+                {localize('com_cyvox_tasks_unavailable')}
+              </p>
+            )}
+            {recentTasks.length > 0 && !tasks.isError && (
+              <section
+                aria-label={localize('com_cyvox_work_recent_heading')}
+                className="mt-8 space-y-3"
+              >
+                <h2 className="text-text-secondary text-sm font-medium">
+                  {localize('com_cyvox_work_recent_heading')}
+                </h2>
+                <ul className="border-border-light divide-border-light rounded-2xl border p-1">
+                  {recentTasks.map((item) => (
+                    <li key={item.id} className="flex items-center gap-1">
+                      <Button
+                        variant="card"
+                        size="row"
+                        className="min-w-0 flex-1 justify-between gap-4"
+                        onClick={() => setActiveTaskId(item.id)}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {item.task || item.goal || item.id}
+                        </span>
+                        <span className="text-text-secondary shrink-0 text-xs">{item.state}</span>
+                      </Button>
+                      {canCancelTask(item.state) && (
+                        <Button
+                          variant="row-action"
+                          size="xs"
+                          disabled={action.busy}
+                          aria-label={localize('com_cyvox_cancel') + ' ' + (item.task || item.goal || item.id)}
+                          onClick={() => cancelTask(item)}
+                        >
+                          {localize('com_cyvox_cancel')}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="bg-surface-primary shrink-0 px-4 pt-3 pb-4">
+        <form
+          className="mx-auto w-full max-w-3xl"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void startTask();
+          }}
+        >
+          <div className="border-border-medium bg-surface-primary focus-within:border-border-heavy rounded-3xl border p-3 shadow-sm">
+            <label htmlFor="cyvox-work-task" className="sr-only">
+              {localize('com_cyvox_work_description_label')}
+            </label>
+            <textarea
+              id="cyvox-work-task"
+              className="text-text-primary placeholder:text-text-secondary min-h-20 max-h-48 w-full resize-y bg-transparent px-2 py-2 text-base focus:outline-hidden"
+              rows={3}
+              maxLength={4000}
+              value={task}
+              onChange={(event) => setTask(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void startTask();
+                }
+              }}
+              placeholder={localize('com_cyvox_work_description_placeholder')}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <label htmlFor="cyvox-work-mode" className="sr-only">
+                  {localize('com_cyvox_execution')}
+                </label>
+                <select
+                  id="cyvox-work-mode"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
+                  value={mode}
+                  onChange={(event) => setMode(event.target.value as typeof mode)}
+                >
+                  <option value="Autonomous Run">{localize('com_cyvox_autonomous_run')}</option>
+                  <option value="Coding Team">{localize('com_cyvox_ai_team')}</option>
+                </select>
+                <label htmlFor="cyvox-work-model" className="sr-only">
+                  {localize('com_cyvox_model')}
+                </label>
+                <select
+                  id="cyvox-work-model"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                >
+                  <option value="cyvox/auto">{localize('com_cyvox_auto_model')}</option>
+                  {choices
+                    .filter((item) => item.name !== 'cyvox/auto')
+                    .map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+                {model !== 'cyvox/auto' && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={action.busy}
+                    onClick={() =>
+                      void action.send(
+                        'actions/selectModel',
+                        { model },
+                        localize('com_cyvox_select_model_confirmation', { model }),
+                      )
+                    }
+                  >
+                    {localize('com_cyvox_apply_model')}
+                  </Button>
+                )}
+              </div>
+              <Button
+                type="submit"
+                variant="default"
+                size="icon-sm"
+                shape="round"
+                aria-label={localize('com_cyvox_work_start_task_aria')}
+                disabled={action.busy || !task.trim()}
+              >
+                <ArrowUp className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {models.isError && (
+              <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
+                {localize('com_cyvox_models_unavailable')}
+              </p>
+            )}
+            {action.message && (
+              <p role="status" className="text-text-secondary mt-2 px-3 text-xs">
+                {action.message}
+              </p>
+            )}
+            <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+              {localize('com_cyvox_work_policy_note')}
+            </p>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
-
 function RobotControls() {
   const action = useCyVoxAction();
   const localize = useLocalize();
@@ -636,8 +791,8 @@ export default function CyVoxAddon() {
     );
   }
   return (
-    <main className="bg-surface-primary text-text-primary h-full overflow-y-auto">
-      <header className="from-surface-canvas via-surface-canvas/70 sticky top-0 z-20 flex h-[3.25rem] items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold">
+    <main className="bg-surface-primary text-text-primary flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="from-surface-canvas via-surface-canvas/70 flex h-[3.25rem] shrink-0 items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold">
         <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
           <OpenSidebar />
         </div>
@@ -652,24 +807,29 @@ export default function CyVoxAddon() {
             }}
           />
         </div>
-        <Button variant="ghost" size="sm" onClick={refresh}>
-          <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-          {localize('com_cyvox_refresh')}
-        </Button>
+        {selected !== 'work' && (
+          <Button variant="ghost" size="sm" onClick={refresh}>
+            <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+            {localize('com_cyvox_refresh')}
+          </Button>
+        )}
       </header>
-      <div className="mx-auto max-w-5xl px-4 pb-6">
-        <header className="mt-4 mb-6">
-          <p className="text-text-secondary text-sm">{localize('com_cyvox_brand')}</p>
-          <h1 className="text-2xl font-semibold">
-            {selected === 'work' ? localize('com_cyvox_work') : localize(titles[selected])}
-          </h1>
-        </header>
-        {selected === 'readiness' && <ReadinessView />}
-        {selected === 'deployments' && <DeploymentsView />}
-        {selected === 'robot' && <RobotView />}
-        {selected === 'activity' && <ActivityView />}
-        {selected === 'work' && <WorkView />}
-      </div>
+      {selected === 'work' ? (
+        <WorkView />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-5xl px-4 pb-6">
+            <header className="mt-4 mb-6">
+              <p className="text-text-secondary text-sm">{localize('com_cyvox_brand')}</p>
+              <h1 className="text-2xl font-semibold">{localize(titles[selected])}</h1>
+            </header>
+            {selected === 'readiness' && <ReadinessView />}
+            {selected === 'deployments' && <DeploymentsView />}
+            {selected === 'robot' && <RobotView />}
+            {selected === 'activity' && <ActivityView />}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
