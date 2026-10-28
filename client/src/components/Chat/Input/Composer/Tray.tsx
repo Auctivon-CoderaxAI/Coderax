@@ -6,6 +6,7 @@ import type { ExtendedFile, FileSetter } from '~/common';
 import { useFileHandlingNoChatContext, useLocalize } from '~/hooks';
 import FileRow from '../Files/FileRow';
 import Chip from './Chip';
+import ModelBar from './ModelBar';
 
 const KIND_ICON: Record<ComposerItemKind, JSX.Element> = {
   quote: <TextQuote className="h-4 w-4" aria-hidden="true" />,
@@ -123,11 +124,12 @@ function Tray({
   });
 
   if (items.length === 0 && files.size === 0) {
-    return null;
+    return <ModelBar conversation={conversation} />;
   }
 
   return (
     <div data-testid="composer-tray" className="flex flex-col gap-1.5 px-2 pt-2">
+      <ModelBar conversation={conversation} />
       <FileRow
         files={files}
         setFiles={setFiles}
