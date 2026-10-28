@@ -36,6 +36,9 @@ export function getRumProxyBodyLimit(): string {
   return process.env.RUM_PROXY_BODY_LIMIT?.trim() || DEFAULT_BODY_LIMIT;
 }
 
+/** The proxy is deployment infrastructure configured entirely by `RUM_PROXY_*` env vars
+ *  (target, secret, body limit, timeout, per-user budget), so this cap follows that same
+ *  server-only surface instead of adding a YAML field only the proxy would read. */
 export function getRumProxyResponseLimit(): number {
   const parsed = Number(process.env.RUM_PROXY_RESPONSE_LIMIT);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_RESPONSE_LIMIT_BYTES;
