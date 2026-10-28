@@ -233,4 +233,35 @@ describe('MCPOAuthHandler.refreshOAuthTokens — scope parameter fallback', () =
     expect(message).not.toContain(marker);
     expect(message.length).toBeLessThan(400);
   });
+
+  it('still retries without scope when a long description precedes invalid_scope', async () => {
+    responseQueue = [
+      new Response(JSON.stringify({ error_description: 'd'.repeat(600), error: 'invalid_scope' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      success,
+    ];
+
+    const result = await MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {});
+
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[0]).toContain('scope=');
+    expect(sentBodies[1]).not.toContain('scope=');
+    expect(result.access_token).toBe('fresh-access');
+  });
+
+  it('preserves invalid_grant ahead of a long description so reauthentication still triggers', async () => {
+    responseQueue = [
+      new Response(JSON.stringify({ error_description: 'e'.repeat(600), error: 'invalid_grant' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ];
+
+    await expect(
+      MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}),
+    ).rejects.toThrow(/invalid_grant/);
+    expect(sentBodies).toHaveLength(1);
+  });
 });

@@ -32,14 +32,42 @@ export async function readOAuthJson(response: Response): Promise<Record<string, 
   return parsed as Record<string, unknown>;
 }
 
+/**
+ * RFC 6749 token errors are JSON with a stable `error` code. Callers classify
+ * `invalid_scope`, `invalid_grant`, and `invalid_client` from this text, so a long
+ * `error_description` must not push the code past the truncation point.
+ */
+function extractErrorCode(text: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return undefined;
+    }
+    const code = (parsed as Record<string, unknown>).error;
+    return typeof code === 'string' && code.trim() ? code.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Keeps the machine-readable code ahead of a bounded diagnostic prefix. */
+function summarizeErrorBody(text: string): string {
+  const truncated = text.slice(0, MAX_ERROR_TEXT_CHARS);
+  const code = extractErrorCode(text);
+  if (!code || truncated.includes(code)) {
+    return truncated;
+  }
+  return `${code}: ${truncated}`.slice(0, MAX_ERROR_TEXT_CHARS);
+}
+
 /** Reads a bounded prefix of an error body for classification and explanation. */
 export async function readOAuthErrorText(response: Response): Promise<string> {
   if (!response.body) {
-    return (await response.text()).slice(0, MAX_ERROR_TEXT_CHARS);
+    return summarizeErrorBody(await response.text());
   }
   const bounded = await readBoundedBytes(response, MAX_ERROR_BODY_BYTES);
   if (!bounded.ok) {
     return 'response body too large';
   }
-  return decode(bounded.body).slice(0, MAX_ERROR_TEXT_CHARS);
+  return summarizeErrorBody(decode(bounded.body));
 }

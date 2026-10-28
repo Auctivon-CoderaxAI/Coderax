@@ -84,4 +84,16 @@ describe('MCP OAuth upstream body bounds', () => {
   it('returns an empty string for an empty error body', async () => {
     await expect(readOAuthErrorText(new Response(''))).resolves.toBe('');
   });
+
+  it('keeps the error code ahead of a description that fills the truncation window', async () => {
+    const body = JSON.stringify({
+      error_description: 'd'.repeat(600),
+      error: 'invalid_scope',
+    });
+
+    const text = await readOAuthErrorText(new Response(body));
+
+    expect(text.startsWith('invalid_scope:')).toBe(true);
+    expect(text.length).toBe(300);
+  });
 });
