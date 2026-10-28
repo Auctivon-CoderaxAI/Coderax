@@ -280,7 +280,7 @@ function canCancelTask(state: string) {
 }
 
 function getTaskLabel(item: CyVoxTask) {
-  return getTaskLabel(item);
+  return item.task || item.goal || item.id;
 }
 
 function WorkView() {
