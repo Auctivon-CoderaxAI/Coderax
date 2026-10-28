@@ -267,4 +267,38 @@ describe('Coderax Work route', () => {
     queryClient.clear();
   });
 
+  it.each([204, 200])('accepts HTTP %i action success without a JSON response body', async (status) => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/actions/startTask')) {
+        return {
+          ok: true,
+          status,
+          json: async () => {
+            throw new SyntaxError('Unexpected end of JSON input');
+          },
+        };
+      }
+      return {
+        ok: true,
+        json: async () => (url.endsWith('/models') ? { models: [] } : { tasks: [] }),
+      };
+    }) as unknown as typeof fetch;
+
+    const { queryClient } = renderWorkRoute('/work');
+    const input = await screen.findByRole('textbox', {
+      name: 'Describe what you want to get done',
+    });
+    fireEvent.change(input, { target: { value: 'Task without JSON metadata' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(
+      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Task without JSON metadata' })).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
 });
