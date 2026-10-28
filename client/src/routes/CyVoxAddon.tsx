@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@coderax/client';
 import { RefreshCw } from 'lucide-react';
-import { useLocation, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { isCyvoxFreeOrLocalModel, QueryKeys } from 'coderax-data-provider';
 import ConversationModeNav from '~/components/Chat/ConversationModeNav';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
@@ -614,14 +614,27 @@ export default function CyVoxAddon() {
     typeof savedChatPath === 'string' && savedChatPath.startsWith('/c/')
       ? savedChatPath
       : undefined;
+  const routeTool = tool ?? (location.pathname === '/work' ? 'work' : undefined);
   const selected: Tool =
-    tool === 'deployments' || tool === 'robot' || tool === 'activity' || tool === 'work'
-      ? tool
+    routeTool === 'deployments' ||
+    routeTool === 'robot' ||
+    routeTool === 'activity' ||
+    routeTool === 'work'
+      ? routeTool
       : 'readiness';
   const queryClient = useQueryClient();
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
   };
+  if (location.pathname === '/cyvox/work') {
+    return (
+      <Navigate
+        to={{ pathname: '/work', search: location.search, hash: location.hash }}
+        state={location.state}
+        replace
+      />
+    );
+  }
   return (
     <main className="bg-surface-primary text-text-primary h-full overflow-y-auto">
       <header className="from-surface-canvas via-surface-canvas/70 sticky top-0 z-20 flex h-[3.25rem] items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold">
