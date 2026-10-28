@@ -24,6 +24,7 @@ import CyVoxAddon from './CyVoxAddon';
 import ChatRoute from './ChatRoute';
 import Search from './Search';
 import Root from './Root';
+import Studio from './Studio';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
  * access can open the existing account sign-in form. Never show it by default.
