@@ -16,14 +16,13 @@ import RouteErrorBoundary from './RouteErrorBoundary';
 import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
 import LoginLayout from './Layouts/Login';
-import GuestEntry from './GuestEntry';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
+import GuestEntry from './GuestEntry';
 import ShareRoute from './ShareRoute';
+import CyVoxAddon from './CyVoxAddon';
 import ChatRoute from './ChatRoute';
 import Search from './Search';
-import CyVoxAddon from './CyVoxAddon';
-import Studio from './Studio';
 import Root from './Root';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
@@ -164,6 +163,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'search',
                   element: <Search />,
+                },
+                {
+                  path: 'work',
+                  element: <CyVoxAddon />,
                 },
                 {
                   path: 'cyvox/:tool',

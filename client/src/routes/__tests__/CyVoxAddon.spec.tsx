@@ -6,14 +6,14 @@ import ConversationModeNav from '~/components/Chat/ConversationModeNav';
 import CyVoxAddon from '../CyVoxAddon';
 
 const mockLocalizedText: Record<string, string> = {
-  com_cyvox_brand: 'CyVox',
+  com_cyvox_brand: 'Coderax',
   com_cyvox_chat: 'Chat',
   com_cyvox_conversation_mode: 'Conversation mode',
   com_cyvox_work: 'Work',
   com_cyvox_execution: 'Execution',
   com_cyvox_model: 'Model',
   com_cyvox_task_progress: 'Task progress',
-  com_cyvox_work_heading: 'CyVox Work · Fast routing',
+  com_cyvox_work_heading: 'Coderax Work · Fast routing',
 };
 
 function ChatModeRoute() {
@@ -36,7 +36,7 @@ function ChatModeRoute() {
 
 jest.mock('~/hooks', () => ({
   useAuthContext: () => ({ token: 'test-token' }),
-  useLocalize: () => (key: string) => mockLocalizedText[key] ?? key,
+  useLocalize: () => (key: string) => mockLocalizedText[key] ?? key.replace(/^com_cyvox_/, ''),
 }));
 jest.mock('~/hooks/Nav/useDrawerViewport', () => ({
   __esModule: true,
@@ -50,6 +50,7 @@ jest.mock('~/components/Chat/Menus/OpenSidebar', () => ({
 function renderWorkRoute() {
   const router = createMemoryRouter(
     [
+      { path: '/work', element: <CyVoxAddon /> },
       { path: '/cyvox/:tool', element: <CyVoxAddon /> },
       { path: '/c/:conversationId', element: <ChatModeRoute /> },
     ],
@@ -66,7 +67,7 @@ function renderWorkRoute() {
   return { router, queryClient };
 }
 
-describe('CyVox Work route', () => {
+describe('Coderax Work route', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
@@ -85,8 +86,10 @@ describe('CyVox Work route', () => {
 
     expect(screen.getByTestId('chat-workspace')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('link', { name: 'Work' }));
-    await waitFor(() => expect(router.state.location.pathname).toBe('/cyvox/work'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/work'));
 
+    expect(screen.getByText('Coderax')).toBeInTheDocument();
+    expect(screen.queryByText(/CyVox/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeInTheDocument();
     const navigation = screen.getByRole('navigation', { name: 'Conversation mode' });
     expect(navigation).toHaveClass('rounded-lg', 'bg-surface-secondary');
@@ -103,5 +106,35 @@ describe('CyVox Work route', () => {
     expect(screen.getByTestId('chat-workspace')).toBeInTheDocument();
 
     queryClient.clear();
+  });
+
+  it('redirects the legacy Work URL and preserves the Chat return path', async () => {
+    const router = createMemoryRouter(
+      [
+        { path: '/work', element: <CyVoxAddon /> },
+        { path: '/cyvox/:tool', element: <CyVoxAddon /> },
+        { path: '/c/:conversationId', element: <ChatModeRoute /> },
+      ],
+      {
+        initialEntries: [
+          {
+            pathname: '/cyvox/work',
+            search: '?source=legacy',
+            state: { chatPath: '/c/chat-42?source=work' },
+          },
+        ],
+      },
+    );
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/work'));
+    expect(router.state.location.search).toBe('?source=legacy');
+    expect(router.state.location.state).toEqual({ chatPath: '/c/chat-42?source=work' });
   });
 });

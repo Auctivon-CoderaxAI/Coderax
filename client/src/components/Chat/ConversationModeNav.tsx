@@ -33,7 +33,7 @@ export default function ConversationModeNav({
         {labels.chat}
       </Link>
       <Link
-        to="/cyvox/work"
+        to="/work"
         state={chatPath ? { chatPath } : undefined}
         aria-current={active === 'work' ? 'page' : undefined}
         className={active === 'work' ? selectedClassName : idleClassName}
