@@ -22,7 +22,7 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 2. Keep the VM's public IPv4 address; add that address as a single `/32` in Atlas after creating a Coderax-only `readWrite` database user.
 3. Transfer a reviewed source snapshot of this private repository to the VM over the authenticated operator session. Do not put Git credentials, environment files, SSH private keys, or Atlas credentials in the source archive.
 4. Run `sh deploy/oci/prepare-env.sh` on the VM. The script prompts without echo for the database-only MongoDB URI and the existing Production `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDS_KEY`, and `CREDS_IV`. Keep those existing values so current sessions and encrypted database credentials remain usable. It generates a new proxy secret, writes owner-only local environment files, and does not print their values.
-5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>`, `CODERAX_PROXY_SECRET` from `origin.env`, and `CODERAX_ALLOWED_HOSTS=coderax-eta.vercel.app` on the Vercel project's **Production** environment. Keep the secret server-only; never use a `NEXT_PUBLIC_` or `VITE_` variable for it. Set `DOMAIN_CLIENT` and `DOMAIN_SERVER` to `https://coderax-eta.vercel.app` on the VM.
+5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>`, `CODERAX_PROXY_SECRET` from `origin.env`, and `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app` on the Vercel project's **Production** environment. Keep the secret server-only; never use a `NEXT_PUBLIC_` or `VITE_` variable for it. Set `DOMAIN_CLIENT` and `DOMAIN_SERVER` to `https://coderaxai.vercel.app` on the VM.
 6. Configure only inbound 80/443 (and temporary operator-IP-only SSH) in the Oracle security list. Configure Atlas for the VM's `/32` and the Coderax database user above.
 7. Run `docker compose -f deploy/oci/compose.yaml config --quiet`, then `docker compose -f deploy/oci/compose.yaml up -d --build --wait`.
 8. After the VM reports ready, verify the HTTPS origin directly and then the Vercel canonical URL. The expected checks are `/readyz` = plain `OK`, `/api/config` = JSON, guest access = a 200 response with a guest session, login route = frontend HTML, and a real streamed Qwen completion that persists after refresh.
@@ -31,12 +31,12 @@ The guest endpoint creates isolated expiring user accounts; open registration st
 
 ## Vercel environment
 
-Set the following only on the Vercel project that owns the canonical `coderax-eta.vercel.app` domain, in **Production**:
+Set the following only on the Vercel project that owns the canonical `coderaxai.vercel.app` domain, in **Production**:
 
 - `CODERAX_API_ORIGIN`: the HTTPS `coderax-<public-ip>.sslip.io` address.
 - `CODERAX_PROXY_SECRET`: the matching value stored in the VM's `origin.env`.
-- `CODERAX_ALLOWED_HOSTS`: `coderax-eta.vercel.app`.
-- `DOMAIN_CLIENT` and `DOMAIN_SERVER` on the VM: `https://coderax-eta.vercel.app`.
+- `CODERAX_ALLOWED_HOSTS`: `coderaxai.vercel.app`.
+- `DOMAIN_CLIENT` and `DOMAIN_SERVER` on the VM: `https://coderaxai.vercel.app`.
 
 Until the proxy origin, secret, allowed host, and source commit are in place, the proxy fails closed with HTTP 503.
 

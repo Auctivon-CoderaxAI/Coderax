@@ -37,7 +37,7 @@
       "properties": {
         "coderax.apiBaseUrl": {
           "type": "string",
-          "default": "https://coderax-eta.vercel.app",
+          "default": "https://coderaxai.vercel.app",
           "description": "HTTPS origin of the Coderax service. Local HTTP is allowed only for localhost development."
         },
         "coderax.defaultModel": {
