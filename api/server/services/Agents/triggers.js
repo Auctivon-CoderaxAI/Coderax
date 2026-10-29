@@ -71,6 +71,20 @@ service = createAgentTriggerService({
     GenerationJobManager.getAccountCleanupJobIdsForUser(userId, tenantId),
   ),
   isPrincipalActive: methods.isAgentTriggerPrincipalActive,
+  isWorkflowStepActive: async ({ runId, stepId, attempt, workflowId, userId, tenantId }) => {
+    const run = await methods.getWorkflowRun(runId, userId);
+    if (
+      run == null ||
+      run.workflowId !== workflowId ||
+      (run.tenantId == null ? '' : String(run.tenantId)) !== (tenantId ?? '') ||
+      (run.status !== 'running' && run.status !== 'queued')
+    ) {
+      return false;
+    }
+    return run.steps.some(
+      (step) => step.id === stepId && step.status === 'running' && step.attempts === attempt,
+    );
+  },
   supportsDetachedActionCompletion: () => GenerationJobManager.supportsDetachedAgentEventActions,
   subscribeGenerationSettled: (listener) => GenerationJobManager.onGenerationSettled(listener),
   settleSourceBeforeDeadLetter: queuedTurnLifecycle.settleBeforeDeadLetter,
