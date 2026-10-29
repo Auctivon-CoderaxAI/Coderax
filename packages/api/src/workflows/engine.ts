@@ -109,7 +109,10 @@ function conversationFor(
   }
   const deps = dependenciesOf(steps, index);
   if (deps.length === 0) {
-    return runConversationId ?? newId();
+    // Only the first independent root may reuse the run's conversation.
+    // Other roots can run concurrently and must not share a generation slot.
+    const firstRootIndex = steps.findIndex((_, candidate) => dependenciesOf(steps, candidate).length === 0);
+    return index === firstRootIndex ? (runConversationId ?? newId()) : newId();
   }
   if (deps.length === 1) {
     const dependencyIndex = steps.findIndex((entry) => entry.id === deps[0]);
