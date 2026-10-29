@@ -76,6 +76,15 @@ export interface AgentTriggerServiceDeps {
   methods?: AgentTriggerDeliveryPersistence;
   deliveryOptions?: AgentTriggerDeliveryEngineOptions;
   isPrincipalActive?: (userId: string) => boolean | Promise<boolean>;
+  /** Durable admission check for workflow-origin deliveries, including cancellation and retries. */
+  isWorkflowStepActive?: (input: {
+    runId: string;
+    stepId: string;
+    attempt: number;
+    workflowId: string;
+    userId: string;
+    tenantId?: string;
+  }) => Promise<boolean>;
   userDrainTimeoutMs?: number;
   userDrainPollMs?: number;
   purgeRecoveryIntervalMs?: number;
@@ -426,6 +435,48 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
   ): Promise<AgentTriggerExecutionResult> => {
     const parsed = parseAgentTriggerEnvelope(envelope);
     await requireActivePrincipal(parsed.principal.userId);
+    if (
+      parsed.mode === 'fire' &&
+      parsed.event.type === 'workflow.step' &&
+      parsed.event.source.type === 'workflow'
+    ) {
+      const metadata = parsed.run?.metadata;
+      const fields =
+        metadata != null && typeof metadata === 'object' && !Array.isArray(metadata)
+          ? (metadata as Record<string, unknown>)
+          : {};
+      const runId = fields.workflowRunId;
+      const stepId = fields.workflowStepId;
+      const prefix = `wf:${String(runId)}:${String(stepId)}:`;
+      const attemptText = parsed.deliveryId.startsWith(prefix)
+        ? parsed.deliveryId.slice(prefix.length)
+        : '';
+      const attempt = Number(attemptText);
+      const check = deps.isWorkflowStepActive;
+      if (
+        typeof runId !== 'string' ||
+        typeof stepId !== 'string' ||
+        !/^[1-9]\\d*$/.test(attemptText) ||
+        !Number.isSafeInteger(attempt) ||
+        check == null ||
+        !(await runAsSystem(async () =>
+          check({
+            runId,
+            stepId,
+            attempt,
+            workflowId: parsed.event.source.id,
+            userId: parsed.principal.userId,
+            ...(parsed.principal.tenantId == null
+              ? {}
+              : { tenantId: parsed.principal.tenantId }),
+          }),
+        ))
+      ) {
+        throw new AgentTriggerServiceUnavailableError(
+          'Workflow step delivery is no longer active',
+        );
+      }
+    }
     return host.dispatch(parsed, options);
   };
 
