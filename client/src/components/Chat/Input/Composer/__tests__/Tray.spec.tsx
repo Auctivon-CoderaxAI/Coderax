@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem } from '~/hooks/Input/useComposerItems';
 import type { ExtendedFile } from '~/common';
 import Tray from '../Tray';
@@ -38,11 +39,12 @@ function renderTray(
   items: ComposerItem[],
   files: Map<string, ExtendedFile> = new Map(),
   focusComposer?: jest.Mock,
+  conversation: TConversation | null = null,
 ) {
   return render(
     <Tray
       items={items}
-      conversation={null}
+      conversation={conversation}
       files={files}
       setFiles={jest.fn()}
       setFilesLoading={jest.fn()}
@@ -60,9 +62,23 @@ function renderTray(
 describe('Tray', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('renders nothing when no context is staged', () => {
+  it('renders nothing when no context is staged and no model is attached', () => {
     const { container } = renderTray([]);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it('keeps the active model visible when no context is staged', () => {
+    renderTray([], new Map(), undefined, {
+      title: null,
+      conversationId: null,
+      endpoint: null,
+      createdAt: '',
+      updatedAt: '',
+      model: 'qwen2.5-coder:7b',
+    } as TConversation);
+
+    expect(screen.getByTestId('composer-model-bar')).toHaveTextContent('qwen2.5-coder:7b');
+    expect(screen.queryByTestId('composer-tray')).not.toBeInTheDocument();
   });
 
   it('groups every staged kind under one labelled chip list', () => {
