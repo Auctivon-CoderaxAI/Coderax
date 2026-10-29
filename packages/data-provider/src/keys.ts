@@ -105,6 +105,10 @@ export enum QueryKeys {
   favorites = 'favorites',
   /* Scheduled chats */
   schedules = 'schedules',
+  /* Multi-step workflows */
+  workflows = 'workflows',
+  workflowRuns = 'workflowRuns',
+  workflowTemplates = 'workflowTemplates',
   scheduleMCPConsent = 'scheduleMCPConsent',
   schedule = 'schedule',
   parentSubagents = 'parentSubagents',

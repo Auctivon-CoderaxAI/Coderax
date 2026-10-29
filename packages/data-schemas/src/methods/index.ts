@@ -159,6 +159,11 @@ import {
 } from './skill';
 import { createScheduleMethods, type ScheduleMethods } from './schedule';
 import {
+  createWorkflowMethods,
+  type WorkflowMethods,
+  type WorkflowScheduleWrite,
+} from './workflow';
+import {
   createAgentQueuedTurnMethods,
   AgentQueuedTurnCapacityError,
   AgentQueuedTurnConflictError,
@@ -292,6 +297,7 @@ export type AllMethods = ToolApprovalGrantStorage &
   AgentQueuedTurnMethods &
   ScheduleMCPConsentStorage &
   ScheduleMethods &
+  WorkflowMethods &
   AgentMethods &
   ConfigMethods &
   MCPAuthorityMethods &
@@ -532,6 +538,7 @@ export function createMethods(
     ...agentTriggerDeliveryMethods,
     ...agentQueuedTurnMethods,
     ...createScheduleMethods(mongoose),
+    ...createWorkflowMethods(mongoose),
     ...createScheduleMCPConsentStorage(mongoose),
     /* Tier 5 */
     ...agentMethods,
@@ -626,6 +633,8 @@ export type {
   AgentEventActorReceiptMetric,
   AgentEventActorReceiptStorageMetrics,
   ScheduleMethods,
+  WorkflowMethods,
+  WorkflowScheduleWrite,
   AgentMethods,
   AgentGraphNode,
   AgentGraphAccess,

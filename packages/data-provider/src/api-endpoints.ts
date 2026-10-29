@@ -485,6 +485,19 @@ export const schedule = (id: string) => `${schedules()}/${encodeURIComponent(id)
 export const scheduleMCPConsent = (id: string) => `${schedule(id)}/mcp-consent`;
 export const runSchedule = (id: string) => `${schedule(id)}/run`;
 
+/* Workflows */
+export const workflows = () => `${BASE_URL}/api/workflows`;
+export const workflow = (id: string) => `${workflows()}/${encodeURIComponent(id)}`;
+export const workflowRuns = (id: string) => `${workflow(id)}/runs`;
+export const workflowTemplates = () => `${workflows()}/templates`;
+export const workflowRun = (runId: string) => `${workflows()}/runs/${encodeURIComponent(runId)}`;
+export const approveWorkflowStep = (runId: string) => `${workflowRun(runId)}/approve`;
+export const pauseWorkflowRun = (runId: string) => `${workflowRun(runId)}/pause`;
+export const resumeWorkflowRun = (runId: string) => `${workflowRun(runId)}/resume`;
+export const cancelWorkflowRun = (runId: string) => `${workflowRun(runId)}/cancel`;
+export const workflowRunStream = (runId: string) => `${workflowRun(runId)}/stream`;
+export const workflowRunExport = (runId: string) => `${workflowRun(runId)}/export`;
+
 /* Skills */
 export const skills = () => `${BASE_URL}/api/skills`;
 export const importSkill = () => `${skills()}/import`;

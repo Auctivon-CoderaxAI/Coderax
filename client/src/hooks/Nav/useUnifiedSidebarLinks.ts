@@ -1,9 +1,17 @@
 import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Activity, BarChart3, Bot, Clock3, MessagesSquare, Rocket } from 'lucide-react';
 import { useUserKeyQuery } from 'coderax-data-provider/react-query';
 import { getConfigDefaults, getEndpointField } from 'coderax-data-provider';
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  Clock3,
+  MessagesSquare,
+  Rocket,
+  Workflow as WorkflowIcon,
+} from 'lucide-react';
 import type { TEndpointsConfig } from 'coderax-data-provider';
 import type { NavLink } from '~/common';
 import { useGetEndpointsQuery, useGetStartupConfig, useInsightsAccessQuery } from '~/data-provider';
@@ -71,12 +79,21 @@ export default function useUnifiedSidebarLinks() {
       id: 'conversations',
       Component: ConversationsSection,
     };
-    const cyvoxLinks: NavLink[] = ([
-      { id: 'cyvox-readiness', title: 'com_cyvox_readiness', label: '', icon: Clock3 },
-      { id: 'cyvox-deployments', title: 'com_cyvox_deployments', label: '', icon: Rocket },
-      { id: 'cyvox-robot', title: 'com_cyvox_robot', label: '', icon: Bot },
-      { id: 'cyvox-activity', title: 'com_cyvox_activity', label: '', icon: Activity },
-    ] as NavLink[]).map((link) => ({
+    const workflowsLink: NavLink = {
+      title: 'com_ui_workflows',
+      label: '',
+      icon: WorkflowIcon,
+      id: 'workflows',
+      onClick: () => navigate('/workflows'),
+    };
+    const cyvoxLinks: NavLink[] = (
+      [
+        { id: 'cyvox-readiness', title: 'com_cyvox_readiness', label: '', icon: Clock3 },
+        { id: 'cyvox-deployments', title: 'com_cyvox_deployments', label: '', icon: Rocket },
+        { id: 'cyvox-robot', title: 'com_cyvox_robot', label: '', icon: Bot },
+        { id: 'cyvox-activity', title: 'com_cyvox_activity', label: '', icon: Activity },
+      ] as NavLink[]
+    ).map((link) => ({
       ...link,
       onClick: () => navigate(`/cyvox/${link.id.replace('cyvox-', '')}`),
     }));
@@ -84,7 +101,7 @@ export default function useUnifiedSidebarLinks() {
       !insightsFeatureEnabled ||
       (!isInsightsRoute && !isInsightsAccessLoading && insightsAccess?.access !== true)
     ) {
-      return [conversationLink, ...cyvoxLinks, ...sideNavLinks];
+      return [conversationLink, ...cyvoxLinks, workflowsLink, ...sideNavLinks];
     }
 
     const insightsLink: NavLink = {
@@ -103,7 +120,7 @@ export default function useUnifiedSidebarLinks() {
     const nextLinks = [...sideNavLinks];
     nextLinks.splice(mcpIndex >= 0 ? mcpIndex + 1 : nextLinks.length, 0, insightsLink);
 
-    return [conversationLink, ...cyvoxLinks, ...nextLinks];
+    return [conversationLink, ...cyvoxLinks, workflowsLink, ...nextLinks];
   }, [
     insightsAccess?.access,
     insightsFeatureEnabled,

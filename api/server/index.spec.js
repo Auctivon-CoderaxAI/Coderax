@@ -63,17 +63,21 @@ describe('Telemetry wiring', () => {
   const source = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
   it('loads credentials before telemetry and other server imports', () => {
+    // Comment lines carry no execution order, so only real statements count.
     const firstStatements = source
       .split('\n')
       .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.length > 0 && !line.startsWith('//'))
       .slice(0, 3);
 
     expect(firstStatements).toEqual([
       "require('../config/credentials');",
       "global.EventSource = require('eventsource').EventSource;",
-      "const telemetry = require('./telemetry');",
+      "require('lodash/partialRight');",
     ]);
+    expect(source.indexOf("require('../config/credentials')")).toBeLessThan(
+      source.indexOf("const telemetry = require('./telemetry');"),
+    );
   });
 
   it('mounts telemetry middleware after static assets and before routes', () => {
@@ -319,8 +323,9 @@ describe('Server Configuration', () => {
     const listenSpy = jest.spyOn(express.application, 'listen');
     app = require('~/server');
 
-    // Wait for the app to be healthy
+    // Wait for the app to be healthy and past its post-listen readiness work.
     await healthCheckPoll(app);
+    await readinessCheckPoll(app);
     server = listenSpy.mock.results[0].value;
     listenSpy.mockRestore();
   });
@@ -472,6 +477,27 @@ describe('Server Configuration', () => {
     }
   });
 });
+
+// Waits for the readiness flag that post-listen initialization sets; /health is
+// wired before that work runs, so polling it alone can observe a 503.
+async function readinessCheckPoll(app, retries = 0) {
+  const maxRetries = Math.floor(10000 / 30);
+  try {
+    const response = await request(app).get('/readyz');
+    if (response.status === 200) {
+      return;
+    }
+  } catch {
+    // Ignore connection errors during polling
+  }
+
+  if (retries < maxRetries) {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await readinessCheckPoll(app, retries + 1);
+  } else {
+    throw new Error('App did not become ready within 10 seconds.');
+  }
+}
 
 // Polls the /health endpoint every 30ms for up to 10 seconds to wait for the server to start completely
 async function healthCheckPoll(app, retries = 0) {
