@@ -155,6 +155,54 @@ describe('createWorkflowEngine', () => {
     expect(ctx.run.status).toBe('failed');
   });
 
+  it('gives a timed-out retry its own full timeout window', async () => {
+    const ctx = setup([step({ maxAttempts: 2 })], { stepTimeoutMs: 1_000 });
+    await ctx.engine.runTick();
+    const firstAttemptAt = ctx.run.steps[0].startedAt?.getTime();
+
+    ctx.advance(1_100);
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('queued');
+
+    ctx.advance(1_000);
+    await ctx.engine.runTick();
+    expect(ctx.enqueued).toEqual(['one', 'one']);
+    expect(ctx.run.steps[0].attempts).toBe(2);
+    expect(ctx.run.steps[0].startedAt?.getTime()).toBe(ctx.nowMs());
+    expect(ctx.run.steps[0].startedAt?.getTime()).toBeGreaterThan(firstAttemptAt);
+
+    ctx.advance(900);
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('running');
+
+    ctx.advance(200);
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('failed');
+  });
+
+  it('ignores a completed generation from an earlier retry attempt', async () => {
+    const ctx = setup([step({ maxAttempts: 2 })], { stepTimeoutMs: 1_000 });
+    await ctx.engine.runTick();
+    const staleGenerationAt = ctx.nowMs();
+
+    ctx.advance(1_100);
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('queued');
+
+    ctx.advance(1_000);
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].attempts).toBe(2);
+
+    ctx.setGeneration({ status: 'complete', createdAt: staleGenerationAt });
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('running');
+
+    ctx.setGeneration({ status: 'complete', createdAt: ctx.nowMs() });
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('completed');
+    expect(ctx.run.status).toBe('completed');
+  });
+
   it('fails a step whose generation never settles', async () => {
     const ctx = setup([step({ maxAttempts: 1 })], { stepTimeoutMs: 1_000 });
     await ctx.engine.runTick();
