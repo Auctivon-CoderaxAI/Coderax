@@ -20,6 +20,10 @@ const resources = {
 
 type Resource = keyof typeof resources;
 
+function isResource(value: string): value is Resource {
+  return Object.prototype.hasOwnProperty.call(resources, value);
+}
+
 function isSafeId(value: string): boolean {
   return /^[A-Za-z0-9_-]{1,120}$/.test(value);
 }
@@ -61,10 +65,7 @@ export function createCyvoxAddonRouter(
       res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
       return false;
     }
-    if (
-      (write || target.protocol === 'https:') &&
-      (!req.user || !('role' in req.user) || req.user.role !== SystemRoles.ADMIN)
-    ) {
+    if (!req.user || !('role' in req.user) || req.user.role !== SystemRoles.ADMIN) {
       res.status(403).json({ code: 'CYVOX_FORBIDDEN' });
       return false;
     }
@@ -115,8 +116,8 @@ export function createCyvoxAddonRouter(
   }
 
   router.get('/:resource', async (req: Request, res: Response) => {
-    const resource = req.params.resource as Resource;
-    if (!(resource in resources)) {
+    const { resource } = req.params;
+    if (!isResource(resource)) {
       res.status(404).json({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
       return;
     }
