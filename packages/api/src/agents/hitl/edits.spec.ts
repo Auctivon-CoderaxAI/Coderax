@@ -367,7 +367,8 @@ describe('reviewed native edit replay', () => {
           configurable: {
             ...config.configurable,
             /** Mirrors the checkpoint-derived evidence that Run.resume supplies to ToolNode. */
-            __coderax_tool_approval_review: { interruptId: interrupted.id, payload },
+            /** SDK-private resume key (`TOOL_APPROVAL_REVIEW_CONFIG_KEY`); its name stays upstream. */
+            __librechat_tool_approval_review: { interruptId: interrupted.id, payload },
           },
         },
       );

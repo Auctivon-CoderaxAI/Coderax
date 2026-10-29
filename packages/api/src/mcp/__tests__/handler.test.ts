@@ -1732,6 +1732,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             metadata: {},
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
 
@@ -1771,6 +1772,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             metadata: {},
           },
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
       mockExchangeAuthorization.mockResolvedValue({
@@ -1806,6 +1808,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             metadata: {},
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
       mockExchangeAuthorization.mockResolvedValue({
@@ -1898,6 +1901,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             metadata: {},
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
       mockExchangeAuthorization.mockResolvedValue({
@@ -1999,6 +2003,10 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
     beforeEach(() => {
       jest.clearAllMocks();
       global.fetch = mockFetch;
+      /** The exchange is mocked; fetch is only observed, so any valid response will do. */
+      mockFetch.mockResolvedValue(
+        new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
+      );
     });
 
     afterEach(() => {
@@ -2033,6 +2041,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             },
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
 
@@ -2069,6 +2078,10 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
     beforeEach(() => {
       jest.clearAllMocks();
       global.fetch = mockFetch;
+      /** The exchange is mocked; fetch is only observed, so any valid response will do. */
+      mockFetch.mockResolvedValue(
+        new Response('{}', { headers: { 'Content-Type': 'application/json' } }),
+      );
     });
 
     afterEach(() => {
@@ -2103,6 +2116,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             },
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
 
@@ -2152,6 +2166,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             },
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
 
@@ -3278,6 +3293,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             ...(sendResourceParameter !== undefined && { sendResourceParameter }),
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       }) as unknown as FlowStateManager<MCPOAuthTokens>;
 
@@ -3322,6 +3338,7 @@ describe('MCPOAuthHandler - Configurable OAuth Metadata', () => {
             sendResourceParameter: false,
           } as MCPOAuthFlowMetadata,
         }),
+        failFlowIfCurrent: jest.fn().mockResolvedValue('stale'),
         completeFlowIfCurrent: jest.fn().mockResolvedValue('updated'),
       } as unknown as FlowStateManager<MCPOAuthTokens>;
 

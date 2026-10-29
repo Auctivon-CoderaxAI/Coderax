@@ -2,6 +2,8 @@ import express from 'express';
 import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
 import type { Request, Response, Router } from 'express';
 
+import { readBoundedBody } from './response';
+
 const resources = {
   readiness: '/api/readiness',
   deployments: '/api/deployment-platform/status',
@@ -99,14 +101,14 @@ export function createCyvoxAddonRouter(
         res.status(502).json({ code: 'CYVOX_INVALID_RESPONSE' });
         return;
       }
-      const body = await response.text();
-      if (body.length > 1024 * 1024) {
+      const bounded = await readBoundedBody(response);
+      if (!bounded.ok) {
         res.status(502).json({ code: 'CYVOX_RESPONSE_TOO_LARGE' });
         return;
       }
-      JSON.parse(body); // Do not forward HTML/error pages as if they were JSON.
+      JSON.parse(bounded.body); // Do not forward HTML/error pages as if they were JSON.
       res.setHeader('Cache-Control', 'no-store');
-      res.type('json').send(body);
+      res.type('json').send(bounded.body);
     } catch {
       res.status(503).json({ code: 'CYVOX_UNAVAILABLE' });
     }

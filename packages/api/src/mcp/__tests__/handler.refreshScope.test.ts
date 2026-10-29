@@ -203,4 +203,65 @@ describe('MCPOAuthHandler.refreshOAuthTokens — scope parameter fallback', () =
     expect(sentBodies).toHaveLength(1);
     expect(sentBodies[0]).not.toContain('scope=');
   });
+
+  it('rejects a token response that outgrows the read limit', async () => {
+    responseQueue = [
+      new Response(`{"access_token":"${'x'.repeat(1024 * 1024 + 1)}"}`, {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ];
+
+    await expect(
+      MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}),
+    ).rejects.toThrow(/exceeded the size limit/);
+    expect(sentBodies).toHaveLength(1);
+  });
+
+  it('quotes only a bounded prefix of a failing error body', async () => {
+    const marker = 'invalid_grant';
+    responseQueue = [new Response('x'.repeat(1000) + marker, { status: 400 })];
+
+    const error = await MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    const message = error instanceof Error ? error.message : '';
+    expect(message).toMatch(/Token refresh failed: 400/);
+    expect(message).not.toContain(marker);
+    expect(message.length).toBeLessThan(400);
+  });
+
+  it('still retries without scope when a long description precedes invalid_scope', async () => {
+    responseQueue = [
+      new Response(JSON.stringify({ error_description: 'd'.repeat(600), error: 'invalid_scope' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      success,
+    ];
+
+    const result = await MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {});
+
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[0]).toContain('scope=');
+    expect(sentBodies[1]).not.toContain('scope=');
+    expect(result.access_token).toBe('fresh-access');
+  });
+
+  it('preserves invalid_grant ahead of a long description so reauthentication still triggers', async () => {
+    responseQueue = [
+      new Response(JSON.stringify({ error_description: 'e'.repeat(600), error: 'invalid_grant' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    ];
+
+    await expect(
+      MCPOAuthHandler.refreshOAuthTokens(refreshToken, metadata, {}, {}),
+    ).rejects.toThrow(/invalid_grant/);
+    expect(sentBodies).toHaveLength(1);
+  });
 });

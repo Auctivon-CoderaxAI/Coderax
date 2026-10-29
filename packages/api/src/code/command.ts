@@ -420,12 +420,61 @@ export function createContextProgrammaticBashTool(
   return bashTool;
 }
 
+const UPSTREAM_CODE_DATA_DIR = 'LIBRECHAT_CODE_DATA_DIR';
+const CODE_DATA_DIR = 'CODERAX_CODE_DATA_DIR';
+
+/** The SDK's programmatic Bash guidance still names its execution-scoped data
+ *  directory after the upstream product, while the code-file context we build
+ *  in `files/code/priming.ts` tells the model to read `$CODERAX_CODE_DATA_DIR`.
+ *  Rewrite the name on the tool we hand over so only one variable is described. */
+export function rebrandCodeDataDirectory(text: string): string {
+  return text.replaceAll(UPSTREAM_CODE_DATA_DIR, CODE_DATA_DIR);
+}
+
+const CODE_API_WORKSPACE_HEADER = 'X-Coderax-Code-Workspace-ID';
+
+/**
+ * The SDK sets its own `X-LibreChat-Code-Workspace-ID` from `workspaceId`, but the
+ * Coderax code API reads the Coderax spelling. Send both from the one host-selected
+ * id so either service receives it; with no selection send neither, because a
+ * missing header must fail closed rather than resolve to another workspace.
+ */
+type ProgrammaticBashParams = NonNullable<
+  Parameters<typeof createBashProgrammaticToolCallingTool>[0]
+>;
+
+function withCodeApiWorkspaceHeader(
+  authHeaders: ProgrammaticBashParams['authHeaders'],
+  workspaceId: string | undefined,
+): ProgrammaticBashParams['authHeaders'] {
+  const selected = workspaceId?.trim();
+  if (!selected) return authHeaders;
+  const add = (headers: Record<string, string>) => ({
+    ...headers,
+    [CODE_API_WORKSPACE_HEADER]: selected,
+  });
+  if (typeof authHeaders === 'function') {
+    return async () => add(await authHeaders());
+  }
+  return add(authHeaders ?? {});
+}
+
 /** Apply authorship before the SDK prepares the script and its replay requests. */
 export function createGitIdentityProgrammaticBashTool(
   options: Parameters<typeof createBashProgrammaticToolCallingTool>[0],
   identity?: AgentGitIdentity | null,
 ): DynamicStructuredTool {
-  const bashTool = createBashProgrammaticToolCallingTool(options);
+  const bashTool = createBashProgrammaticToolCallingTool({
+    ...options,
+    authHeaders: withCodeApiWorkspaceHeader(options?.authHeaders, options?.workspaceId),
+  });
+  /** Clone before rewriting: the SDK may reuse its schema object across tools. */
+  const schema = structuredClone(bashTool.schema) as ReturnType<
+    typeof createBashProgrammaticToolCallingSchema
+  >;
+  bashTool.description = rebrandCodeDataDirectory(bashTool.description);
+  schema.properties.code.description = rebrandCodeDataDirectory(schema.properties.code.description);
+  bashTool.schema = schema;
   if (identity == null) return bashTool;
   const execute = bashTool.func.bind(bashTool);
   bashTool.func = (input, ...args) => {

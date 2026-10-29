@@ -206,3 +206,67 @@ describe('CyVox fast routing contract', () => {
     });
   });
 });
+
+describe('CyVox upstream response bounds', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const admin = () =>
+    express()
+      .use((req, _res, next) => {
+        Object.assign(req, { user: { role: 'ADMIN' } });
+        next();
+      })
+      .use(createCyvoxAddonRouter('https://cyvox.example.com', true, 'secret'));
+
+  it('rejects an oversized declared response without buffering it', async () => {
+    let sent = 0;
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new Uint8Array(1024));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(stream, {
+        headers: { 'Content-Type': 'application/json', 'Content-Length': '2097152' },
+      }),
+    );
+
+    const response = await request(admin()).get('/activity');
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ code: 'CYVOX_RESPONSE_TOO_LARGE' });
+    // Construction may prime one chunk; the body is never drained to its declared size.
+    expect(sent).toBeLessThanOrEqual(1024);
+    expect(cancelled).toBe(true);
+  });
+
+  it('stops reading an undeclared response stream once it exceeds the bound', async () => {
+    let sent = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(64 * 1024).fill(32);
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(stream, { headers: { 'Content-Type': 'application/json' } }));
+
+    const response = await request(admin()).get('/tasks');
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ code: 'CYVOX_RESPONSE_TOO_LARGE' });
+    expect(cancelled).toBe(true);
+    expect(sent).toBeLessThan(2 * 1024 * 1024);
+  });
+});

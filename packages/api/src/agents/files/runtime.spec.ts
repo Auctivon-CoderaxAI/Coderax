@@ -163,12 +163,16 @@ describe('run file SDK bridge', () => {
     });
     const parent = config.graphConfig.agents[0];
     const child = parent.subagentConfigs?.[0].agentInputs;
-    for (const input of [parent, child]) {
-      expect(input?.graphTools?.map((tool) => tool.name)).toEqual([
-        'list_run_files',
-        'publish_artifact',
-      ]);
-    }
+    expect(parent.graphTools?.map((tool) => tool.name)).toEqual([
+      'list_run_files',
+      'publish_artifact',
+      'write_todos',
+      'suggest_followups',
+    ]);
+    expect(child?.graphTools?.map((tool) => tool.name)).toEqual([
+      'list_run_files',
+      'publish_artifact',
+    ]);
     const signal = new AbortController().signal;
     await child!.graphTools![0].invoke({}, { metadata: { executionContext: identity }, signal });
     expect(session.list).toHaveBeenCalledWith('worker', identity, signal);
@@ -195,7 +199,10 @@ describe('run file SDK bridge', () => {
     ]);
     expect(config.subagentContext).toBeUndefined();
     const parent = config.graphConfig.agents[0];
-    expect(parent.graphTools).toBeUndefined();
+    expect(parent.graphTools?.map((tool) => tool.name)).toEqual([
+      'write_todos',
+      'suggest_followups',
+    ]);
     expect(parent.subagentConfigs?.[0].agentInputs?.graphTools).toBeUndefined();
   });
 
@@ -214,15 +221,24 @@ describe('run file SDK bridge', () => {
       ]);
       const [parent, rootWorker, delegator] = config.graphConfig.agents;
       expect(rootWorker.agentId).toBe('worker');
-      expect(rootWorker.graphTools).toBeUndefined();
+      expect(rootWorker.graphTools?.map((entry) => entry.name)).toEqual([
+        'write_todos',
+        'suggest_followups',
+      ]);
       const childWorker = parent.subagentConfigs?.[0].agentInputs;
       expect(childWorker?.agentId).toBe(rootWorker.agentId);
-      for (const input of [parent, delegator, childWorker]) {
+      for (const input of [parent, delegator]) {
         expect(input?.graphTools?.map((entry) => entry.name)).toEqual([
           'list_run_files',
           'publish_artifact',
+          'write_todos',
+          'suggest_followups',
         ]);
       }
+      expect(childWorker?.graphTools?.map((entry) => entry.name)).toEqual([
+        'list_run_files',
+        'publish_artifact',
+      ]);
     },
   );
 
@@ -251,8 +267,12 @@ describe('run file SDK bridge', () => {
       writer,
     ]);
     const [parent, rootReader, rootWriter] = config.graphConfig.agents;
-    expect(rootReader.graphTools).toBeUndefined();
-    expect(rootWriter.graphTools).toBeUndefined();
+    for (const root of [rootReader, rootWriter]) {
+      expect(root.graphTools?.map((entry) => entry.name)).toEqual([
+        'write_todos',
+        'suggest_followups',
+      ]);
+    }
     const team = parent.subagentConfigs?.[0].agents;
     expect(team?.map((member) => member.agentId)).toEqual(['reader', 'writer']);
     for (const member of team ?? []) {
@@ -352,7 +372,10 @@ describe('run file SDK bridge', () => {
       },
     );
     expect(config.subagentContext).toBeUndefined();
-    expect(config.graphConfig.agents[0].graphTools).toBeUndefined();
+    expect(config.graphConfig.agents[0].graphTools?.map((entry) => entry.name)).toEqual([
+      'write_todos',
+      'suggest_followups',
+    ]);
   });
 
   it.each([

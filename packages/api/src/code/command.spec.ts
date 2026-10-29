@@ -19,6 +19,7 @@ import {
   createAttachedWorkspaceBashTool,
   createContextProgrammaticBashTool,
   createGitIdentityProgrammaticBashTool,
+  rebrandCodeDataDirectory,
   resolveAttachedWorkspaceCommandTimeoutMax,
   resolveAttachedWorkspaceCommandTimeoutDefault,
   resolveAttachedWorkspaceProgrammaticTimeout,
@@ -149,6 +150,8 @@ describe('programmatic Bash Git identity', () => {
     const received: {
       url?: string;
       workspace?: string | string[];
+      upstreamWorkspace?: string | string[];
+      authorization?: string | string[];
       code: string;
       workspace_instance_id?: string;
     }[] = [];
@@ -158,6 +161,8 @@ describe('programmatic Bash Git identity', () => {
       received.push({
         url: req.url,
         workspace: req.headers['x-coderax-code-workspace-id'],
+        upstreamWorkspace: req.headers['x-librechat-code-workspace-id'],
+        authorization: req.headers.authorization,
         ...JSON.parse(body),
       });
       res.setHeader('Content-Type', 'application/json');
@@ -173,7 +178,7 @@ describe('programmatic Bash Git identity', () => {
           baseUrl: `http://127.0.0.1:${port}/v1`,
           workspaceId: 'project-a',
           workspaceInstanceId,
-          authHeaders: () => ({}),
+          authHeaders: async () => ({ Authorization: 'Bearer code-api-token' }),
         },
         { name: 'Lia', email: 'lia@example.com' },
       );
@@ -186,11 +191,50 @@ describe('programmatic Bash Git identity', () => {
       expect(received).toHaveLength(1);
       expect(received[0]).toMatchObject({
         url: '/v1/exec/programmatic',
+        /** Both spellings carry the host-selected id; the input copy is ignored. */
         workspace: 'project-a',
+        upstreamWorkspace: 'project-a',
+        authorization: 'Bearer code-api-token',
         workspace_instance_id: workspaceInstanceId,
       });
       expect(received[0].code).toContain("GIT_AUTHOR_NAME='Lia'");
       expect(bashTool.description).toContain('selected persistent workspace');
+    } finally {
+      server.close();
+      await once(server, 'close');
+    }
+  });
+
+  test('sends no workspace identity when no workspace is selected', async () => {
+    const received: {
+      headers: Record<string, string | string[] | undefined>;
+      code: string;
+    }[] = [];
+    const server = createServer(async (req, res) => {
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      received.push({ headers: req.headers, code: JSON.parse(body).code });
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ status: 'completed', stdout: 'done', stderr: '', files: [] }));
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const { port } = server.address() as AddressInfo;
+    try {
+      const bashTool = createGitIdentityProgrammaticBashTool({
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        authHeaders: () => ({}),
+      });
+      const invocationConfig = { tags: [], toolCall: { toolDefs: [] } };
+      await bashTool.func(
+        { code: 'printf done', tool_manifest: [], workspaceId: 'forged-project' },
+        undefined,
+        invocationConfig,
+      );
+      expect(received).toHaveLength(1);
+      expect(received[0].headers['x-coderax-code-workspace-id']).toBeUndefined();
+      expect(received[0].headers['x-librechat-code-workspace-id']).toBeUndefined();
+      expect(received[0].code).toContain('printf done');
     } finally {
       server.close();
       await once(server, 'close');
@@ -228,6 +272,11 @@ describe('programmatic Bash Git identity', () => {
       const originalSchema = structuredClone(baseline.schema) as ReturnType<
         typeof createBashProgrammaticToolCallingSchema
       >;
+      /** The model sees the Coderax name for the execution-scoped data directory. */
+      const expectedSchema = structuredClone(originalSchema);
+      expectedSchema.properties.code.description = rebrandCodeDataDirectory(
+        originalSchema.properties.code.description,
+      );
       const configured = createContextProgrammaticBashTool(
         () => ({}),
         context,
@@ -236,21 +285,22 @@ describe('programmatic Bash Git identity', () => {
       const schema = configured.schema as ReturnType<
         typeof createBashProgrammaticToolCallingSchema
       >;
-      expect(schema.properties.code).toEqual(originalSchema.properties.code);
+      expect(schema.properties.code).toEqual(expectedSchema.properties.code);
       expect(schema.properties.code.description).toContain('ATTACHED WORKSPACE EXECUTION');
       expect(schema.properties.code.description).toContain('${CODERAX_CODE_DATA_DIR:-/mnt/data}');
+      expect(schema.properties.code.description).not.toContain('LIBRECHAT_CODE_DATA_DIR');
       expect(schema).toEqual({
-        ...originalSchema,
+        ...expectedSchema,
         properties: {
-          ...originalSchema.properties,
+          ...expectedSchema.properties,
           timeout: {
-            ...originalSchema.properties.timeout,
+            ...expectedSchema.properties.timeout,
             default: 60_000,
             description: expect.stringContaining('when timeout is omitted'),
           },
         },
       });
-      expect(configured.description).toBe(baseline.description);
+      expect(configured.description).toBe(rebrandCodeDataDirectory(baseline.description));
       expect(configured.schema).not.toBe(baseline.schema);
       expect(baseline.schema).toEqual(originalSchema);
       expect(
@@ -258,7 +308,7 @@ describe('programmatic Bash Git identity', () => {
           ...context,
           codeEnvironmentConfigSchema: { limits: { maxCommandTimeoutMs: 80_000 } },
         }).schema,
-      ).toEqual(originalSchema);
+      ).toEqual(expectedSchema);
     },
   );
 
