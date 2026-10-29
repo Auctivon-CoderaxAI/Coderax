@@ -456,7 +456,7 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
       if (
         typeof runId !== 'string' ||
         typeof stepId !== 'string' ||
-        !/^[1-9]\\d*$/.test(attemptText) ||
+        !/^[1-9]\d*$/.test(attemptText) ||
         !Number.isSafeInteger(attempt) ||
         check == null ||
         !(await runAsSystem(async () =>
