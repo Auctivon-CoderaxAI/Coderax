@@ -3,6 +3,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createMethods, createModels } from '@coderax/data-schemas';
 import { createWorkflowSchedules, createWorkflowStore } from './store';
 import { createWorkflowEngine } from './engine';
+import { createWorkflowHandlers } from './handlers';
 import { computeNextRunAt } from '../schedules/cadence';
 
 /**
@@ -142,6 +143,63 @@ describe('workflow engine with Mongo persistence', () => {
     enqueued.length = 0;
     await engine.runTick();
     expect(enqueued).toEqual([]);
+  });
+
+  it('retires queued deliveries after durable cancellation and aborts active turns', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Cancel before dispatch',
+      agentId: 'agent-1',
+      steps: [{ id: 'queued-step', title: 'Queued', instruction: 'Run a tool' }],
+    });
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'cancel-conversation',
+      trigger: { type: 'manual' },
+    });
+    const generations = new Map<string, { status: string; createdAt: number }>();
+    const enqueued: string[] = [];
+    const engine = engineFor({
+      conversationId: 'cancel-conversation',
+      enqueued,
+      generations,
+      now: () => new Date('2026-03-01T00:00:00.000Z'),
+      methods,
+    });
+    await engine.runTick();
+    const active = await methods.getWorkflowRun(run.id, userId);
+    expect(active?.steps[0].deliveryKey).toBe('delivery:queued-step:1');
+
+    const retireQueuedDelivery = jest.fn(async () => true);
+    const abortActiveRun = jest.fn(async () => undefined);
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: () => undefined,
+      retireQueuedDelivery,
+      abortActiveRun,
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.cancelRun>[1];
+    const request = {
+      user: { id: userId },
+      params: { runId: run.id },
+    } as unknown as Parameters<typeof handlers.cancelRun>[0];
+    await handlers.cancelRun(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(retireQueuedDelivery).toHaveBeenCalledWith('delivery:queued-step:1', workflow.id);
+    expect(abortActiveRun).toHaveBeenCalledWith('cancel-conversation');
+    expect((await methods.getWorkflowRun(run.id, userId))?.status).toBe('cancelled');
+    await engine.runTick();
+    expect(enqueued).toEqual(['queued-step']);
   });
 
   it('starts a scheduled workflow exactly once and stops an active run on cancel', async () => {
