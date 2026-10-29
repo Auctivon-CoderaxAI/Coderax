@@ -123,6 +123,8 @@ const workflowStepRunSchema = new Schema(
     status: { type: String, enum: WORKFLOW_STEP_STATUSES, default: 'pending' },
     attempts: { type: Number, min: 0, default: 0 },
     deliveryKey: { type: String },
+    // Persist the exact conversation used by this dispatched step across worker ticks.
+    conversationId: { type: String },
     approvedAt: { type: Date },
     startedAt: { type: Date },
     settledAt: { type: Date },
