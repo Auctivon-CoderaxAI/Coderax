@@ -54,7 +54,7 @@ esac
       PATH: [scratch, process.env.PATH].join(delimiter),
       FIXTURE_DIR: bashPath(scratch),
       CALLS_PATH: bashPath(callsPath),
-      REPO: 'Coderax-AI/Coderax',
+      REPO: 'CoderaxAI/Coderax',
       RELEASE_BASE: 'main',
       TARGET_BASE: 'dev',
       DRY_RUN: 'false',
@@ -80,8 +80,8 @@ test('a numbered manual sweep leaves canary alone while main still retargets to 
   });
   assert.match(output, /#101: skipped/);
   assert.deepEqual(writes(calls), [
-    'pr edit 102 --repo Coderax-AI/Coderax --base dev',
-    'pr comment 102 --repo Coderax-AI/Coderax --body-file -',
+    'pr edit 102 --repo CoderaxAI/Coderax --base dev',
+    'pr comment 102 --repo CoderaxAI/Coderax --body-file -',
   ]);
 });
 
@@ -120,7 +120,7 @@ test('missing dev fails closed before reading or changing a main-based PR', (t) 
     1,
   );
   assert.match(output, /cannot verify target branch 'dev'/);
-  assert.deepEqual(calls, ['api repos/Coderax-AI/Coderax/branches/dev']);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
   assert.deepEqual(writes(calls), []);
 });
 
@@ -132,6 +132,18 @@ test('missing dev also refuses dry-run proposals and explanatory comments', (t) 
     1,
   );
   assert.match(output, /no PRs were modified/);
-  assert.deepEqual(calls, ['api repos/Coderax-AI/Coderax/branches/dev']);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('GitHub branch API permission failure refuses all PR reads and writes', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 108: { base: 'main' } },
+    { GH_BRANCH_STATUS: '22' },
+    1,
+  );
+  assert.match(output, /cannot verify target branch 'dev'/);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
   assert.deepEqual(writes(calls), []);
 });
