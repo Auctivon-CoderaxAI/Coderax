@@ -106,7 +106,7 @@ export const DEFAULT_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 export const BASE_ONLY_CONFIG_SECTIONS = ['filters', 'mcpAppSandbox'] as const;
 /** Sections that may be stored in the tenant's base config document but must
  * not be overridden or tombstoned by role, group, or user config documents. */
-export const BASE_PRINCIPAL_CONFIG_SECTIONS = ['langfuse'] as const;
+export const BASE_PRINCIPAL_CONFIG_SECTIONS = ['langfuse', 'cyvox'] as const;
 
 export const defaultRetrievalModels = [
   'gpt-4o',
@@ -3134,6 +3134,8 @@ export type TStartupConfig = {
   socialLogins?: string[];
   langfuseFanoutEnabled?: boolean;
   langfuseConnectionAccess?: boolean;
+  /** The signed-in administrator may manage the Coderax Work (CyVox) connection. */
+  cyvoxConnectionAccess?: boolean;
   insightsEnabled?: boolean;
   /** Manual context compaction, gated by the same `summarization.enabled`
    *  switch that governs the automatic detour. */
@@ -3761,6 +3763,22 @@ export const langfuseConfigSchema = z.object({
 
 export type LangfuseConfig = z.infer<typeof langfuseConfigSchema>;
 
+/**
+ * Tenant-wide Coderax Work (CyVox) connection. Stored on the base config so
+ * every administrator sees one integration; the bearer token is encrypted at
+ * rest and only its masked preview is ever returned.
+ */
+export const cyvoxConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** Origin only: https, or http for a loopback desktop worker. No path, query or credentials. */
+  baseUrl: z.string().optional(),
+  authToken: z.string().optional(),
+  /** Masked preview written alongside the encrypted token. */
+  authTokenPreview: z.string().optional(),
+});
+
+export type CyvoxConfig = z.infer<typeof cyvoxConfigSchema>;
+
 export const openIdDiscoverySchema = z.object({
   /** Discovery attempts made before startup continues; `0` retries only in the background. */
   startupAttempts: z.number().int().min(0).max(100).default(1),
@@ -3853,6 +3871,7 @@ export const configSchema = z.object({
     .strict()
     .optional(),
   langfuse: langfuseConfigSchema.optional(),
+  cyvox: cyvoxConfigSchema.optional(),
   memory: memorySchema.optional(),
   summarization: summarizationConfigSchema.optional(),
   skillSync: skillSyncConfigSchema,
@@ -4941,6 +4960,10 @@ export enum SettingsTabValues {
    * Tab for Langfuse Settings
    */
   LANGFUSE = 'langfuse',
+  /**
+   * Tab for Coderax Work (CyVox) Settings
+   */
+  CYVOX = 'cyvox',
   /**
    * Tab for Beta Features
    */

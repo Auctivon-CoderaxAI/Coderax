@@ -563,6 +563,10 @@ export const adminLangfuseConnectionTest = () => `${adminLangfuseConnection()}/t
 export const adminLangfuseSessionLink = (conversationId: string) =>
   `${adminLangfuseConnection()}/session/${encodeURIComponent(conversationId)}`;
 
+/* Coderax Work (CyVox) connection (admin) */
+export const adminCyVoxConnection = () => `${BASE_URL}/api/admin/cyvox/connection`;
+export const adminCyVoxConnectionTest = () => `${adminCyVoxConnection()}/test`;
+
 /* Combined Pinned-section display order: favorite and pinned-chat entry keys interleaved. */
 export const pinnedOrder = () => `${BASE_URL}/api/user/settings/pinned-order`;
 

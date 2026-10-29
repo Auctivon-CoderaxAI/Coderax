@@ -27,6 +27,7 @@ import ConversationModeSwitch from '../SettingsTabs/Speech/ConversationModeSwitc
 import EnableTwoFactorItem from '../SettingsTabs/Account/TwoFactorAuthentication';
 import LangfuseConnection from '../SettingsTabs/Integrations/LangfuseConnection';
 import ClockFormatSelector from '../SettingsTabs/General/ClockFormatSelector';
+import CyVoxConnection from '../SettingsTabs/Integrations/CyVoxConnection';
 import ImportConversations from '../SettingsTabs/Data/ImportConversations';
 import WeekStartSelector from '../SettingsTabs/General/WeekStartSelector';
 import { ArchiveAllChats } from '../SettingsTabs/Data/ArchiveAllChats';
@@ -743,6 +744,16 @@ export const registry: SettingEntry[] = [
     keywords: ['langfuse', 'observability', 'tracing', 'telemetry', 'traces'],
     show: (ctx) => ctx.langfuseConnectionAccess,
     Component: LangfuseConnection,
+  },
+  // Coderax Work (CyVox)
+  {
+    id: 'cyvoxConnection',
+    tab: SettingsTabValues.CYVOX,
+    section: 'cyvox',
+    labelKey: 'com_ui_cyvox_title',
+    keywords: ['cyvox', 'work', 'robot', 'deployments', 'integration', 'connection'],
+    show: (ctx) => ctx.cyvoxConnectionAccess,
+    Component: CyVoxConnection,
   },
   // Data controls · Danger zone
   {

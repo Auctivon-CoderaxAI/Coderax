@@ -24,6 +24,7 @@ const ctx: SettingsContextValue = {
   aboutEnabled: false,
   engineTTS: 'browser',
   langfuseConnectionAccess: false,
+  cyvoxConnectionAccess: false,
   adminPanelURL: '',
   replyTabBadgeAllowed: true,
   replyNotificationsAllowed: true,
