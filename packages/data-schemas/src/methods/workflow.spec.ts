@@ -131,6 +131,63 @@ describe('workflow persistence', () => {
     expect(resumed?.pauseRequestedAt).toBeUndefined();
   });
 
+  it('persists distinct step conversation IDs across a worker lease and MongoDB reload', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Parallel conversations',
+      agentId: 'agent-1',
+      steps: [
+        { id: 'left', title: 'Left', instruction: 'Left task', dependsOn: [] },
+        { id: 'right', title: 'Right', instruction: 'Right task', dependsOn: [] },
+      ],
+    });
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'root-conversation',
+    });
+    const now = new Date();
+    const [claimed] = await methods.claimWorkflowRuns({
+      workerId: 'worker-conversations',
+      leaseToken: 'lease-conversations',
+      now,
+      leaseUntil: new Date(now.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(claimed?.id).toBe(run.id);
+
+    const updated = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'lease-conversations',
+      now,
+      patch: {
+        status: 'running',
+        steps: claimed.steps.map((step, index) => ({
+          ...step,
+          status: 'running' as const,
+          startedAt: now,
+          conversationId: `step-conversation-${index}`,
+        })),
+      },
+    });
+    expect(updated?.steps.map((step) => step.conversationId)).toEqual([
+      'step-conversation-0',
+      'step-conversation-1',
+    ]);
+
+    const reloaded = await methods.getWorkflowRun(run.id, userId);
+    expect(reloaded?.steps.map((step) => step.conversationId)).toEqual([
+      'step-conversation-0',
+      'step-conversation-1',
+    ]);
+    expect(reloaded?.steps[0].conversationId).not.toBe(reloaded?.steps[1].conversationId);
+    expect(await methods.getWorkflowRun(run.id, owner())).toBeNull();
+  });
+
   it('cancels pending steps and refuses to advance a terminal run', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({
