@@ -10,6 +10,7 @@ export * from './filters';
 export * from './file-config';
 export * from './resolve-llm-delivery-path';
 export * from './cyvox-model';
+export * from './fireworks-glm';
 /* messages  */
 export * from './messages';
 export * from './previews';
