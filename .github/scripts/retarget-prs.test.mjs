@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const script = join(scriptsDir, 'retarget-prs.sh');
 
-function runRetarget(t, prs, overrides = {}) {
+function runRetarget(t, prs, overrides = {}, expectedStatus = 0) {
   const scratch = mkdtempSync(join(scriptsDir, '.retarget-prs-test-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
   const callsPath = join(scratch, 'calls');
@@ -19,6 +19,7 @@ function runRetarget(t, prs, overrides = {}) {
 set -euo pipefail
 printf '%s\\n' "$*" >> "$CALLS_PATH"
 case "$1:$2" in
+  api:*/branches/*) exit "\${GH_BRANCH_STATUS:-0}" ;;
   api:*/pulls/*) cat "$FIXTURE_DIR/\${2##*/}.json" ;;
   api:*/comments) printf '%s\\n' '[]' ;;
   'pr:edit') exit 0 ;;
@@ -54,9 +55,9 @@ esac
       ...overrides,
     },
   });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(result.status, expectedStatus, `${result.stdout}\n${result.stderr}`);
   return {
-    output: result.stdout,
+    output: `${result.stdout}\n${result.stderr}`,
     calls: readFileSync(callsPath, 'utf8').trim().split('\n'),
   };
 }
@@ -100,5 +101,30 @@ test('a dry run cannot propose retargeting canary', (t) => {
     { RELEASE_BASE: 'canary', DRY_RUN: 'true' },
   );
   assert.match(output, /would_retarget=0 skipped=1/);
+  assert.deepEqual(writes(calls), []);
+});
+
+
+test('missing dev fails closed before reading or changing a main-based PR', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 106: { base: 'main' } },
+    { GH_BRANCH_STATUS: '1' },
+    1,
+  );
+  assert.match(output, /cannot verify target branch 'dev'/);
+  assert.deepEqual(calls, ['api repos/Coderax-AI/Coderax/branches/dev']);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('missing dev also refuses dry-run proposals and explanatory comments', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 107: { base: 'dev' } },
+    { GH_BRANCH_STATUS: '1', DRY_RUN: 'true', EXPLAIN_MISSING: 'true' },
+    1,
+  );
+  assert.match(output, /no PRs were modified/);
+  assert.deepEqual(calls, ['api repos/Coderax-AI/Coderax/branches/dev']);
   assert.deepEqual(writes(calls), []);
 });
