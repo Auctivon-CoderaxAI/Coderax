@@ -31,6 +31,16 @@ function isSafeId(value: string): boolean {
 }
 
 /**
+ * Mirrors `cyvox/model_selection.THINKING_EFFORT_PROFILES`. CyVox stays
+ * authoritative; this only rejects an obvious typo before the round trip.
+ */
+const THINKING_EFFORTS = ['instant', 'medium', 'high', 'extra_high'] as const;
+
+function isThinkingEffort(value: string): boolean {
+  return (THINKING_EFFORTS as readonly string[]).includes(value);
+}
+
+/**
  * Scoped CyVox bridge. The browser only receives bounded JSON; bearer tokens
  * remain server-side. Every remote request needs a Coderax ADMIN identity.
  * Write actions have an explicit allowlist and require a per-action confirmation.
@@ -158,11 +168,41 @@ export function createCyvoxAddonRouter(
         return;
       }
       const mode = body.mode === 'Coding Team' ? 'Coding Team' : 'Autonomous Run';
+      // Per-task selection travels with the task. It must not call
+      // /api/models/select: that writes deployment-global models.json and would
+      // change the model for every other tenant sharing this CyVox deployment.
+      const selection: { model?: string; thinking_effort?: string } = {};
+      if (body.model !== undefined && body.model !== null && body.model !== '') {
+        if (
+          typeof body.model !== 'string' ||
+          body.model.length > 150 ||
+          !isCyvoxFreeOrLocalModel(body.model)
+        ) {
+          res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+          return;
+        }
+        selection.model = body.model;
+      }
+      if (
+        body.thinking_effort !== undefined &&
+        body.thinking_effort !== null &&
+        body.thinking_effort !== ''
+      ) {
+        if (
+          typeof body.thinking_effort !== 'string' ||
+          !isThinkingEffort(body.thinking_effort)
+        ) {
+          res.status(400).json({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
+          return;
+        }
+        selection.thinking_effort = body.thinking_effort;
+      }
       await forward(res, '/api/tasks', 'POST', {
         task: body.task.trim(),
         mode,
         max_steps: 15,
         routing_mode: 'FAST',
+        ...selection,
       });
     } else if (action === 'startComputerTask') {
       if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) {
