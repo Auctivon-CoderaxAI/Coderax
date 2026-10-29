@@ -2,6 +2,7 @@ const express = require('express');
 const { createWorkflowHandlers } = require('@coderax/api');
 const { requireJwtAuth } = require('~/server/middleware');
 const { abortWorkflowTurn, wakeWorkflowEngine } = require('~/server/services/Workflows');
+const { retireAgentTrigger } = require('~/server/services/Agents/triggers');
 const { resolveAgentFireAccess } = require('~/server/services/Schedules/access');
 const methods = require('~/models');
 
@@ -16,6 +17,8 @@ const handlers = createWorkflowHandlers({
   canRunAgent: async (agentId, req) => (await resolveAgentFireAccess(agentId, req.user)) === 'ok',
   wake: wakeWorkflowEngine,
   abortActiveRun: abortWorkflowTurn,
+  retireQueuedDelivery: (deliveryKey, workflowId) =>
+    retireAgentTrigger(deliveryKey, workflowId, 'workflow_cancelled', { onlyIfUnclaimed: true }),
 });
 
 const handle = (handler) => (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
