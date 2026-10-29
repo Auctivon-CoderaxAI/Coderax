@@ -59,17 +59,96 @@ describe('CyVox add-on target', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('keeps the existing loopback development connection available', async () => {
+  it('keeps an administrative loopback development connection available', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
-    const app = express().use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+    const app = express()
+      .use((req, _res, next) => {
+        Object.assign(req, { user: { role: 'ADMIN' } });
+        next();
+      })
+      .use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
 
     const response = await request(app).get('/readiness');
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('CyVox loopback authorization', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const loopback = (role?: string) => {
+    const app = express();
+    if (role) {
+      app.use((req, _res, next) => {
+        Object.assign(req, { user: { role } });
+        next();
+      });
+    }
+    return app.use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+  };
+
+  it('refuses an anonymous read without calling the upstream service', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback()).get('/activity');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed-in non-admin read without calling the upstream service', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback('USER')).get('/activity');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin approval read', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback('USER')).get('/tasks/task123/approvals');
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards an administrative loopback read to the mapped upstream path', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ entries: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const response = await request(loopback('ADMIN')).get('/activity');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ entries: [] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:18000/api/audit?limit=100'),
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'rejects the inherited resource name %s without calling the upstream service',
+    async (resource) => {
+      const fetchMock = jest.spyOn(global, 'fetch');
+
+      const response = await request(loopback('ADMIN')).get(`/${resource}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('CyVox privileged Work and Robot boundary', () => {
