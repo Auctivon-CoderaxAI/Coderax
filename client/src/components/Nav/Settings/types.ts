@@ -1,5 +1,5 @@
 import { createElement } from 'react';
-import { MessageSquare, Info } from 'lucide-react';
+import { MessageSquare, Info, Bot } from 'lucide-react';
 import { SettingsTabValues } from 'coderax-data-provider';
 import { GearIcon, DataIcon, UserIcon, SpeechIcon } from '@coderax/client';
 import type { ComponentType, ReactNode } from 'react';
@@ -10,6 +10,7 @@ export type SettingsTab =
   | SettingsTabValues.CHAT
   | SettingsTabValues.SPEECH
   | SettingsTabValues.LANGFUSE
+  | SettingsTabValues.CYVOX
   | SettingsTabValues.DATA
   | SettingsTabValues.ACCOUNT
   | SettingsTabValues.ABOUT;
@@ -32,6 +33,7 @@ export type SectionId =
   | 'data'
   | 'apiKeys'
   | 'langfuse'
+  | 'cyvox'
   | 'danger'
   | 'profile'
   | 'security'
@@ -57,6 +59,7 @@ export interface SettingsContextValue {
   aboutEnabled: boolean;
   engineTTS: string;
   langfuseConnectionAccess: boolean;
+  cyvoxConnectionAccess: boolean;
   adminPanelURL: string;
   replyTabBadgeAllowed: boolean;
   replyNotificationsAllowed: boolean;
@@ -145,6 +148,13 @@ export const TABS: TabMeta[] = [
       },
     ],
     show: (ctx) => ctx.langfuseConnectionAccess,
+  },
+  {
+    id: SettingsTabValues.CYVOX,
+    labelKey: 'com_ui_settings_tab_cyvox',
+    icon: createElement(Bot, { className: 'icon-sm', 'aria-hidden': true }),
+    sections: [{ id: 'cyvox', labelKey: 'com_ui_settings_section_cyvox' }],
+    show: (ctx) => ctx.cyvoxConnectionAccess,
   },
   {
     id: SettingsTabValues.DATA,

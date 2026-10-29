@@ -276,6 +276,7 @@ router.get('/', async function (req, res) {
     const langfuseFanoutEnabled = isLangfuseFanoutEnabled();
     const langfuseConnectionAvailable = isLangfuseConnectionAvailable();
     let langfuseConnectionAccess = false;
+    let cyvoxConnectionAccess = false;
 
     if (langfuseConnectionAvailable) {
       try {
@@ -298,6 +299,24 @@ router.get('/', async function (req, res) {
       } catch (err) {
         logger.warn(`[config] Langfuse capability check failed: ${err.message}`);
       }
+    }
+
+    try {
+      const userId = req.user.id ?? req.user._id?.toString();
+      if (userId) {
+        const capabilityUser = {
+          id: userId,
+          role: req.user.role ?? '',
+          tenantId: req.user.tenantId,
+          idOnTheSource: req.user.idOnTheSource ?? null,
+        };
+        const hasAdminAccess = await hasCapability(capabilityUser, SystemCapabilities.ACCESS_ADMIN);
+        if (hasAdminAccess) {
+          cyvoxConnectionAccess = await hasConfigCapability(capabilityUser, 'cyvox');
+        }
+      }
+    } catch (err) {
+      logger.warn(`[config] Coderax Work capability check failed: ${err.message}`);
     }
 
     /** @type {TStartupConfig} */
@@ -329,6 +348,7 @@ router.get('/', async function (req, res) {
         : 0,
       langfuseFanoutEnabled,
       langfuseConnectionAccess,
+      cyvoxConnectionAccess,
       insightsEnabled: isEnabled(process.env.ENABLE_INSIGHTS),
       compactionEnabled: appConfig?.summarization?.enabled !== false,
       ...(codeEnvironmentDecisionVersion != null ? { codeEnvironmentDecisionVersion } : {}),

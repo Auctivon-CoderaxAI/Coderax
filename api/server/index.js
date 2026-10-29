@@ -70,6 +70,7 @@ const {
   warnOnUnreachableDeliveryPaths,
   createCodeApiUploadRegistry,
   createCyvoxAddonRouter,
+  createCyvoxTargetResolver,
 } = require('@coderax/api');
 const { connectDb, indexSync } = require('~/db');
 const {
@@ -77,6 +78,7 @@ const {
   sweepOrphanedPreviews,
   getRoleByName,
   seedDatabase,
+  findConfigByPrincipal,
 } = require('~/models');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
 const { capabilityContextMiddleware } = require('./middleware/roles/capabilities');
@@ -434,6 +436,16 @@ const startServer = async () => {
       process.env.CYVOX_ADDON_ENABLED === 'true' ||
         (process.env.NODE_ENV === 'development' && ['localhost', '127.0.0.1'].includes(host)),
       process.env.CYVOX_AUTH_TOKEN,
+      createCyvoxTargetResolver({
+        findConfigByPrincipal,
+        environment: {
+          enabled:
+            process.env.CYVOX_ADDON_ENABLED === 'true' ||
+            (process.env.NODE_ENV === 'development' && ['localhost', '127.0.0.1'].includes(host)),
+          baseUrl: process.env.CYVOX_BASE_URL,
+          authToken: process.env.CYVOX_AUTH_TOKEN,
+        },
+      }),
     ),
   );
   app.use('/api/insights', routes.insights);
@@ -442,6 +454,7 @@ const startServer = async () => {
   app.use('/api/admin/code-environments', routes.adminCodeEnvironments);
   app.use('/api/code-environments', routes.codeEnvironments);
   app.use('/api/admin/langfuse', routes.adminLangfuse);
+  app.use('/api/admin/cyvox', routes.adminCyVox);
   app.use('/api/admin/grants', routes.adminGrants);
   app.use('/api/admin/groups', routes.adminGroups);
   app.use('/api/admin/roles', routes.adminRoles);

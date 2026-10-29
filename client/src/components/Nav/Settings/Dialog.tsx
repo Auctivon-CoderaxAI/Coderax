@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAtom } from 'jotai';
 import * as Tabs from '@radix-ui/react-tabs';
 import { X, ChevronLeft } from 'lucide-react';
 import { SettingsTabValues } from 'coderax-data-provider';
@@ -13,6 +14,7 @@ import {
 import type { TDialogProps } from '~/common';
 import type { SettingsTab } from './types';
 import { useSettingsContext } from './context';
+import { settingsTabAtom } from './state';
 import { useLocalize } from '~/hooks';
 import Sidebar from './Sidebar';
 import Content from './Content';
@@ -28,6 +30,7 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
   const remScale = useRemScale();
   const isSmallScreen = useMediaQuery(`(max-width: ${767 * remScale}px)`);
   const [activeTab, setActiveTab] = useState<SettingsTab>(SettingsTabValues.GENERAL);
+  const [requestedTab, setRequestedTab] = useAtom(settingsTabAtom);
   const [query, setQuery] = useState('');
   const [mobileDetail, setMobileDetail] = useState(!isSmallScreen);
 
@@ -41,6 +44,17 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
     ? activeTab
     : SettingsTabValues.GENERAL;
   const activeMeta = TABS.find((t) => t.id === effectiveTab);
+
+  useEffect(() => {
+    if (!requestedTab) {
+      return;
+    }
+    if (visibleTabs.some((t) => t.id === requestedTab)) {
+      setActiveTab(requestedTab as SettingsTab);
+      setMobileDetail(true);
+    }
+    setRequestedTab(null);
+  }, [requestedTab, setRequestedTab, visibleTabs]);
 
   const selectTab = (tab: SettingsTab) => {
     setActiveTab(tab);

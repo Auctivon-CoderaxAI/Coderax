@@ -1,7 +1,8 @@
 import express from 'express';
 import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
-import type { Request, Response, Router } from 'express';
-
+import type { NextFunction, Request, Response, Router } from 'express';
+import type { CyvoxTarget } from './settings';
+import { resolveCyvoxTarget } from './settings';
 import { readBoundedBody } from './response';
 
 const resources = {
@@ -30,39 +31,40 @@ function isSafeId(value: string): boolean {
  * Write actions have an explicit allowlist and require a per-action confirmation.
  * CyVox still enforces its own tool, device and approval policies.
  */
+export type CyvoxSettingsResolver = () => Promise<CyvoxTarget | null>;
+
+function getTarget(res: Response): CyvoxTarget | null {
+  return (res.locals.cyvoxTarget as CyvoxTarget | null | undefined) ?? null;
+}
+
 export function createCyvoxAddonRouter(
   baseUrl: string | undefined,
   enabled: boolean,
   authToken?: string,
+  resolveSettings?: CyvoxSettingsResolver,
 ): Router {
   const router = express.Router();
-  const target = (() => {
-    if (!enabled || !baseUrl) return null;
+  const staticTarget = resolveCyvoxTarget({ environment: { enabled, baseUrl, authToken } });
+  const resolveTarget = resolveSettings ?? (async () => staticTarget);
+
+  /** Resolve once per request so a connection saved in Settings applies without a restart. */
+  router.use(async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const url = new URL(baseUrl);
-      const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-      if (
-        (loopback ? url.protocol !== 'http:' : url.protocol !== 'https:' || !authToken) ||
-        url.username ||
-        url.password ||
-        url.pathname !== '/' ||
-        url.search ||
-        url.hash
-      )
-        return null;
-      return url;
+      res.locals.cyvoxTarget = await resolveTarget();
     } catch {
-      return null;
+      res.locals.cyvoxTarget = null;
     }
-  })();
+    next();
+  });
 
   function allowed(req: Request, res: Response, write = false): boolean {
+    const target = getTarget(res);
     if (!target) {
       res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
       return false;
     }
     if (
-      (write || target.protocol === 'https:') &&
+      (write || target.url.protocol === 'https:') &&
       (!req.user || !('role' in req.user) || req.user.role !== SystemRoles.ADMIN)
     ) {
       res.status(403).json({ code: 'CYVOX_FORBIDDEN' });
@@ -81,14 +83,19 @@ export function createCyvoxAddonRouter(
     method = 'GET',
     payload?: object,
   ): Promise<void> {
+    const target = getTarget(res);
+    if (!target) {
+      res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
+      return;
+    }
     try {
-      const response = await fetch(new URL(path, target!), {
+      const response = await fetch(new URL(path, target.url), {
         method,
         signal: AbortSignal.timeout(10000),
         redirect: 'error',
         headers: {
           Accept: 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(target.authToken ? { Authorization: `Bearer ${target.authToken}` } : {}),
           ...(payload ? { 'Content-Type': 'application/json' } : {}),
         },
         ...(payload ? { body: JSON.stringify(payload) } : {}),

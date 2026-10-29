@@ -6,6 +6,7 @@ const adminConfig = require('./admin/config');
 const adminCodeEnvironments = require('./admin/code');
 const codeEnvironments = require('./code-environments');
 const adminLangfuse = require('./admin/langfuse');
+const adminCyVox = require('./admin/cyvox');
 const adminGrants = require('./admin/grants');
 const adminGroups = require('./admin/groups');
 const adminRoles = require('./admin/roles');
@@ -54,6 +55,7 @@ module.exports = {
   adminCodeEnvironments,
   codeEnvironments,
   adminLangfuse,
+  adminCyVox,
   adminGrants,
   adminGroups,
   adminRoles,

@@ -88,6 +88,22 @@ export function testLangfuseConnection(
   return request.post(endpoints.adminLangfuseConnectionTest(), payload);
 }
 
+export function getCyVoxConnection(): Promise<t.TCyVoxConnectionStatus> {
+  return request.get(endpoints.adminCyVoxConnection());
+}
+
+export function updateCyVoxConnection(
+  payload: t.TUpdateCyVoxConnectionRequest,
+): Promise<t.TCyVoxConnectionStatus> {
+  return request.put(endpoints.adminCyVoxConnection(), payload);
+}
+
+export function testCyVoxConnection(
+  payload: t.TCyVoxConnectionTestRequest,
+): Promise<t.TCyVoxConnectionTestResponse> {
+  return request.post(endpoints.adminCyVoxConnectionTest(), payload);
+}
+
 export function getLangfuseSessionLink(
   conversationId: string,
 ): Promise<t.TLangfuseSessionLinkResponse> {

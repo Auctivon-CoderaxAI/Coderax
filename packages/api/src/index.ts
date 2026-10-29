@@ -1,5 +1,6 @@
 export * from './app';
 export * from './cyvox/addon';
+export * from './cyvox/settings';
 export * from './acl/accessControlService';
 export * from './acl/insightsPermissions';
 export * from './acl/middleware';

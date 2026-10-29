@@ -18,7 +18,8 @@ const mockLocalizedText: Record<string, string> = {
   com_cyvox_work_description_label: 'Describe what you want to get done',
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
-  com_cyvox_work_welcome_description: 'Describe the outcome you want. I’ll work through it and show progress here.',
+  com_cyvox_work_welcome_description:
+    'Describe the outcome you want. I’ll work through it and show progress here.',
   com_cyvox_work_recent_heading: 'Recent tasks',
   com_cyvox_work_task_status: 'Task status',
   com_cyvox_work_progress_note: 'Task updates and approval requests appear here.',
@@ -191,7 +192,9 @@ describe('Coderax Work route', () => {
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true });
     expect(confirm).not.toHaveBeenCalled();
     expect(
-      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+      (global.fetch as unknown as jest.Mock).mock.calls.filter(
+        ([, init]) => init?.method === 'POST',
+      ),
     ).toHaveLength(0);
     expect(input).toHaveValue('Draft with IME');
     queryClient.clear();
@@ -200,23 +203,30 @@ describe('Coderax Work route', () => {
   it('uses the creation response ID rather than a concurrent task-list addition', async () => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     let taskListReads = 0;
+    /** The first task-list read runs before creation, so it must not contain the new task. */
+    const responseFor = (url: string) => {
+      if (url.endsWith('/models')) {
+        return { models: [] };
+      }
+      if (url.endsWith('/actions/startTask')) {
+        return { id: 'our-task' };
+      }
+      if (!url.endsWith('/tasks')) {
+        return { approvals: [] };
+      }
+      taskListReads += 1;
+      return {
+        tasks:
+          taskListReads === 1
+            ? []
+            : [
+                { id: 'other-task', task: 'Unrelated task', state: 'running' },
+                { id: 'our-task', task: 'My task', state: 'running' },
+              ],
+      };
+    };
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const data = url.endsWith('/models')
-        ? { models: [] }
-        : url.endsWith('/actions/startTask')
-          ? { id: 'our-task' }
-          : url.endsWith('/tasks')
-            ? {
-                tasks:
-                  ++taskListReads === 1
-                    ? []
-                    : [
-                        { id: 'other-task', task: 'Unrelated task', state: 'running' },
-                        { id: 'our-task', task: 'My task', state: 'running' },
-                      ],
-              }
-            : { approvals: [] };
+      const data = responseFor(String(input));
       return { ok: true, json: async () => data };
     }) as unknown as typeof fetch;
     const { queryClient } = renderWorkRoute('/work');
@@ -295,7 +305,9 @@ describe('Coderax Work route', () => {
 
     await waitFor(() => expect(input).toHaveValue(''));
     expect(
-      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+      (global.fetch as unknown as jest.Mock).mock.calls.filter(
+        ([, init]) => init?.method === 'POST',
+      ),
     ).toHaveLength(1);
     expect(
       screen.queryByRole('heading', { name: 'Task without JSON metadata' }),

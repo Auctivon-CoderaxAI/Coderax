@@ -5,13 +5,22 @@ deployable for Robot, computer use, delegated work and diagnostics.
 
 ## Private configuration (not checked into Git)
 
-Configure the **Coderax backend** environment:
+Configure the connection once in **Settings → Coderax Work** as an administrator
+with config access (or `manage:configs:cyvox`). The service URL is an origin only,
+and the access token is encrypted at rest and never returned to the browser.
+Use **Test connection** before enabling the integration.
+
+Deployment environment variables remain a fallback for deployments that manage
+configuration outside the app:
+
 - `CYVOX_ADDON_ENABLED=true`
 - `CYVOX_BASE_URL=https://<your-CyVox-backend>` (origin only, no path)
 - `CYVOX_AUTH_TOKEN=<owner's CyVox backend bearer token>`
 
-Never expose the CyVox token to the frontend or to unauthenticated guests.
-The proxy rejects remote targets without HTTPS and a token.
+A saved connection takes precedence over these variables, so disabling it in
+Settings does not silently re-enable the environment connection. Never expose the
+CyVox token to the frontend or to unauthenticated guests. The proxy rejects
+remote targets without HTTPS and a token.
 
 ## Release and checks
 
