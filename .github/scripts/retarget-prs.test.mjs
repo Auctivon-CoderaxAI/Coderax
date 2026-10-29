@@ -8,6 +8,13 @@ import { fileURLToPath } from 'node:url';
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const script = join(scriptsDir, 'retarget-prs.sh');
 
+function bashPath(path) {
+  if (process.platform !== 'win32') return path;
+  const normalized = path.replaceAll('\\', '/');
+  const drivePath = normalized.match(/^([A-Za-z]):(\/.*)$/);
+  return drivePath ? `/${drivePath[1].toLowerCase()}${drivePath[2]}` : normalized;
+}
+
 function runRetarget(t, prs, overrides = {}, expectedStatus = 0) {
   const scratch = mkdtempSync(join(scriptsDir, '.retarget-prs-test-'));
   t.after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -40,13 +47,13 @@ esac
       }),
     );
   }
-  const result = spawnSync('bash', [script, ...Object.keys(prs)], {
+  const result = spawnSync('bash', [bashPath(script), ...Object.keys(prs)], {
     encoding: 'utf8',
     env: {
       ...process.env,
       PATH: [scratch, process.env.PATH].join(delimiter),
-      FIXTURE_DIR: scratch,
-      CALLS_PATH: callsPath,
+      FIXTURE_DIR: bashPath(scratch),
+      CALLS_PATH: bashPath(callsPath),
       REPO: 'Coderax-AI/Coderax',
       RELEASE_BASE: 'main',
       TARGET_BASE: 'dev',
