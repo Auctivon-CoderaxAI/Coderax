@@ -54,6 +54,8 @@ export interface IWorkflowStepRun extends Required<Pick<WorkflowStepInput, 'id' 
   status: WorkflowStepStatus;
   attempts: number;
   deliveryKey?: string;
+  /** Durable conversation identity for generation lookup, continuation and cancellation. */
+  conversationId?: string;
   approvedAt?: Date;
   startedAt?: Date;
   settledAt?: Date;
