@@ -169,7 +169,8 @@ describe('createWorkflowEngine', () => {
     expect(ctx.enqueued).toEqual(['one', 'one']);
     expect(ctx.run.steps[0].attempts).toBe(2);
     expect(ctx.run.steps[0].startedAt?.getTime()).toBe(ctx.nowMs());
-    expect(ctx.run.steps[0].startedAt?.getTime()).toBeGreaterThan(firstAttemptAt);
+    expect(firstAttemptAt).toBeDefined();
+    expect(ctx.run.steps[0].startedAt?.getTime()).toBeGreaterThan(firstAttemptAt ?? -1);
 
     ctx.advance(900);
     await ctx.engine.runTick();
