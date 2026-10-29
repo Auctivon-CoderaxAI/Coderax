@@ -541,7 +541,8 @@ export function createWorkflowEngine(
 
         step.attempts += 1;
         step.status = 'running';
-        step.startedAt = step.startedAt ?? at;
+        // Timeout and generation fencing are scoped to this attempt, not the first attempt.
+        step.startedAt = at;
         step.error = undefined;
         step.availableAt = undefined;
         startedAt = startedAt ?? at;
