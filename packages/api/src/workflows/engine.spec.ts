@@ -318,6 +318,37 @@ function branchSetup(steps: WorkflowStepRecord[], options: { maxParallel?: numbe
 }
 
 describe('createWorkflowEngine branches', () => {
+  it('isolates independent root generations and lets each settle separately', async () => {
+    const ctx = branchSetup(
+      [
+        step({ id: 'first-root', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'second-root', dependsOn: [], maxAttempts: 1 }),
+      ],
+      { maxParallel: 2 },
+    );
+
+    await ctx.engine.runTick();
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['first-root', 'second-root']);
+    const first = ctx.enqueued[0].conversationId;
+    const second = ctx.enqueued[1].conversationId;
+    expect(first).toBe('root-conversation');
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    expect(ctx.run.steps[0].conversationId).toBe(first);
+    expect(ctx.run.steps[1].conversationId).toBe(second);
+
+    // Completing one parallel root must not complete or replace the other.
+    ctx.complete('second-root', 'complete');
+    await ctx.engine.runTick();
+    expect(ctx.run.steps[0].status).toBe('running');
+    expect(ctx.run.steps[1].status).toBe('completed');
+    expect(ctx.run.status).toBe('running');
+
+    ctx.complete('first-root', 'complete');
+    await ctx.engine.runTick();
+    expect(ctx.run.status).toBe('completed');
+  });
+
   it('runs independent branches in parallel and hands their results to the merge step', async () => {
     const ctx = branchSetup([
       step({ id: 'root', maxAttempts: 1 }),
