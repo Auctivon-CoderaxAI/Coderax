@@ -91,6 +91,8 @@ export interface WorkflowsHandlerDeps {
   wake: () => void;
   /** Aborts the turn currently running in a conversation, if any. */
   abortActiveRun?: (conversationId: string) => Promise<void>;
+  /** Retires a queued trigger before it can begin a cancelled workflow step. */
+  retireQueuedDelivery?: (deliveryKey: string, workflowId: string) => Promise<boolean>;
   createRunId?: () => string;
   now?: () => Date;
   streamPollMs?: number;
@@ -846,6 +848,25 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         if (run == null) {
           res.status(404).json({ error: 'Run not found' });
           return;
+        }
+        const retire = deps.retireQueuedDelivery;
+        if (retire != null) {
+          await Promise.all(
+            existing.steps.map(async (step) => {
+              if (step.status !== 'running' || step.deliveryKey == null) {
+                return;
+              }
+              try {
+                await retire(step.deliveryKey, existing.workflowId);
+              } catch (cause) {
+                logger.warn('[workflows] queued delivery retirement failed', {
+                  runId,
+                  stepId: step.id,
+                  error: cause instanceof Error ? cause.message : String(cause),
+                });
+              }
+            }),
+          );
         }
         await stopActiveTurns(existing);
         res.status(200).json({ run: toRunView(run) });
