@@ -4,7 +4,12 @@ const { createWorkRouter, GenerationJobManager } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
 
-const { flattenModelConfig, toWorkConversation, rowsFromCursor } = require('./workModels');
+const {
+  flattenModelConfig,
+  toWorkConversation,
+  rowsFromCursor,
+  onlyWorkRows,
+} = require('./workModels');
 const { getWorkChatRouter } = require('./workChat');
 
 /**
@@ -21,7 +26,7 @@ function depsFor(req) {
         sortBy: 'updatedAt',
         sortDirection: 'desc',
       });
-      return rowsFromCursor(result).map(toWorkConversation).filter(Boolean);
+      return onlyWorkRows(rowsFromCursor(result).map(toWorkConversation));
     },
     getConversation: async ({ userId, conversationId }) =>
       toWorkConversation(await db.getConvo(userId, conversationId)),
@@ -56,9 +61,9 @@ const router = express.Router();
 
 /**
  * Work start is the native chat handler behind an alias: the alias attaches the
- * server-owned Work context, then delegates to the same SSE stream, tools and
- * approval machinery as ordinary chat. Declared before the read routes so it is
- * never matched by the task router.
+ * server-owned Work context, then delegates to the native admission chain and
+ * the same SSE stream, tools and approval machinery as ordinary chat. Declared
+ * before the read routes so it is never matched by the task router.
  */
 router.use('/chat', getWorkChatRouter());
 

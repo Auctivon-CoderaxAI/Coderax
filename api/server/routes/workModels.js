@@ -68,6 +68,11 @@ function toWorkConversation(conversation) {
   };
 }
 
+/** Work history is Work conversations: an ordinary chat never appears there. */
+function onlyWorkRows(rows) {
+  return (rows ?? []).filter((row) => row != null && row.isWork === true);
+}
+
 /** `getConvosByCursor` returns a page; tolerate the array and page shapes. */
 function rowsFromCursor(result) {
   if (Array.isArray(result)) {
@@ -76,4 +81,10 @@ function rowsFromCursor(result) {
   return result?.conversations ?? result?.data ?? [];
 }
 
-module.exports = { flattenModelConfig, toWorkConversation, rowsFromCursor, isLocalEndpoint };
+module.exports = {
+  flattenModelConfig,
+  toWorkConversation,
+  onlyWorkRows,
+  rowsFromCursor,
+  isLocalEndpoint,
+};

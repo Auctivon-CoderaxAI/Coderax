@@ -4,6 +4,7 @@ const {
   flattenModelConfig,
   toWorkConversation,
   rowsFromCursor,
+  onlyWorkRows,
   isLocalEndpoint,
 } = require('../workModels');
 
@@ -70,4 +71,19 @@ test('reads conversation rows from either cursor shape', () => {
   ]);
   assert.deepEqual(rowsFromCursor({}), []);
   assert.deepEqual(rowsFromCursor(undefined), []);
+});
+
+test('history keeps Work conversations only', () => {
+  const rows = [
+    { conversationId: 'a', title: 'Plan', isWork: true },
+    { conversationId: 'b', title: 'Chat', isWork: false },
+    { conversationId: 'c', title: 'Other' },
+    null,
+  ];
+  assert.deepEqual(
+    onlyWorkRows(rows).map((row) => row.conversationId),
+    ['a'],
+  );
+  assert.deepEqual(onlyWorkRows(undefined), []);
+  assert.deepEqual(onlyWorkRows([]), []);
 });
