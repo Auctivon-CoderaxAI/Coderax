@@ -1,7 +1,7 @@
-const express = require('express');
-const http = require('node:http');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
+const http = require('node:http');
 const {
   delegateToAgents,
   resolveWorkContext,
@@ -9,7 +9,6 @@ const {
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
-  createWorkChatRouter,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -418,7 +417,7 @@ test('propagates a downstream error after restoring the path', async () => {
   assert.equal(req.url, '/');
 });
 
-/** Serves one express app on an ephemeral port. */
+/** Serves one express app on an ephemeral port and returns the base URL. */
 function serve(app) {
   return new Promise((resolve) => {
     const server = http.createServer(app).listen(0, '127.0.0.1', () => {
@@ -442,7 +441,7 @@ test('/api/work/chat runs admission after Work context and hands it the concrete
   });
   app.use(
     '/api/work',
-    createWorkChatRouter({
+    require('../workChat').createWorkChatRouter({
       loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
       configuredDefaultModel: () => 'llama3:latest',
       seedConversation: async () => ({ seeded: true }),
@@ -480,7 +479,7 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
   });
   app.use(
     '/api/work',
-    createWorkChatRouter({
+    require('../workChat').createWorkChatRouter({
       loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
       configuredDefaultModel: () => 'gpt-4o',
       seedConversation: async () => ({ seeded: false }),
