@@ -255,7 +255,9 @@ function useCyVoxAction() {
 }
 type CyVoxTask = { id: string; task?: string; goal?: string; state: string };
 type CyVoxTaskList = { tasks: CyVoxTask[] };
-type CyVoxModelList = { models: Array<{ name: string; compatible_now?: boolean }> };
+type CyVoxModelList = {
+  models: Array<{ name: string; compatible_now?: boolean; location?: string }>;
+};
 type CyVoxApprovals = {
   approvals: Array<{ approval_id: string; tool?: string; description?: string }>;
 };
@@ -406,8 +408,12 @@ function WorkView() {
   const taskItems = tasks.data?.tasks ?? [];
   const recentTasks = taskItems.slice(-12).reverse();
   const selectedTask = taskItems.find((item) => item.id === activeTaskId);
+  // CyVox reports installed Ollama models by raw tag, so `location` is the
+  // authoritative local signal; the prefix rule covers gateway deployments.
   const choices = (models.data?.models ?? []).filter(
-    (item) => item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name),
+    (item) =>
+      item.compatible_now !== false &&
+      (item.location === 'OLLAMA' || isCyvoxFreeOrLocalModel(item.name)),
   );
   // Only advertise models CyVox itself returned; a stale pick falls back to auto.
   const activeModel = choices.some((item) => item.name === model) ? model : CYVOX_AUTO_MODEL;

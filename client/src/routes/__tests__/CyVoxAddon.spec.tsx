@@ -434,6 +434,46 @@ describe('Coderax Work route', () => {
     queryClient.clear();
   });
 
+  it('offers raw inventory Ollama models while keeping paid gateway models out', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/models')) {
+        return {
+          ok: true,
+          json: async () => ({
+            models: [
+              { name: 'llama3:latest', location: 'OLLAMA', compatible_now: true },
+              { name: 'openai:gpt-4o', location: 'MODELGATEWAY', compatible_now: true },
+            ],
+          }),
+        };
+      }
+      if (url.endsWith('/tasks')) return { ok: true, json: async () => ({ tasks: [] }) };
+      return { ok: true, json: async () => ({ id: 'task-1' }) };
+    }) as unknown as typeof fetch;
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'llama3:latest' });
+    expect(screen.queryByRole('option', { name: 'openai:gpt-4o' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'llama3:latest' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Prepare a launch plan' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Prepare a launch plan',
+      mode: 'Autonomous Run',
+      model: 'llama3:latest',
+    });
+    queryClient.clear();
+  });
+
   it('never calls the deployment-global model action from Work', async () => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     mockWorkWithModel();

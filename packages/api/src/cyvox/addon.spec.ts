@@ -354,8 +354,12 @@ describe('CyVox per-task selection contract', () => {
     },
   );
 
-  it('rejects a billed model before contacting CyVox', async () => {
-    const fetchMock = jest.spyOn(global, 'fetch');
+  it('rejects a billed model without submitting a task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ models: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
     const response = await request(admin())
       .post('/actions/startTask')
       .set('X-CyVox-Confirm', 'yes')
@@ -363,7 +367,9 @@ describe('CyVox per-task selection contract', () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
   });
 
   it('rejects an unknown thinking effort before contacting CyVox', async () => {
@@ -387,6 +393,89 @@ describe('CyVox per-task selection contract', () => {
 
     expect(response.status).toBe(200);
     expect(bodyOf(fetchMock).thinking_effort).toBe(effort);
+  });
+
+  it('accepts a raw installed Ollama model confirmed by the inventory', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'llama3:latest', location: 'OLLAMA', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'llama3:latest' });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+      '/api/tasks',
+    ]);
+    const taskBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(taskBody).toEqual({
+      task: 'Inspect tests',
+      mode: 'Autonomous Run',
+      max_steps: 15,
+      routing_mode: 'FAST',
+      model: 'llama3:latest',
+    });
+  });
+
+  it('rejects a raw model the inventory does not report as installed Ollama', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'mistral:latest', location: 'OLLAMA', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'llama3:latest' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
+  });
+
+  it('still rejects a paid gateway model even when the inventory lists it', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'openai:gpt-4o', location: 'MODELGATEWAY', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'openai:gpt-4o' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
   });
 
   it('never writes the deployment-global model while starting a task', async () => {
