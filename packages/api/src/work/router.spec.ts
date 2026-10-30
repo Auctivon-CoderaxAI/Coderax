@@ -55,7 +55,7 @@ describe('native Work router', () => {
     const server = app();
     const created = await request(server).post('/api/work/tasks').send({ task: 'Plan the launch' });
     expect(created.status).toBe(201);
-    expect(created.body.task).toMatchObject({ title: 'Plan the launch', state: 'running' });
+    expect(created.body.task).toMatchObject({ title: 'Plan the launch', state: 'unknown' });
 
     const list = await request(server).get('/api/work/tasks');
     expect(list.body.tasks).toHaveLength(1);

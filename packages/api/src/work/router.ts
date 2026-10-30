@@ -156,8 +156,8 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
     }
-    const state = toWorkTask(conversation)?.state ?? 'running';
-    if (isTerminalWorkState(state)) {
+    const state = toWorkTask(conversation)?.state;
+    if (state && isTerminalWorkState(state)) {
       res.status(409).json({ code: 'WORK_TASK_ALREADY_FINISHED' });
       return;
     }
