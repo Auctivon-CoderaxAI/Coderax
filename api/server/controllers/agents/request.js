@@ -25,6 +25,7 @@ const {
   checkAndIncrementPendingRequest,
   exemptFromConcurrencyLimiter,
   isScheduleFireRequest,
+  assertWorkflowStepDeliveryActive,
   isUnpersistedPreliminaryParent,
   startAgentProjectContextResolution,
   assertChatProjectInstructions,
@@ -79,6 +80,7 @@ const {
   saveConvo,
   getMessages,
   getConvo,
+  getWorkflowRun,
   getChatProject,
   getProjectFiles,
   getAgentEventActorSnapshot,
@@ -1774,6 +1776,12 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         status: 409,
       });
     }
+    await assertWorkflowStepDeliveryActive({
+      getWorkflowRun,
+      trigger: req.body?.agentTrigger,
+      userId,
+      ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+    });
     if (req._agentEventBindingParentConversationId != null) {
       /** The generation job is the durable marker that a deletion on another replica
        * can abort. Recheck only after that marker exists: either the deletion fence

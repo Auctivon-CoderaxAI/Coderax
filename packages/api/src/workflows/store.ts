@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { WorkflowMethods } from '@coderax/data-schemas';
 import type { WorkflowRunEvent } from 'coderax-data-provider';
-import { createAgentTriggerEnvelope } from '../agents/triggers/envelope';
+import type { WorkflowMethods } from '@coderax/data-schemas';
 import type {
   WorkflowEngineStore,
   WorkflowRunRecord,
@@ -9,6 +8,7 @@ import type {
   WorkflowScheduleDeps,
   WorkflowStepRecord,
 } from './types';
+import { createAgentTriggerEnvelope } from '../agents/triggers/envelope';
 
 interface StoredRun {
   id: string;

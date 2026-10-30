@@ -119,9 +119,113 @@ export function createWorkflowTurnAborter(
   };
 }
 
+interface WorkflowStepDelivery {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  workflowId: string;
+}
+
+export interface WorkflowStepRunState {
+  workflowId: string;
+  tenantId?: string;
+  status: WorkflowRunRecord['status'];
+  steps: Array<Pick<WorkflowRunRecord['steps'][number], 'id' | 'status' | 'attempts'>>;
+}
+
+export type WorkflowStepRunLookup = (
+  id: string,
+  userId: string,
+) => Promise<WorkflowStepRunState | null>;
+
+/** Parses the trusted fire envelope the trigger host sends to the chat route. */
+export function parseWorkflowStepDelivery(trigger: unknown): WorkflowStepDelivery | null {
+  if (trigger == null || typeof trigger !== 'object' || Array.isArray(trigger)) {
+    return null;
+  }
+  const record = trigger as Record<string, unknown>;
+  const event = record.event;
+  if (event == null || typeof event !== 'object' || Array.isArray(event)) {
+    return null;
+  }
+  const eventRecord = event as Record<string, unknown>;
+  if (eventRecord.type !== 'workflow.step') {
+    return null;
+  }
+  const source = eventRecord.source;
+  if (source == null || typeof source !== 'object' || Array.isArray(source)) {
+    return null;
+  }
+  const sourceRecord = source as Record<string, unknown>;
+  if (sourceRecord.type !== 'workflow' || typeof sourceRecord.id !== 'string') {
+    return null;
+  }
+  const metadata = record.metadata;
+  if (metadata == null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+  const fields = metadata as Record<string, unknown>;
+  const runId = fields.workflowRunId;
+  const stepId = fields.workflowStepId;
+  const deliveryId = record.deliveryId;
+  if (typeof runId !== 'string' || typeof stepId !== 'string' || typeof deliveryId !== 'string') {
+    return null;
+  }
+  const prefix = `wf:${runId}:${stepId}:`;
+  if (!deliveryId.startsWith(prefix)) {
+    return null;
+  }
+  const attemptText = deliveryId.slice(prefix.length);
+  if (!/^[1-9]\d*$/.test(attemptText)) {
+    return null;
+  }
+  const attempt = Number(attemptText);
+  if (!Number.isSafeInteger(attempt)) {
+    return null;
+  }
+  return { runId, stepId, attempt, workflowId: sourceRecord.id };
+}
+
+export class WorkflowStepInactiveError extends Error {
+  readonly code = 'WORKFLOW_STEP_INACTIVE';
+  readonly status = 409;
+
+  constructor() {
+    super('Workflow step is no longer active');
+    this.name = 'WorkflowStepInactiveError';
+  }
+}
+
+/**
+ * Admission read taken after the generation job exists. Cancellation that wins
+ * before this read rejects the turn; cancellation that wins after it observes
+ * the committed job and can abort it. Callers must abort the job on rejection.
+ */
+export async function assertWorkflowStepDeliveryActive(deps: {
+  getWorkflowRun: WorkflowStepRunLookup;
+  trigger: unknown;
+  userId: string;
+  tenantId?: string;
+}): Promise<void> {
+  const delivery = parseWorkflowStepDelivery(deps.trigger);
+  if (delivery == null) {
+    return;
+  }
+  const run = await deps.getWorkflowRun(delivery.runId, deps.userId);
+  if (
+    !isWorkflowStepActive(run, {
+      ...delivery,
+      userId: deps.userId,
+      ...(deps.tenantId == null ? {} : { tenantId: deps.tenantId }),
+    })
+  ) {
+    throw new WorkflowStepInactiveError();
+  }
+}
+
 /** Durable admission check for a workflow step delivery. */
 export function isWorkflowStepActive(
-  run: WorkflowRunRecord | null | undefined,
+  run: WorkflowStepRunState | null | undefined,
   input: {
     runId: string;
     stepId: string;
