@@ -435,6 +435,38 @@ describe('createWorkflowEngine branches', () => {
     expect(ctx.run.status).toBe('running');
   });
 
+  it('does not dispatch dependent branches while a parallel root drains for pause', async () => {
+    const ctx = branchSetup(
+      [
+        step({ id: 'root-a', maxAttempts: 1 }),
+        step({ id: 'root-b', maxAttempts: 1 }),
+        step({ id: 'after-a', dependsOn: ['root-a'], maxAttempts: 1 }),
+      ],
+      { maxParallel: 2 },
+    );
+
+    await ctx.engine.runTick();
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['root-a', 'root-b']);
+
+    ctx.run.pauseRequestedAt = ctx.now();
+    ctx.complete('root-a', 'complete');
+    await ctx.engine.runTick();
+    expect(ctx.run.status).toBe('running');
+    expect(ctx.run.steps.find((entry) => entry.id === 'root-a')?.status).toBe('completed');
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['root-a', 'root-b']);
+
+    ctx.complete('root-b', 'complete');
+    await ctx.engine.runTick();
+    expect(ctx.run.status).toBe('paused');
+    expect(ctx.run.steps.find((entry) => entry.id === 'after-a')?.status).toBe('pending');
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['root-a', 'root-b']);
+
+    ctx.run.status = 'queued';
+    ctx.run.pauseRequestedAt = undefined;
+    await ctx.engine.runTick();
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['root-a', 'root-b', 'after-a']);
+  });
+
   it('drains a due schedule once and advances its next occurrence', async () => {
     const complete = jest.fn(async () => undefined);
     const claimDue = jest.fn(async () => [
