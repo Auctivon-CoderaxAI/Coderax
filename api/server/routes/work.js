@@ -61,9 +61,9 @@ const router = express.Router();
 
 /**
  * Work start is the native chat handler behind an alias: the alias attaches the
- * server-owned Work context, then delegates to the native admission chain and
- * the same SSE stream, tools and approval machinery as ordinary chat. Declared
- * before the read routes so it is never matched by the task router.
+ * server-owned Work context, then delegates to the same SSE stream, tools and
+ * approval machinery as ordinary chat. Declared before the read routes so it is
+ * never matched by the task router.
  */
 router.use('/chat', getWorkChatRouter());
 
