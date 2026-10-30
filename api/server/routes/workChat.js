@@ -7,8 +7,29 @@ const {
 } = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
 
-/** The app config field that carries the deployment's default model, if any. */
-const configuredDefaultFromRequest = (req) => req?.config?.defaultModel ?? null;
+/**
+ * The deployment's default model, read from the app config Coderax already
+ * loads. `req.config` is the app config, and its default-selection data is
+ * `modelSpecs.list`: a spec marked `default` is the hard default, and one marked
+ * `softDefault` is the fallback. The concrete model id lives on the spec's
+ * `preset`, so a spec that only names an agent yields no model id.
+ *
+ * Returning null is deliberate: it lets the resolver fail with an actionable
+ * message instead of guessing.
+ */
+function resolveConfiguredDefaultModel(config) {
+  const specs = config?.modelSpecs?.list;
+  if (!Array.isArray(specs)) {
+    return null;
+  }
+  const chosen =
+    specs.find((spec) => spec?.default === true) ??
+    specs.find((spec) => spec?.softDefault === true);
+  const model = chosen?.preset?.model;
+  return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
+}
+
+const configuredDefaultFromRequest = (req) => resolveConfiguredDefaultModel(req?.config);
 
 /**
  * Resolve the concrete model a Work turn stores and runs on.
@@ -62,8 +83,10 @@ function stripClientWorkFields(body) {
  * persist an ordinary chat row and vanish from Work history. Seeding here makes
  * the marker durable regardless of how the turn ends.
  *
- * Ownership comes from the authenticated user, never from the body, and an
- * existing row is left untouched so a follow-up can never re-stamp it.
+ * Ownership comes from the authenticated user, never from the body. `saveConvo`
+ * scopes its write to `{conversationId, user: userId}`, so this can never
+ * overwrite a row belonging to another user. An existing row is left untouched,
+ * so a follow-up can never re-stamp a conversation's original marker.
  */
 async function seedWorkConversation(req, context, db) {
   const store = db ?? require('~/models');
@@ -175,6 +198,7 @@ function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel, se
 
 module.exports = {
   resolveWorkContext,
+  resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,

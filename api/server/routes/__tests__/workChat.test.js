@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   resolveWorkContext,
+  resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
@@ -260,4 +261,111 @@ test('a seed failure does not block the Work turn', async () => {
   assert.equal(res.statusCode, 0);
   assert.equal(req.workContext.workModel, 'llama3:latest');
   assert.equal(req.body.model, 'llama3:latest');
+});
+
+test('reads the hard default spec model from the real app config shape', () => {
+  const config = {
+    modelSpecs: {
+      list: [
+        { name: 'a', preset: { model: 'gpt-4o' } },
+        { name: 'b', default: true, preset: { model: 'llama3:latest' } },
+        { name: 'c', softDefault: true, preset: { model: 'qwen2.5' } },
+      ],
+    },
+  };
+  assert.equal(resolveConfiguredDefaultModel(config), 'llama3:latest');
+});
+
+test('falls back to the soft default when no hard default exists', () => {
+  const config = {
+    modelSpecs: { list: [{ name: 'c', softDefault: true, preset: { model: 'qwen2.5' } }] },
+  };
+  assert.equal(resolveConfiguredDefaultModel(config), 'qwen2.5');
+});
+
+test('returns null when the config names no concrete default model', () => {
+  assert.equal(resolveConfiguredDefaultModel(undefined), null);
+  assert.equal(resolveConfiguredDefaultModel({}), null);
+  assert.equal(resolveConfiguredDefaultModel({ modelSpecs: { list: [] } }), null);
+  assert.equal(
+    resolveConfiguredDefaultModel({
+      modelSpecs: { list: [{ default: true, preset: { agent_id: 'agent_1' } }] },
+    }),
+    null,
+  );
+  assert.equal(
+    resolveConfiguredDefaultModel({ modelSpecs: { list: [{ default: true, preset: { model: '  ' } }] } }),
+    null,
+  );
+});
+
+test('auto resolves through the real config adapter', async () => {
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }], lmstudio: ['qwen2.5'] }),
+    undefined,
+    async () => ({ seeded: false }),
+  );
+  const req = {
+    body: { text: 'plan', model: 'auto' },
+    user: { id: 'user-1' },
+    config: {
+      modelSpecs: { list: [{ name: 'local', default: true, preset: { model: 'qwen2.5' } }] },
+    },
+  };
+  const res = response();
+  let received;
+  await middleware(req, res, () => {
+    received = req.body.model;
+  });
+
+  assert.equal(received, 'qwen2.5');
+  assert.equal(req.workContext.workModel, 'qwen2.5');
+});
+
+test('a paid config default still fails auto with the actionable error', async () => {
+  const middleware = workContextMiddleware(async () => ({ ollama: [{ model: 'llama3:latest' }] }));
+  const req = {
+    body: { text: 'plan', model: 'auto' },
+    user: { id: 'user-1' },
+    config: { modelSpecs: { list: [{ default: true, preset: { model: 'gpt-4o' } }] } },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_AUTO_UNRESOLVED');
+});
+
+test('seeds before the handler runs, so a later failure still leaves a marked row', async () => {
+  const order = [];
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => 'llama3:latest',
+    async (_req, context) => {
+      order.push('seed:' + context.workModel);
+    },
+  );
+  await middleware(
+    { body: { text: 'plan', model: 'auto', conversationId: 'c-1' }, user: { id: 'u' } },
+    response(),
+    () => order.push('handler'),
+  );
+
+  assert.deepEqual(order, ['seed:llama3:latest', 'handler']);
+});
+
+test('a follow-up on an existing conversation keeps its original marker', async () => {
+  const db = fakeDb({ conversationId: 'convo-1', isWork: true, workModel: 'llama3:latest' });
+  const result = await seedWorkConversation(
+    { user: { id: 'user-1' }, body: { conversationId: 'convo-1' } },
+    { isWork: true, workModel: 'qwen2.5' },
+    db,
+  );
+
+  assert.deepEqual(result, { seeded: false, reason: 'exists' });
+  assert.equal(db.saves.length, 0);
 });
