@@ -4,6 +4,7 @@ const {
   resolveWorkContext,
   stripClientWorkFields,
   workContextMiddleware,
+  seedWorkConversation,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -181,4 +182,82 @@ test('model discovery failure becomes an actionable 503, not a crash', async () 
   assert.equal(continued, false);
   assert.equal(res.statusCode, 503);
   assert.equal(res.payload.error, 'WORK_MODELS_UNAVAILABLE');
+});
+
+/** Records what the seed asked the store to persist. */
+const fakeDb = (existing = null) => {
+  const saves = [];
+  return {
+    saves,
+    getConvo: async () => existing,
+    saveConvo: async (ctx, fields, meta) => {
+      saves.push({ ctx, fields, meta });
+      return { conversationId: fields.conversationId };
+    },
+  };
+};
+
+test('seeds a new Work conversation with the marker and the authenticated owner', async () => {
+  const db = fakeDb();
+  const result = await seedWorkConversation(
+    { user: { id: 'user-1' }, body: { conversationId: 'convo-1', userId: 'attacker' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+
+  assert.deepEqual(result, { seeded: true });
+  assert.equal(db.saves.length, 1);
+  assert.equal(db.saves[0].ctx.userId, 'user-1');
+  assert.equal(db.saves[0].fields.isWork, true);
+  assert.equal(db.saves[0].fields.workModel, 'llama3:latest');
+  assert.equal(db.saves[0].fields.conversationId, 'convo-1');
+});
+
+test('never re-stamps a conversation that already exists', async () => {
+  const db = fakeDb({ conversationId: 'convo-1', isWork: false });
+  const result = await seedWorkConversation(
+    { user: { id: 'user-1' }, body: { conversationId: 'convo-1' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+
+  assert.deepEqual(result, { seeded: false, reason: 'exists' });
+  assert.equal(db.saves.length, 0);
+});
+
+test('does nothing without an authenticated user or a conversation id', async () => {
+  const noUser = fakeDb();
+  assert.deepEqual(
+    await seedWorkConversation({ body: { conversationId: 'c-1' } }, { workModel: 'm' }, noUser),
+    { seeded: false, reason: 'no_target' },
+  );
+  assert.equal(noUser.saves.length, 0);
+
+  const noConvo = fakeDb();
+  assert.deepEqual(
+    await seedWorkConversation({ user: { id: 'user-1' }, body: {} }, { workModel: 'm' }, noConvo),
+    { seeded: false, reason: 'no_target' },
+  );
+  assert.equal(noConvo.saves.length, 0);
+});
+
+test('a seed failure does not block the Work turn', async () => {
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => 'llama3:latest',
+    async () => {
+      throw new Error('store unavailable');
+    },
+  );
+  const req = { body: { text: 'plan', model: 'auto', conversationId: 'c-1' }, user: { id: 'u' } };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, true);
+  assert.equal(res.statusCode, 0);
+  assert.equal(req.workContext.workModel, 'llama3:latest');
+  assert.equal(req.body.model, 'llama3:latest');
 });

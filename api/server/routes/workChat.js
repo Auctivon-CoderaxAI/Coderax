@@ -55,6 +55,35 @@ function stripClientWorkFields(body) {
   return rest;
 }
 
+/**
+ * Create the Work conversation's row, with its marker, before the native handler
+ * runs. The failed-turn save path writes through `~/models` and never sees
+ * `req.workContext`, so a first turn that fails before seeding would otherwise
+ * persist an ordinary chat row and vanish from Work history. Seeding here makes
+ * the marker durable regardless of how the turn ends.
+ *
+ * Ownership comes from the authenticated user, never from the body, and an
+ * existing row is left untouched so a follow-up can never re-stamp it.
+ */
+async function seedWorkConversation(req, context, db) {
+  const store = db ?? require('~/models');
+  const userId = req?.user?.id;
+  const conversationId = req?.body?.conversationId;
+  if (!userId || typeof conversationId !== 'string' || conversationId === '') {
+    return { seeded: false, reason: 'no_target' };
+  }
+  const existing = await store.getConvo(userId, conversationId);
+  if (existing) {
+    return { seeded: false, reason: 'exists' };
+  }
+  await store.saveConvo(
+    { userId, isTemporary: req.body?.isTemporary },
+    { conversationId, isWork: true, workModel: context.workModel },
+    { context: 'api/server/routes/workChat.js - seed Work conversation' },
+  );
+  return { seeded: true };
+}
+
 const MESSAGES = {
   WORK_MODEL_NOT_ALLOWED:
     'That model is not available for Work. Choose a free or locally served model.',
@@ -73,6 +102,7 @@ const fail = (res, status, error, message) => res.status(status).json({ error, m
 function workContextMiddleware(
   loadModelsForRequest,
   configuredDefaultModel = configuredDefaultFromRequest,
+  seedConversation = seedWorkConversation,
 ) {
   return async (req, res, next) => {
     try {
@@ -95,6 +125,13 @@ function workContextMiddleware(
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
+      /** A seed failure must not fail the turn: the marker is also written by the
+       *  turn's own save, so the run stays usable and the gap is logged. */
+      try {
+        await seedConversation(req, context);
+      } catch (error) {
+        logger.warn(`[Work] Failed to seed the Work conversation: ${error?.message ?? error}`);
+      }
       /**
        * `auto` is a UI choice, never a provider id: the native runner receives
        * the concrete model the server resolved, so the sentinel can never reach
@@ -122,13 +159,14 @@ function workContextMiddleware(
  * The Work start path is the existing chat handler, reached through an alias so
  * the server can attach Work context. No second runner, no duplicated stream.
  */
-function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel } = {}) {
+function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel, seedConversation } = {}) {
   const router = express.Router();
   router.use(
     workContextMiddleware(
       loadModelsForRequest ??
         ((req) => require('~/server/controllers/ModelController').loadModels(req)),
       configuredDefaultModel,
+      seedConversation,
     ),
   );
   router.use(require('./agents/chat'));
@@ -139,6 +177,7 @@ module.exports = {
   resolveWorkContext,
   stripClientWorkFields,
   workContextMiddleware,
+  seedWorkConversation,
   WORK_AUTO_MODEL_ID,
 };
 
