@@ -498,9 +498,14 @@ export function createWorkflowEngine(
     if (!steps.every((step) => terminalStep(step.status))) {
       const running = steps.filter((step) => step.status === 'running').length;
 
-      if (run.pauseRequestedAt != null && running === 0) {
-        status = 'paused';
-        return saveRun();
+      if (run.pauseRequestedAt != null) {
+        if (running === 0) {
+          status = 'paused';
+          return saveRun();
+        }
+        // Observe and persist in-flight results, but never admit a new branch
+        // while a pause is pending, even if another branch frees a slot.
+        return dirty ? saveRun() : 'released';
       }
 
       // 3. Dispatch every ready step the parallelism budget allows.
