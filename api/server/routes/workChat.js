@@ -179,10 +179,41 @@ function workContextMiddleware(
 }
 
 /**
- * The Work start path is the existing chat handler, reached through an alias so
- * the server can attach Work context. No second runner, no duplicated stream.
+ * Send the request into the *mounted* agents router under its `/chat` path.
+ *
+ * Delegating to the outer router rather than the inner chat handler is what
+ * keeps Work on the native admission chain: `checkBan`, `uaParser`,
+ * `chatConfigMiddleware` (tenant config), the generation-retry probe and
+ * limiters, the configured IP/user limiters, the private-text ingress, PII
+ * filtering, moderation and `buildEndpointOption` all run exactly as they do
+ * for `/api/agents/chat`, and the same controller, SSE stream, tool
+ * permissions and HITL approvals follow.
+ *
+ * Only the path is rewritten, and it is restored afterwards so downstream
+ * logging and error handling see the original request.
  */
-function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel, seedConversation } = {}) {
+function delegateToAgents(agentsRouter) {
+  return (req, res, next) => {
+    const originalUrl = req.url;
+    req.url = '/chat' + (originalUrl === '/' ? '' : originalUrl);
+    agentsRouter(req, res, (error) => {
+      req.url = originalUrl;
+      next(error);
+    });
+  };
+}
+
+/**
+ * The Work start path is the existing native chat path, reached through an alias
+ * so the server can attach Work context. No second runner, no duplicated stream,
+ * and no reimplemented middleware chain.
+ */
+function createWorkChatRouter({
+  loadModelsForRequest,
+  configuredDefaultModel,
+  seedConversation,
+  agentsRouter,
+} = {}) {
   const router = express.Router();
   router.use(
     workContextMiddleware(
@@ -192,11 +223,13 @@ function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel, se
       seedConversation,
     ),
   );
-  router.use(require('./agents/chat'));
+  router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
   return router;
 }
 
 module.exports = {
+  createWorkChatRouter,
+  delegateToAgents,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
