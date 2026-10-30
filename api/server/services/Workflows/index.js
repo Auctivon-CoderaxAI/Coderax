@@ -79,7 +79,9 @@ function getEngine() {
       complete: methods.completeWorkflowScheduleClaim,
       release: methods.releaseWorkflowScheduleClaim,
       nextRunAt: ({ cadence, timezone, after, workflowId }) =>
-        computeNextRunAt({ cadence, timezone, after, scheduleId: workflowId }),
+        // The initial occurrence is persisted without jitter in handlers.ts. Use
+        // the same policy when advancing or the first occurrence is selected again.
+        computeNextRunAt({ cadence, timezone, after, scheduleId: workflowId, disableJitter: true }),
     }),
   });
   engine = runner;

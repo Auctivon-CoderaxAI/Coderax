@@ -116,6 +116,7 @@ interface DraftStep {
   instruction: string;
   approvalRequired: boolean;
   maxAttempts: number;
+  timeoutMs?: number;
   agentId: string;
   dependsOn: string[];
   runIf: DraftCondition[];
@@ -129,6 +130,7 @@ interface Draft {
   agentId: string;
   steps: DraftStep[];
   maxParallel: number;
+  stepTimeoutMs?: number;
   scheduleEnabled: boolean;
   scheduleFrequency: DraftFrequency;
   scheduleHour: number;
@@ -136,6 +138,8 @@ interface Draft {
   scheduleDay: number;
   scheduleCron: string;
   scheduleTimezone: string;
+  scheduleDaysOfWeek: number[];
+  scheduleInput: string;
   eventTriggers: DraftEventTrigger[];
   onCompleteWorkflowId: string;
 }
@@ -154,11 +158,10 @@ function newStep(index: number, previousId?: string): DraftStep {
   };
 }
 
-function resolvedDependencies(step: DraftStep, index: number, steps: DraftStep[]): string[] {
-  if (step.dependsOn.length > 0) {
-    return step.dependsOn;
-  }
-  return index === 0 ? [] : [steps[index - 1].id];
+function resolvedDependencies(step: DraftStep): string[] {
+  // Missing dependencies are defaulted when a workflow is loaded. An explicit
+  // empty list means an independent root and must not become linear again.
+  return step.dependsOn;
 }
 
 function conditionsOf(step: WorkflowStepInput): WorkflowStepCondition[] {
@@ -179,6 +182,7 @@ function toDraftStep(
     instruction: step.instruction,
     approvalRequired: step.approvalRequired === true,
     maxAttempts: step.maxAttempts ?? 3,
+    ...(step.timeoutMs != null ? { timeoutMs: step.timeoutMs } : {}),
     agentId: step.agentId ?? '',
     dependsOn: step.dependsOn ?? (index === 0 ? [] : [input[index - 1].id]),
     runIf: conditionsOf(step).map((condition) => ({
@@ -211,6 +215,9 @@ function toDraft(workflow: WorkflowView): Draft {
     agentId: workflow.agentId,
     steps: workflow.steps.map((step, index) => toDraftStep(step, index, workflow.steps)),
     maxParallel: workflow.settings?.maxParallel ?? 2,
+    ...(workflow.settings?.stepTimeoutMs != null
+      ? { stepTimeoutMs: workflow.settings.stepTimeoutMs }
+      : {}),
     scheduleEnabled: workflow.schedule?.enabled === true,
     scheduleFrequency,
     scheduleHour: cadence == null || cadence.frequency === 'cron' ? 9 : cadence.hour,
@@ -220,6 +227,9 @@ function toDraft(workflow: WorkflowView): Draft {
     scheduleCron:
       cadence != null && cadence.frequency === 'cron' ? cadence.expression : '0 9 * * 1-5',
     scheduleTimezone: workflow.schedule?.timezone ?? timezone(),
+    scheduleDaysOfWeek:
+      cadence != null && cadence.frequency === 'weekly' ? (cadence.daysOfWeek ?? [1]) : [1],
+    scheduleInput: workflow.schedule?.input ?? '',
     eventTriggers: (workflow.eventTriggers ?? []).map((trigger) => ({
       eventType: trigger.eventType,
       sourceId: trigger.sourceId ?? '',
@@ -236,6 +246,9 @@ function fromTemplate(template: WorkflowTemplate, agentId: string): Draft {
     agentId,
     steps: template.steps.map((step, index) => toDraftStep(step, index, template.steps)),
     maxParallel: template.settings?.maxParallel ?? 2,
+    ...(template.settings?.stepTimeoutMs != null
+      ? { stepTimeoutMs: template.settings.stepTimeoutMs }
+      : {}),
     scheduleEnabled: false,
     scheduleFrequency: 'daily',
     scheduleHour: 9,
@@ -243,12 +256,14 @@ function fromTemplate(template: WorkflowTemplate, agentId: string): Draft {
     scheduleDay: 1,
     scheduleCron: '0 9 * * 1-5',
     scheduleTimezone: timezone(),
+    scheduleDaysOfWeek: [1],
+    scheduleInput: '',
     eventTriggers: [],
     onCompleteWorkflowId: '',
   };
 }
 
-function toStepInput(step: DraftStep, index: number, steps: DraftStep[]): WorkflowStepInput {
+function toStepInput(step: DraftStep): WorkflowStepInput {
   const conditions: WorkflowStepCondition[] = step.runIf
     .filter((condition) => condition.stepId.length > 0)
     .map((condition) => ({
@@ -264,8 +279,9 @@ function toStepInput(step: DraftStep, index: number, steps: DraftStep[]): Workfl
     instruction: step.instruction.trim(),
     ...(step.approvalRequired ? { approvalRequired: true } : {}),
     maxAttempts: step.maxAttempts,
+    ...(step.timeoutMs != null ? { timeoutMs: step.timeoutMs } : {}),
     ...(step.agentId.length > 0 ? { agentId: step.agentId } : {}),
-    dependsOn: resolvedDependencies(step, index, steps),
+    dependsOn: resolvedDependencies(step),
     join: step.join,
     ...(conditions.length === 0
       ? {}
@@ -294,12 +310,20 @@ function toSchedule(draft: Draft): WorkflowScheduleInput | null {
           frequency: draft.scheduleFrequency,
           hour: draft.scheduleHour,
           minute: draft.scheduleMinute,
-          ...(draft.scheduleFrequency === 'weekly' ? { daysOfWeek: [draft.scheduleDay] } : {}),
+          ...(draft.scheduleFrequency === 'weekly'
+            ? {
+                daysOfWeek:
+                  draft.scheduleDaysOfWeek.length > 0
+                    ? draft.scheduleDaysOfWeek
+                    : [draft.scheduleDay],
+              }
+            : {}),
         };
   return {
     enabled: true,
     cadence,
     timezone: draft.scheduleTimezone.trim(),
+    ...(draft.scheduleInput.trim().length > 0 ? { input: draft.scheduleInput.trim() } : {}),
   };
 }
 
@@ -352,6 +376,8 @@ function WorkflowEditor({
           scheduleDay: 1,
           scheduleCron: '0 9 * * 1-5',
           scheduleTimezone: timezone(),
+          scheduleDaysOfWeek: [1],
+          scheduleInput: '',
           eventTriggers: [],
           onCompleteWorkflowId: '',
         },
@@ -440,8 +466,11 @@ function WorkflowEditor({
       name: draft.name.trim(),
       ...(draft.description.trim().length > 0 ? { description: draft.description.trim() } : {}),
       agentId: draft.agentId,
-      steps: draft.steps.map(toStepInput),
-      settings: { maxParallel: draft.maxParallel },
+      steps: draft.steps.map((step) => toStepInput(step)),
+      settings: {
+        maxParallel: draft.maxParallel,
+        ...(draft.stepTimeoutMs != null ? { stepTimeoutMs: draft.stepTimeoutMs } : {}),
+      },
       schedule: toSchedule(draft),
       eventTriggers: toEventTriggers(draft),
       ...(draft.onCompleteWorkflowId.length > 0
@@ -449,7 +478,13 @@ function WorkflowEditor({
         : {}),
     };
     if (workflow != null) {
-      updateMutation.mutate(payload, { onSuccess: (saved) => onDone(saved) });
+      // An omitted field means "leave unchanged"; null is the explicit unlink.
+      updateMutation.mutate(
+        draft.onCompleteWorkflowId.length > 0
+          ? payload
+          : { ...payload, onCompleteWorkflowId: null },
+        { onSuccess: (saved) => onDone(saved) },
+      );
       return;
     }
     createMutation.mutate(payload, { onSuccess: (saved) => onDone(saved) });
@@ -950,12 +985,14 @@ function WorkflowEditor({
                     <select
                       className="border-border-medium bg-surface-primary w-full rounded-md border px-2 py-1 text-sm"
                       value={draft.scheduleDay}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const scheduleDay = Number(event.target.value);
                         setDraft((current) => ({
                           ...current,
-                          scheduleDay: Number(event.target.value),
-                        }))
-                      }
+                          scheduleDay,
+                          scheduleDaysOfWeek: [scheduleDay],
+                        }));
+                      }}
                     >
                       {WEEKDAYS.map((label, value) => (
                         <option key={label} value={value}>
