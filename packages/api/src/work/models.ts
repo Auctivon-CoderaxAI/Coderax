@@ -19,7 +19,14 @@ export type WorkModel = {
   id: string;
   label: string;
   provider?: string;
+  /** Set on the single option that lets Coderax choose among the listed models. */
+  auto?: true;
 };
+
+/** Sentinel id for "let Coderax pick among the offered models". */
+export const WORK_AUTO_MODEL_ID = 'auto';
+
+export const WORK_AUTO_MODEL_LABEL = 'Automatic';
 
 /** Local runtimes report a bare tag; these prefixes identify them explicitly. */
 const LOCAL_PREFIXES = ['ollama/', 'ollama:', 'local/', 'lmstudio/', 'llamacpp/'];
@@ -64,9 +71,23 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
 }
 
 /**
+ * The picker's options: the automatic choice first, then the concrete models.
+ * Automatic is offered only when there is at least one model to choose from,
+ * so it can never be selected against an empty list.
+ */
+export function buildWorkModelOptions(sources: WorkModelSource[]): WorkModel[] {
+  const models = buildWorkModels(sources);
+  if (models.length === 0) {
+    return [];
+  }
+  return [{ id: WORK_AUTO_MODEL_ID, label: WORK_AUTO_MODEL_LABEL, auto: true }, ...models];
+}
+
+/**
  * A selection is honoured only when it is still offered. Returning `null`
  * tells the caller to fall back explicitly instead of silently swapping the
- * user's choice, which is what the previous surface did.
+ * user's choice, which is what the previous surface did. The automatic option
+ * is valid only while at least one concrete model is available.
  */
 export function resolveWorkModel(
   models: WorkModel[],
@@ -74,6 +95,13 @@ export function resolveWorkModel(
 ): WorkModel | null {
   if (!selected) {
     return null;
+  }
+  if (selected === WORK_AUTO_MODEL_ID) {
+    const concrete = models.filter((model) => model.id !== WORK_AUTO_MODEL_ID);
+    if (concrete.length === 0) {
+      return null;
+    }
+    return { id: WORK_AUTO_MODEL_ID, label: WORK_AUTO_MODEL_LABEL, auto: true };
   }
   return models.find((model) => model.id === selected) ?? null;
 }

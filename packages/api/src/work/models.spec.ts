@@ -1,4 +1,10 @@
-import { buildWorkModels, isWorkSupportedModel, resolveWorkModel } from './models';
+import {
+  WORK_AUTO_MODEL_ID,
+  buildWorkModelOptions,
+  buildWorkModels,
+  isWorkSupportedModel,
+  resolveWorkModel,
+} from './models';
 
 describe('native work model discovery', () => {
   it('offers free and local models without any CyVox input', () => {
@@ -27,10 +33,28 @@ describe('native work model discovery', () => {
     expect(models).toEqual([{ id: 'llama3:latest', label: 'First' }]);
   });
 
+  it('puts the automatic option first when models are available', () => {
+    const options = buildWorkModelOptions([{ id: 'llama3:latest', local: true }]);
+    expect(options.map((option) => option.id)).toEqual([WORK_AUTO_MODEL_ID, 'llama3:latest']);
+    expect(options[0]).toMatchObject({ auto: true, label: 'Automatic' });
+  });
+
+  it('does not offer automatic against an empty model list', () => {
+    expect(buildWorkModelOptions([{ id: 'openai:gpt-4o', provider: 'gateway' }])).toEqual([]);
+    expect(buildWorkModelOptions([])).toEqual([]);
+  });
+
   it('never silently substitutes a different model', () => {
     const models = buildWorkModels([{ id: 'llama3:latest', local: true }]);
     expect(resolveWorkModel(models, 'llama3:latest')?.id).toBe('llama3:latest');
     expect(resolveWorkModel(models, 'gone')).toBeNull();
     expect(resolveWorkModel(models, null)).toBeNull();
+  });
+
+  it('resolves the automatic option only while a concrete model exists', () => {
+    expect(
+      resolveWorkModel(buildWorkModelOptions([{ id: 'ollama/qwen' }]), WORK_AUTO_MODEL_ID),
+    ).toMatchObject({ id: WORK_AUTO_MODEL_ID, auto: true });
+    expect(resolveWorkModel(buildWorkModels([]), WORK_AUTO_MODEL_ID)).toBeNull();
   });
 });

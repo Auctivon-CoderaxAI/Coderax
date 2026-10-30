@@ -9,18 +9,36 @@ export const WORK_METADATA_KEY = 'work';
 
 export const WORK_MAX_TASK_LENGTH = 4000;
 
-/** States a Work run can report. Anything else is treated as still running. */
-const TERMINAL_STATES = new Set([
-  'complete',
-  'completed',
-  'done',
-  'error',
-  'failed',
-  'success',
-  'succeeded',
-  'canceled',
-  'cancelled',
-]);
+/** Run states the Work surface knows how to render. */
+export type WorkTaskState = 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+
+/**
+ * A stored conversation proves a task existed, never that it is still running.
+ * Run state lives in the live job registry, so a row with no resolved state is
+ * `unknown` rather than a fabricated `running`.
+ */
+export const WORK_UNKNOWN_STATE: WorkTaskState = 'unknown';
+
+/** The state Coderax itself may persist on the conversation when a run settles. */
+export const WORK_STATE_METADATA_KEY = 'workState';
+
+const STATE_ALIASES: Record<string, WorkTaskState> = {
+  running: 'running',
+  in_progress: 'running',
+  started: 'running',
+  queued: 'running',
+  complete: 'completed',
+  completed: 'completed',
+  done: 'completed',
+  success: 'completed',
+  succeeded: 'completed',
+  error: 'failed',
+  failed: 'failed',
+  aborted: 'cancelled',
+  canceled: 'cancelled',
+  cancelled: 'cancelled',
+  unknown: 'unknown',
+};
 
 export type WorkConversation = {
   conversationId: string;
@@ -33,7 +51,7 @@ export type WorkConversation = {
 export type WorkTask = {
   id: string;
   title: string;
-  state: string;
+  state: WorkTaskState;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -49,8 +67,39 @@ export function isWorkConversation(conversation: {
   return metadata[WORK_METADATA_KEY] === true;
 }
 
+/**
+ * Map a raw state from the run registry or the stored row onto a renderable
+ * state. Anything unrecognised stays `unknown`; guessing here is what made
+ * every history entry look like it was still running.
+ */
+export function normalizeWorkState(value: unknown): WorkTaskState {
+  if (typeof value !== 'string') {
+    return WORK_UNKNOWN_STATE;
+  }
+  return STATE_ALIASES[value.trim().toLowerCase()] ?? WORK_UNKNOWN_STATE;
+}
+
 export function isTerminalWorkState(state: string): boolean {
-  return TERMINAL_STATES.has(state.trim().toLowerCase());
+  const normalized = normalizeWorkState(state);
+  return normalized === 'completed' || normalized === 'failed' || normalized === 'cancelled';
+}
+
+/** A state can only be claimed as finished when it maps to a known terminal one. */
+export function isResolvedWorkState(state: string): boolean {
+  return normalizeWorkState(state) !== WORK_UNKNOWN_STATE;
+}
+
+/**
+ * The state a conversation row can justify on its own: whatever the server
+ * stamped when the run settled, otherwise `unknown`. It deliberately does not
+ * consult the title, timestamps or message count.
+ */
+export function resolveStoredWorkState(conversation: WorkConversation): WorkTaskState {
+  const metadata = conversation.metadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return WORK_UNKNOWN_STATE;
+  }
+  return normalizeWorkState(metadata[WORK_STATE_METADATA_KEY]);
 }
 
 /**
@@ -70,27 +119,40 @@ export function isValidWorkTask(task: unknown): task is string {
   return typeof task === 'string' && task.trim().length > 0 && task.length <= WORK_MAX_TASK_LENGTH;
 }
 
-/** Project a persisted conversation into the shape the Work surface renders. */
-export function toWorkTask(conversation: WorkConversation, state = 'running'): WorkTask | null {
+/**
+ * Project a persisted conversation into the shape the Work surface renders.
+ * `state` wins when the caller has live run state; otherwise the stored state
+ * is used, and a row that has neither reports `unknown`.
+ */
+export function toWorkTask(conversation: WorkConversation, state?: string | null): WorkTask | null {
   if (!isWorkConversation(conversation)) {
     return null;
   }
   return {
     id: conversation.conversationId,
     title: conversation.title?.trim() || conversation.conversationId,
-    state,
+    state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };
 }
 
+/** Live run state for a conversation, when the caller has a registry to ask. */
+export type WorkStateResolver = (conversation: WorkConversation) => string | null | undefined;
+
 /**
  * Work history is newest-first and bounded. Ordering falls back to creation
  * time because a conversation may not have been touched since it was created.
+ * `resolveState` supplies live run state; without it each row reports only what
+ * it can prove.
  */
-export function toWorkHistory(conversations: WorkConversation[], limit = 50): WorkTask[] {
+export function toWorkHistory(
+  conversations: WorkConversation[],
+  limit = 50,
+  resolveState?: WorkStateResolver,
+): WorkTask[] {
   return conversations
-    .map((conversation) => toWorkTask(conversation))
+    .map((conversation) => toWorkTask(conversation, resolveState?.(conversation)))
     .filter((task): task is WorkTask => task !== null)
     .sort((a, b) => {
       const left = b.updatedAt ?? b.createdAt ?? '';
