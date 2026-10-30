@@ -657,7 +657,7 @@ export function createWorkflowEngine(
       wakeQueued = true;
       return activeTick;
     }
-    const tick = (async () => {
+    const tick = runAsSystem(async () => {
       await drainSchedules();
       const claimToken = randomUUID();
       const claimedAt = now();
@@ -676,7 +676,7 @@ export function createWorkflowEngine(
       }
       await Promise.allSettled(runs.map((run) => runAsSystem(() => processRun(run, claimToken))));
       return runs.length;
-    })();
+    });
 
     activeTick = tick;
     try {
