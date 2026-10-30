@@ -1,3 +1,4 @@
+import { getTenantId, SYSTEM_TENANT_ID } from '@coderax/data-schemas';
 import type {
   WorkflowEngineStore,
   WorkflowGenerationState,
@@ -465,6 +466,38 @@ describe('createWorkflowEngine branches', () => {
     ctx.run.pauseRequestedAt = undefined;
     await ctx.engine.runTick();
     expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['root-a', 'root-b', 'after-a']);
+  });
+
+  it('runs schedule and run claims in explicit system tenant context', async () => {
+    const observed: string[] = [];
+    const engine = createWorkflowEngine({
+      store: {
+        claimRuns: async () => {
+          observed.push(`run:${getTenantId()}`);
+          return [];
+        },
+        saveRun: async () => true,
+        releaseRun: async () => undefined,
+      },
+      enqueueStep: async () => 'delivery',
+      getGeneration: async () => null,
+      schedules: {
+        claimDue: async () => {
+          observed.push(`schedule:${getTenantId()}`);
+          return [];
+        },
+        complete: async () => undefined,
+        release: async () => undefined,
+        computeNextRunAt: () => new Date('2026-02-02T00:00:00.000Z'),
+      },
+      workerId: 'system-context-worker',
+    });
+
+    await engine.runTick();
+    expect(observed).toEqual([
+      `schedule:${SYSTEM_TENANT_ID}`,
+      `run:${SYSTEM_TENANT_ID}`,
+    ]);
   });
 
   it('drains a due schedule once and advances its next occurrence', async () => {
