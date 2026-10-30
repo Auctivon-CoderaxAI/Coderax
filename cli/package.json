@@ -1,0 +1,22 @@
+{
+  "name": "@coderax/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Coderax command-line client: chat, agents and Cloud workspaces from the terminal",
+  "bin": {
+    "coderax": "./bin/coderax.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "ISC"
+}
