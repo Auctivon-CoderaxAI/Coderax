@@ -3,7 +3,6 @@ import type { NextFunction, Request, Response, Router } from 'express';
 import { buildWorkModelOptions, buildWorkModels, resolveWorkSelection } from './models';
 import type { WorkModelSource } from './models';
 import {
-  WORK_METADATA_KEY,
   isTerminalWorkState,
   isValidWorkTask,
   isWorkConversation,
@@ -34,7 +33,8 @@ export type WorkDeps = {
   createConversation: (input: {
     userId: string;
     title: string;
-    metadata: Record<string, unknown>;
+    isWork: true;
+    workModel: string;
   }) => Promise<WorkConversation>;
   appendTurn: (input: { userId: string; conversationId: string; message: string }) => Promise<void>;
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
@@ -92,10 +92,24 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
 
-    const models = buildWorkModels(await deps.listModels().catch(() => []));
-    const configuredDefault = deps.configuredDefaultModel
-      ? await deps.configuredDefaultModel().catch(() => null)
-      : null;
+    let modelSources: WorkModelSource[];
+    try {
+      modelSources = await deps.listModels();
+    } catch {
+      res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
+      return;
+    }
+    const models = buildWorkModels(modelSources);
+
+    let configuredDefault: string | null = null;
+    if (deps.configuredDefaultModel) {
+      try {
+        configuredDefault = await deps.configuredDefaultModel();
+      } catch {
+        res.status(503).json({ code: 'WORK_DEFAULT_MODEL_UNAVAILABLE' });
+        return;
+      }
+    }
     const selection = resolveWorkSelection(
       models,
       typeof body.model === 'string' ? body.model : null,
@@ -119,13 +133,15 @@ export function createWorkRouter(deps: WorkDeps): Router {
       const conversation = await deps.createConversation({
         userId,
         title: workTitle(body.task),
-        metadata: {
-          [WORK_METADATA_KEY]: true,
-          /** Always a concrete model id: never the `auto` sentinel. */
-          workModel: selection.model.id,
-        },
+        isWork: true,
+        /** Always a concrete model id: never the `auto` sentinel. */
+        workModel: selection.model.id,
       });
       const task = toWorkTask(conversation);
+      if (!task) {
+        res.status(503).json({ code: 'WORK_START_FAILED' });
+        return;
+      }
       res.status(201).json({ task });
     } catch {
       res.status(503).json({ code: 'WORK_START_FAILED' });
@@ -139,7 +155,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
-    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
+    let conversation: WorkConversation | null;
+    try {
+      conversation = await deps.getConversation({ userId, conversationId });
+    } catch {
+      res.status(503).json({ code: 'WORK_TASK_UNAVAILABLE' });
+      return;
+    }
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
@@ -156,7 +178,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_MESSAGE' });
       return;
     }
-    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
+    let conversation: WorkConversation | null;
+    try {
+      conversation = await deps.getConversation({ userId, conversationId });
+    } catch {
+      res.status(503).json({ code: 'WORK_TASK_UNAVAILABLE' });
+      return;
+    }
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
@@ -176,7 +204,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
-    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
+    let conversation: WorkConversation | null;
+    try {
+      conversation = await deps.getConversation({ userId, conversationId });
+    } catch {
+      res.status(503).json({ code: 'WORK_TASK_UNAVAILABLE' });
+      return;
+    }
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
@@ -186,7 +220,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(409).json({ code: 'WORK_TASK_ALREADY_FINISHED' });
       return;
     }
-    const canceled = await deps.cancelRun({ userId, conversationId }).catch(() => false);
+    let canceled: boolean;
+    try {
+      canceled = await deps.cancelRun({ userId, conversationId });
+    } catch {
+      res.status(503).json({ code: 'WORK_CANCEL_FAILED' });
+      return;
+    }
     if (!canceled) {
       res.status(409).json({ code: 'WORK_NOTHING_TO_CANCEL' });
       return;

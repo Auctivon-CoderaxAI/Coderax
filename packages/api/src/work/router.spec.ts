@@ -4,7 +4,14 @@ import type { Application } from 'express';
 import { createWorkRouter } from './router';
 import type { WorkDeps } from './router';
 
-type Stored = { conversationId: string; title?: string; metadata: Record<string, unknown> };
+type Stored = {
+  conversationId: string;
+  title?: string;
+  owner: string;
+  isWork?: boolean;
+  workModel?: string;
+  workState?: string;
+};
 
 function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): Application {
   const conversations: Stored[] = [];
@@ -14,14 +21,16 @@ function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): A
       { id: 'openai:gpt-4o', provider: 'gateway' },
     ],
     listConversations: async ({ userId }) =>
-      conversations.filter((c) => c.metadata.owner === userId) as never,
+      conversations.filter((c) => c.owner === userId) as never,
     getConversation: async ({ conversationId }) =>
       (conversations.find((c) => c.conversationId === conversationId) ?? null) as never,
-    createConversation: async ({ userId, title, metadata }) => {
+    createConversation: async ({ userId, title, isWork, workModel }) => {
       const stored = {
         conversationId: `c-${conversations.length + 1}`,
         title,
-        metadata: { ...metadata, owner: userId },
+        owner: userId,
+        isWork,
+        workModel,
       };
       conversations.push(stored);
       return stored as never;
@@ -70,17 +79,17 @@ describe('native Work router', () => {
   });
 
   it('persists the concrete model, never the automatic sentinel', async () => {
-    const seen: Record<string, unknown>[] = [];
+    const seen: Array<{ isWork: boolean; workModel: string }> = [];
     const server = app({
       configuredDefaultModel: async () => 'llama3:latest',
-      createConversation: async ({ title, metadata }) => {
-        seen.push(metadata);
-        return { conversationId: 'c-1', title, metadata } as never;
+      createConversation: async ({ title, isWork, workModel }) => {
+        seen.push({ isWork, workModel });
+        return { conversationId: 'c-1', title, isWork, workModel } as never;
       },
     });
     const res = await request(server).post('/api/work/tasks').send({ task: 'Plan', model: 'auto' });
     expect(res.status).toBe(201);
-    expect(seen[0]).toMatchObject({ work: true, workModel: 'llama3:latest' });
+    expect(seen[0]).toEqual({ isWork: true, workModel: 'llama3:latest' });
     expect(seen[0].workModel).not.toBe('auto');
   });
 
