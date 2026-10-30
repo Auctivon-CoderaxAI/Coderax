@@ -40,6 +40,7 @@ function setup(steps: WorkflowStepRecord[], options: { stepTimeoutMs?: number } 
   };
   let generation: WorkflowGenerationState | null = null;
   const enqueued: string[] = [];
+  const instructions: string[] = [];
   const store: WorkflowEngineStore = {
     claimRuns: async () => {
       if (
@@ -66,6 +67,7 @@ function setup(steps: WorkflowStepRecord[], options: { stepTimeoutMs?: number } 
       store,
       enqueueStep: async ({ step: entry }) => {
         enqueued.push(entry.id);
+        instructions.push(entry.instruction);
         generation = { status: 'running', createdAt: clock.getTime() };
         return `delivery:${entry.id}:${entry.attempts}`;
       },
@@ -84,6 +86,7 @@ function setup(steps: WorkflowStepRecord[], options: { stepTimeoutMs?: number } 
     engine,
     run,
     enqueued,
+    instructions,
     advance,
     nowMs: () => clock.getTime(),
     generation: () => generation,
@@ -116,6 +119,17 @@ describe('createWorkflowEngine', () => {
     expect(ctx.run.steps[1].status).toBe('completed');
     expect(ctx.run.status).toBe('completed');
     expect(ctx.run.settledAt).toBeInstanceOf(Date);
+  });
+
+  it('carries a linear predecessor result into the next turn input', async () => {
+    const ctx = setup([step(), step({ id: 'two', title: 'Two' })]);
+    await ctx.engine.runTick();
+    ctx.run.steps[0].result = 'unique predecessor artifact';
+    ctx.setGeneration({ status: 'complete', createdAt: ctx.nowMs() });
+    await ctx.engine.runTick();
+
+    expect(ctx.enqueued).toEqual(['one', 'two']);
+    expect(ctx.instructions[1]).toContain('unique predecessor artifact');
   });
 
   it('waits for approval before dispatching a guarded step', async () => {

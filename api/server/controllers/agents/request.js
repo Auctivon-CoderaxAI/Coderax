@@ -26,6 +26,7 @@ const {
   exemptFromConcurrencyLimiter,
   isScheduleFireRequest,
   assertWorkflowStepDeliveryActive,
+  workflowStepGenerationMetadata,
   isUnpersistedPreliminaryParent,
   startAgentProjectContextResolution,
   assertChatProjectInstructions,
@@ -1753,6 +1754,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
               ...(req._isManualScheduledFire === true && { scheduleManual: true }),
             }
           : {}),
+        ...workflowStepGenerationMetadata(req.body?.agentTrigger),
         responseMessageId: preallocatedResponseMessageId,
         mcpRequestBody,
         userMessage: preliminaryUserMessage,
@@ -1781,6 +1783,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       trigger: req.body?.agentTrigger,
       userId,
       ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+      armTerminalOutcome: () => GenerationJobManager.armTerminalHostAction(streamId, jobCreatedAt),
     });
     if (req._agentEventBindingParentConversationId != null) {
       /** The generation job is the durable marker that a deletion on another replica

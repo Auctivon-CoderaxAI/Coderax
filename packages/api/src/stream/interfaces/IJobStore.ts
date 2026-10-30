@@ -169,6 +169,10 @@ export interface SerializableJobData {
 
   /** Response message ID for reconnection */
   responseMessageId?: string;
+  /** Workflow receipt identity for durable step completion. */
+  workflowRunId?: string;
+  workflowStepId?: string;
+  workflowStepAttempt?: number;
 
   /** Whether this generation replaces an existing assistant branch. */
   isRegenerate?: boolean;
@@ -464,6 +468,9 @@ export type JobMetadataPatch = Partial<
   Pick<
     SerializableJobData,
     | 'responseMessageId'
+    | 'workflowRunId'
+    | 'workflowStepId'
+    | 'workflowStepAttempt'
     | 'isRegenerate'
     | 'compact'
     | 'mcpRequestBody'

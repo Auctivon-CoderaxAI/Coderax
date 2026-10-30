@@ -169,15 +169,11 @@ interface HandoffSection {
  * after the first, and a skipped or failed branch contributes its reason so the
  * merge can explain the missing input rather than silently ignoring it.
  */
-function handoffContext(
-  steps: WorkflowStepRecord[],
-  index: number,
-  conversationId: string,
-): string {
+function handoffContext(steps: WorkflowStepRecord[], index: number): string {
   const sections: HandoffSection[] = [];
   for (const dependencyId of dependenciesOf(steps, index)) {
     const dependency = steps.find((entry) => entry.id === dependencyId);
-    if (dependency == null || dependency.conversationId === conversationId) {
+    if (dependency == null) {
       continue;
     }
     const body =
@@ -410,7 +406,7 @@ export function createWorkflowEngine(
             .release({
               workflowId: claim.workflowId,
               claimToken: claim.claimToken,
-              nextRunAt: new Date(claimedAt.getTime() + SCHEDULE_RETRY_MS),
+              retryAt: new Date(claimedAt.getTime() + SCHEDULE_RETRY_MS),
             })
             .catch((releaseCause: unknown) =>
               logger.warn('[workflows] schedule release failed', {
@@ -519,6 +515,9 @@ export function createWorkflowEngine(
       const step = steps[index];
       step.status = 'queued';
       step.deliveryKey = undefined;
+      step.terminalStatus = undefined;
+      step.terminalAttempt = undefined;
+      step.terminalAt = undefined;
       step.error = message;
       step.availableAt = new Date(
         at.getTime() + backoffMs(step.attempts, retryBaseMs, retryCapMs, random),
@@ -590,34 +589,42 @@ export function createWorkflowEngine(
         }
         continue;
       }
+      const durableOutcome =
+        step.terminalAttempt === step.attempts && step.terminalStatus != null
+          ? terminalGeneration(step.terminalStatus)
+          : null;
       const conversationId = step.conversationId ?? run.conversationId;
-      if (conversationId == null) {
+      if (durableOutcome == null && conversationId == null) {
         failStep(index, STEP_ERROR);
         continue;
       }
       let generation;
-      try {
-        generation = await deps.getGeneration(conversationId);
-      } catch (cause) {
-        logger.warn('[workflows] generation lookup failed', {
-          runId: run.id,
-          stepId: step.id,
-          error: failureMessage(cause),
-        });
-        continue;
-      }
+      let outcome = durableOutcome;
+      let belongsToStep = false;
+      if (outcome == null && conversationId != null) {
+        try {
+          generation = await deps.getGeneration(conversationId);
+        } catch (cause) {
+          logger.warn('[workflows] generation lookup failed', {
+            runId: run.id,
+            stepId: step.id,
+            error: failureMessage(cause),
+          });
+          continue;
+        }
 
-      const stepStartedAt = step.startedAt?.getTime() ?? 0;
-      const metadata = generation?.metadata;
-      const metadataMatches =
-        metadata?.workflowRunId == null && metadata?.workflowStepId == null
-          ? true
-          : metadata.workflowRunId === run.id && metadata.workflowStepId === step.id;
-      const belongsToStep =
-        generation != null &&
-        metadataMatches &&
-        (generation.createdAt == null || generation.createdAt >= stepStartedAt);
-      const outcome = belongsToStep ? terminalGeneration(generation?.status) : null;
+        const stepStartedAt = step.startedAt?.getTime() ?? 0;
+        const metadata = generation?.metadata;
+        const metadataMatches =
+          metadata?.workflowRunId == null && metadata?.workflowStepId == null
+            ? true
+            : metadata.workflowRunId === run.id && metadata.workflowStepId === step.id;
+        belongsToStep =
+          generation != null &&
+          metadataMatches &&
+          (generation.createdAt == null || generation.createdAt >= stepStartedAt);
+        outcome = belongsToStep ? terminalGeneration(generation?.status) : null;
+      }
 
       // A paused tool approval is user-owned work, not a stuck turn.
       if (belongsToStep && generation?.status === 'requires_action') {
@@ -629,7 +636,10 @@ export function createWorkflowEngine(
         step.settledAt = at;
         step.availableAt = undefined;
         step.error = undefined;
-        if (deps.readStepResult != null) {
+        step.terminalStatus = 'complete';
+        step.terminalAttempt = step.attempts;
+        step.terminalAt = at;
+        if (step.result == null && deps.readStepResult != null && conversationId != null) {
           try {
             const result = await deps.readStepResult({ run, step, conversationId });
             if (result != null && result.trim().length > 0) {
@@ -648,10 +658,13 @@ export function createWorkflowEngine(
       }
 
       const timeout = step.timeoutMs ?? run.settings?.stepTimeoutMs ?? stepTimeoutMs;
-      const timedOut = step.startedAt != null && at.getTime() - step.startedAt.getTime() > timeout;
+      const timedOut =
+        durableOutcome == null &&
+        step.startedAt != null &&
+        at.getTime() - step.startedAt.getTime() > timeout;
 
       if (outcome === 'error' || timedOut) {
-        if (timedOut && deps.abortGeneration != null) {
+        if (timedOut && deps.abortGeneration != null && conversationId != null) {
           await deps
             .abortGeneration(conversationId, {
               ...(generation?.createdAt == null ? {} : { expectedCreatedAt: generation.createdAt }),
@@ -727,10 +740,13 @@ export function createWorkflowEngine(
           (index === 0 && run.input != null && run.input.trim().length > 0
             ? `\n\nAdditional context for this run:\n${run.input}`
             : '') +
-          handoffContext(steps, index, conversationId);
+          handoffContext(steps, index);
 
         step.attempts += 1;
         step.status = 'running';
+        step.terminalStatus = undefined;
+        step.terminalAttempt = undefined;
+        step.terminalAt = undefined;
         // Timeout and generation fencing are scoped to this attempt, not the first attempt.
         step.startedAt = at;
         step.error = undefined;

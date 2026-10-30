@@ -214,6 +214,53 @@ describe('workflow engine with Mongo persistence', () => {
     expect(enqueued).toEqual(['queued-step']);
   });
 
+  it('serializes reciprocal completion-target updates and leaves no cycle', async () => {
+    const userId = owner();
+    const a = await methods.createWorkflow({
+      userId,
+      name: 'A',
+      agentId: 'agent-1',
+      steps: [{ id: 'a', title: 'A', instruction: 'A' }],
+    });
+    const b = await methods.createWorkflow({
+      userId,
+      name: 'B',
+      agentId: 'agent-1',
+      steps: [{ id: 'b', title: 'B', instruction: 'B' }],
+    });
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: () => undefined,
+    });
+    const update = async (id: string, target: string) => {
+      const status = jest.fn();
+      const response = { status, json: jest.fn() };
+      status.mockReturnValue(response);
+      await handlers.updateWorkflow(
+        {
+          user: { id: userId },
+          params: { id },
+          body: { onCompleteWorkflowId: target },
+        } as unknown as Parameters<typeof handlers.updateWorkflow>[0],
+        response as unknown as Parameters<typeof handlers.updateWorkflow>[1],
+      );
+      return status;
+    };
+
+    const [first, second] = await Promise.all([update(a.id, b.id), update(b.id, a.id)]);
+    const statuses = [first, second]
+      .map((status) => status.mock.calls[0]?.[0])
+      .sort((left, right) => Number(left) - Number(right));
+    expect(statuses).toEqual([200, 400]);
+
+    const reloaded = await Promise.all([
+      methods.getWorkflow(a.id, userId),
+      methods.getWorkflow(b.id, userId),
+    ]);
+    expect(reloaded.filter((workflow) => workflow?.onCompleteWorkflowId != null)).toHaveLength(1);
+  });
+
   it('starts a scheduled workflow exactly once and stops an active run on cancel', async () => {
     const userId = owner();
     const clock = new Date('2026-03-01T00:00:00.000Z');

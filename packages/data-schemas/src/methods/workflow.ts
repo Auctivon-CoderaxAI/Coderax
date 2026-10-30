@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   WORKFLOW_EVENTS_MAX,
+  WORKFLOW_RESULT_MAX_LENGTH,
   WORKFLOW_RUNS_PAGE_MAX,
   WORKFLOW_RUN_INPUT_MAX_LENGTH,
   WORKFLOW_STEP_MAX_ATTEMPTS,
@@ -63,6 +64,7 @@ export interface CreateWorkflowRunInput {
   input?: string;
   settings?: WorkflowSettings;
   trigger?: WorkflowRunTrigger;
+  workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
   dedupeKey?: string;
 }
@@ -169,8 +171,17 @@ export interface WorkflowMethods {
   releaseWorkflowScheduleClaim: (input: {
     workflowId: string;
     claimToken: string;
-    nextRunAt: Date;
+    retryAt: Date;
   }) => Promise<void>;
+  /** Persists a generation's terminal result against the exact running attempt. */
+  recordWorkflowStepOutcome: (input: {
+    runId: string;
+    stepId: string;
+    attempt: number;
+    status: 'complete' | 'error';
+    result?: string | null;
+    now: Date;
+  }) => Promise<boolean>;
 }
 
 const ACTIVE_RUN_STATUSES: WorkflowRunStatus[] = ['queued', 'running'];
@@ -255,6 +266,7 @@ function scheduleUpdate(nextRunAt: Date | null): Record<string, unknown> {
       $set: { 'schedule.enabled': false },
       $unset: {
         'schedule.nextRunAt': '',
+        'schedule.retryAt': '',
         'schedule.leaseBy': '',
         'schedule.leaseUntil': '',
         'schedule.claimToken': '',
@@ -263,7 +275,12 @@ function scheduleUpdate(nextRunAt: Date | null): Record<string, unknown> {
   }
   return {
     $set: { 'schedule.nextRunAt': nextRunAt },
-    $unset: { 'schedule.leaseBy': '', 'schedule.leaseUntil': '', 'schedule.claimToken': '' },
+    $unset: {
+      'schedule.retryAt': '',
+      'schedule.leaseBy': '',
+      'schedule.leaseUntil': '',
+      'schedule.claimToken': '',
+    },
   };
 }
 
@@ -432,6 +449,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           ...(input.input == null ? {} : { input: input.input }),
           ...(input.settings == null ? {} : { settings: input.settings }),
           ...(input.trigger == null ? {} : { trigger: input.trigger }),
+          workflowAncestry: input.workflowAncestry ?? [input.workflowId],
           ...(input.onCompleteWorkflowId == null
             ? {}
             : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
@@ -543,6 +561,30 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         },
       );
       return result.modifiedCount > 0;
+    },
+
+    recordWorkflowStepOutcome: async ({ runId, stepId, attempt, status, result, now }) => {
+      const written = await runModel().updateOne(
+        {
+          id: runId,
+          status: { $in: ACTIVE_RUN_STATUSES },
+          steps: { $elemMatch: { id: stepId, status: 'running', attempts: attempt } },
+        },
+        {
+          $set: {
+            'steps.$.terminalStatus': status,
+            'steps.$.terminalAttempt': attempt,
+            'steps.$.terminalAt': now,
+            ...(status === 'complete' && result != null && result.trim().length > 0
+              ? {
+                  'steps.$.result': result.trim().slice(0, WORKFLOW_RESULT_MAX_LENGTH),
+                }
+              : {}),
+            updatedAt: now,
+          },
+        },
+      );
+      return written.modifiedCount > 0;
     },
 
     approveWorkflowStep: async ({ id, userId, stepIndex, now }) => {
@@ -724,6 +766,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
             sourceId: input.sourceId,
             label: input.eventType,
           },
+          workflowAncestry: [workflow.id],
           events: [
             event('trigger.fired', input.now, {
               message: `${input.eventType} from ${input.sourceId}`,
@@ -749,11 +792,24 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           .findOneAndUpdate(
             {
               'schedule.enabled': true,
-              'schedule.nextRunAt': { $lte: now },
-              $or: [
-                { 'schedule.leaseUntil': { $exists: false } },
-                { 'schedule.leaseUntil': null },
-                { 'schedule.leaseUntil': { $lte: now } },
+              $and: [
+                {
+                  $or: [
+                    { 'schedule.retryAt': { $lte: now } },
+                    {
+                      'schedule.retryAt': { $exists: false },
+                      'schedule.nextRunAt': { $lte: now },
+                    },
+                    { 'schedule.retryAt': null, 'schedule.nextRunAt': { $lte: now } },
+                  ],
+                },
+                {
+                  $or: [
+                    { 'schedule.leaseUntil': { $exists: false } },
+                    { 'schedule.leaseUntil': null },
+                    { 'schedule.leaseUntil': { $lte: now } },
+                  ],
+                },
               ],
             },
             {
@@ -788,6 +844,16 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         return null;
       }
       const dedupeKey = `workflow-schedule:${workflowId}:${scheduledFor.toISOString()}`;
+      // A retry can reacquire the claim after the run insert succeeded but the
+      // schedule advance failed. The unique index closes the replica race; this
+      // read keeps the common replay path idempotent even before it is built.
+      if ((await runModel().exists({ dedupeKey })) != null) {
+        await workflowModel().updateOne(
+          { id: workflowId, 'schedule.claimToken': claimToken },
+          scheduleUpdate(nextRunAt),
+        );
+        return null;
+      }
       let created: IWorkflowRun | null = null;
       try {
         created = await runModel().create({
@@ -810,6 +876,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
             sourceId: workflowId,
             label: scheduledFor.toISOString(),
           },
+          workflowAncestry: [workflow.id],
           events: [
             event('trigger.fired', now, {
               message: `Schedule fired for ${scheduledFor.toISOString()}`,
@@ -831,11 +898,11 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       return created;
     },
 
-    releaseWorkflowScheduleClaim: async ({ workflowId, claimToken, nextRunAt }) => {
+    releaseWorkflowScheduleClaim: async ({ workflowId, claimToken, retryAt }) => {
       await workflowModel().updateOne(
         { id: workflowId, 'schedule.claimToken': claimToken },
         {
-          $set: { 'schedule.nextRunAt': nextRunAt },
+          $set: { 'schedule.retryAt': retryAt },
           $unset: { 'schedule.leaseBy': '', 'schedule.leaseUntil': '', 'schedule.claimToken': '' },
         },
       );

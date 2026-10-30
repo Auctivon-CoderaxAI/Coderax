@@ -282,6 +282,77 @@ describe('workflow persistence', () => {
     ).toHaveLength(1);
   });
 
+  it('preserves the scheduled occurrence identity when the advance write fails', async () => {
+    const userId = owner();
+    const scheduledFor = new Date('2026-03-01T09:00:00.000Z');
+    const retryAt = new Date('2026-03-01T09:01:00.000Z');
+    const nextRunAt = new Date('2026-03-02T09:00:00.000Z');
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Retry schedule',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'First' }],
+      schedule: {
+        enabled: true,
+        cadence: { frequency: 'daily', hour: 9, minute: 0 },
+        timezone: 'UTC',
+        nextRunAt: scheduledFor,
+      },
+    });
+
+    const due = await methods.claimDueWorkflowSchedules({
+      workerId: 'worker-1',
+      now: new Date('2026-03-01T09:00:01.000Z'),
+      leaseUntil: new Date('2026-03-01T09:00:31.000Z'),
+      limit: 5,
+    });
+    const claimToken = due[0].schedule?.claimToken as string;
+    const workflowModel = mongoose.model('Workflow');
+    const update = jest
+      .spyOn(workflowModel, 'updateOne')
+      .mockRejectedValueOnce(new Error('schedule advance unavailable'));
+
+    await expect(
+      methods.completeWorkflowScheduleClaim({
+        workflowId: workflow.id,
+        claimToken,
+        scheduledFor,
+        nextRunAt,
+        now: new Date('2026-03-01T09:00:01.000Z'),
+      }),
+    ).rejects.toThrow('schedule advance unavailable');
+    update.mockRestore();
+
+    await methods.releaseWorkflowScheduleClaim({
+      workflowId: workflow.id,
+      claimToken,
+      retryAt,
+    });
+    const retry = await methods.claimDueWorkflowSchedules({
+      workerId: 'worker-2',
+      now: retryAt,
+      leaseUntil: new Date(retryAt.getTime() + 30_000),
+      limit: 5,
+    });
+    expect(retry).toHaveLength(1);
+    expect(new Date(retry[0].schedule?.nextRunAt as Date).toISOString()).toBe(
+      scheduledFor.toISOString(),
+    );
+
+    const replay = await methods.completeWorkflowScheduleClaim({
+      workflowId: workflow.id,
+      claimToken: retry[0].schedule?.claimToken as string,
+      scheduledFor,
+      nextRunAt,
+      now: retryAt,
+    });
+    expect(replay).toBeNull();
+    expect(await methods.listWorkflowRuns(userId, workflow.id)).toHaveLength(1);
+    const reloaded = await methods.getWorkflow(workflow.id, userId);
+    expect(reloaded?.schedule?.nextRunAt?.toISOString()).toBe(nextRunAt.toISOString());
+    expect(reloaded?.schedule?.retryAt).toBeUndefined();
+  });
+
   it('persists rich branch conditions and joins through a reload', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({

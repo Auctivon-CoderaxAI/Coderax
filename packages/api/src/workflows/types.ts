@@ -30,6 +30,10 @@ export interface WorkflowStepRecord {
   startedAt?: Date;
   settledAt?: Date;
   availableAt?: Date;
+  /** Attempt-fenced terminal generation evidence, retained after job cleanup. */
+  terminalStatus?: 'complete' | 'error';
+  terminalAttempt?: number;
+  terminalAt?: Date;
   error?: string;
   reason?: string;
   result?: string;
@@ -50,6 +54,8 @@ export interface WorkflowRunRecord {
   input?: string;
   trigger?: WorkflowRunTrigger;
   events: WorkflowRunEvent[];
+  /** Workflow ids already traversed by this automatic chain. */
+  workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
   /** A terminal run whose downstream chain still needs a durable delivery. */
   chainPending?: boolean;
@@ -125,7 +131,7 @@ export interface WorkflowScheduleDeps {
     now: Date;
   }) => Promise<unknown>;
   /** Returns the schedule to the queue after a failed dispatch attempt. */
-  release: (input: { workflowId: string; claimToken: string; nextRunAt: Date }) => Promise<void>;
+  release: (input: { workflowId: string; claimToken: string; retryAt: Date }) => Promise<void>;
   computeNextRunAt: (input: {
     workflowId: string;
     cadence: TScheduleCadence;

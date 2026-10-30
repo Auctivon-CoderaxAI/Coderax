@@ -10,15 +10,23 @@ function buildEngine(options) {
   const {
     GenerationJobManager,
     computeNextRunAt,
+    createWorkflowConversationResultReader,
     createWorkflowEngine,
     createWorkflowSchedules,
     createWorkflowSettlementHandler,
     createWorkflowStepEnqueuer,
     createWorkflowStepResultReader,
     createWorkflowStore,
+    createWorkflowTerminalOutcomeHandler,
   } = require('@coderax/api');
   const { enqueueAgentTrigger } = require('~/server/services/Agents/triggers');
   const methods = require('~/models');
+  GenerationJobManager.setTerminalHostActionHandler(
+    createWorkflowTerminalOutcomeHandler({
+      record: methods.recordWorkflowStepOutcome,
+      readResult: createWorkflowConversationResultReader(methods),
+    }),
+  );
 
   return createWorkflowEngine(
     {

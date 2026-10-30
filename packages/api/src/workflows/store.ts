@@ -25,6 +25,7 @@ interface StoredRun {
   input?: string;
   trigger?: WorkflowRunRecord['trigger'];
   events?: Array<Omit<WorkflowRunEvent, 'at'> & { at: Date | string }>;
+  workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
   error?: string;
   pauseRequestedAt?: Date;
@@ -51,6 +52,7 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
       ...entry,
       at: (entry.at instanceof Date ? entry.at : new Date(entry.at)).toISOString(),
     })),
+    ...(run.workflowAncestry == null ? {} : { workflowAncestry: run.workflowAncestry }),
     ...(run.onCompleteWorkflowId == null ? {} : { onCompleteWorkflowId: run.onCompleteWorkflowId }),
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.pauseRequestedAt == null ? {} : { pauseRequestedAt: run.pauseRequestedAt }),
@@ -150,6 +152,7 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
           workflowRunId: run.id,
           workflowStepId: step.id,
           workflowStepIndex: input.stepIndex,
+          workflowStepAttempt: attempt,
         },
       },
     });

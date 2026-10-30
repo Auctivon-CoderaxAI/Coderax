@@ -269,6 +269,25 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
   const createRunId = deps.createRunId ?? randomUUID;
   const now = deps.now ?? (() => new Date());
   const streamPollMs = deps.streamPollMs ?? 2_000;
+  const ownerLocks = new Map<string, Promise<unknown>>();
+
+  /** Serializes chain validation with the mutation in this process. */
+  const withOwnerLock = async <T>(owner: string, action: () => Promise<T>): Promise<T> => {
+    const previous = ownerLocks.get(owner) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(action);
+    const tail = current.then(
+      () => undefined,
+      () => undefined,
+    );
+    ownerLocks.set(owner, tail);
+    try {
+      return await current;
+    } finally {
+      if (ownerLocks.get(owner) === tail) {
+        ownerLocks.delete(owner);
+      }
+    }
+  };
 
   const agentsToAuthorize = (workflow: { agentId: string; steps: WorkflowStepInput[] }): string[] =>
     Array.from(
@@ -476,36 +495,44 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           res.status(403).json({ error: 'You cannot run that agent' });
           return;
         }
-        if (
-          parsed.value.onCompleteWorkflowId !== undefined &&
-          !(await chainIsValid(owner, id, parsed.value.onCompleteWorkflowId))
-        ) {
+        const updated = await withOwnerLock(owner, async () => {
+          if (
+            parsed.value.onCompleteWorkflowId !== undefined &&
+            !(await chainIsValid(owner, id, parsed.value.onCompleteWorkflowId))
+          ) {
+            return { kind: 'invalid' as const };
+          }
+          const workflow = await deps.methods.updateWorkflow(id, owner, {
+            ...(parsed.value.name == null ? {} : { name: parsed.value.name }),
+            ...(parsed.value.description === undefined
+              ? {}
+              : { description: parsed.value.description }),
+            ...(parsed.value.agentId == null ? {} : { agentId: parsed.value.agentId }),
+            ...(parsed.value.steps == null ? {} : { steps: parsed.value.steps }),
+            ...(parsed.value.settings === undefined ? {} : { settings: parsed.value.settings }),
+            ...(parsed.value.schedule === undefined
+              ? {}
+              : { schedule: scheduleWrite(parsed.value.schedule, now()) ?? null }),
+            ...(parsed.value.eventTriggers === undefined
+              ? {}
+              : { eventTriggers: parsed.value.eventTriggers }),
+            ...(parsed.value.onCompleteWorkflowId === undefined
+              ? {}
+              : { onCompleteWorkflowId: parsed.value.onCompleteWorkflowId }),
+          });
+          return workflow == null
+            ? { kind: 'missing' as const }
+            : { kind: 'ok' as const, workflow };
+        });
+        if (updated.kind === 'invalid') {
           res.status(400).json({ error: 'That completion target is not available' });
           return;
         }
-        const workflow = await deps.methods.updateWorkflow(id, owner, {
-          ...(parsed.value.name == null ? {} : { name: parsed.value.name }),
-          ...(parsed.value.description === undefined
-            ? {}
-            : { description: parsed.value.description }),
-          ...(parsed.value.agentId == null ? {} : { agentId: parsed.value.agentId }),
-          ...(parsed.value.steps == null ? {} : { steps: parsed.value.steps }),
-          ...(parsed.value.settings === undefined ? {} : { settings: parsed.value.settings }),
-          ...(parsed.value.schedule === undefined
-            ? {}
-            : { schedule: scheduleWrite(parsed.value.schedule, now()) ?? null }),
-          ...(parsed.value.eventTriggers === undefined
-            ? {}
-            : { eventTriggers: parsed.value.eventTriggers }),
-          ...(parsed.value.onCompleteWorkflowId === undefined
-            ? {}
-            : { onCompleteWorkflowId: parsed.value.onCompleteWorkflowId }),
-        });
-        if (workflow == null) {
+        if (updated.kind === 'missing') {
           res.status(404).json({ error: 'Workflow not found' });
           return;
         }
-        res.status(200).json(toWorkflowView(workflow));
+        res.status(200).json(toWorkflowView(updated.workflow));
       } catch (error) {
         logger.error('[workflows] failed to update workflow', error);
         unavailable(res);

@@ -7,6 +7,7 @@ import type {
   WorkflowGenerationState,
   WorkflowRunRecord,
 } from './types';
+import type { TerminalHostActionHandler } from '../stream/GenerationJobManager';
 
 interface WorkflowMessage {
   isCreatedByUser?: boolean;
@@ -31,13 +32,13 @@ export interface WorkflowGenerationHost {
   ) => Promise<{ success?: boolean } | null | undefined>;
 }
 
-/** Reads the settled assistant text a workflow step contributed as its result. */
-export function createWorkflowStepResultReader(
+/** Reads the latest settled assistant text in one conversation. */
+export function createWorkflowConversationResultReader(
   methods: Pick<WorkflowHostDatabase, 'getMessages'>,
-): (input: { run: WorkflowRunRecord; conversationId: string }) => Promise<string | null> {
-  return async ({ run, conversationId }) => {
+): (input: { userId: string; conversationId: string }) => Promise<string | null> {
+  return async ({ userId, conversationId }) => {
     const messages = await methods.getMessages(
-      { conversationId, user: run.userId },
+      { conversationId, user: userId },
       'text isCreatedByUser',
     );
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -50,6 +51,70 @@ export function createWorkflowStepResultReader(
       }
     }
     return null;
+  };
+}
+
+/** Reads the settled assistant text a workflow step contributed as its result. */
+export function createWorkflowStepResultReader(
+  methods: Pick<WorkflowHostDatabase, 'getMessages'>,
+): (input: { run: WorkflowRunRecord; conversationId: string }) => Promise<string | null> {
+  const read = createWorkflowConversationResultReader(methods);
+  return async ({ run, conversationId }) => read({ userId: run.userId, conversationId });
+}
+
+/**
+ * Consumes a generation's terminal host-action marker and stores an
+ * attempt-fenced outcome before cleanup may delete the live job.
+ */
+export function createWorkflowTerminalOutcomeHandler(deps: {
+  record: WorkflowMethods['recordWorkflowStepOutcome'];
+  readResult: (input: { userId: string; conversationId: string }) => Promise<string | null>;
+  now?: () => Date;
+}): TerminalHostActionHandler {
+  const now = deps.now ?? (() => new Date());
+  return async (_streamId, job) => {
+    const runId = job.workflowRunId;
+    const stepId = job.workflowStepId;
+    const attempt = job.workflowStepAttempt;
+    if (
+      typeof runId !== 'string' ||
+      typeof stepId !== 'string' ||
+      !Number.isSafeInteger(attempt) ||
+      (attempt as number) < 1
+    ) {
+      return;
+    }
+    let status: 'complete' | 'error' | null = null;
+    if (job.status === 'complete') {
+      status = 'complete';
+    } else if (job.status === 'error' || job.status === 'aborted') {
+      status = 'error';
+    } else {
+      return;
+    }
+    let result: string | null = null;
+    if (status === 'complete' && job.conversationId != null) {
+      try {
+        result = await deps.readResult({
+          userId: job.userId,
+          conversationId: job.conversationId,
+        });
+      } catch (cause) {
+        logger.warn('[workflows] terminal result read failed', {
+          runId,
+          stepId,
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    }
+    await deps.record({
+      runId,
+      stepId,
+      attempt: attempt as number,
+      status,
+      result,
+      now: now(),
+    });
   };
 }
 
@@ -70,6 +135,10 @@ export function createWorkflowSettlementHandler(deps: {
     if (next == null) {
       return;
     }
+    const ancestry = run.workflowAncestry ?? [run.workflowId];
+    if (ancestry.includes(next.id)) {
+      return;
+    }
     await deps.methods.createWorkflowRun({
       userId: run.userId,
       ...(run.tenantId == null ? {} : { tenantId: run.tenantId }),
@@ -78,6 +147,7 @@ export function createWorkflowSettlementHandler(deps: {
       agentId: next.agentId,
       steps: next.steps,
       conversationId: randomUUID(),
+      workflowAncestry: [...ancestry, next.id],
       ...(next.settings == null ? {} : { settings: next.settings }),
       ...(next.onCompleteWorkflowId == null
         ? {}
@@ -206,6 +276,7 @@ export async function assertWorkflowStepDeliveryActive(deps: {
   trigger: unknown;
   userId: string;
   tenantId?: string;
+  armTerminalOutcome?: () => Promise<void>;
 }): Promise<void> {
   const delivery = parseWorkflowStepDelivery(deps.trigger);
   if (delivery == null) {
@@ -221,6 +292,24 @@ export async function assertWorkflowStepDeliveryActive(deps: {
   ) {
     throw new WorkflowStepInactiveError();
   }
+  await deps.armTerminalOutcome?.();
+}
+
+/** Copies the workflow receipt identity into the generation job metadata. */
+export function workflowStepGenerationMetadata(trigger: unknown): {
+  workflowRunId?: string;
+  workflowStepId?: string;
+  workflowStepAttempt?: number;
+} {
+  const delivery = parseWorkflowStepDelivery(trigger);
+  if (delivery == null) {
+    return {};
+  }
+  return {
+    workflowRunId: delivery.runId,
+    workflowStepId: delivery.stepId,
+    workflowStepAttempt: delivery.attempt,
+  };
 }
 
 /** Durable admission check for a workflow step delivery. */

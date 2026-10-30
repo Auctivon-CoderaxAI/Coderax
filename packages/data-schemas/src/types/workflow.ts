@@ -18,6 +18,8 @@ export interface IWorkflowSchedule {
   timezone: string;
   input?: string;
   nextRunAt?: Date;
+  /** Backoff gate only; never replaces the occurrence identity in nextRunAt. */
+  retryAt?: Date;
   leaseUntil?: Date;
   leaseBy?: string;
   claimToken?: string;
@@ -66,6 +68,10 @@ export interface IWorkflowStepRun extends Required<Pick<WorkflowStepInput, 'id' 
   settledAt?: Date;
   /** Earliest retry time after a failed attempt. */
   availableAt?: Date;
+  /** Attempt-fenced terminal generation evidence, retained after job cleanup. */
+  terminalStatus?: 'complete' | 'error';
+  terminalAttempt?: number;
+  terminalAt?: Date;
   error?: string;
   /** Why a conditional branch was not taken. */
   reason?: string;
@@ -96,6 +102,8 @@ export interface IWorkflowRun {
   input?: string;
   trigger?: WorkflowRunTrigger;
   events: IWorkflowRunEvent[];
+  /** Workflow ids already traversed by this automatic chain. */
+  workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
   /** Set while a completed run still needs its downstream chain delivered. */
   chainPending?: boolean;
