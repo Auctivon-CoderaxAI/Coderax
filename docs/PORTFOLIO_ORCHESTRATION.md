@@ -1,6 +1,6 @@
 # Portfolio-wide repository agents
 
-**Status:** opt-in backend foundation, not proof of 300 deployed agents. Coderax owns orchestration; DeploymentPlatform remains the deployment executor; GitHub Actions remains an independent security and CI gate. A repository gets an **agent identity**, not a separate model installation. Shared model routing and existing Coderax workflows are reused.
+**Status:** opt-in backend foundation, not proof of portfolio-wide live agents. A connected GitHub inventory on 2026-10-30 found **450 unique accessible repositories across 20 owners**, including 435 private repositories; this is discovery, not enrollment or model availability. Coderax owns orchestration; DeploymentPlatform remains the deployment executor; GitHub Actions remains an independent security and CI gate. A repository gets an **agent identity**, not a separate model installation. Shared model routing and existing Coderax workflows are reused.
 
 ## Safety boundary
 
@@ -13,14 +13,14 @@ The registry starts every agent as **read-only and unbound**, with no capability
 Node.js 22+ is required. Set credentials outside the repository (examples are placeholders; do not commit real tokens):
 
 ```sh
-export CODERAX_PORTFOLIO_ALLOW_OWNERS='nnabdelshahid,CoderaxAI,Auctivon-*'
+export CODERAX_PORTFOLIO_ALLOW_OWNERS='nnabdelshahid,CoderaxAI,Auctivon,Auctivon-*,Deterministic-Operations-Platform,CivicShield-Labs,CenterFuseHQ'
 export CODERAX_GITHUB_TOKEN='READ_ONLY_GITHUB_TOKEN'
 # Optional additional authorized identity:
 export CODERAX_GITHUB_TOKEN_SECONDARY='SECOND_READ_ONLY_GITHUB_TOKEN'
 node scripts/portfolio/sync.mjs --out ./portfolio-registry.local.json
 ```
 
-GitHub `/user/repos` discovery pages are deduplicated by case-insensitive `owner/repo`; archived, forked, unreadable, out-of-scope and blocked repositories are excluded. Inventory is generated locally. Never commit `portfolio-registry.local.json`, which can contain private repository names. Store it outside the repo or gitignore it. This produces virtual identities; it **does not** create Coderax agents or access DeploymentPlatform.
+GitHub `/user/repos` discovery pages are deduplicated by case-insensitive `owner/repo`; archived, forked, unreadable, out-of-scope and blocked repositories are excluded. Inventory is generated locally. Never commit `portfolio-registry.local.json`, which can contain private repository names. The exact default output path is ignored by the Coderax root `.gitignore`; store any other inventory path outside the repository or add an ignore rule. This produces virtual identities; it **does not** create Coderax agents or access DeploymentPlatform.
 
 ## 2. Bind repository stewards to the existing Coderax Agent Management API
 
@@ -54,7 +54,7 @@ Every bound steward can obtain a real Coderax DAG: two independent read-only inv
 - Local acceptance: `node --test scripts/portfolio/registry.test.mjs` and `node --check scripts/portfolio/sync.mjs`; verify all nine initial tests and Github Actions independently.
 - Repair Coderax's prior production lockfile failure (PR #87) before merging/deploying this feature. Do not waive critical security or CI checks.
 - Pilot at least three authorized personal/business repositories with real authenticated GitHub, agent discovery, configured model calls, workflow execution, evidence capture, and recovery checks.
-- Add signed A2A task/result/status envelopes, secure webhook event dispatch, cross-repository dependency routing, scoped MCP tools, DeploymentPlatform health/deploy adapter with separate approvals, and decentralized swarm coordination before declaring the complete 300-repository system done.
+- Add signed A2A task/result/status envelopes, secure webhook event dispatch, cross-repository dependency routing, scoped MCP tools, DeploymentPlatform health/deploy adapter with separate approvals, and decentralized swarm coordination before declaring the complete portfolio system done.
 - Process remaining repositories in bounded batches, verify each live agent/workflow in Coderax, and keep failures visible. No bulk secret sharing, paid resources, or automatic privileged GitHub writes.
 - Present 5–8 mobile-friendly Portfolio Command Center designs before implementing that UI. Current change is backend-only.
 
