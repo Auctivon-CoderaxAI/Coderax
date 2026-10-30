@@ -41,8 +41,20 @@ remote targets without HTTPS and a token.
 
 - The integrated Work screen requests CyVox's per-task `FAST` routing policy.
   Fast selection is a policy preference, **not a latency guarantee**.
-- Model selection through CyVox currently updates shared runtime settings,
-  not a per-task model parameter. Do not change the model during another run.
+- Work sends a per-task `model` and `thinking_effort`, and never calls the
+  deployment-global `/api/models/select` for task configuration. An older CyVox
+  ignores the two extra fields, so per-task selection only takes effect once
+  `CoderaxAI/CyVox#38` is merged and deployed. Until then a task runs on the
+  deployment default.
+- **Coding Team mode does not inherit the selection.** `cyvox/ai_team.py`
+  `run_team()` accepts no model or effort, and its three delegated `run_agent`
+  calls omit both, so the lead, engineer and reviewer all run on the deployment
+  model. The Work composer says so when Team mode is selected. propagation is
+  a separate CyVox change: accept both in `run_team()`, forward them to every
+  delegated `run_agent` call, and pass them through from the caller that reaches
+  `run_team`.
+- Thinking effort maps to a bounded decode budget (`max_tokens` and
+  `temperature`) inside CyVox. It is not provider-native reasoning control.
 - The existing CyVox desktop worker must be connected by the owner; a hosted
   Vercel function cannot directly operate an unpaired local computer.
 - CyVox hosted temporary SQLite fallback is not durable. Computer tasks

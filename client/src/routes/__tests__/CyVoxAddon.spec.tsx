@@ -22,6 +22,8 @@ const mockLocalizedText: Record<string, string> = {
   com_cyvox_effort_high: 'High',
   com_cyvox_effort_extra_high: 'Extra high',
   com_cyvox_task_selection_note: 'Model and thinking effort apply to this task only.',
+  com_cyvox_team_selection_limit:
+    'Team mode: delegated agents keep the deployment model until they inherit this selection.',
   com_cyvox_work_description_label: 'Describe what you want to get done',
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
@@ -382,6 +384,51 @@ describe('Coderax Work route', () => {
     expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
       task: 'Prepare a launch plan',
       mode: 'Autonomous Run',
+    });
+    queryClient.clear();
+  });
+
+  it('says delegated team agents do not inherit the selection', async () => {
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    expect(screen.queryByText(/delegated agents/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Work style'), {
+      target: { value: 'Coding Team' },
+    });
+
+    expect(screen.getByText(/delegated agents/i)).toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('still sends the lead-task selection in team mode', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    fireEvent.change(screen.getByLabelText('Work style'), {
+      target: { value: 'Coding Team' },
+    });
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'ollama:llama3:latest' },
+    });
+    fireEvent.change(screen.getByLabelText('Thinking effort'), {
+      target: { value: 'extra_high' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Ship the release' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Ship the release',
+      mode: 'Coding Team',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'extra_high',
     });
     queryClient.clear();
   });

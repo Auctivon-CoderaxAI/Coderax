@@ -680,6 +680,11 @@ function WorkView() {
                 {action.message}
               </p>
             )}
+            {mode === 'Coding Team' && (
+              <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+                {localize('com_cyvox_team_selection_limit')}
+              </p>
+            )}
             <p className="text-text-secondary mt-2 px-3 text-center text-xs">
               {localize('com_cyvox_task_selection_note')}
             </p>
