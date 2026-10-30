@@ -166,6 +166,22 @@ function getReplyStamp(
   return { stampReply: true, replyMessageId: reply.messageId as string };
 }
 
+/**
+ * The Work marker is server-owned: it is read from `req.workContext`, which only
+ * the authenticated /api/work/chat alias sets, after it has validated the model
+ * against that user's free/local configuration. A client may express intent to
+ * start Work, but it can never write this field: the alias strips any such claim
+ * from the body before the handler sees it.
+ */
+function workMarkerFields(req?: unknown): { isWork?: true; workModel?: string } {
+  const context = (req as { workContext?: { isWork?: boolean; workModel?: string } } | undefined)
+    ?.workContext;
+  if (context?.isWork !== true || typeof context.workModel !== 'string' || !context.workModel) {
+    return {};
+  }
+  return { isWork: true, workModel: context.workModel };
+}
+
 async function writeConversation(
   deps: ConversationStore,
   write: TurnConversationWrite,
@@ -183,6 +199,7 @@ async function writeConversation(
       endpointType,
       ...storedOptions,
       ...(inserting && chatProjectId !== undefined ? { chatProjectId } : {}),
+      ...workMarkerFields(write.req),
       conversationId: endpointOptions.conversationId ?? conversationId,
     },
     {
