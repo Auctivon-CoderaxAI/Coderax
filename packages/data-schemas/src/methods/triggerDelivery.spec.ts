@@ -1705,7 +1705,13 @@ describe('agent trigger delivery methods', () => {
       onlyIfUnclaimed: true,
     };
     await expect(
-      methods.retireAgentTriggerDelivery({ ...retirement, sourceType: undefined }),
+      methods.retireAgentTriggerDelivery({
+        deliveryKey: retirement.deliveryKey,
+        sourceId: retirement.sourceId,
+        settledAt: retirement.settledAt,
+        reason: retirement.reason,
+        onlyIfUnclaimed: true,
+      }),
     ).resolves.toBe(false);
     await expect(
       methods.retireAgentTriggerDelivery({ ...retirement, sourceId: 'another-workflow' }),
