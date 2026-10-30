@@ -1,7 +1,7 @@
 import express from 'express';
 import type { NextFunction, Request, Response, Router } from 'express';
 import { buildWorkModelOptions, buildWorkModels, resolveWorkSelection } from './models';
-import type { WorkModelSource } from './models';
+import type { WorkModel, WorkModelSource } from './models';
 import {
   isTerminalWorkState,
   isValidWorkTask,
@@ -21,8 +21,8 @@ export type WorkDeps = {
   listModels: () => Promise<WorkModelSource[]>;
   /**
    * The deployment's configured default model, used only to resolve the
-   * automatic choice when no model was picked. It is never trusted blindly:
-   * the resolved model must also be among the offered free/local models.
+   * automatic choice. It is never trusted blindly: the resolved model must
+   * also be among the offered free/local models.
    */
   configuredDefaultModel?: () => Promise<string | null>;
   listConversations: (input: { userId: string; limit: number }) => Promise<WorkConversation[]>;
@@ -34,7 +34,7 @@ export type WorkDeps = {
     userId: string;
     title: string;
     isWork: true;
-    workModel: string;
+    workModel?: string;
   }) => Promise<WorkConversation>;
   appendTurn: (input: { userId: string; conversationId: string; message: string }) => Promise<void>;
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
@@ -91,25 +91,17 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_TASK' });
       return;
     }
-
-    let modelSources: WorkModelSource[];
+    let models: WorkModel[];
     try {
-      modelSources = await deps.listModels();
+      models = buildWorkModels(await deps.listModels());
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
       return;
     }
-    const models = buildWorkModels(modelSources);
 
-    let configuredDefault: string | null = null;
-    if (deps.configuredDefaultModel) {
-      try {
-        configuredDefault = await deps.configuredDefaultModel();
-      } catch {
-        res.status(503).json({ code: 'WORK_DEFAULT_MODEL_UNAVAILABLE' });
-        return;
-      }
-    }
+    const configuredDefault = deps.configuredDefaultModel
+      ? await deps.configuredDefaultModel().catch(() => null)
+      : null;
     const selection = resolveWorkSelection(
       models,
       typeof body.model === 'string' ? body.model : null,
@@ -119,7 +111,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
     /**
      * A task never starts on an unresolved model. `auto` is a UI choice, so it
      * must resolve to a concrete free/local model here; otherwise the caller is
-     * told to configure or pick one instead of silently running on a default
+     * told to pick one instead of silently running (or persisting) a default
      * that may be paid.
      */
     if (!selection.ok) {
@@ -137,12 +129,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
         /** Always a concrete model id: never the `auto` sentinel. */
         workModel: selection.model.id,
       });
-      const task = toWorkTask(conversation);
-      if (!task) {
-        res.status(503).json({ code: 'WORK_START_FAILED' });
-        return;
-      }
-      res.status(201).json({ task });
+      await deps.appendTurn({
+        userId,
+        conversationId: conversation.conversationId,
+        message: body.task.trim(),
+      });
+      const task = toWorkTask(conversation, 'running');
+      res.status(202).json({ task });
     } catch {
       res.status(503).json({ code: 'WORK_START_FAILED' });
     }

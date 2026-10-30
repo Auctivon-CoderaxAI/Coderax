@@ -24,10 +24,10 @@ export type WorkModel = {
 };
 
 /**
- * Sentinel for "let Coderax choose among the offered models".
+ * Sentinel for "let Coderax pick among the offered models".
  *
  * This is a UI choice only. It is never a provider or model id: a submission
- * must always resolve to a concrete model before it reaches the runner.
+ * must resolve to a concrete model before it reaches the runner or storage.
  */
 export const WORK_AUTO_MODEL_ID = 'auto';
 
@@ -95,7 +95,7 @@ export function workConcreteModels(models: WorkModel[]): WorkModel[] {
 
 /**
  * A concrete selection is honoured only when it is still offered. Returning
- * `null` tells the caller to fall back explicitly instead of silently swapping
+ * `null` tells the caller to resolve explicitly instead of silently swapping
  * the user's choice. The automatic sentinel is never returned as a model.
  */
 export function resolveWorkModel(
@@ -115,13 +115,13 @@ export type WorkModelSelection =
   | { ok: false; reason: WorkModelSelectionFailure };
 
 /**
- * Resolve the model a Work submission will actually run on.
+ * Resolve the concrete model a Work submission will store and invoke with.
  *
  * `auto` is resolved through the deployment's configured default, and only
  * when that default is present among the offered free/local models. Anything
- * else fails with `auto_unresolved` so the caller can surface an actionable
- * configuration error. A paid gateway default is never selected, and no
- * omitted model silently routes to one.
+ * else fails with `auto_unresolved` so the caller can report an actionable
+ * configuration error. A paid gateway default is never selected, and an
+ * omitted model never routes to one.
  */
 export function resolveWorkSelection(
   models: WorkModel[],

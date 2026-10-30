@@ -52,7 +52,7 @@ describe('native work model discovery', () => {
     expect(buildWorkModelOptions([])).toEqual([]);
   });
 
-  it('never returns auto as a model id', () => {
+  it('never returns the automatic sentinel as a model', () => {
     expect(resolveWorkModel(withPaid(), WORK_AUTO_MODEL_ID)).toBeNull();
     expect(
       resolveWorkModel(buildWorkModels([{ id: 'llama3:latest', local: true }]), 'gone'),
@@ -60,16 +60,21 @@ describe('native work model discovery', () => {
     expect(resolveWorkModel(withPaid(), 'llama3:latest')?.id).toBe('llama3:latest');
   });
 
-  it('resolves auto to the configured default only when it is free or local', () => {
-    const selection = resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, 'llama3:latest');
-    expect(selection).toMatchObject({ ok: true, auto: true, model: { id: 'llama3:latest' } });
+  it('resolves automatic to the configured default only when it is free or local', () => {
+    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, 'llama3:latest')).toMatchObject({
+      ok: true,
+      auto: true,
+      model: { id: 'llama3:latest' },
+    });
   });
 
-  it('cannot select a paid gateway model through auto or by omission', () => {
+  it('cannot select a paid gateway model through automatic or by omission', () => {
     /** The deployment default is paid: automatic must fail rather than route to it. */
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      const selection = resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o');
-      expect(selection).toEqual({ ok: false, reason: 'auto_unresolved' });
+      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toEqual({
+        ok: false,
+        reason: 'auto_unresolved',
+      });
     }
     /** Even a paid id the caller names explicitly is refused. */
     expect(resolveWorkSelection(withPaid(), 'openai:gpt-4o', 'llama3:latest')).toEqual({
@@ -78,7 +83,7 @@ describe('native work model discovery', () => {
     });
   });
 
-  it('refuses auto when no default is configured', () => {
+  it('refuses automatic when no default is configured', () => {
     expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, null)).toEqual({
       ok: false,
       reason: 'auto_unresolved',
