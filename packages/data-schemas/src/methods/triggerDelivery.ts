@@ -2212,8 +2212,7 @@ export function createAgentTriggerDeliveryMethods(
       input.sourceId.length > 256 ||
       Number.isNaN(input.settledAt.getTime()) ||
       (input.onlyIfUnclaimed === true && input.onlyIfDead === true) ||
-      (input.sourceType === 'workflow' &&
-        (input.onlyIfUnclaimed !== true || !input.deliveryKey.startsWith('wf:')))
+      (input.sourceType === 'workflow' && input.onlyIfUnclaimed !== true)
     ) {
       throw new TypeError('Invalid agent trigger delivery retirement');
     }
@@ -2254,6 +2253,7 @@ export function createAgentTriggerDeliveryMethods(
             deliveryKey: input.deliveryKey,
             'envelope.event.source.type': input.sourceType ?? 'internal',
             'envelope.event.source.id': input.sourceId,
+            ...(input.sourceType === 'workflow' && { 'envelope.deliveryId': /^wf:/ }),
             ...statusFence,
             ...(discardEmptyPlan && {
               backgroundToolResultBatch: { $exists: true },
@@ -2331,6 +2331,7 @@ export function createAgentTriggerDeliveryMethods(
         deliveryKey: input.deliveryKey,
         'envelope.event.source.type': input.sourceType ?? 'internal',
         'envelope.event.source.id': input.sourceId,
+        ...(input.sourceType === 'workflow' && { 'envelope.deliveryId': /^wf:/ }),
         status: 'succeeded',
         $or: [
           { handling: { $exists: false } },
