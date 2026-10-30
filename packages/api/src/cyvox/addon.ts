@@ -1,5 +1,5 @@
 import express from 'express';
-import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
+import { isCyvoxFreeOrLocalModel, isCyvoxThinkingEffort, SystemRoles } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { CyvoxTarget } from './settings';
 import { resolveCyvoxTarget } from './settings';
@@ -40,6 +40,41 @@ export type CyvoxSettingsResolver = () => Promise<CyvoxTarget | null>;
 
 function getTarget(res: Response): CyvoxTarget | null {
   return (res.locals.cyvoxTarget as CyvoxTarget | null | undefined) ?? null;
+}
+
+/**
+ * CyVox reports an installed Ollama model by its raw tag (for example
+ * `llama3:latest`), not with an `ollama:` prefix. Only the inventory can
+ * prove that a raw name is local, so read it with the same server-side token
+ * and accept the exact entry only when CyVox marks it `OLLAMA`.
+ */
+async function isInstalledOllamaModel(target: CyvoxTarget, model: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/api/models', target.url), {
+      method: 'GET',
+      signal: AbortSignal.timeout(10000),
+      redirect: 'error',
+      headers: {
+        Accept: 'application/json',
+        ...(target.authToken ? { Authorization: `Bearer ${target.authToken}` } : {}),
+      },
+    });
+    if (!response.ok) return false;
+    if (!(response.headers.get('Content-Type') ?? '').includes('application/json')) return false;
+    const bounded = await readBoundedBody(response);
+    if (!bounded.ok) return false;
+    const body: unknown = JSON.parse(bounded.body);
+    if (!body || typeof body !== 'object') return false;
+    const models = (body as { models?: unknown }).models;
+    if (!Array.isArray(models)) return false;
+    return models.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const entry = item as Record<string, unknown>;
+      return entry.name === model && entry.location === 'OLLAMA' && entry.compatible_now !== false;
+    });
+  } catch {
+    return false;
+  }
 }
 
 export function createCyvoxAddonRouter(
@@ -158,11 +193,47 @@ export function createCyvoxAddonRouter(
         return;
       }
       const mode = body.mode === 'Coding Team' ? 'Coding Team' : 'Autonomous Run';
+      // Per-task selection travels with the task. It must not call
+      // /api/models/select: that writes deployment-global models.json and would
+      // change the model for every other tenant sharing this CyVox deployment.
+      const selection: { model?: string; thinking_effort?: string } = {};
+      if (body.model !== undefined && body.model !== null && body.model !== '') {
+        if (typeof body.model !== 'string' || body.model.length > 150) {
+          res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+          return;
+        }
+        const target = getTarget(res);
+        // Prefix-checked free/local IDs need no lookup; a raw name is accepted
+        // only when the authenticated inventory reports it as installed Ollama.
+        const accepted =
+          isCyvoxFreeOrLocalModel(body.model) ||
+          (target !== null && (await isInstalledOllamaModel(target, body.model)));
+        if (!accepted) {
+          res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+          return;
+        }
+        selection.model = body.model;
+      }
+      if (
+        body.thinking_effort !== undefined &&
+        body.thinking_effort !== null &&
+        body.thinking_effort !== ''
+      ) {
+        if (
+          typeof body.thinking_effort !== 'string' ||
+          !isCyvoxThinkingEffort(body.thinking_effort)
+        ) {
+          res.status(400).json({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
+          return;
+        }
+        selection.thinking_effort = body.thinking_effort;
+      }
       await forward(res, '/api/tasks', 'POST', {
         task: body.task.trim(),
         mode,
         max_steps: 15,
         routing_mode: 'FAST',
+        ...selection,
       });
     } else if (action === 'startComputerTask') {
       if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) {
