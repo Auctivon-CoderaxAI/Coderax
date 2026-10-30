@@ -199,3 +199,7 @@ scripts/activity-labels/results/
 # is handed a Windows profile path from WSL: the whole path arrives as one directory name.
 /*lighthouse.[0-9]*/
 .vercel
+
+# Generated private repository-agent inventory (never commit)
+/portfolio-registry.local.json
+/portfolio-registry.*.local.json
