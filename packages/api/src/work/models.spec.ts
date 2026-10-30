@@ -9,11 +9,7 @@ describe('native work model discovery', () => {
       { id: 'openai:gpt-4o', provider: 'gateway' },
       { id: '' },
     ]);
-    expect(models.map((model) => model.id)).toEqual([
-      'free/alpha',
-      'llama3:latest',
-      'ollama/qwen',
-    ]);
+    expect(models.map((model) => model.id)).toEqual(['free/alpha', 'llama3:latest', 'ollama/qwen']);
   });
 
   it('excludes paid gateway models from the picker', () => {

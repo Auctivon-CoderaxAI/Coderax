@@ -86,10 +86,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
     const models = buildWorkModels(await deps.listModels().catch(() => []));
-    const selected = resolveWorkModel(
-      models,
-      typeof body.model === 'string' ? body.model : null,
-    );
+    const selected = resolveWorkModel(models, typeof body.model === 'string' ? body.model : null);
     if (body.model !== undefined && body.model !== null && body.model !== '' && !selected) {
       res.status(409).json({ code: 'WORK_MODEL_UNAVAILABLE' });
       return;
@@ -117,9 +114,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
-    const conversation = await deps
-      .getConversation({ userId, conversationId })
-      .catch(() => null);
+    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
@@ -136,9 +131,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_MESSAGE' });
       return;
     }
-    const conversation = await deps
-      .getConversation({ userId, conversationId })
-      .catch(() => null);
+    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
@@ -158,9 +151,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
-    const conversation = await deps
-      .getConversation({ userId, conversationId })
-      .catch(() => null);
+    const conversation = await deps.getConversation({ userId, conversationId }).catch(() => null);
     if (!conversation || !isWorkConversation(conversation)) {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;

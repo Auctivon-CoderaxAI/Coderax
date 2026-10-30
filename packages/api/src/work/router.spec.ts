@@ -15,7 +15,11 @@ function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): A
     getConversation: async ({ conversationId }) =>
       (conversations.find((c) => c.conversationId === conversationId) ?? null) as never,
     createConversation: async ({ userId, title, metadata }) => {
-      const stored = { conversationId: `c-${conversations.length + 1}`, title, metadata: { ...metadata, owner: userId } };
+      const stored = {
+        conversationId: `c-${conversations.length + 1}`,
+        title,
+        metadata: { ...metadata, owner: userId },
+      };
       conversations.push(stored);
       return stored as never;
     },
@@ -84,7 +88,9 @@ describe('native Work router', () => {
     const server = app();
     const created = await request(server).post('/api/work/tasks').send({ task: 'Plan' });
     const id = created.body.task.id;
-    const res = await request(server).post(`/api/work/tasks/${id}/messages`).send({ message: 'Go on' });
+    const res = await request(server)
+      .post(`/api/work/tasks/${id}/messages`)
+      .send({ message: 'Go on' });
     expect(res.status).toBe(202);
   });
 
@@ -106,7 +112,11 @@ describe('native Work router', () => {
   });
 
   it('surfaces history failures as an outage, not an empty list', async () => {
-    const server = app({ listConversations: async () => { throw new Error('db down'); } });
+    const server = app({
+      listConversations: async () => {
+        throw new Error('db down');
+      },
+    });
     const res = await request(server).get('/api/work/tasks');
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('WORK_HISTORY_UNAVAILABLE');

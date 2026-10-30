@@ -37,9 +37,11 @@ describe('work task mapping', () => {
   });
 
   it('projects a conversation into a task and drops non-Work rows', () => {
-    expect(
-      toWorkTask({ conversationId: 'c1', title: 'Plan', metadata: { work: true } }),
-    ).toEqual({ id: 'c1', title: 'Plan', state: 'running' });
+    expect(toWorkTask({ conversationId: 'c1', title: 'Plan', metadata: { work: true } })).toEqual({
+      id: 'c1',
+      title: 'Plan',
+      state: 'running',
+    });
     expect(toWorkTask({ conversationId: 'c2', metadata: {} })).toBeNull();
   });
 
