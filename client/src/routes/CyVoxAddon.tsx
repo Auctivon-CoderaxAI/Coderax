@@ -207,9 +207,9 @@ function useCyVoxAction() {
   const send = async (
     path: string,
     body: object = {},
-    confirmation: string,
+    confirmation?: string,
   ): Promise<{ ok: boolean; data?: unknown }> => {
-    if (!window.confirm(confirmation)) return { ok: false };
+    if (confirmation && !window.confirm(confirmation)) return { ok: false };
     setBusy(true);
     setMessage('');
     try {
@@ -443,7 +443,6 @@ function WorkView() {
     const started = await action.send(
       'actions/startTask',
       buildStartTaskPayload({ task: description, mode, model: activeModel, effort }),
-      localize('com_cyvox_start_work_confirmation'),
     );
     if (!started.ok) return;
 

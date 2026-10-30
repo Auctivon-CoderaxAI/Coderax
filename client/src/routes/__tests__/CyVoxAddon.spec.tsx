@@ -344,8 +344,8 @@ describe('Coderax Work route', () => {
         init?.method === 'POST' && String(input).endsWith('/api/cyvox/actions/startTask'),
     );
 
-  it('submits the selected model and thinking effort with the task', async () => {
-    jest.spyOn(window, 'confirm').mockReturnValue(true);
+  it('submits the selected model and thinking effort without a start confirmation', async () => {
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
     mockWorkWithModel();
     const { queryClient } = renderWorkRoute('/work');
 
@@ -360,6 +360,7 @@ describe('Coderax Work route', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
 
     await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(confirm).not.toHaveBeenCalled();
     expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
       task: 'Prepare a launch plan',
       mode: 'Autonomous Run',
