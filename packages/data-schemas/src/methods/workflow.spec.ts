@@ -339,6 +339,11 @@ describe('workflow persistence', () => {
       scheduledFor.toISOString(),
     );
 
+    const [inserted] = await methods.listWorkflowRuns(userId, workflow.id);
+    expect(inserted).toBeDefined();
+    const beforeReplay = await methods.getWorkflow(workflow.id, userId);
+    expect(beforeReplay?.schedule?.nextRunAt?.toISOString()).toBe(scheduledFor.toISOString());
+
     const replay = await methods.completeWorkflowScheduleClaim({
       workflowId: workflow.id,
       claimToken: retry[0].schedule?.claimToken as string,
@@ -346,8 +351,13 @@ describe('workflow persistence', () => {
       nextRunAt,
       now: retryAt,
     });
-    expect(replay).toBeNull();
-    expect(await methods.listWorkflowRuns(userId, workflow.id)).toHaveLength(1);
+    expect(replay?.id).toBe(inserted.id);
+    expect(replay?.dedupeKey).toBe(inserted.dedupeKey);
+    expect(replay?.trigger?.label).toBe(scheduledFor.toISOString());
+
+    const runs = await methods.listWorkflowRuns(userId, workflow.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].id).toBe(inserted.id);
     const reloaded = await methods.getWorkflow(workflow.id, userId);
     expect(reloaded?.schedule?.nextRunAt?.toISOString()).toBe(nextRunAt.toISOString());
     expect(reloaded?.schedule?.retryAt).toBeUndefined();

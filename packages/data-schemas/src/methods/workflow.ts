@@ -844,15 +844,17 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         return null;
       }
       const dedupeKey = `workflow-schedule:${workflowId}:${scheduledFor.toISOString()}`;
+      const existingRun = () => runModel().findOne({ dedupeKey }).lean<IWorkflowRun | null>();
       // A retry can reacquire the claim after the run insert succeeded but the
-      // schedule advance failed. The unique index closes the replica race; this
-      // read keeps the common replay path idempotent even before it is built.
-      if ((await runModel().exists({ dedupeKey })) != null) {
+      // schedule advance failed. Return that occurrence rather than creating a
+      // second run; the unique index closes the replica race.
+      const existing = await existingRun();
+      if (existing != null) {
         await workflowModel().updateOne(
           { id: workflowId, 'schedule.claimToken': claimToken },
           scheduleUpdate(nextRunAt),
         );
-        return null;
+        return existing;
       }
       let created: IWorkflowRun | null = null;
       try {
@@ -888,6 +890,10 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         created = (created as unknown as { toObject: () => IWorkflowRun }).toObject();
       } catch (error) {
         if (!isDuplicateKey(error)) {
+          throw error;
+        }
+        created = await existingRun();
+        if (created == null) {
           throw error;
         }
       }
