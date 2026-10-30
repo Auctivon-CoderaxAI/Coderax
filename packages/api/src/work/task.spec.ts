@@ -12,16 +12,15 @@ import {
 
 const work = (extra: Record<string, unknown> = {}) => ({
   conversationId: 'c1',
-  metadata: { work: true, ...extra },
+  isWork: true,
+  ...extra,
 });
 
 describe('work task mapping', () => {
-  it('treats only marked conversations as Work', () => {
-    expect(isWorkConversation({ metadata: { work: true } })).toBe(true);
-    expect(isWorkConversation({ metadata: { work: false } })).toBe(false);
-    expect(isWorkConversation({ metadata: {} })).toBe(false);
+  it('treats only first-class marked conversations as Work', () => {
+    expect(isWorkConversation({ isWork: true })).toBe(true);
+    expect(isWorkConversation({ isWork: false })).toBe(false);
     expect(isWorkConversation({})).toBe(false);
-    expect(isWorkConversation({ metadata: null })).toBe(false);
   });
 
   it('derives a bounded title from the submitted task', () => {
@@ -74,23 +73,23 @@ describe('work task mapping', () => {
   });
 
   it('projects a conversation into a task and drops non-Work rows', () => {
-    expect(toWorkTask({ conversationId: 'c1', title: 'Plan', metadata: { work: true } })).toEqual({
+    expect(toWorkTask({ conversationId: 'c1', title: 'Plan', isWork: true })).toEqual({
       id: 'c1',
       title: 'Plan',
       state: WORK_UNKNOWN_STATE,
       createdAt: undefined,
       updatedAt: undefined,
     });
-    expect(toWorkTask({ conversationId: 'c2', metadata: {} })).toBeNull();
+    expect(toWorkTask({ conversationId: 'c2', isWork: false })).toBeNull();
   });
 
   it('returns newest-first history and honours the limit', () => {
     const history = toWorkHistory(
       [
-        { conversationId: 'old', updatedAt: '2026-01-01', metadata: { work: true } },
-        { conversationId: 'new', updatedAt: '2026-03-01', metadata: { work: true } },
-        { conversationId: 'chat', metadata: {} },
-        { conversationId: 'mid', updatedAt: '2026-02-01', metadata: { work: true } },
+        { conversationId: 'old', updatedAt: '2026-01-01', isWork: true },
+        { conversationId: 'new', updatedAt: '2026-03-01', isWork: true },
+        { conversationId: 'chat', isWork: false },
+        { conversationId: 'mid', updatedAt: '2026-02-01', isWork: true },
       ],
       2,
     );
@@ -100,9 +99,9 @@ describe('work task mapping', () => {
   it('asks the resolver for live state and leaves the rest unresolved', () => {
     const history = toWorkHistory(
       [
-        { conversationId: 'live', metadata: { work: true } },
-        { conversationId: 'settled', metadata: { work: true, workState: 'completed' } },
-        { conversationId: 'quiet', metadata: { work: true } },
+        { conversationId: 'live', isWork: true },
+        { conversationId: 'settled', isWork: true, workState: 'completed' },
+        { conversationId: 'quiet', isWork: true },
       ],
       10,
       (conversation) => (conversation.conversationId === 'live' ? 'running' : undefined),

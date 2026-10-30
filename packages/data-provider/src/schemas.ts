@@ -954,6 +954,9 @@ export const tMessageSchema = z.object({
   /** Exact HITL message-field identity for caller-authored values stored in mixed responses. */
   userSubmittedMessageFieldPaths: z.array(userSubmittedMessageFieldPathSchema).optional(),
   isTemporary: z.boolean().optional(),
+  isWork: z.boolean().optional(),
+  workModel: z.string().optional(),
+  workState: z.string().optional(),
   expiredAt: z.string().nullable().optional(),
   error: z.boolean().optional(),
   clientTimestamp: z.string().optional(),

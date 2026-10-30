@@ -4,9 +4,6 @@
  * what counts as Work, how a task is titled, and when it is finished.
  */
 
-/** Metadata marker stored on the conversation, alongside the normal convo fields. */
-export const WORK_METADATA_KEY = 'work';
-
 export const WORK_MAX_TASK_LENGTH = 4000;
 
 /** Run states the Work surface knows how to render. */
@@ -20,8 +17,6 @@ export type WorkTaskState = 'running' | 'completed' | 'failed' | 'cancelled' | '
 export const WORK_UNKNOWN_STATE: WorkTaskState = 'unknown';
 
 /** The state Coderax itself may persist on the conversation when a run settles. */
-export const WORK_STATE_METADATA_KEY = 'workState';
-
 const STATE_ALIASES: Record<string, WorkTaskState> = {
   running: 'running',
   in_progress: 'running',
@@ -45,7 +40,9 @@ export type WorkConversation = {
   title?: string;
   createdAt?: string;
   updatedAt?: string;
-  metadata?: Record<string, unknown> | null;
+  isWork?: boolean;
+  workModel?: string;
+  workState?: string;
 };
 
 export type WorkTask = {
@@ -56,15 +53,9 @@ export type WorkTask = {
   updatedAt?: string;
 };
 
-/** A conversation is Work when its metadata carries the marker. */
-export function isWorkConversation(conversation: {
-  metadata?: Record<string, unknown> | null;
-}): boolean {
-  const metadata = conversation.metadata;
-  if (!metadata || typeof metadata !== 'object') {
-    return false;
-  }
-  return metadata[WORK_METADATA_KEY] === true;
+/** A conversation is Work only when its persisted first-class flag is true. */
+export function isWorkConversation(conversation: Pick<WorkConversation, 'isWork'>): boolean {
+  return conversation.isWork === true;
 }
 
 /**
@@ -95,11 +86,7 @@ export function isResolvedWorkState(state: string): boolean {
  * consult the title, timestamps or message count.
  */
 export function resolveStoredWorkState(conversation: WorkConversation): WorkTaskState {
-  const metadata = conversation.metadata;
-  if (!metadata || typeof metadata !== 'object') {
-    return WORK_UNKNOWN_STATE;
-  }
-  return normalizeWorkState(metadata[WORK_STATE_METADATA_KEY]);
+  return normalizeWorkState(conversation.workState);
 }
 
 /**

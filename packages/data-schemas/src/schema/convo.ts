@@ -42,6 +42,13 @@ const convoSchema: Schema<IConversation> = new Schema(
       type: Boolean,
       default: false,
     },
+    isWork: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    workModel: { type: String, default: undefined },
+    workState: { type: String, default: undefined },
     ...conversationPreset,
     codeEnvironmentRevision: { type: Number, select: false },
     /** Exact tool names the owner chose to auto-approve for this conversation.

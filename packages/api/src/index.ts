@@ -88,6 +88,10 @@ export * from './prompts';
 export * from './projects';
 /* Conversations */
 export * from './conversations';
+/* Work */
+export * from './work/models';
+export * from './work/task';
+export * from './work/router';
 /* Messages */
 export * from './messages';
 /* Skills */
