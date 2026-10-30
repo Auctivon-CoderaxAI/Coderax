@@ -18,7 +18,10 @@ const handlers = createWorkflowHandlers({
   wake: wakeWorkflowEngine,
   abortActiveRun: abortWorkflowTurn,
   retireQueuedDelivery: (deliveryKey, workflowId) =>
-    retireAgentTrigger(deliveryKey, workflowId, 'workflow_cancelled', { onlyIfUnclaimed: true }),
+    retireAgentTrigger(deliveryKey, workflowId, 'workflow_cancelled', {
+      onlyIfUnclaimed: true,
+      sourceType: 'workflow',
+    }),
 });
 
 const handle = (handler) => (req, res, next) => Promise.resolve(handler(req, res)).catch(next);
