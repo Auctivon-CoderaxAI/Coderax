@@ -4,7 +4,14 @@ import {
   buildWorkModels,
   isWorkSupportedModel,
   resolveWorkModel,
+  resolveWorkSelection,
 } from './models';
+
+const withPaid = () =>
+  buildWorkModelOptions([
+    { id: 'llama3:latest', local: true },
+    { id: 'openai:gpt-4o', provider: 'gateway' },
+  ]);
 
 describe('native work model discovery', () => {
   it('offers free and local models without any CyVox input', () => {
@@ -23,6 +30,7 @@ describe('native work model discovery', () => {
     expect(isWorkSupportedModel({ id: 'anthropic:claude' })).toBe(false);
     expect(isWorkSupportedModel({ id: 'ollama/llama3' })).toBe(true);
     expect(isWorkSupportedModel({ id: '' })).toBe(false);
+    expect(isWorkSupportedModel({ id: WORK_AUTO_MODEL_ID })).toBe(false);
   });
 
   it('deduplicates by id and keeps the first label', () => {
@@ -44,17 +52,48 @@ describe('native work model discovery', () => {
     expect(buildWorkModelOptions([])).toEqual([]);
   });
 
-  it('never silently substitutes a different model', () => {
-    const models = buildWorkModels([{ id: 'llama3:latest', local: true }]);
-    expect(resolveWorkModel(models, 'llama3:latest')?.id).toBe('llama3:latest');
-    expect(resolveWorkModel(models, 'gone')).toBeNull();
-    expect(resolveWorkModel(models, null)).toBeNull();
+  it('never returns auto as a model id', () => {
+    expect(resolveWorkModel(withPaid(), WORK_AUTO_MODEL_ID)).toBeNull();
+    expect(
+      resolveWorkModel(buildWorkModels([{ id: 'llama3:latest', local: true }]), 'gone'),
+    ).toBeNull();
+    expect(resolveWorkModel(withPaid(), 'llama3:latest')?.id).toBe('llama3:latest');
   });
 
-  it('resolves the automatic option only while a concrete model exists', () => {
-    expect(
-      resolveWorkModel(buildWorkModelOptions([{ id: 'ollama/qwen' }]), WORK_AUTO_MODEL_ID),
-    ).toMatchObject({ id: WORK_AUTO_MODEL_ID, auto: true });
-    expect(resolveWorkModel(buildWorkModels([]), WORK_AUTO_MODEL_ID)).toBeNull();
+  it('resolves auto to the configured default only when it is free or local', () => {
+    const selection = resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, 'llama3:latest');
+    expect(selection).toMatchObject({ ok: true, auto: true, model: { id: 'llama3:latest' } });
+  });
+
+  it('cannot select a paid gateway model through auto or by omission', () => {
+    /** The deployment default is paid: automatic must fail rather than route to it. */
+    for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
+      const selection = resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o');
+      expect(selection).toEqual({ ok: false, reason: 'auto_unresolved' });
+    }
+    /** Even a paid id the caller names explicitly is refused. */
+    expect(resolveWorkSelection(withPaid(), 'openai:gpt-4o', 'llama3:latest')).toEqual({
+      ok: false,
+      reason: 'model_unavailable',
+    });
+  });
+
+  it('refuses auto when no default is configured', () => {
+    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, null)).toEqual({
+      ok: false,
+      reason: 'auto_unresolved',
+    });
+    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, '  ')).toEqual({
+      ok: false,
+      reason: 'auto_unresolved',
+    });
+  });
+
+  it('honours an explicit free or local selection', () => {
+    expect(resolveWorkSelection(withPaid(), 'llama3:latest')).toMatchObject({
+      ok: true,
+      auto: false,
+      model: { id: 'llama3:latest' },
+    });
   });
 });

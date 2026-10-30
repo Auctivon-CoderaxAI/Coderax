@@ -23,7 +23,12 @@ export type WorkModel = {
   auto?: true;
 };
 
-/** Sentinel id for "let Coderax pick among the offered models". */
+/**
+ * Sentinel for "let Coderax choose among the offered models".
+ *
+ * This is a UI choice only. It is never a provider or model id: a submission
+ * must always resolve to a concrete model before it reaches the runner.
+ */
 export const WORK_AUTO_MODEL_ID = 'auto';
 
 export const WORK_AUTO_MODEL_LABEL = 'Automatic';
@@ -44,7 +49,7 @@ export function isLocalModelId(id: string): boolean {
  */
 export function isWorkSupportedModel(source: WorkModelSource): boolean {
   const id = (source.id ?? source.name ?? '').trim();
-  if (!id) {
+  if (!id || id === WORK_AUTO_MODEL_ID) {
     return false;
   }
   return source.free === true || source.local === true || isLocalModelId(id);
@@ -83,25 +88,62 @@ export function buildWorkModelOptions(sources: WorkModelSource[]): WorkModel[] {
   return [{ id: WORK_AUTO_MODEL_ID, label: WORK_AUTO_MODEL_LABEL, auto: true }, ...models];
 }
 
+/** The concrete models a submission may actually run on. */
+export function workConcreteModels(models: WorkModel[]): WorkModel[] {
+  return models.filter((model) => model.id !== WORK_AUTO_MODEL_ID);
+}
+
 /**
- * A selection is honoured only when it is still offered. Returning `null`
- * tells the caller to fall back explicitly instead of silently swapping the
- * user's choice, which is what the previous surface did. The automatic option
- * is valid only while at least one concrete model is available.
+ * A concrete selection is honoured only when it is still offered. Returning
+ * `null` tells the caller to fall back explicitly instead of silently swapping
+ * the user's choice. The automatic sentinel is never returned as a model.
  */
 export function resolveWorkModel(
   models: WorkModel[],
   selected: string | null | undefined,
 ): WorkModel | null {
-  if (!selected) {
+  if (!selected || selected === WORK_AUTO_MODEL_ID) {
     return null;
   }
-  if (selected === WORK_AUTO_MODEL_ID) {
-    const concrete = models.filter((model) => model.id !== WORK_AUTO_MODEL_ID);
-    if (concrete.length === 0) {
-      return null;
-    }
-    return { id: WORK_AUTO_MODEL_ID, label: WORK_AUTO_MODEL_LABEL, auto: true };
+  return workConcreteModels(models).find((model) => model.id === selected) ?? null;
+}
+
+export type WorkModelSelectionFailure = 'model_unavailable' | 'auto_unresolved';
+
+export type WorkModelSelection =
+  | { ok: true; model: WorkModel; auto: boolean }
+  | { ok: false; reason: WorkModelSelectionFailure };
+
+/**
+ * Resolve the model a Work submission will actually run on.
+ *
+ * `auto` is resolved through the deployment's configured default, and only
+ * when that default is present among the offered free/local models. Anything
+ * else fails with `auto_unresolved` so the caller can surface an actionable
+ * configuration error. A paid gateway default is never selected, and no
+ * omitted model silently routes to one.
+ */
+export function resolveWorkSelection(
+  models: WorkModel[],
+  selected: string | null | undefined,
+  configuredDefault?: string | null,
+): WorkModelSelection {
+  const concrete = workConcreteModels(models);
+
+  if (selected && selected !== WORK_AUTO_MODEL_ID) {
+    const match = concrete.find((model) => model.id === selected);
+    return match
+      ? { ok: true, model: match, auto: false }
+      : { ok: false, reason: 'model_unavailable' };
   }
-  return models.find((model) => model.id === selected) ?? null;
+
+  const fallbackId = configuredDefault?.trim();
+  if (!fallbackId) {
+    return { ok: false, reason: 'auto_unresolved' };
+  }
+  /** `concrete` already excludes paid gateway models, so membership is the proof. */
+  const fallback = concrete.find((model) => model.id === fallbackId);
+  return fallback
+    ? { ok: true, model: fallback, auto: true }
+    : { ok: false, reason: 'auto_unresolved' };
 }
