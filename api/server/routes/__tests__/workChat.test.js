@@ -1,11 +1,15 @@
+const express = require('express');
+const http = require('node:http');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  delegateToAgents,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
+  createWorkChatRouter,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -368,4 +372,138 @@ test('a follow-up on an existing conversation keeps its original marker', async 
 
   assert.deepEqual(result, { seeded: false, reason: 'exists' });
   assert.equal(db.saves.length, 0);
+});
+
+test('delegates to the native agents router under /chat', async () => {
+  const calls = [];
+  const delegate = delegateToAgents((req, _res, next) => {
+    calls.push({ url: req.url, model: req.body?.model });
+    next();
+  });
+  const req = { url: '/', body: { model: 'llama3:latest' } };
+  let continued = false;
+  await delegate(req, {}, () => {
+    continued = true;
+  });
+
+  assert.deepEqual(calls, [{ url: '/chat', model: 'llama3:latest' }]);
+  assert.equal(req.url, '/');
+  assert.equal(continued, true);
+});
+
+test('forwards subpaths such as resume and approvals under /chat', async () => {
+  const seen = [];
+  const delegate = delegateToAgents((req, _res, next) => {
+    seen.push(req.url);
+    next();
+  });
+
+  for (const path of ['/resume', '/approve']) {
+    const req = { url: path };
+    await delegate(req, {}, () => {});
+    assert.equal(req.url, path, 'path is restored after delegation');
+  }
+  assert.deepEqual(seen, ['/chat/resume', '/chat/approve']);
+});
+
+test('propagates a downstream error after restoring the path', async () => {
+  const failure = new Error('downstream');
+  const delegate = delegateToAgents((_req, _res, next) => next(failure));
+  const req = { url: '/' };
+  const received = await new Promise((resolve) => {
+    delegate(req, {}, (err) => resolve(err));
+  });
+
+  assert.equal(received, failure);
+  assert.equal(req.url, '/');
+});
+
+/** Serves one express app on an ephemeral port. */
+function serve(app) {
+  return new Promise((resolve) => {
+    const server = http.createServer(app).listen(0, '127.0.0.1', () => {
+      resolve({ server, port: server.address().port });
+    });
+  });
+}
+
+test('/api/work/chat runs admission after Work context and hands it the concrete model', async () => {
+  const seen = [];
+  const fakeAgents = (req, res) => {
+    seen.push({ url: req.url, workModel: req.workContext?.workModel, model: req.body?.model });
+    res.status(200).json({ ok: true });
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/work', (req, _res, next) => {
+    req.user = { id: 'user-1' };
+    next();
+  });
+  app.use(
+    '/api/work',
+    createWorkChatRouter({
+      loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+      configuredDefaultModel: () => 'llama3:latest',
+      seedConversation: async () => ({ seeded: true }),
+      agentsRouter: fakeAgents,
+    }),
+  );
+
+  const { server, port } = await serve(app);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/work/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'plan', model: 'auto', isWork: true, workModel: 'gpt-4o' }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(body, { ok: true });
+    assert.equal(seen.length, 1, 'the native handler ran exactly once');
+    assert.equal(seen[0].url, '/chat', 'admission receives the native chat path');
+    assert.equal(seen[0].workModel, 'llama3:latest', 'Work context set before admission');
+    assert.equal(seen[0].model, 'llama3:latest', 'the concrete model reaches the runner');
+  } finally {
+    server.close();
+  }
+});
+
+test('/api/work/chat refuses a paid model before any native admission runs', async () => {
+  let reached = false;
+  const app = express();
+  app.use(express.json());
+  app.use('/api/work', (req, _res, next) => {
+    req.user = { id: 'user-1' };
+    next();
+  });
+  app.use(
+    '/api/work',
+    createWorkChatRouter({
+      loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
+      configuredDefaultModel: () => 'gpt-4o',
+      seedConversation: async () => ({ seeded: false }),
+      agentsRouter: (_req, res) => {
+        reached = true;
+        res.status(200).json({ ok: true });
+      },
+    }),
+  );
+
+  const { server, port } = await serve(app);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/work/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'plan', model: 'gpt-4o' }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 409);
+    assert.equal(body.error, 'WORK_MODEL_NOT_ALLOWED');
+    assert.equal(reached, false, 'the native chain never ran for a refused model');
+  } finally {
+    server.close();
+  }
 });
