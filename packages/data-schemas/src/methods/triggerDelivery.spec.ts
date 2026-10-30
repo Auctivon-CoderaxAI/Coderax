@@ -1688,6 +1688,73 @@ describe('agent trigger delivery methods', () => {
     ).resolves.toMatchObject({ id: successor.delivery.id });
   });
 
+  it('retires only matching unclaimed workflow deliveries on cancellation', async () => {
+    const source = { id: 'workflow-one', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: 'wf:run-one:step-one:1',
+        envelope: { event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, sourceType: undefined }),
+    ).resolves.toBe(false);
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, sourceId: 'another-workflow' }),
+    ).resolves.toBe(false);
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(true);
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(true);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'succeeded',
+      result: { reason: 'workflow_cancelled' },
+    });
+  });
+
+  it('never retires a claimed workflow delivery or grants unrestricted workflow retirement', async () => {
+    const source = { id: 'workflow-two', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: 'wf:run-two:step-two:1',
+        envelope: { event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, onlyIfUnclaimed: false }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, deliveryKey: 'not-workflow' }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      methods.claimNextAgentTriggerDelivery({
+        workerId: 'workflow-worker',
+        claimToken: 'workflow-claim',
+        now: START,
+        leaseUntil: new Date(START.getTime() + 60_000),
+      }),
+    ).resolves.toMatchObject({ id: queued.delivery.id });
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(false);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'leased',
+      leaseBy: 'workflow-worker',
+    });
+  });
+
   it('treats an already successful internal delivery as terminal retirement evidence', async () => {
     const source = { id: 'agent-queued-turn', type: 'internal' };
     const queued = await methods.enqueueAgentTriggerDelivery(
