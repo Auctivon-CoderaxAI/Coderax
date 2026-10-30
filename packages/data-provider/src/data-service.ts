@@ -1443,6 +1443,10 @@ export function getWorkflowRunExportUrl(runId: string): string {
   return endpoints.workflowRunExport(runId);
 }
 
+/** Authenticated export; the bearer header is attached by the shared transport. */
+export const getWorkflowRunExport = async (runId: string): Promise<AxiosResponse> =>
+  request.get(endpoints.workflowRunExport(runId), { responseType: 'blob' });
+
 export function getSkill(id: string): Promise<sk.TSkill> {
   return request.get(endpoints.getSkill(id));
 }

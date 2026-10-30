@@ -474,8 +474,12 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
         typeof stepId !== 'string' ||
         !/^[1-9]\d*$/.test(attemptText) ||
         !Number.isSafeInteger(attempt) ||
-        check == null ||
-        !(await runAsSystem(async () =>
+        check == null
+      ) {
+        throw new AgentTriggerServiceUnavailableError('Workflow step delivery is no longer active');
+      }
+      const assertActive = async (): Promise<void> => {
+        const active = await runAsSystem(async () =>
           check({
             runId,
             stepId,
@@ -484,10 +488,15 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
             userId: parsed.principal.userId,
             ...(parsed.principal.tenantId == null ? {} : { tenantId: parsed.principal.tenantId }),
           }),
-        ))
-      ) {
-        throw new AgentTriggerServiceUnavailableError('Workflow step delivery is no longer active');
-      }
+        );
+        if (!active) {
+          throw new AgentTriggerServiceUnavailableError(
+            'Workflow step delivery is no longer active',
+          );
+        }
+      };
+      await assertActive();
+      return host.dispatch(parsed, { ...options, beforeDispatch: assertActive });
     }
     return host.dispatch(parsed, options);
   };

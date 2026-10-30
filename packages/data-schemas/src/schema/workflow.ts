@@ -171,6 +171,7 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
     },
     events: { type: [workflowRunEventSchema], default: [] },
     onCompleteWorkflowId: { type: String },
+    chainPending: { type: Boolean },
     dedupeKey: { type: String },
     error: { type: String, maxlength: 2_048 },
     leaseBy: { type: String },

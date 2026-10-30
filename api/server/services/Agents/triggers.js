@@ -11,6 +11,7 @@ const {
   createAgentQueuedTurnLifecycle,
   AGENT_QUEUED_TURN_SOURCE,
   GenerationJobManager,
+  isWorkflowStepActive: workflowStepIsActive,
 } = require('@coderax/api');
 const methods = require('~/models');
 
@@ -76,20 +77,8 @@ service = createAgentTriggerService({
   // its own. The workflow service registers this handler, which keeps this
   // module free of a require cycle back into the workflow service.
   onAgentEvent: (event) => (workflowEventHandler == null ? undefined : workflowEventHandler(event)),
-  isWorkflowStepActive: async ({ runId, stepId, attempt, workflowId, userId, tenantId }) => {
-    const run = await methods.getWorkflowRun(runId, userId);
-    if (
-      run == null ||
-      run.workflowId !== workflowId ||
-      (run.tenantId == null ? '' : String(run.tenantId)) !== (tenantId ?? '') ||
-      (run.status !== 'running' && run.status !== 'queued')
-    ) {
-      return false;
-    }
-    return run.steps.some(
-      (step) => step.id === stepId && step.status === 'running' && step.attempts === attempt,
-    );
-  },
+  isWorkflowStepActive: async (input) =>
+    workflowStepIsActive(await methods.getWorkflowRun(input.runId, input.userId), input),
   supportsDetachedActionCompletion: () => GenerationJobManager.supportsDetachedAgentEventActions,
   subscribeGenerationSettled: (listener) => GenerationJobManager.onGenerationSettled(listener),
   settleSourceBeforeDeadLetter: queuedTurnLifecycle.settleBeforeDeadLetter,

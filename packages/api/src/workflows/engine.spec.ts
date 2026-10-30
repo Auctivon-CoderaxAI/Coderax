@@ -764,4 +764,81 @@ describe('createWorkflowEngine cancellation fencing', () => {
     expect(enqueued).toEqual(['first']);
     expect(run.steps[0].attempts).toBe(2);
   });
+
+  it('keeps a run active while a sibling settles when another enqueue fails', async () => {
+    const run = runWith([
+      step({ id: 'sibling', dependsOn: [] }),
+      step({ id: 'broken', dependsOn: [], maxAttempts: 1 }),
+    ]);
+    run.status = 'queued';
+    run.settings = { maxParallel: 2 };
+    let generation: WorkflowGenerationState | null = null;
+    const engine = createWorkflowEngine({
+      store: {
+        claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+        saveRun: async ({ patch }) => {
+          Object.assign(run, patch);
+          if (patch.steps != null) {
+            run.steps = patch.steps.map((entry) => ({ ...entry }));
+          }
+          return true;
+        },
+        releaseRun: async () => undefined,
+      },
+      enqueueStep: async ({ step: entry }) => {
+        if (entry.id === 'broken') {
+          throw new Error('cannot enqueue');
+        }
+        return 'delivery:sibling:1';
+      },
+      getGeneration: async () => generation,
+      workerId: 'worker-1',
+    });
+
+    await engine.runTick();
+    expect(run.status).toBe('running');
+    expect(run.steps.find((entry) => entry.id === 'broken')?.status).toBe('failed');
+    expect(run.steps.find((entry) => entry.id === 'sibling')?.status).toBe('running');
+
+    generation = { status: 'complete', createdAt: Date.now() };
+    await engine.runTick();
+    expect(run.status).toBe('failed');
+  });
+
+  it('retries a pending completion chain until the host delivers it', async () => {
+    const run = {
+      ...runWith([step({ status: 'completed' })]),
+      status: 'completed' as const,
+      onCompleteWorkflowId: 'wf-next',
+      chainPending: true,
+    };
+    const onRunSettled = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary delivery failure'))
+      .mockResolvedValueOnce(undefined);
+    const engine = createWorkflowEngine({
+      store: {
+        claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+        saveRun: async ({ patch }) => {
+          if (patch.chainPending === false) {
+            run.chainPending = false;
+          }
+          return true;
+        },
+        releaseRun: async () => undefined,
+      },
+      enqueueStep: async () => 'unused',
+      getGeneration: async () => null,
+      onRunSettled,
+      workerId: 'worker-1',
+    });
+
+    await engine.runTick();
+    expect(run.chainPending).toBe(true);
+    expect(onRunSettled).toHaveBeenCalledTimes(1);
+
+    await engine.runTick();
+    expect(run.chainPending).toBe(false);
+    expect(onRunSettled).toHaveBeenCalledTimes(2);
+  });
 });

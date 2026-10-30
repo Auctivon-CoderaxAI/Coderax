@@ -39,6 +39,7 @@ jest.mock('~/config', () => ({
 
 jest.mock('~/server/services/Agents/triggers', () => ({
   initializeAgentTriggerService: jest.fn().mockResolvedValue(undefined),
+  setWorkflowEventHandler: jest.fn(),
 }));
 
 jest.mock('~/server/services/Schedules', () => ({

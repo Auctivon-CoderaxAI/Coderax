@@ -51,6 +51,8 @@ export interface WorkflowRunRecord {
   trigger?: WorkflowRunTrigger;
   events: WorkflowRunEvent[];
   onCompleteWorkflowId?: string;
+  /** A terminal run whose downstream chain still needs a durable delivery. */
+  chainPending?: boolean;
   error?: string;
   pauseRequestedAt?: Date;
   startedAt?: Date;
@@ -63,6 +65,7 @@ export interface WorkflowRunPatch {
   steps?: WorkflowStepRecord[];
   events?: WorkflowRunEvent[];
   error?: string | null;
+  chainPending?: boolean;
   pauseRequestedAt?: Date | null;
   startedAt?: Date;
   settledAt?: Date | null;
@@ -129,6 +132,16 @@ export interface WorkflowScheduleDeps {
     timezone: string;
     after: Date;
   }) => Date | null;
+}
+
+export interface WorkflowEngineOptions {
+  concurrency?: number;
+  leaseMs?: number;
+  tickMs?: number;
+  retryBaseMs?: number;
+  retryCapMs?: number;
+  stepTimeoutMs?: number;
+  scheduleConcurrency?: number;
 }
 
 export interface WorkflowEngineDeps {

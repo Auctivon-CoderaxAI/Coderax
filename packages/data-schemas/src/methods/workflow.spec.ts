@@ -394,4 +394,37 @@ describe('workflow persistence', () => {
     expect(cleared?.eventTriggers ?? []).toEqual([]);
     expect(await methods.listWorkflowsForEvent({ ...lookup, sourceId: 'webhook-1' })).toEqual([]);
   });
+
+  it('erases workflows and runs for one deleted account only', async () => {
+    const userId = owner();
+    const otherUserId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Delete me',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'First' }],
+    });
+    await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'conversation-delete',
+    });
+    const surviving = await methods.createWorkflow({
+      userId: otherUserId,
+      name: 'Keep me',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'First' }],
+    });
+
+    await methods.deleteWorkflowsByUser(userId);
+
+    expect(await methods.listWorkflows(userId)).toEqual([]);
+    expect(await methods.listWorkflowRuns(userId)).toEqual([]);
+    expect((await methods.listWorkflows(otherUserId)).map((entry) => entry.id)).toEqual([
+      surviving.id,
+    ]);
+  });
 });

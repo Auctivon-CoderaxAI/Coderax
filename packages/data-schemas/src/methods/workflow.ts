@@ -100,6 +100,7 @@ export interface WorkflowRunPatch {
   conversationId?: string;
   events?: IWorkflowRunEvent[];
   error?: string | null;
+  chainPending?: boolean;
   leaseUntil?: Date;
   pauseRequestedAt?: Date | null;
   startedAt?: Date;
@@ -145,6 +146,8 @@ export interface WorkflowMethods {
     input: UpdateWorkflowInput,
   ) => Promise<IWorkflow | null>;
   deleteWorkflow: (id: string, userId: string) => Promise<boolean>;
+  /** Account-deletion erasure for every workflow and run owned by one user. */
+  deleteWorkflowsByUser: (userId: string) => Promise<void>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<IWorkflowRun>;
   getWorkflowRun: (id: string, userId: string) => Promise<IWorkflowRun | null>;
   listWorkflowRuns: (userId: string, workflowId?: string) => Promise<IWorkflowRun[]>;
@@ -395,32 +398,61 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       return true;
     },
 
+    deleteWorkflowsByUser: async (userId) => {
+      const user = objectId(userId);
+      // Runs first: once the definitions are gone no new run can be created
+      // from a schedule or event subscription while cleanup is in progress.
+      await runModel().deleteMany({ user });
+      await workflowModel().deleteMany({ user });
+    },
+
     createWorkflowRun: async (input) => {
+      if (input.dedupeKey != null) {
+        const existing = await runModel()
+          .findOne({ dedupeKey: input.dedupeKey })
+          .lean<IWorkflowRun | null>();
+        if (existing != null) {
+          return existing;
+        }
+      }
       const createdAt = new Date();
-      const created = await runModel().create({
-        id: randomUUID(),
-        workflowId: input.workflowId,
-        user: objectId(input.userId),
-        ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
-        workflowName: input.workflowName,
-        agentId: input.agentId,
-        status: 'queued',
-        currentStep: 0,
-        steps: input.steps.map((step, index) => normalizeStep(step, index, input.steps)),
-        conversationId: input.conversationId,
-        ...(input.input == null ? {} : { input: input.input }),
-        ...(input.settings == null ? {} : { settings: input.settings }),
-        ...(input.trigger == null ? {} : { trigger: input.trigger }),
-        ...(input.onCompleteWorkflowId == null
-          ? {}
-          : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
-        ...(input.dedupeKey == null ? {} : { dedupeKey: input.dedupeKey }),
-        events: [
-          event('run.queued', createdAt, {
-            ...(input.trigger == null ? {} : { message: input.trigger.type }),
-          }),
-        ],
-      });
+      let created;
+      try {
+        created = await runModel().create({
+          id: randomUUID(),
+          workflowId: input.workflowId,
+          user: objectId(input.userId),
+          ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
+          workflowName: input.workflowName,
+          agentId: input.agentId,
+          status: 'queued',
+          currentStep: 0,
+          steps: input.steps.map((step, index) => normalizeStep(step, index, input.steps)),
+          conversationId: input.conversationId,
+          ...(input.input == null ? {} : { input: input.input }),
+          ...(input.settings == null ? {} : { settings: input.settings }),
+          ...(input.trigger == null ? {} : { trigger: input.trigger }),
+          ...(input.onCompleteWorkflowId == null
+            ? {}
+            : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
+          ...(input.dedupeKey == null ? {} : { dedupeKey: input.dedupeKey }),
+          events: [
+            event('run.queued', createdAt, {
+              ...(input.trigger == null ? {} : { message: input.trigger.type }),
+            }),
+          ],
+        });
+      } catch (error) {
+        if (input.dedupeKey != null && isDuplicateKey(error)) {
+          const existing = await runModel()
+            .findOne({ dedupeKey: input.dedupeKey })
+            .lean<IWorkflowRun | null>();
+          if (existing != null) {
+            return existing;
+          }
+        }
+        throw error;
+      }
       return created.toObject() as IWorkflowRun;
     },
 
@@ -443,11 +475,22 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
 
     claimWorkflowRuns: async ({ workerId, leaseToken, now, leaseUntil, limit }) => {
       const filter = {
-        status: { $in: ACTIVE_RUN_STATUSES },
-        $or: [
-          { leaseUntil: { $exists: false } },
-          { leaseUntil: null },
-          { leaseUntil: { $lte: now } },
+        $and: [
+          {
+            $or: [
+              { status: { $in: ACTIVE_RUN_STATUSES } },
+              // A completed run with an undelivered chain is still claimable so
+              // a crash between terminal save and child creation can be retried.
+              { status: 'completed', chainPending: true },
+            ],
+          },
+          {
+            $or: [
+              { leaseUntil: { $exists: false } },
+              { leaseUntil: null },
+              { leaseUntil: { $lte: now } },
+            ],
+          },
         ],
       };
       const claimed: IWorkflowRun[] = [];

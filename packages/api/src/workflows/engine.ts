@@ -15,6 +15,7 @@ import type { WorkflowRunEvent, WorkflowRunEventType } from 'coderax-data-provid
 import type {
   WorkflowEngine,
   WorkflowEngineDeps,
+  WorkflowEngineOptions,
   WorkflowRunPatch,
   WorkflowRunRecord,
   WorkflowStepRecord,
@@ -306,15 +307,7 @@ function readiness(steps: WorkflowStepRecord[], index: number): Readiness {
  */
 export function createWorkflowEngine(
   deps: WorkflowEngineDeps,
-  options: {
-    concurrency?: number;
-    leaseMs?: number;
-    tickMs?: number;
-    retryBaseMs?: number;
-    retryCapMs?: number;
-    stepTimeoutMs?: number;
-    scheduleConcurrency?: number;
-  } = {},
+  options: WorkflowEngineOptions = {},
 ): WorkflowEngine {
   const concurrency = positiveInteger(options.concurrency, DEFAULT_CONCURRENCY, 'concurrency');
   const leaseMs = positiveInteger(options.leaseMs, DEFAULT_LEASE_MS, 'leaseMs');
@@ -348,17 +341,22 @@ export function createWorkflowEngine(
     patch: WorkflowRunPatch,
   ): Promise<boolean> => deps.store.saveRun({ runId: run.id, leaseToken, now: now(), patch });
 
-  const settleRun = async (run: WorkflowRunRecord, status: WorkflowRunRecord['status']) => {
+  const settleRun = async (
+    run: WorkflowRunRecord,
+    status: WorkflowRunRecord['status'],
+  ): Promise<boolean> => {
     if (deps.onRunSettled == null) {
-      return;
+      return true;
     }
     try {
       await deps.onRunSettled({ ...run, status });
+      return true;
     } catch (cause) {
       logger.warn('[workflows] post-settlement hook failed', {
         runId: run.id,
         error: failureMessage(cause),
       });
+      return false;
     }
   };
 
@@ -531,6 +529,16 @@ export function createWorkflowEngine(
     // A cancellation unsets the lease, so this worker no longer owns the run.
     if (status === 'cancelled') {
       return 'released';
+    }
+
+    // A completed run with a pending chain is claimed again after a crash or a
+    // failed downstream delivery. The child create is deduplicated by parent id.
+    if (status === 'completed' && run.chainPending === true) {
+      const delivered = await settleRun(run, 'completed');
+      if (!delivered) {
+        return 'released';
+      }
+      return (await save(run, leaseToken, { chainPending: false })) ? 'saved' : 'lost';
     }
 
     const settleSkippedBranches = (): void => {
@@ -765,13 +773,11 @@ export function createWorkflowEngine(
           });
           if (step.attempts >= step.maxAttempts) {
             failStep(index, ENQUEUE_ERROR);
-            status = 'failed';
             error = ENQUEUE_ERROR;
-            const saved = await saveRun({ settledAt: at });
-            if (saved === 'saved') {
-              await settleRun({ ...run, status, steps, events }, status);
-            }
-            return saved;
+            settleSkippedBranches();
+            // Keep the run active. A sibling turn may already be in flight, and
+            // it must still be observed and settled before the run can fail.
+            return saveRun();
           }
           retryStep(index, ENQUEUE_ERROR);
           return saveRun();
@@ -810,9 +816,16 @@ export function createWorkflowEngine(
     error = unhandledFailure ? (error ?? STEP_ERROR) : null;
     note(unhandledFailure ? 'run.failed' : 'run.completed');
     startedAt = startedAt ?? at;
-    const saved = await saveRun({ settledAt: at });
+    const chainPending = status === 'completed' && run.onCompleteWorkflowId != null;
+    const saved = await saveRun({
+      settledAt: at,
+      ...(chainPending ? { chainPending: true } : {}),
+    });
     if (saved === 'saved') {
-      await settleRun({ ...run, status, steps, events, startedAt }, status);
+      const delivered = await settleRun({ ...run, status, steps, events, startedAt }, status);
+      if (delivered && chainPending) {
+        return (await save(run, leaseToken, { chainPending: false })) ? 'saved' : 'lost';
+      }
     }
     return saved;
   };

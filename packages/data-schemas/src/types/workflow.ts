@@ -97,6 +97,8 @@ export interface IWorkflowRun {
   trigger?: WorkflowRunTrigger;
   events: IWorkflowRunEvent[];
   onCompleteWorkflowId?: string;
+  /** Set while a completed run still needs its downstream chain delivered. */
+  chainPending?: boolean;
   /** Deterministic identity of an automatic occurrence, so two replicas cannot double-start it. */
   dedupeKey?: string;
   error?: string;

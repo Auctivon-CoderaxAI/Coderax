@@ -553,7 +553,7 @@ const startServer = async () => {
       // bypass their mocked schedule/trigger services. The API route starts it
       // lazily, and production arms it at boot so queued runs recover unattended.
       if (process.env.NODE_ENV !== 'test') {
-        const workflowEngineArmed = initializeWorkflowEngine();
+        const workflowEngineArmed = initializeWorkflowEngine(appConfig?.workflows);
         if (!workflowEngineArmed) {
           console.warn('[workflows] engine unavailable; runs remain queued until a later startup');
         }

@@ -2851,6 +2851,22 @@ export const interfaceSchema = z
         }),
       ])
       .optional(),
+    /** Durable workflow runner limits; omitted fields keep built-in defaults. */
+    workflows: z
+      .object({
+        concurrency: z.number().int().min(1).max(64),
+        leaseMs: z.number().int().min(1_000).max(600_000),
+        tickMs: z.number().int().min(100).max(60_000),
+        retryBaseMs: z.number().int().min(100).max(600_000),
+        retryCapMs: z.number().int().min(100).max(3_600_000),
+        stepTimeoutMs: z
+          .number()
+          .int()
+          .min(10_000)
+          .max(24 * 60 * 60_000),
+        scheduleConcurrency: z.number().int().min(1).max(100),
+      })
+      .optional(),
     /** Client confirmation window for a steer escalation arm, in milliseconds. */
     steerArmConfirmationTimeoutMs: z
       .number()

@@ -46,6 +46,7 @@ import {
   useWorkflowTemplatesQuery,
   useWorkflowsQuery,
 } from '~/data-provider';
+import { triggerDownload } from '~/utils/downloadFile';
 import { useLocalize } from '~/hooks';
 
 const RUN_STATUS_LABELS: Record<WorkflowRunStatus, TranslationKeys> = {
@@ -1163,6 +1164,8 @@ function RunEvents({ run }: { run: WorkflowRunView }) {
 function RunCard({ workflowId, run }: { workflowId: string; run: WorkflowRunView }) {
   const localize = useLocalize();
   const [expanded, setExpanded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
   const approveMutation = useApproveWorkflowStepMutation(workflowId);
   const pauseMutation = usePauseWorkflowRunMutation(workflowId);
   const resumeMutation = useResumeWorkflowRunMutation(workflowId);
@@ -1176,6 +1179,21 @@ function RunCard({ workflowId, run }: { workflowId: string; run: WorkflowRunView
   const canPause = run.status === 'running' || run.status === 'queued';
   const canResume = run.status === 'paused';
   const terminal = TERMINAL_RUN_STATUSES.includes(run.status);
+
+  const downloadRun = async () => {
+    setDownloading(true);
+    setDownloadFailed(false);
+    try {
+      const response = await dataService.getWorkflowRunExport(run.id);
+      const url = URL.createObjectURL(response.data as Blob);
+      triggerDownload(url, `workflow-run-${run.id}.json`);
+      URL.revokeObjectURL(url);
+    } catch {
+      setDownloadFailed(true);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <li className="border-border-light bg-surface-primary rounded-xl border p-3">
@@ -1206,14 +1224,17 @@ function RunCard({ workflowId, run }: { workflowId: string; run: WorkflowRunView
               {localize('com_ui_workflow_open_conversation')}
             </Link>
           )}
-          <a
-            className="text-text-secondary hover:bg-surface-active flex items-center gap-1 rounded-md px-2 py-1 text-xs"
-            href={dataService.getWorkflowRunExportUrl(run.id)}
-            download
+          <button
+            type="button"
+            className="text-text-secondary hover:bg-surface-active flex items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50"
+            disabled={downloading}
+            onClick={() => {
+              void downloadRun();
+            }}
           >
             <Download className="h-3.5 w-3.5" aria-hidden />
             {localize('com_ui_workflow_artifact')}
-          </a>
+          </button>
           <button
             type="button"
             className="text-text-secondary hover:bg-surface-active rounded-md px-2 py-1 text-xs"
@@ -1228,6 +1249,11 @@ function RunCard({ workflowId, run }: { workflowId: string; run: WorkflowRunView
       {run.error != null && (
         <p className="text-status-error mt-2 text-xs" role="status">
           {run.error}
+        </p>
+      )}
+      {downloadFailed && (
+        <p className="text-status-error mt-2 text-xs" role="alert">
+          {localize('com_ui_error')}
         </p>
       )}
       {run.pauseRequestedAt != null && run.status === 'running' && (

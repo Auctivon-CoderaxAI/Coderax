@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { SSE } from 'sse.js';
 import { QueryKeys, dataService } from 'coderax-data-provider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -12,6 +13,7 @@ import type {
   WorkflowTemplatesResponse,
 } from 'coderax-data-provider';
 import type { UseQueryOptions, QueryObserverResult } from '@tanstack/react-query';
+import { useAuthContext } from '~/hooks/AuthContext';
 
 export const useWorkflowsQuery = (
   config?: UseQueryOptions<WorkflowListResponse>,
@@ -139,14 +141,18 @@ export const useWorkflowRunStream = (
   const runId = run?.id;
   const status = run?.status;
   const live = status != null && !TERMINAL_STATUSES.includes(status);
+  const { token } = useAuthContext();
   useEffect(() => {
-    if (!live || runId == null || typeof EventSource === 'undefined') {
+    if (!live || runId == null || token == null) {
       return;
     }
-    const source = new EventSource(dataService.getWorkflowRunStreamUrl(runId), {
-      withCredentials: true,
+    // EventSource cannot send an Authorization header; the app's bearer auth
+    // would reject it. sse.js supports headers and is already used elsewhere.
+    const source = new SSE(dataService.getWorkflowRunStreamUrl(runId), {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
     });
-    source.onmessage = (event: MessageEvent<string>) => {
+    source.addEventListener('message', (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data) as { run?: WorkflowRunView };
         if (payload.run != null) {
@@ -155,7 +161,7 @@ export const useWorkflowRunStream = (
       } catch {
         /* A malformed frame is ignored; the next snapshot still arrives. */
       }
-    };
+    });
     return () => source.close();
-  }, [live, onRun, runId]);
+  }, [live, onRun, runId, token]);
 };
