@@ -844,6 +844,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           res.status(404).json({ error: 'Run not found' });
           return;
         }
+        // A repeated cancellation must not abort an unrelated turn started later
+        // in the same conversation, or retire deliveries belonging to that turn.
+        if (TERMINAL_STATUSES.includes(existing.status)) {
+          res.status(200).json({ run: toRunView(existing) });
+          return;
+        }
         const run = await deps.methods.cancelWorkflowRun(runId, owner, now());
         if (run == null) {
           res.status(404).json({ error: 'Run not found' });
