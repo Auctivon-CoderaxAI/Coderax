@@ -46,13 +46,15 @@ remote targets without HTTPS and a token.
   ignores the two extra fields, so per-task selection only takes effect once
   `CoderaxAI/CyVox#38` is merged and deployed. Until then a task runs on the
   deployment default.
-- **Coding Team mode does not inherit the selection.** `cyvox/ai_team.py`
-  `run_team()` accepts no model or effort, and its three delegated `run_agent`
-  calls omit both, so the lead, engineer and reviewer all run on the deployment
-  model. The Work composer says so when Team mode is selected. propagation is
-  a separate CyVox change: accept both in `run_team()`, forward them to every
-  delegated `run_agent` call, and pass them through from the caller that reaches
-  `run_team`.
+- **Coding Team mode inherits the selection on the per-task contract.**
+  `CoderaxAI/CyVox#38` adds `model` and `thinking_effort` to `run_team()` and
+  forwards them to all three delegated `run_agent` runs (Engineering Lead,
+  Software Engineer, QA Reviewer), which apply them without calling
+  `ModelManager.select()`. Once that change is merged and deployed, a Team task
+  runs all three agents on the selection Work submits. An older deployment
+  ignores the two extra fields, so all three agents keep the deployment model
+  until it ships. The Work composer states this version-conditional scope in
+  Team mode.
 - Thinking effort maps to a bounded decode budget (`max_tokens` and
   `temperature`) inside CyVox. It is not provider-native reasoning control.
 - The existing CyVox desktop worker must be connected by the owner; a hosted

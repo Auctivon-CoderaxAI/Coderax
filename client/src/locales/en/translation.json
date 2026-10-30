@@ -3460,7 +3460,7 @@
   "com_cyvox_effort_high": "High",
   "com_cyvox_effort_extra_high": "Extra high",
   "com_cyvox_task_selection_note": "Model and thinking effort apply to this task only.",
-  "com_cyvox_team_selection_limit": "Team mode: delegated agents keep the deployment model until they inherit this selection.",
+  "com_cyvox_team_selection_scope": "Team mode: all three agents inherit this selection on CyVox deployments that support per-task models; older deployments keep the deployment model.",
   "com_cyvox_start_work": "Start task",
   "com_cyvox_start_work_confirmation": "Start this task now? It will run with the current permission and approval controls.",
   "com_cyvox_work_policy_note": "Task progress and approval requests will appear here while it runs.",

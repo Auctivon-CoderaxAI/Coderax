@@ -682,7 +682,7 @@ function WorkView() {
             )}
             {mode === 'Coding Team' && (
               <p className="text-text-secondary mt-2 px-3 text-center text-xs">
-                {localize('com_cyvox_team_selection_limit')}
+                {localize('com_cyvox_team_selection_scope')}
               </p>
             )}
             <p className="text-text-secondary mt-2 px-3 text-center text-xs">

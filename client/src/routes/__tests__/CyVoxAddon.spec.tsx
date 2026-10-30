@@ -22,8 +22,8 @@ const mockLocalizedText: Record<string, string> = {
   com_cyvox_effort_high: 'High',
   com_cyvox_effort_extra_high: 'Extra high',
   com_cyvox_task_selection_note: 'Model and thinking effort apply to this task only.',
-  com_cyvox_team_selection_limit:
-    'Team mode: delegated agents keep the deployment model until they inherit this selection.',
+  com_cyvox_team_selection_scope:
+    'Team mode: all three agents inherit this selection on CyVox deployments that support per-task models; older deployments keep the deployment model.',
   com_cyvox_work_description_label: 'Describe what you want to get done',
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
@@ -388,18 +388,19 @@ describe('Coderax Work route', () => {
     queryClient.clear();
   });
 
-  it('says delegated team agents do not inherit the selection', async () => {
+  it('says team agents inherit the selection when the deployment supports it', async () => {
     mockWorkWithModel();
     const { queryClient } = renderWorkRoute('/work');
 
     await screen.findByRole('option', { name: 'ollama:llama3:latest' });
-    expect(screen.queryByText(/delegated agents/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/all three agents inherit/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('Work style'), {
       target: { value: 'Coding Team' },
     });
 
-    expect(screen.getByText(/delegated agents/i)).toBeInTheDocument();
+    expect(screen.getByText(/all three agents inherit/i)).toBeInTheDocument();
+    expect(screen.getByText(/older deployments keep the deployment model/i)).toBeInTheDocument();
     queryClient.clear();
   });
 
