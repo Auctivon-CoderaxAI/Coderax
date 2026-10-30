@@ -62,6 +62,14 @@ function workContextMiddleware(loadModelsForRequest) {
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
+      /**
+       * `auto` is a UI choice, never a provider id: the native runner receives
+       * the concrete model the server resolved, so the sentinel can never reach
+       * a provider or be persisted as a model name.
+       */
+      if (req.body && typeof req.body === 'object') {
+        req.body.model = context.workModel;
+      }
       return next();
     } catch (error) {
       logger.warn(

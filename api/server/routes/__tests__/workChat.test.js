@@ -87,6 +87,36 @@ test('the alias middleware sets server-owned context and strips client claims', 
   assert.equal(req.body.text, 'plan');
 });
 
+test('the alias hands the handler the concrete model, never the auto sentinel', async () => {
+  const middleware = workContextMiddleware(async () => ({ ollama: [{ model: 'llama3:latest' }] }));
+  const req = { body: { text: 'plan', model: 'auto' }, user: {} };
+  const res = response();
+  let received;
+  await middleware(req, res, () => {
+    received = req.body.model;
+  });
+
+  assert.equal(received, 'llama3:latest');
+  assert.notEqual(received, 'auto');
+  assert.equal(req.workContext.workModel, received);
+});
+
+test('an omitted model is filled with the resolved concrete model', async () => {
+  const middleware = workContextMiddleware(async () => ({
+    ollama: [{ model: 'llama3:latest' }],
+    lmstudio: ['qwen2.5'],
+  }));
+  const req = { body: { text: 'plan' }, user: {} };
+  const res = response();
+  let received;
+  await middleware(req, res, () => {
+    received = req.body.model;
+  });
+
+  assert.equal(received, 'llama3:latest');
+  assert.equal(req.body.model, req.workContext.workModel);
+});
+
 test('the alias middleware refuses a paid model before the chat handler runs', async () => {
   const middleware = workContextMiddleware(async () => ({ openAI: [{ model: 'gpt-4o' }] }));
   const req = { body: { text: 'plan', model: 'gpt-4o' }, user: {} };
