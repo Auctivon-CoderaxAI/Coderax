@@ -3,6 +3,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createMethods, createModels } from '@coderax/data-schemas';
 import type { WorkflowAgentEvent } from './events';
 import { createWorkflowSchedules, createWorkflowStore } from './store';
+import { createWorkflowSettlementHandler } from './host';
 import { computeNextRunAt } from '../schedules/cadence';
 import { createWorkflowEventStarter } from './events';
 import { createWorkflowHandlers } from './handlers';
@@ -259,6 +260,104 @@ describe('workflow engine with Mongo persistence', () => {
       methods.getWorkflow(b.id, userId),
     ]);
     expect(reloaded.filter((workflow) => workflow?.onCompleteWorkflowId != null)).toHaveLength(1);
+  });
+
+  it('settles A to B to A without creating an alternating third run', async () => {
+    const userId = owner();
+    const b = await methods.createWorkflow({
+      userId,
+      name: 'B',
+      agentId: 'agent-1',
+      steps: [{ id: 'b', title: 'B', instruction: 'B' }],
+    });
+    const a = await methods.createWorkflow({
+      userId,
+      name: 'A',
+      agentId: 'agent-1',
+      steps: [{ id: 'a', title: 'A', instruction: 'A' }],
+      onCompleteWorkflowId: b.id,
+    });
+    await methods.updateWorkflow(b.id, userId, { onCompleteWorkflowId: a.id });
+
+    const runA = await methods.createWorkflowRun({
+      userId,
+      workflowId: a.id,
+      workflowName: a.name,
+      agentId: a.agentId,
+      steps: a.steps,
+      conversationId: 'conversation-a',
+      workflowAncestry: [a.id],
+      onCompleteWorkflowId: b.id,
+      trigger: { type: 'manual' },
+    });
+    const now = new Date();
+    const [leasedA] = await methods.claimWorkflowRuns({
+      workerId: 'worker-a',
+      leaseToken: 'lease-a',
+      now,
+      leaseUntil: new Date(now.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(leasedA?.id).toBe(runA.id);
+    const completedA = await methods.updateWorkflowRun({
+      id: runA.id,
+      leaseToken: 'lease-a',
+      now,
+      patch: { status: 'completed', settledAt: now },
+    });
+    if (completedA == null) {
+      throw new Error('A run did not complete');
+    }
+
+    const hostRun = (run: NonNullable<typeof completedA>) => ({
+      ...run,
+      userId,
+      events: (run.events ?? []).map((entry) => ({
+        ...entry,
+        at: entry.at.toISOString(),
+      })),
+    });
+    const wake = jest.fn();
+    const settle = createWorkflowSettlementHandler({ methods, wake });
+    await settle(hostRun(completedA));
+
+    const afterA = await methods.listWorkflowRuns(userId);
+    expect(afterA).toHaveLength(2);
+    const childB = afterA.find((run) => run.workflowId === b.id);
+    if (childB == null) {
+      throw new Error('B child was not created');
+    }
+    expect(childB.workflowAncestry).toEqual([a.id, b.id]);
+    expect(childB.onCompleteWorkflowId).toBe(a.id);
+    expect(childB.dedupeKey).toBe(`workflow-chain:${runA.id}`);
+    expect(wake).toHaveBeenCalledTimes(1);
+
+    const next = new Date(now.getTime() + 1_000);
+    const [leasedB] = await methods.claimWorkflowRuns({
+      workerId: 'worker-b',
+      leaseToken: 'lease-b',
+      now: next,
+      leaseUntil: new Date(next.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(leasedB?.id).toBe(childB.id);
+    const completedB = await methods.updateWorkflowRun({
+      id: childB.id,
+      leaseToken: 'lease-b',
+      now: next,
+      patch: { status: 'completed', settledAt: next },
+    });
+    if (completedB == null) {
+      throw new Error('B run did not complete');
+    }
+
+    await settle(hostRun(completedB));
+
+    const finalRuns = await methods.listWorkflowRuns(userId);
+    expect(finalRuns).toHaveLength(2);
+    expect(finalRuns.filter((run) => run.workflowId === a.id)).toHaveLength(1);
+    expect(finalRuns.filter((run) => run.workflowId === b.id)).toHaveLength(1);
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 
   it('starts a scheduled workflow exactly once and stops an active run on cancel', async () => {
