@@ -1,32 +1,66 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
+const {
+  buildWorkModelOptions,
+  resolveWorkSelection,
+  WORK_AUTO_MODEL_ID,
+} = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
 
-const WORK_AUTO = 'auto';
+/**
+ * The deployment's default model, read from the app config Coderax already
+ * loads. `req.config` is the app config, and its default-selection data is
+ * `modelSpecs.list`: a spec marked `default` is the hard default, and one marked
+ * `softDefault` is the fallback. The concrete model id lives on the spec's
+ * `preset`, so a spec that only names an agent yields no model id.
+ *
+ * Returning null is deliberate: it lets the resolver fail with an actionable
+ * message instead of guessing.
+ */
+function resolveConfiguredDefaultModel(config) {
+  const specs = config?.modelSpecs?.list;
+  if (!Array.isArray(specs)) {
+    return null;
+  }
+  const chosen =
+    specs.find((spec) => spec?.default === true) ??
+    specs.find((spec) => spec?.softDefault === true);
+  const model = chosen?.preset?.model;
+  return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
+}
 
-/** Work may only ever run on a model that costs nothing per call. */
-const isFreeOrLocal = (model) => model.local === true || model.free === true;
+const configuredDefaultFromRequest = (req) => resolveConfiguredDefaultModel(req?.config);
 
 /**
- * Decide the concrete model a Work turn runs on, from the server's own model
- * configuration. `auto` is a UI choice only: it resolves here to a concrete
- * free/local model, never to a sentinel, never to a paid gateway model.
+ * Resolve the concrete model a Work turn stores and runs on.
+ *
+ * `auto` is a sentinel, never a model: it resolves through the configured
+ * default and only when that exact model is in the offered free/local set.
+ * Picking "the first local model" would silently substitute a choice the user
+ * did not make, so an absent or paid default fails with an actionable error
+ * instead.
  *
  * @returns {{isWork: true, workModel: string} | {error: string}}
  */
-function resolveWorkContext(models, requested) {
-  const usable = (models ?? []).filter(isFreeOrLocal);
-  /** An explicit pick is answered directly: "not allowed" is more actionable than
-   * "none configured", and it never degrades into a silent substitution. */
-  if (requested && requested !== WORK_AUTO) {
-    const match = usable.find((model) => model.id === requested);
-    return match ? { isWork: true, workModel: match.id } : { error: 'WORK_MODEL_NOT_ALLOWED' };
+function resolveWorkContext(sources, requested, configuredDefault) {
+  const options = buildWorkModelOptions(sources);
+  const explicit = requested != null && requested !== WORK_AUTO_MODEL_ID;
+  const selection = resolveWorkSelection(
+    options,
+    requested ?? WORK_AUTO_MODEL_ID,
+    configuredDefault,
+  );
+  if (selection.ok) {
+    return { isWork: true, workModel: selection.model.id };
   }
-  if (usable.length === 0) {
+  /** An explicit pick is answered specifically, even when nothing is offered. */
+  if (explicit) {
+    return { error: 'WORK_MODEL_NOT_ALLOWED' };
+  }
+  if (options.length === 0) {
     return { error: 'WORK_NO_FREE_MODEL' };
   }
-  const preferred = usable.find((model) => model.local === true) ?? usable[0];
-  return { isWork: true, workModel: preferred.id };
+  return { error: 'WORK_AUTO_UNRESOLVED' };
 }
 
 /**
@@ -42,26 +76,85 @@ function stripClientWorkFields(body) {
   return rest;
 }
 
+/**
+ * Create the Work conversation's row, with its marker, before the native handler
+ * runs. The failed-turn save path writes through `~/models` and never sees
+ * `req.workContext`, so a first turn that fails before seeding would otherwise
+ * persist an ordinary chat row and vanish from Work history. Seeding here makes
+ * the marker durable regardless of how the turn ends.
+ *
+ * Ownership comes from the authenticated user, never from the body. `saveConvo`
+ * scopes its write to `{conversationId, user: userId}`, so this can never
+ * overwrite a row belonging to another user. An existing row is left untouched,
+ * so a follow-up can never re-stamp a conversation's original marker.
+ */
+async function seedWorkConversation(req, context, db) {
+  const store = db ?? require('~/models');
+  const userId = req?.user?.id;
+  const conversationId = req?.body?.conversationId;
+  if (!userId || typeof conversationId !== 'string' || conversationId === '') {
+    return { seeded: false, reason: 'no_target' };
+  }
+  const existing = await store.getConvo(userId, conversationId);
+  if (existing) {
+    return { seeded: false, reason: 'exists' };
+  }
+  await store.saveConvo(
+    { userId, isTemporary: req.body?.isTemporary },
+    { conversationId, isWork: true, workModel: context.workModel },
+    { context: 'api/server/routes/workChat.js - seed Work conversation' },
+  );
+  return { seeded: true };
+}
+
+const MESSAGES = {
+  WORK_MODEL_NOT_ALLOWED:
+    'That model is not available for Work. Choose a free or locally served model.',
+  WORK_AUTO_UNRESOLVED:
+    'Work has no default free or locally served model. Choose a model explicitly, or configure a default that is free or local.',
+  WORK_NO_FREE_MODEL:
+    'Work needs a free or locally served model. Configure a local model, then try again.',
+};
+
 const fail = (res, status, error, message) => res.status(status).json({ error, message });
 
 /**
  * Sets `req.workContext` for the Work alias and nothing else. Exported so the
  * contract can be tested without a live model controller or Mongo.
  */
-function workContextMiddleware(loadModelsForRequest) {
+function workContextMiddleware(
+  loadModelsForRequest,
+  configuredDefaultModel = configuredDefaultFromRequest,
+  seedConversation = seedWorkConversation,
+) {
   return async (req, res, next) => {
     try {
       const config = await loadModelsForRequest(req);
-      const context = resolveWorkContext(flattenModelConfig(config), req.body?.model);
+      /** The source may be sync or async; awaiting covers both. A failure to read it
+       *  leaves no default, which the resolver reports instead of guessing. */
+      let configuredDefault = null;
+      try {
+        configuredDefault = await configuredDefaultModel(req);
+      } catch {
+        configuredDefault = null;
+      }
+      const context = resolveWorkContext(
+        flattenModelConfig(config),
+        req.body?.model,
+        typeof configuredDefault === 'string' ? configuredDefault : null,
+      );
       if (context.error) {
-        const message =
-          context.error === 'WORK_MODEL_NOT_ALLOWED'
-            ? 'That model is not available for Work. Choose a free or locally served model.'
-            : 'Work needs a free or locally served model. Configure a local model, then try again.';
-        return fail(res, 409, context.error, message);
+        return fail(res, 409, context.error, MESSAGES[context.error]);
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
+      /** A seed failure must not fail the turn: the marker is also written by the
+       *  turn's own save, so the run stays usable and the gap is logged. */
+      try {
+        await seedConversation(req, context);
+      } catch (error) {
+        logger.warn(`[Work] Failed to seed the Work conversation: ${error?.message ?? error}`);
+      }
       /**
        * `auto` is a UI choice, never a provider id: the native runner receives
        * the concrete model the server resolved, so the sentinel can never reach
@@ -86,22 +179,64 @@ function workContextMiddleware(loadModelsForRequest) {
 }
 
 /**
- * The Work start path is the existing chat handler, reached through an alias so
- * the server can attach Work context. No second runner, no duplicated stream.
+ * Send the request into the *mounted* agents router under its `/chat` path.
+ *
+ * Delegating to the outer router rather than the inner chat handler is what
+ * keeps Work on the native admission chain: `checkBan`, `uaParser`,
+ * `chatConfigMiddleware` (tenant config), the generation-retry probe and
+ * limiters, the configured IP/user limiters, the private-text ingress, PII
+ * filtering, moderation and `buildEndpointOption` all run exactly as they do
+ * for `/api/agents/chat`, and the same controller, SSE stream, tool
+ * permissions and HITL approvals follow.
+ *
+ * Only the path is rewritten, and it is restored afterwards so downstream
+ * logging and error handling see the original request.
  */
-function createWorkChatRouter({ loadModelsForRequest } = {}) {
+function delegateToAgents(agentsRouter) {
+  return (req, res, next) => {
+    const originalUrl = req.url;
+    req.url = '/chat' + (originalUrl === '/' ? '' : originalUrl);
+    agentsRouter(req, res, (error) => {
+      req.url = originalUrl;
+      next(error);
+    });
+  };
+}
+
+/**
+ * The Work start path is the existing native chat path, reached through an alias
+ * so the server can attach Work context. No second runner, no duplicated stream,
+ * and no reimplemented middleware chain.
+ */
+function createWorkChatRouter({
+  loadModelsForRequest,
+  configuredDefaultModel,
+  seedConversation,
+  agentsRouter,
+} = {}) {
   const router = express.Router();
   router.use(
     workContextMiddleware(
       loadModelsForRequest ??
         ((req) => require('~/server/controllers/ModelController').loadModels(req)),
+      configuredDefaultModel,
+      seedConversation,
     ),
   );
-  router.use(require('./agents/chat'));
+  router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
   return router;
 }
 
-module.exports = { resolveWorkContext, stripClientWorkFields, workContextMiddleware, WORK_AUTO };
+module.exports = {
+  createWorkChatRouter,
+  delegateToAgents,
+  resolveWorkContext,
+  resolveConfiguredDefaultModel,
+  stripClientWorkFields,
+  workContextMiddleware,
+  seedWorkConversation,
+  WORK_AUTO_MODEL_ID,
+};
 
 /** Lazily built so requiring this module never builds the chat router twice. */
 let cached;

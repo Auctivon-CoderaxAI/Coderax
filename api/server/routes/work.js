@@ -4,7 +4,12 @@ const { createWorkRouter, GenerationJobManager } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
 
-const { flattenModelConfig, toWorkConversation, rowsFromCursor } = require('./workModels');
+const {
+  flattenModelConfig,
+  toWorkConversation,
+  rowsFromCursor,
+  onlyWorkRows,
+} = require('./workModels');
 const { getWorkChatRouter } = require('./workChat');
 
 /**
@@ -21,7 +26,7 @@ function depsFor(req) {
         sortBy: 'updatedAt',
         sortDirection: 'desc',
       });
-      return rowsFromCursor(result).map(toWorkConversation).filter(Boolean);
+      return onlyWorkRows(rowsFromCursor(result).map(toWorkConversation));
     },
     getConversation: async ({ userId, conversationId }) =>
       toWorkConversation(await db.getConvo(userId, conversationId)),
