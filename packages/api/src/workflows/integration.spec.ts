@@ -151,6 +151,60 @@ describe('workflow engine with Mongo persistence', () => {
     expect(enqueued).toEqual([]);
   });
 
+  it('rejects a delegated agent without run permission at create and start', async () => {
+    const userId = owner();
+    const wake = jest.fn();
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async (agentId) => agentId === 'agent-1',
+      wake,
+    });
+
+    const createResponse = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.createWorkflow>[1];
+    const createRequest = {
+      user: { id: userId },
+      body: {
+        name: 'Unauthorized delegation',
+        agentId: 'agent-1',
+        steps: [{ id: 'delegate', title: 'Delegate', instruction: 'Run', agentId: 'agent-2' }],
+      },
+    } as unknown as Parameters<typeof handlers.createWorkflow>[0];
+
+    await handlers.createWorkflow(createRequest, createResponse);
+
+    expect(createResponse.status).toHaveBeenCalledWith(403);
+    expect(createResponse.json).toHaveBeenCalledWith({ error: 'You cannot run that agent' });
+    expect(await methods.listWorkflows(userId)).toEqual([]);
+
+    // Creation can be direct (for example, an import), so the start gate is
+    // checked independently against the persisted delegated agent.
+    const existing = await methods.createWorkflow({
+      userId,
+      name: 'Persisted delegation',
+      agentId: 'agent-1',
+      steps: [{ id: 'delegate', title: 'Delegate', instruction: 'Run', agentId: 'agent-2' }],
+    });
+    const startResponse = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.startRun>[1];
+    const startRequest = {
+      user: { id: userId },
+      params: { id: existing.id },
+      body: {},
+    } as unknown as Parameters<typeof handlers.startRun>[0];
+
+    await handlers.startRun(startRequest, startResponse);
+
+    expect(startResponse.status).toHaveBeenCalledWith(403);
+    expect(startResponse.json).toHaveBeenCalledWith({ error: 'You cannot run that agent' });
+    expect(await methods.listWorkflowRuns(userId, existing.id)).toEqual([]);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
   it('retires queued deliveries after durable cancellation and aborts active turns', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({
