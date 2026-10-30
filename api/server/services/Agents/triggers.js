@@ -56,6 +56,7 @@ const eventActorAdapter = createAgentEventContinueResolver({
   getGenerationJob: (conversationId) => GenerationJobManager.getJob(conversationId),
 });
 let service;
+let workflowEventHandler;
 const queuedTurnLifecycle = createAgentQueuedTurnLifecycle({
   methods,
   getGenerationJob: (conversationId) => GenerationJobManager.getJob(conversationId),
@@ -71,6 +72,10 @@ service = createAgentTriggerService({
     GenerationJobManager.getAccountCleanupJobIdsForUser(userId, tenantId),
   ),
   isPrincipalActive: methods.isAgentTriggerPrincipalActive,
+  // A workflow subscribed to this authenticated event starts a durable run of
+  // its own. The workflow service registers this handler, which keeps this
+  // module free of a require cycle back into the workflow service.
+  onAgentEvent: (event) => (workflowEventHandler == null ? undefined : workflowEventHandler(event)),
   isWorkflowStepActive: async ({ runId, stepId, attempt, workflowId, userId, tenantId }) => {
     const run = await methods.getWorkflowRun(runId, userId);
     if (
@@ -110,6 +115,10 @@ const stopAgentTriggerService = async () => {
   await service.stop();
 };
 
+function setWorkflowEventHandler(handler) {
+  workflowEventHandler = handler;
+}
+
 const purgeAgentTriggerDeliveriesForUser = async (userId) => {
   await service.purgeUser(userId);
 };
@@ -138,4 +147,5 @@ module.exports = {
   cancelAgentQueuedTurn: queuedTurnLifecycle.cancel,
   settleAgentQueuedTurnExecutionAdmission: queuedTurnLifecycle.recordExecutionAdmission,
   verifyAgentQueuedTurnExecutionAdmission: queuedTurnLifecycle.verifyExecutionAdmission,
+  setWorkflowEventHandler,
 };

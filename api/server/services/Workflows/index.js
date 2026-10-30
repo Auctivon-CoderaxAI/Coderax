@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 
 let engine;
+let eventStarter;
 
 /**
  * Build the workflow runner on first use. The engine owns only orchestration:
@@ -109,6 +110,31 @@ async function abortWorkflowTurn(conversationId, expectedCreatedAt) {
 }
 
 /** Starts the recovery poll once the database and job manager are ready. */
+/**
+ * Workflow event subscriptions are durable rows. The trigger lane calls this
+ * after it accepted an authenticated event, and each occurrence is keyed by
+ * workflow, source and event id so retries and multiple replicas cannot start
+ * the same run twice.
+ */
+function getEventStarter() {
+  if (eventStarter != null) {
+    return eventStarter;
+  }
+  const { createWorkflowEventStarter } = require('@coderax/api');
+  const methods = require('~/models');
+  eventStarter = createWorkflowEventStarter({
+    listWorkflowsForEvent: methods.listWorkflowsForEvent,
+    createWorkflowEventRun: methods.createWorkflowEventRun,
+    wake: wakeWorkflowEngine,
+  });
+  return eventStarter;
+}
+
+async function handleWorkflowAgentEvent(event) {
+  return getEventStarter()(event);
+}
+
+/** Starts the recovery poll once the database and job manager are ready. */
 function initializeWorkflowEngine() {
   try {
     getEngine().start();
@@ -129,9 +155,15 @@ function wakeWorkflowEngine() {
   }
 }
 
+// Register before any event can arrive. The trigger lane holds the callback, so
+// it never requires this module and the two services stay acyclic.
+const { setWorkflowEventHandler } = require('~/server/services/Agents/triggers');
+setWorkflowEventHandler(handleWorkflowAgentEvent);
+
 module.exports = {
   abortWorkflowTurn,
   getWorkflowEngine: getEngine,
+  handleWorkflowAgentEvent,
   initializeWorkflowEngine,
   wakeWorkflowEngine,
 };

@@ -1,16 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { logger } from '@coderax/data-schemas';
-import type { Response } from 'express';
-import type { WorkflowMethods } from '@coderax/data-schemas';
 import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
 import type {
   WorkflowArtifact,
+  WorkflowEventTrigger,
   WorkflowRunStatus,
   WorkflowRunView,
   WorkflowStepInput,
   WorkflowStepView,
   WorkflowView,
 } from 'coderax-data-provider';
+import type { WorkflowScheduleWrite } from '@coderax/data-schemas';
+import type { WorkflowMethods } from '@coderax/data-schemas';
+import type { Response } from 'express';
+import type { WorkflowSchedulePayload } from './definition';
 import type { ServerRequest } from '~/types';
 import {
   parseApproveWorkflowStep,
@@ -18,9 +21,7 @@ import {
   parseStartWorkflowRun,
   parseUpdateWorkflow,
 } from './definition';
-import type { WorkflowSchedulePayload } from './definition';
 import { computeNextRunAt, isValidTimezone } from '../schedules/cadence';
-import type { WorkflowScheduleWrite } from '@coderax/data-schemas';
 
 interface WorkflowRecord {
   id: string;
@@ -36,6 +37,7 @@ interface WorkflowRecord {
     input?: string;
     nextRunAt?: Date | string;
   };
+  eventTriggers?: WorkflowEventTrigger[];
   onCompleteWorkflowId?: string;
   createdAt?: Date | string;
   updatedAt?: Date | string;
@@ -151,6 +153,9 @@ export function toWorkflowView(workflow: WorkflowRecord): WorkflowView {
     })),
     ...(workflow.settings == null ? {} : { settings: workflow.settings }),
     ...(schedule == null ? {} : { schedule }),
+    ...(workflow.eventTriggers == null || workflow.eventTriggers.length === 0
+      ? {}
+      : { eventTriggers: workflow.eventTriggers }),
     ...(workflow.onCompleteWorkflowId == null
       ? {}
       : { onCompleteWorkflowId: workflow.onCompleteWorkflowId }),
@@ -392,6 +397,9 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           steps: parsed.value.steps,
           ...(parsed.value.settings == null ? {} : { settings: parsed.value.settings }),
           ...(schedule == null ? {} : { schedule }),
+          ...(parsed.value.eventTriggers == null || parsed.value.eventTriggers.length === 0
+            ? {}
+            : { eventTriggers: parsed.value.eventTriggers }),
           ...(parsed.value.onCompleteWorkflowId == null
             ? {}
             : { onCompleteWorkflowId: parsed.value.onCompleteWorkflowId }),
@@ -486,6 +494,9 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           ...(parsed.value.schedule === undefined
             ? {}
             : { schedule: scheduleWrite(parsed.value.schedule, now()) ?? null }),
+          ...(parsed.value.eventTriggers === undefined
+            ? {}
+            : { eventTriggers: parsed.value.eventTriggers }),
           ...(parsed.value.onCompleteWorkflowId === undefined
             ? {}
             : { onCompleteWorkflowId: parsed.value.onCompleteWorkflowId }),
@@ -859,7 +870,10 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         if (retire != null) {
           await Promise.all(
             existing.steps.map(async (step) => {
-              if (step.status !== 'running' || step.deliveryKey == null) {
+              if (
+                (step.status !== 'running' && step.status !== 'queued') ||
+                step.deliveryKey == null
+              ) {
                 return;
               }
               try {

@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { scheduleCadenceSchema } from 'coderax-data-provider';
 import {
+  WORKFLOW_CONDITIONS_MAX,
+  WORKFLOW_CONDITION_MATCH_MAX_LENGTH,
   WORKFLOW_DESCRIPTION_MAX_LENGTH,
+  WORKFLOW_EVENT_SOURCE_MAX_LENGTH,
+  WORKFLOW_EVENT_TRIGGERS_MAX,
+  WORKFLOW_EVENT_TYPE_MAX_LENGTH,
   WORKFLOW_INSTRUCTION_MAX_LENGTH,
   WORKFLOW_MAX_PARALLEL,
   WORKFLOW_NAME_MAX_LENGTH,
@@ -13,7 +18,12 @@ import {
   WORKFLOW_STEP_TITLE_MAX_LENGTH,
   WORKFLOW_STEPS_MAX,
 } from 'coderax-data-provider';
-import type { WorkflowSettings, WorkflowStepInput } from 'coderax-data-provider';
+import type {
+  WorkflowEventTrigger,
+  WorkflowSettings,
+  WorkflowStepCondition,
+  WorkflowStepInput,
+} from 'coderax-data-provider';
 
 export const workflowStepIdPattern: RegExp = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
@@ -23,6 +33,17 @@ const stepIdSchema = z
   .min(1, 'Every step needs an id')
   .max(WORKFLOW_STEP_ID_MAX_LENGTH)
   .regex(workflowStepIdPattern, 'Step ids may use letters, numbers, dashes and underscores');
+
+const conditionSchema = z.object({
+  stepId: stepIdSchema,
+  status: z.enum(['completed', 'failed', 'skipped']).optional(),
+  resultIncludes: z.string().trim().min(1).max(WORKFLOW_CONDITION_MATCH_MAX_LENGTH).optional(),
+});
+
+const runIfSchema = z.union([
+  conditionSchema,
+  z.array(conditionSchema).min(1).max(WORKFLOW_CONDITIONS_MAX),
+]);
 
 const stepSchema = z.object({
   id: stepIdSchema,
@@ -36,12 +57,8 @@ const stepSchema = z.object({
   maxAttempts: z.number().int().min(1).max(WORKFLOW_STEP_MAX_ATTEMPTS).optional(),
   agentId: z.string().trim().min(1).max(256).optional(),
   dependsOn: z.array(stepIdSchema).max(WORKFLOW_STEPS_MAX).optional(),
-  runIf: z
-    .object({
-      stepId: stepIdSchema,
-      status: z.enum(['completed', 'failed']),
-    })
-    .optional(),
+  runIf: runIfSchema.optional(),
+  join: z.enum(['all', 'any']).optional(),
   timeoutMs: z
     .number()
     .int()
@@ -56,6 +73,13 @@ function dependenciesOf(steps: WorkflowStepInput[], index: number): string[] {
     return step.dependsOn;
   }
   return index === 0 ? [] : [steps[index - 1].id];
+}
+
+function conditionsOfInput(value: WorkflowStepInput['runIf']): WorkflowStepCondition[] {
+  if (value == null) {
+    return [];
+  }
+  return Array.isArray(value) ? value : [value];
 }
 
 function hasCycle(steps: WorkflowStepInput[]): string | null {
@@ -120,21 +144,31 @@ const stepsSchema = z
           });
         }
       });
-      if (step.runIf != null) {
-        if (!seen.has(step.runIf.stepId)) {
+      const conditions = conditionsOfInput(step.runIf);
+      const seenConditions = new Set<string>();
+      conditions.forEach((condition) => {
+        if (seenConditions.has(condition.stepId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'runIf'],
+            message: 'A condition may name a step only once',
+          });
+        }
+        seenConditions.add(condition.stepId);
+        if (!seen.has(condition.stepId)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [index, 'runIf'],
             message: 'A condition must name a step in this workflow',
           });
-        } else if (!dependencies.includes(step.runIf.stepId)) {
+        } else if (!dependencies.includes(condition.stepId)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [index, 'runIf'],
             message: 'A condition step must also be listed as a dependency',
           });
         }
-      }
+      });
     });
 
     const cycle = hasCycle(
@@ -166,6 +200,38 @@ const scheduleSchema = z.object({
   input: z.string().trim().max(WORKFLOW_RUN_INPUT_MAX_LENGTH).optional(),
 });
 
+const eventTriggerSchema = z.object({
+  eventType: z
+    .string()
+    .trim()
+    .min(1, 'An event trigger needs an event type')
+    .max(WORKFLOW_EVENT_TYPE_MAX_LENGTH)
+    .regex(
+      /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/,
+      'Event types may use letters, numbers, dots, dashes, underscores and colons',
+    ),
+  sourceId: z.string().trim().min(1).max(WORKFLOW_EVENT_SOURCE_MAX_LENGTH).optional(),
+  input: z.string().trim().max(WORKFLOW_RUN_INPUT_MAX_LENGTH).optional(),
+});
+
+const eventTriggersSchema = z
+  .array(eventTriggerSchema)
+  .max(WORKFLOW_EVENT_TRIGGERS_MAX)
+  .superRefine((triggers, ctx) => {
+    const seen = new Set<string>();
+    triggers.forEach((trigger, index) => {
+      const key = `${trigger.eventType}\u0000${trigger.sourceId ?? '*'}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: 'That event trigger is already listed',
+        });
+      }
+      seen.add(key);
+    });
+  });
+
 const createSchema = z.object({
   name: z.string().trim().min(1, 'A workflow needs a name').max(WORKFLOW_NAME_MAX_LENGTH),
   description: z.string().trim().max(WORKFLOW_DESCRIPTION_MAX_LENGTH).optional(),
@@ -173,6 +239,7 @@ const createSchema = z.object({
   steps: stepsSchema,
   settings: settingsSchema.optional(),
   schedule: scheduleSchema.nullable().optional(),
+  eventTriggers: eventTriggersSchema.optional(),
   onCompleteWorkflowId: z.string().trim().min(1).max(128).nullable().optional(),
 });
 
@@ -184,6 +251,7 @@ const updateSchema = z
     steps: stepsSchema.optional(),
     settings: settingsSchema.nullable().optional(),
     schedule: scheduleSchema.nullable().optional(),
+    eventTriggers: eventTriggersSchema.nullable().optional(),
     onCompleteWorkflowId: z.string().trim().min(1).max(128).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
@@ -211,6 +279,7 @@ export interface CreateWorkflowPayload {
   steps: WorkflowStepInput[];
   settings?: WorkflowSettings;
   schedule?: WorkflowSchedulePayload | null;
+  eventTriggers?: WorkflowEventTrigger[];
   onCompleteWorkflowId?: string | null;
 }
 
@@ -228,6 +297,7 @@ export interface UpdateWorkflowPayload {
   steps?: WorkflowStepInput[];
   settings?: WorkflowSettings | null;
   schedule?: WorkflowSchedulePayload | null;
+  eventTriggers?: WorkflowEventTrigger[] | null;
   onCompleteWorkflowId?: string | null;
 }
 

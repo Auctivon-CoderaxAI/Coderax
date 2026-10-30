@@ -1,10 +1,12 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createMethods, createModels } from '@coderax/data-schemas';
+import type { WorkflowAgentEvent } from './events';
 import { createWorkflowSchedules, createWorkflowStore } from './store';
-import { createWorkflowEngine } from './engine';
-import { createWorkflowHandlers } from './handlers';
 import { computeNextRunAt } from '../schedules/cadence';
+import { createWorkflowEventStarter } from './events';
+import { createWorkflowHandlers } from './handlers';
+import { createWorkflowEngine } from './engine';
 
 /**
  * Exercises the durable path end to end: a real Mongo workflow definition, a
@@ -285,5 +287,84 @@ describe('workflow engine with Mongo persistence', () => {
     // A fresh engine tick cannot double-start the same occurrence.
     const runsAfter = await methods.listWorkflowRuns(userId, workflow.id);
     expect(runsAfter).toHaveLength(1);
+  });
+
+  it('starts from a replayed agent event and completes the run', async () => {
+    const userId = owner();
+    const clock = new Date('2026-03-02T00:00:00.000Z');
+    const now = () => new Date(clock);
+    const workflow = await methods.createWorkflow({
+      userId,
+      tenantId: 'tenant-1',
+      name: 'Deploy watch',
+      agentId: 'agent-1',
+      steps: [{ id: 'inspect', title: 'Inspect', instruction: 'Inspect the deployment' }],
+      eventTriggers: [{ eventType: 'deploy.failed', input: 'Inspect the failed deployment.' }],
+    });
+    const starter = createWorkflowEventStarter({
+      listWorkflowsForEvent: methods.listWorkflowsForEvent,
+      createWorkflowEventRun: methods.createWorkflowEventRun,
+      wake: jest.fn(),
+      now,
+    });
+    const enqueued: Array<{ id: string; conversationId?: string }> = [];
+    const generations = new Map<string, { status: string; createdAt: number }>();
+    const engine = createWorkflowEngine(
+      {
+        store: createWorkflowStore(methods),
+        enqueueStep: async ({ run, step }) => {
+          const conversationId = step.conversationId ?? run.conversationId;
+          enqueued.push({
+            id: step.id,
+            ...(conversationId == null ? {} : { conversationId }),
+          });
+          if (conversationId != null) {
+            generations.set(conversationId, { status: 'running', createdAt: clock.getTime() });
+          }
+          return `delivery:${step.id}:${step.attempts}`;
+        },
+        getGeneration: async (conversationId) => generations.get(conversationId) ?? null,
+        readStepResult: async () => 'Deployment inspected: the probe timed out.',
+        now,
+        workerId: 'event-worker',
+      },
+      { retryBaseMs: 1_000, retryCapMs: 1_000 },
+    );
+    const event: WorkflowAgentEvent = {
+      userId,
+      tenantId: 'tenant-1',
+      eventId: 'delivery-1',
+      eventType: 'deploy.failed',
+      sourceId: 'webhook-1',
+      sourceType: 'webhook',
+      payload: { service: 'api' },
+    };
+
+    await expect(starter(event)).resolves.toBe(1);
+    await expect(starter(event)).resolves.toBe(0);
+
+    const [run] = await methods.listWorkflowRuns(userId, workflow.id);
+    expect(run.trigger).toEqual({ type: 'event', sourceId: 'webhook-1', label: 'deploy.failed' });
+    expect(run.input).toContain('Inspect the failed deployment.');
+    expect(run.input).toContain('"service":"api"');
+    expect(run.status).toBe('queued');
+
+    await engine.runTick();
+    expect(enqueued.map((entry) => entry.id)).toEqual(['inspect']);
+    const conversationId = enqueued[0].conversationId;
+    expect(conversationId).toBeDefined();
+
+    generations.set(conversationId as string, {
+      status: 'complete',
+      createdAt: clock.getTime(),
+    });
+    await engine.runTick();
+
+    const finished = await methods.getWorkflowRun(run.id, userId);
+    expect(finished?.status).toBe('completed');
+    expect(finished?.steps[0].result).toBe('Deployment inspected: the probe timed out.');
+    expect(finished?.events.map((entry) => entry.type)).toEqual(
+      expect.arrayContaining(['trigger.fired', 'run.queued', 'run.completed']),
+    );
   });
 });

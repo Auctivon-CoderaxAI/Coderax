@@ -18,7 +18,16 @@ export const WORKFLOW_STEP_TIMEOUT_MS_MAX = 24 * 60 * 60_000;
 /** Structured execution log retained on a run; older entries are dropped. */
 export const WORKFLOW_EVENTS_MAX = 200;
 /** Per-step result text retained as an artifact excerpt. */
-export const WORKFLOW_RESULT_MAX_LENGTH = 4_000;
+export const WORKFLOW_RESULT_MAX_LENGTH = 16_000;
+/** Total branch context injected into one merge step. */
+export const WORKFLOW_HANDOFF_MAX_LENGTH = 32_000;
+/** Event sources one workflow may subscribe to. */
+export const WORKFLOW_EVENT_TRIGGERS_MAX = 5;
+export const WORKFLOW_EVENT_TYPE_MAX_LENGTH = 128;
+export const WORKFLOW_EVENT_SOURCE_MAX_LENGTH = 128;
+/** Conditions one step may require; all must hold. */
+export const WORKFLOW_CONDITIONS_MAX = 4;
+export const WORKFLOW_CONDITION_MATCH_MAX_LENGTH = 200;
 
 /**
  * A step is one agent turn. `dependsOn` names the steps that must settle before
@@ -35,17 +44,32 @@ export interface WorkflowStepInput {
   /** Delegates this step to another agent; defaults to the workflow's agent. */
   agentId?: string;
   dependsOn?: string[];
-  /** Runs only when the named step settled with the given status. */
-  runIf?: WorkflowStepCondition;
+  /**
+   * Runs only when every condition holds. A condition can test a predecessor's
+   * status and an excerpt of its result, so a branch can depend on what an
+   * earlier step actually produced rather than only on how it exited.
+   */
+  runIf?: WorkflowStepCondition | WorkflowStepCondition[];
+  /**
+   * How dependencies gate this step. `all` (default) waits for every dependency
+   * to complete; `any` starts as soon as one completes, so a merge step can run
+   * after either branch finished.
+   */
+  join?: WorkflowStepJoin;
   /** Per-step override for the stuck-turn timeout. */
   timeoutMs?: number;
 }
 
-export type WorkflowStepConditionStatus = 'completed' | 'failed';
+export type WorkflowStepJoin = 'all' | 'any';
+
+export type WorkflowStepConditionStatus = 'completed' | 'failed' | 'skipped';
 
 export interface WorkflowStepCondition {
   stepId: string;
-  status: WorkflowStepConditionStatus;
+  /** Defaults to `completed`. */
+  status?: WorkflowStepConditionStatus;
+  /** Case-insensitive substring the named step's retained result must contain. */
+  resultIncludes?: string;
 }
 
 export interface WorkflowSettings {
@@ -60,6 +84,15 @@ export interface WorkflowScheduleInput {
   cadence: TScheduleCadence;
   timezone: string;
   /** Run input supplied to every automatic occurrence. */
+  input?: string;
+}
+
+/** One authenticated agent-event source that starts this workflow automatically. */
+export interface WorkflowEventTrigger {
+  eventType: string;
+  /** Restrict to one source (a webhook, schedule, or other configured source). */
+  sourceId?: string;
+  /** Extra context prepended to every run started by this trigger. */
   input?: string;
 }
 
@@ -162,6 +195,8 @@ export interface WorkflowView {
   steps: WorkflowStepInput[];
   settings?: WorkflowSettings;
   schedule?: WorkflowScheduleView;
+  /** Authenticated agent events that start this workflow automatically. */
+  eventTriggers?: WorkflowEventTrigger[];
   /** Workflow started automatically when this one completes successfully. */
   onCompleteWorkflowId?: string;
   createdAt: string;
@@ -214,6 +249,7 @@ export interface CreateWorkflowRequest {
   steps: WorkflowStepInput[];
   settings?: WorkflowSettings;
   schedule?: WorkflowScheduleInput | null;
+  eventTriggers?: WorkflowEventTrigger[];
   onCompleteWorkflowId?: string | null;
 }
 
@@ -224,6 +260,7 @@ export interface UpdateWorkflowRequest {
   steps?: WorkflowStepInput[];
   settings?: WorkflowSettings | null;
   schedule?: WorkflowScheduleInput | null;
+  eventTriggers?: WorkflowEventTrigger[] | null;
   onCompleteWorkflowId?: string | null;
 }
 

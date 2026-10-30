@@ -16,11 +16,15 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  WorkflowEventTrigger,
   WorkflowRunListResponse,
   WorkflowRunStatus,
   WorkflowRunView,
   WorkflowScheduleInput,
+  WorkflowStepCondition,
+  WorkflowStepConditionStatus,
   WorkflowStepInput,
+  WorkflowStepJoin,
   WorkflowStepStatus,
   WorkflowTemplate,
   WorkflowView,
@@ -94,6 +98,18 @@ const WEEKDAYS = [
 
 type DraftFrequency = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'cron';
 
+interface DraftCondition {
+  stepId: string;
+  status: WorkflowStepConditionStatus;
+  resultIncludes: string;
+}
+
+interface DraftEventTrigger {
+  eventType: string;
+  sourceId: string;
+  input: string;
+}
+
 interface DraftStep {
   id: string;
   title: string;
@@ -102,8 +118,8 @@ interface DraftStep {
   maxAttempts: number;
   agentId: string;
   dependsOn: string[];
-  runIfStepId: string;
-  runIfStatus: 'completed' | 'failed';
+  runIf: DraftCondition[];
+  join: WorkflowStepJoin;
 }
 
 interface Draft {
@@ -120,6 +136,7 @@ interface Draft {
   scheduleDay: number;
   scheduleCron: string;
   scheduleTimezone: string;
+  eventTriggers: DraftEventTrigger[];
   onCompleteWorkflowId: string;
 }
 
@@ -132,8 +149,8 @@ function newStep(index: number, previousId?: string): DraftStep {
     maxAttempts: 3,
     agentId: '',
     dependsOn: previousId == null ? [] : [previousId],
-    runIfStepId: '',
-    runIfStatus: 'completed',
+    runIf: [],
+    join: 'all',
   };
 }
 
@@ -142,6 +159,13 @@ function resolvedDependencies(step: DraftStep, index: number, steps: DraftStep[]
     return step.dependsOn;
   }
   return index === 0 ? [] : [steps[index - 1].id];
+}
+
+function conditionsOf(step: WorkflowStepInput): WorkflowStepCondition[] {
+  if (step.runIf == null) {
+    return [];
+  }
+  return Array.isArray(step.runIf) ? step.runIf : [step.runIf];
 }
 
 function toDraftStep(
@@ -157,8 +181,12 @@ function toDraftStep(
     maxAttempts: step.maxAttempts ?? 3,
     agentId: step.agentId ?? '',
     dependsOn: step.dependsOn ?? (index === 0 ? [] : [input[index - 1].id]),
-    runIfStepId: step.runIf?.stepId ?? '',
-    runIfStatus: step.runIf?.status ?? 'completed',
+    runIf: conditionsOf(step).map((condition) => ({
+      stepId: condition.stepId,
+      status: condition.status ?? 'completed',
+      resultIncludes: condition.resultIncludes ?? '',
+    })),
+    join: step.join ?? 'all',
   };
 }
 
@@ -192,6 +220,11 @@ function toDraft(workflow: WorkflowView): Draft {
     scheduleCron:
       cadence != null && cadence.frequency === 'cron' ? cadence.expression : '0 9 * * 1-5',
     scheduleTimezone: workflow.schedule?.timezone ?? timezone(),
+    eventTriggers: (workflow.eventTriggers ?? []).map((trigger) => ({
+      eventType: trigger.eventType,
+      sourceId: trigger.sourceId ?? '',
+      input: trigger.input ?? '',
+    })),
     onCompleteWorkflowId: workflow.onCompleteWorkflowId ?? '',
   };
 }
@@ -210,11 +243,21 @@ function fromTemplate(template: WorkflowTemplate, agentId: string): Draft {
     scheduleDay: 1,
     scheduleCron: '0 9 * * 1-5',
     scheduleTimezone: timezone(),
+    eventTriggers: [],
     onCompleteWorkflowId: '',
   };
 }
 
 function toStepInput(step: DraftStep, index: number, steps: DraftStep[]): WorkflowStepInput {
+  const conditions: WorkflowStepCondition[] = step.runIf
+    .filter((condition) => condition.stepId.length > 0)
+    .map((condition) => ({
+      stepId: condition.stepId,
+      status: condition.status,
+      ...(condition.resultIncludes.trim().length > 0
+        ? { resultIncludes: condition.resultIncludes.trim() }
+        : {}),
+    }));
   return {
     id: step.id,
     title: step.title.trim(),
@@ -223,10 +266,21 @@ function toStepInput(step: DraftStep, index: number, steps: DraftStep[]): Workfl
     maxAttempts: step.maxAttempts,
     ...(step.agentId.length > 0 ? { agentId: step.agentId } : {}),
     dependsOn: resolvedDependencies(step, index, steps),
-    ...(step.runIfStepId.length > 0
-      ? { runIf: { stepId: step.runIfStepId, status: step.runIfStatus } }
-      : {}),
+    join: step.join,
+    ...(conditions.length === 0
+      ? {}
+      : { runIf: conditions.length === 1 ? conditions[0] : conditions }),
   };
+}
+
+function toEventTriggers(draft: Draft): WorkflowEventTrigger[] {
+  return draft.eventTriggers
+    .map((trigger) => ({
+      eventType: trigger.eventType.trim(),
+      ...(trigger.sourceId.trim().length > 0 ? { sourceId: trigger.sourceId.trim() } : {}),
+      ...(trigger.input.trim().length > 0 ? { input: trigger.input.trim() } : {}),
+    }))
+    .filter((trigger) => trigger.eventType.length > 0);
 }
 
 function toSchedule(draft: Draft): WorkflowScheduleInput | null {
@@ -298,6 +352,7 @@ function WorkflowEditor({
           scheduleDay: 1,
           scheduleCron: '0 9 * * 1-5',
           scheduleTimezone: timezone(),
+          eventTriggers: [],
           onCompleteWorkflowId: '',
         },
   );
@@ -316,13 +371,43 @@ function WorkflowEditor({
     ) &&
     (!draft.scheduleEnabled ||
       (draft.scheduleTimezone.trim().length > 0 &&
-        (draft.scheduleFrequency !== 'cron' || draft.scheduleCron.trim().length > 0)));
+        (draft.scheduleFrequency !== 'cron' || draft.scheduleCron.trim().length > 0))) &&
+    draft.eventTriggers.every((trigger) => trigger.eventType.trim().length > 0);
 
   const patchStep = (index: number, patch: Partial<DraftStep>) => {
     setDraft((current) => ({
       ...current,
       steps: current.steps.map((step, position) =>
         position === index ? { ...step, ...patch } : step,
+      ),
+    }));
+  };
+
+  const patchCondition = (
+    stepIndex: number,
+    conditionIndex: number,
+    patch: Partial<DraftCondition>,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      steps: current.steps.map((entry, position) =>
+        position !== stepIndex
+          ? entry
+          : {
+              ...entry,
+              runIf: entry.runIf.map((condition, index) =>
+                index === conditionIndex ? { ...condition, ...patch } : condition,
+              ),
+            },
+      ),
+    }));
+  };
+
+  const patchEventTrigger = (index: number, patch: Partial<DraftEventTrigger>) => {
+    setDraft((current) => ({
+      ...current,
+      eventTriggers: current.eventTriggers.map((entry, position) =>
+        position === index ? { ...entry, ...patch } : entry,
       ),
     }));
   };
@@ -358,6 +443,7 @@ function WorkflowEditor({
       steps: draft.steps.map(toStepInput),
       settings: { maxParallel: draft.maxParallel },
       schedule: toSchedule(draft),
+      eventTriggers: toEventTriggers(draft),
       ...(draft.onCompleteWorkflowId.length > 0
         ? { onCompleteWorkflowId: draft.onCompleteWorkflowId }
         : {}),
@@ -598,49 +684,114 @@ function WorkflowEditor({
                   ))}
                 </select>
               </label>
-              <div className="text-text-secondary text-xs">
-                <span className="mb-1 block">{localize('com_ui_workflow_condition')}</span>
-                <div className="flex gap-1">
-                  <select
-                    aria-label={localize('com_ui_workflow_condition')}
-                    className="border-border-medium bg-surface-primary min-w-0 flex-1 rounded-md border px-2 py-1 text-sm"
-                    value={step.runIfStepId}
-                    onChange={(event) => {
-                      const value = event.target.value;
+              <div className="text-text-secondary text-xs sm:col-span-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span>{localize('com_ui_workflow_condition')}</span>
+                  <button
+                    type="button"
+                    className="border-border-medium hover:bg-surface-active rounded-md border px-2 py-0.5 text-xs"
+                    onClick={() =>
                       patchStep(index, {
-                        runIfStepId: value,
-                        dependsOn:
-                          value.length === 0 || step.dependsOn.includes(value)
-                            ? step.dependsOn
-                            : [...step.dependsOn, value],
-                      });
-                    }}
+                        runIf: [
+                          ...step.runIf,
+                          { stepId: '', status: 'completed', resultIncludes: '' },
+                        ],
+                      })
+                    }
                   >
-                    <option value="">{localize('com_ui_workflow_condition_always')}</option>
-                    {draft.steps.slice(0, index).map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {candidate.title || candidate.id}
-                      </option>
-                    ))}
-                  </select>
-                  {step.runIfStepId.length > 0 && (
+                    {localize('com_ui_workflow_condition_add')}
+                  </button>
+                </div>
+                {step.runIf.length === 0 && <p>{localize('com_ui_workflow_condition_always')}</p>}
+                {step.runIf.map((condition, conditionIndex) => (
+                  <div
+                    key={`${step.id}-condition-${conditionIndex}`}
+                    className="mb-1 flex flex-wrap items-center gap-1"
+                  >
+                    <select
+                      aria-label={localize('com_ui_workflow_condition_select')}
+                      className="border-border-medium bg-surface-primary min-w-0 flex-1 rounded-md border px-2 py-1 text-sm"
+                      value={condition.stepId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        patchCondition(index, conditionIndex, { stepId: value });
+                        if (value.length > 0 && !step.dependsOn.includes(value)) {
+                          patchStep(index, {
+                            dependsOn: Array.from(new Set([...step.dependsOn, value])),
+                          });
+                        }
+                      }}
+                    >
+                      <option value="">{localize('com_ui_workflow_condition_select')}</option>
+                      {draft.steps.slice(0, index).map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.title || candidate.id}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       aria-label={localize('com_ui_workflow_condition')}
-                      className="border-border-medium bg-surface-primary w-24 rounded-md border px-1 py-1 text-sm"
-                      value={step.runIfStatus}
-                      onChange={(event) =>
-                        patchStep(index, {
-                          runIfStatus: event.target.value === 'failed' ? 'failed' : 'completed',
-                        })
-                      }
+                      className="border-border-medium bg-surface-primary w-28 rounded-md border px-1 py-1 text-sm"
+                      value={condition.status}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        patchCondition(index, conditionIndex, {
+                          status: value === 'failed' || value === 'skipped' ? value : 'completed',
+                        });
+                      }}
                     >
                       <option value="completed">
                         {localize('com_ui_workflow_condition_completed')}
                       </option>
                       <option value="failed">{localize('com_ui_workflow_condition_failed')}</option>
+                      <option value="skipped">
+                        {localize('com_ui_workflow_condition_skipped')}
+                      </option>
                     </select>
-                  )}
-                </div>
+                    <input
+                      className="border-border-medium bg-surface-primary min-w-0 flex-[2] rounded-md border px-2 py-1 text-sm"
+                      aria-label={localize('com_ui_workflow_condition_result')}
+                      placeholder={localize('com_ui_workflow_condition_result')}
+                      maxLength={200}
+                      value={condition.resultIncludes}
+                      onChange={(event) =>
+                        patchCondition(index, conditionIndex, {
+                          resultIncludes: event.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="text-status-error hover:bg-surface-active rounded p-1"
+                      aria-label={localize('com_ui_workflow_condition_remove')}
+                      onClick={() =>
+                        patchStep(index, {
+                          runIf: step.runIf.filter(
+                            (_entry, position) => position !== conditionIndex,
+                          ),
+                        })
+                      }
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+                ))}
+                <label className="mt-1 flex items-center gap-2">
+                  <span>{localize('com_ui_workflow_join')}</span>
+                  <select
+                    className="border-border-medium bg-surface-primary rounded-md border px-2 py-1 text-sm"
+                    aria-label={localize('com_ui_workflow_join')}
+                    value={step.join}
+                    onChange={(event) =>
+                      patchStep(index, {
+                        join: event.target.value === 'any' ? 'any' : 'all',
+                      })
+                    }
+                  >
+                    <option value="all">{localize('com_ui_workflow_join_all')}</option>
+                    <option value="any">{localize('com_ui_workflow_join_any')}</option>
+                  </select>
+                </label>
               </div>
             </div>
 
@@ -818,6 +969,81 @@ function WorkflowEditor({
             )}
           </div>
         )}
+      </fieldset>
+
+      <fieldset className="border-border-light rounded-xl border p-3">
+        <legend className="px-1 text-sm font-semibold">
+          {localize('com_ui_workflow_event_triggers')}
+        </legend>
+        <p className="text-text-secondary text-xs">
+          {localize('com_ui_workflow_event_triggers_hint')}
+        </p>
+        {draft.eventTriggers.length === 0 && (
+          <p className="text-text-secondary mt-2 text-xs">
+            {localize('com_ui_workflow_event_trigger_none')}
+          </p>
+        )}
+        {draft.eventTriggers.map((trigger, index) => (
+          <div
+            key={`event-trigger-${index}`}
+            className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+          >
+            <label className="text-text-secondary text-xs">
+              <span className="mb-1 block">{localize('com_ui_workflow_event_trigger_type')}</span>
+              <input
+                className="border-border-medium bg-surface-primary w-full rounded-md border px-2 py-1 text-sm"
+                maxLength={128}
+                value={trigger.eventType}
+                onChange={(event) => patchEventTrigger(index, { eventType: event.target.value })}
+              />
+            </label>
+            <label className="text-text-secondary text-xs">
+              <span className="mb-1 block">{localize('com_ui_workflow_event_trigger_source')}</span>
+              <input
+                className="border-border-medium bg-surface-primary w-full rounded-md border px-2 py-1 text-sm"
+                maxLength={128}
+                value={trigger.sourceId}
+                onChange={(event) => patchEventTrigger(index, { sourceId: event.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              className="text-status-error hover:bg-surface-active self-end rounded p-1"
+              aria-label={localize('com_ui_workflow_event_trigger_remove')}
+              onClick={() =>
+                setDraft((current) => ({
+                  ...current,
+                  eventTriggers: current.eventTriggers.filter(
+                    (_entry, position) => position !== index,
+                  ),
+                }))
+              }
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+            <label className="text-text-secondary text-xs sm:col-span-3">
+              <span className="mb-1 block">{localize('com_ui_workflow_event_trigger_input')}</span>
+              <input
+                className="border-border-medium bg-surface-primary w-full rounded-md border px-2 py-1 text-sm"
+                maxLength={8000}
+                value={trigger.input}
+                onChange={(event) => patchEventTrigger(index, { input: event.target.value })}
+              />
+            </label>
+          </div>
+        ))}
+        <button
+          type="button"
+          className="border-border-medium hover:bg-surface-active mt-2 rounded-md border px-2 py-1 text-xs"
+          onClick={() =>
+            setDraft((current) => ({
+              ...current,
+              eventTriggers: [...current.eventTriggers, { eventType: '', sourceId: '', input: '' }],
+            }))
+          }
+        >
+          {localize('com_ui_workflow_event_trigger_add')}
+        </button>
       </fieldset>
 
       <div>
@@ -1248,6 +1474,13 @@ export default function WorkflowsView() {
                               : ''}
                           </>
                         )}
+                        {workflow.eventTriggers != null && workflow.eventTriggers.length > 0 && (
+                          <>
+                            {' '}
+                            ·{' '}
+                            {workflow.eventTriggers.map((trigger) => trigger.eventType).join(', ')}
+                          </>
+                        )}
                       </span>
                     </button>
                   </li>
@@ -1314,6 +1547,12 @@ export default function WorkflowsView() {
                     {localize('com_ui_workflow_schedule_next')}:{' '}
                     {formatInstant(selected.schedule.nextRunAt) ??
                       localize('com_ui_workflow_schedule_pending')}
+                  </p>
+                )}
+                {selected.eventTriggers != null && selected.eventTriggers.length > 0 && (
+                  <p className="text-text-secondary mt-1 text-xs">
+                    {localize('com_ui_workflow_event_triggers')}:{' '}
+                    {selected.eventTriggers.map((trigger) => trigger.eventType).join(', ')}
                   </p>
                 )}
 

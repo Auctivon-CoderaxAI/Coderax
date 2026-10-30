@@ -26,20 +26,23 @@ const workflowStepSchema = new Schema(
     maxAttempts: { type: Number, min: 1, max: WORKFLOW_STEP_MAX_ATTEMPTS, default: 3 },
     agentId: { type: String },
     dependsOn: { type: [String], default: [] },
-    runIf: {
-      type: new Schema(
-        {
-          stepId: { type: String, required: true },
-          status: { type: String, enum: ['completed', 'failed'], required: true },
-        },
-        { _id: false },
-      ),
-    },
+    // A condition may be one object or an array, so persistence accepts both.
+    runIf: { type: Schema.Types.Mixed },
+    join: { type: String, enum: ['all', 'any'] },
     timeoutMs: {
       type: Number,
       min: WORKFLOW_STEP_TIMEOUT_MS_MIN,
       max: WORKFLOW_STEP_TIMEOUT_MS_MAX,
     },
+  },
+  { _id: false },
+);
+
+const workflowEventTriggerSchema = new Schema(
+  {
+    eventType: { type: String, required: true, maxlength: 128 },
+    sourceId: { type: String, maxlength: 128 },
+    input: { type: String, maxlength: WORKFLOW_RUN_INPUT_MAX_LENGTH },
   },
   { _id: false },
 );
@@ -88,6 +91,7 @@ const workflowSchema: Schema<IWorkflowDocument> = new Schema(
     },
     settings: { type: workflowSettingsSchema },
     schedule: { type: workflowScheduleSchema },
+    eventTriggers: { type: [workflowEventTriggerSchema], default: undefined },
     onCompleteWorkflowId: { type: String },
   },
   { timestamps: true },
@@ -96,6 +100,8 @@ const workflowSchema: Schema<IWorkflowDocument> = new Schema(
 workflowSchema.index({ user: 1, createdAt: -1 });
 /** The scheduler's claim query: enabled schedules whose next run is due. */
 workflowSchema.index({ 'schedule.enabled': 1, 'schedule.nextRunAt': 1 });
+/** Event ingress looks up subscriptions by owner and event type. */
+workflowSchema.index({ user: 1, 'eventTriggers.eventType': 1 });
 
 const workflowStepRunSchema = new Schema(
   {
@@ -106,15 +112,8 @@ const workflowStepRunSchema = new Schema(
     maxAttempts: { type: Number, min: 1, max: WORKFLOW_STEP_MAX_ATTEMPTS, default: 3 },
     agentId: { type: String },
     dependsOn: { type: [String], default: [] },
-    runIf: {
-      type: new Schema(
-        {
-          stepId: { type: String, required: true },
-          status: { type: String, enum: ['completed', 'failed'], required: true },
-        },
-        { _id: false },
-      ),
-    },
+    runIf: { type: Schema.Types.Mixed },
+    join: { type: String, enum: ['all', 'any'] },
     timeoutMs: {
       type: Number,
       min: WORKFLOW_STEP_TIMEOUT_MS_MIN,

@@ -1,11 +1,13 @@
 import type {
   TScheduleCadence,
+  WorkflowEventTrigger,
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunTrigger,
   WorkflowSettings,
   WorkflowStepCondition,
   WorkflowStepInput,
+  WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
 import type { Document, Types } from 'mongoose';
@@ -32,6 +34,8 @@ export interface IWorkflow {
   steps: WorkflowStepInput[];
   settings?: WorkflowSettings;
   schedule?: IWorkflowSchedule;
+  /** Authenticated agent events that start this workflow automatically. */
+  eventTriggers?: WorkflowEventTrigger[];
   /** Workflow started automatically when this one completes successfully. */
   onCompleteWorkflowId?: string;
   createdAt?: Date;
@@ -49,7 +53,8 @@ export interface IWorkflowStepRun extends Required<Pick<WorkflowStepInput, 'id' 
   maxAttempts: number;
   agentId?: string;
   dependsOn: string[];
-  runIf?: WorkflowStepCondition;
+  runIf?: WorkflowStepCondition | WorkflowStepCondition[];
+  join?: WorkflowStepJoin;
   timeoutMs?: number;
   status: WorkflowStepStatus;
   attempts: number;

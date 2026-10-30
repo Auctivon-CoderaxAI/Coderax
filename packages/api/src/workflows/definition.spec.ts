@@ -178,3 +178,106 @@ describe('workflow graph validation', () => {
     );
   });
 });
+
+describe('richer branch and event semantics', () => {
+  it('accepts an any-join merge with result-matched conditions', () => {
+    const parsed = parseCreateWorkflow(
+      workflow({
+        steps: [
+          step('review'),
+          step('audit'),
+          step('ship', {
+            dependsOn: ['review', 'audit'],
+            join: 'any',
+            runIf: [
+              { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+              { stepId: 'audit', status: 'failed' },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) {
+      return;
+    }
+    expect(parsed.value.steps[2].join).toBe('any');
+    expect(parsed.value.steps[2].runIf).toEqual([
+      { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+      { stepId: 'audit', status: 'failed' },
+    ]);
+  });
+
+  it('rejects more conditions than a step may require', () => {
+    const parsed = parseCreateWorkflow(
+      workflow({
+        steps: [
+          step('review'),
+          step('ship', {
+            dependsOn: ['review'],
+            runIf: Array.from({ length: 5 }, () => ({ stepId: 'review' })),
+          }),
+        ],
+      }),
+    );
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects the same condition step twice', () => {
+    const parsed = parseCreateWorkflow(
+      workflow({
+        steps: [
+          step('review'),
+          step('ship', {
+            dependsOn: ['review'],
+            runIf: [
+              { stepId: 'review', status: 'completed' },
+              { stepId: 'review', status: 'failed' },
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toContain('only once');
+    }
+  });
+
+  it('accepts bounded event subscriptions and rejects duplicate ones', () => {
+    const accepted = parseCreateWorkflow(
+      workflow({
+        eventTriggers: [
+          { eventType: 'deploy.failed' },
+          { eventType: 'issue.opened', sourceId: 'webhook-1', input: 'Triage the issue.' },
+        ],
+      }),
+    );
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) {
+      expect(accepted.value.eventTriggers).toHaveLength(2);
+    }
+
+    const duplicate = parseCreateWorkflow(
+      workflow({
+        eventTriggers: [
+          { eventType: 'deploy.failed', sourceId: 'webhook-1' },
+          { eventType: 'deploy.failed', sourceId: 'webhook-1' },
+        ],
+      }),
+    );
+    expect(duplicate.ok).toBe(false);
+
+    const malformed = parseCreateWorkflow(
+      workflow({ eventTriggers: [{ eventType: 'not a type' }] }),
+    );
+    expect(malformed.ok).toBe(false);
+  });
+
+  it('lets an update clear every event subscription', () => {
+    expect(parseUpdateWorkflow({ eventTriggers: null })).toEqual({
+      ok: true,
+      value: { eventTriggers: null },
+    });
+  });
+});

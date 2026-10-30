@@ -5,6 +5,7 @@ import type {
   WorkflowRunTrigger,
   WorkflowSettings,
   WorkflowStepCondition,
+  WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
 
@@ -19,7 +20,8 @@ export interface WorkflowStepRecord {
   attempts: number;
   agentId?: string;
   dependsOn?: string[];
-  runIf?: WorkflowStepCondition;
+  runIf?: WorkflowStepCondition | WorkflowStepCondition[];
+  join?: WorkflowStepJoin;
   timeoutMs?: number;
   /** Conversation this step's turn belongs to; parallel branches fork their own. */
   conversationId?: string;

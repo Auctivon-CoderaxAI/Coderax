@@ -1,11 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { logger, runAsSystem } from '@coderax/data-schemas';
-import type { WorkflowRunEvent, WorkflowRunEventType } from 'coderax-data-provider';
 import {
   WORKFLOW_EVENTS_MAX,
+  WORKFLOW_HANDOFF_MAX_LENGTH,
   WORKFLOW_RESULT_MAX_LENGTH,
   WORKFLOW_STEP_TIMEOUT_MS_DEFAULT,
 } from 'coderax-data-provider';
+import type {
+  WorkflowStepCondition,
+  WorkflowStepConditionStatus,
+  WorkflowStepJoin,
+} from 'coderax-data-provider';
+import type { WorkflowRunEvent, WorkflowRunEventType } from 'coderax-data-provider';
 import type {
   WorkflowEngine,
   WorkflowEngineDeps,
@@ -91,6 +97,31 @@ function dependentsOf(steps: WorkflowStepRecord[], id: string): number {
   return count;
 }
 
+function conditionsOf(step: WorkflowStepRecord): WorkflowStepCondition[] {
+  if (step.runIf == null) {
+    return [];
+  }
+  return Array.isArray(step.runIf) ? step.runIf : [step.runIf];
+}
+
+function conditionStatus(condition: WorkflowStepCondition): WorkflowStepConditionStatus {
+  return condition.status ?? 'completed';
+}
+
+function conditionMatches(step: WorkflowStepRecord, condition: WorkflowStepCondition): boolean {
+  if (step.status !== conditionStatus(condition)) {
+    return false;
+  }
+  if (condition.resultIncludes == null) {
+    return true;
+  }
+  const needle = condition.resultIncludes.trim().toLowerCase();
+  if (needle.length === 0) {
+    return true;
+  }
+  return (step.result ?? '').toLowerCase().includes(needle);
+}
+
 /**
  * A linear continuation keeps its predecessor's conversation so the agent sees
  * the same history. A fan-out branch forks a new conversation, and a merge forks
@@ -111,7 +142,9 @@ function conversationFor(
   if (deps.length === 0) {
     // Only the first independent root may reuse the run's conversation.
     // Other roots can run concurrently and must not share a generation slot.
-    const firstRootIndex = steps.findIndex((_, candidate) => dependenciesOf(steps, candidate).length === 0);
+    const firstRootIndex = steps.findIndex(
+      (_, candidate) => dependenciesOf(steps, candidate).length === 0,
+    );
     return index === firstRootIndex ? (runConversationId ?? newId()) : newId();
   }
   if (deps.length === 1) {
@@ -124,64 +157,142 @@ function conversationFor(
   return newId();
 }
 
+interface HandoffSection {
+  title: string;
+  body: string;
+}
+
+/**
+ * A merge step reads what its branch predecessors actually produced. Results
+ * are shared fairly under one bounded budget instead of dropping every branch
+ * after the first, and a skipped or failed branch contributes its reason so the
+ * merge can explain the missing input rather than silently ignoring it.
+ */
 function handoffContext(
   steps: WorkflowStepRecord[],
   index: number,
   conversationId: string,
 ): string {
-  const sections: string[] = [];
+  const sections: HandoffSection[] = [];
   for (const dependencyId of dependenciesOf(steps, index)) {
     const dependency = steps.find((entry) => entry.id === dependencyId);
-    if (
-      dependency?.result == null ||
-      dependency.result.trim().length === 0 ||
-      dependency.conversationId === conversationId
-    ) {
+    if (dependency == null || dependency.conversationId === conversationId) {
       continue;
     }
-    sections.push(`### ${dependency.title}\n${dependency.result}`);
+    const body =
+      dependency.status === 'completed'
+        ? (dependency.result ?? '').trim()
+        : [dependency.reason, dependency.error]
+            .filter((value): value is string => value != null && value.trim().length > 0)
+            .join('\n');
+    if (body.length === 0) {
+      continue;
+    }
+    sections.push({
+      title:
+        dependency.status === 'completed'
+          ? dependency.title
+          : `${dependency.title} (${dependency.status})`,
+      body,
+    });
   }
   if (sections.length === 0) {
     return '';
   }
-  return `\n\nContext from earlier branches:\n\n${sections.join('\n\n')}`;
+  const header = '\n\nContext from earlier branches:\n\n';
+  const budget = Math.max(1, WORKFLOW_HANDOFF_MAX_LENGTH - header.length);
+  const perSection = Math.max(1, Math.floor(budget / sections.length) - 24);
+  const rendered = sections.map(({ title, body }) => {
+    const trimmed = body.length > perSection ? `${body.slice(0, perSection)}\n[truncated]` : body;
+    return `### ${title}\n${trimmed}`;
+  });
+  return `${header}${rendered.join('\n\n')}`.slice(0, WORKFLOW_HANDOFF_MAX_LENGTH);
 }
 
 type Readiness = { kind: 'ready' } | { kind: 'wait' } | { kind: 'skip'; reason: string };
 
 function readiness(steps: WorkflowStepRecord[], index: number): Readiness {
   const step = steps[index];
-  for (const dependencyId of dependenciesOf(steps, index)) {
-    const dependency = steps.find((entry) => entry.id === dependencyId);
+  const conditions = conditionsOf(step);
+  const join: WorkflowStepJoin = step.join ?? 'all';
+  const dependencies = dependenciesOf(steps, index);
+
+  // Conditions are evaluated only after the steps they name have settled, so a
+  // branch never starts on a partial result.
+  for (const condition of conditions) {
+    const conditionStep = steps.find((entry) => entry.id === condition.stepId);
+    if (conditionStep == null) {
+      return { kind: 'skip', reason: `Condition step ${condition.stepId} is missing` };
+    }
+    if (!terminalStep(conditionStep.status)) {
+      return { kind: 'wait' };
+    }
+  }
+
+  const unmet = conditions.find((condition) => {
+    const conditionStep = steps.find((entry) => entry.id === condition.stepId);
+    return conditionStep == null ? false : !conditionMatches(conditionStep, condition);
+  });
+  if (unmet != null) {
+    const conditionStep = steps.find((entry) => entry.id === unmet.stepId);
+    const label = conditionStep?.title ?? unmet.stepId;
+    if (unmet.resultIncludes != null) {
+      return {
+        kind: 'skip',
+        reason: `Condition not met: ${label} did not produce the required result`,
+      };
+    }
+    return {
+      kind: 'skip',
+      reason: `Condition not met: ${label} settled as ${conditionStep?.status ?? 'missing'}`,
+    };
+  }
+
+  if (dependencies.length === 0) {
+    return { kind: 'ready' };
+  }
+
+  const resolved = dependencies.map((id) => steps.find((entry) => entry.id === id));
+  const missing = resolved.findIndex((entry) => entry == null);
+  if (missing >= 0) {
+    return { kind: 'skip', reason: `Dependency ${dependencies[missing]} is not part of this run` };
+  }
+
+  if (join === 'any') {
+    const settled = resolved.filter(
+      (entry): entry is WorkflowStepRecord => entry != null && terminalStep(entry.status),
+    );
+    if (settled.some((entry) => entry.status === 'completed')) {
+      return { kind: 'ready' };
+    }
+    if (settled.length === dependencies.length) {
+      return { kind: 'skip', reason: 'No dependency completed' };
+    }
+    return { kind: 'wait' };
+  }
+
+  for (const dependency of resolved) {
     if (dependency == null) {
-      return { kind: 'skip', reason: `Dependency ${dependencyId} is not part of this run` };
+      continue;
     }
     if (!terminalStep(dependency.status)) {
       return { kind: 'wait' };
     }
-    const conditionHandlesFailure =
-      step.runIf?.stepId === dependencyId && step.runIf.status === 'failed';
-    if (dependency.status !== 'completed' && !conditionHandlesFailure) {
-      return {
-        kind: 'skip',
-        reason: `Dependency ${dependency.title} settled as ${dependency.status}`,
-      };
+    if (dependency.status === 'completed') {
+      continue;
     }
-  }
-  if (step.runIf != null) {
-    const condition = steps.find((entry) => entry.id === step.runIf?.stepId);
-    if (condition == null) {
-      return { kind: 'skip', reason: `Condition step ${step.runIf.stepId} is missing` };
+    // A condition may deliberately continue from a failure or a skipped branch.
+    const handled = conditions.some(
+      (condition) =>
+        condition.stepId === dependency.id && conditionStatus(condition) === dependency.status,
+    );
+    if (handled) {
+      continue;
     }
-    if (!terminalStep(condition.status)) {
-      return { kind: 'wait' };
-    }
-    if (condition.status !== step.runIf.status) {
-      return {
-        kind: 'skip',
-        reason: `Condition not met: ${condition.title} settled as ${condition.status}`,
-      };
-    }
+    return {
+      kind: 'skip',
+      reason: `Dependency ${dependency.title} settled as ${dependency.status}`,
+    };
   }
   return { kind: 'ready' };
 }
@@ -315,6 +426,44 @@ export function createWorkflowEngine(
   };
 
   /**
+   * Stops the turn a worker just admitted after losing the run lease to a
+   * cancellation. Identity-fenced on the generation metadata where the host
+   * projects it, so an unrelated newer turn in the same conversation survives.
+   */
+  const abortDispatchedStep = async (
+    run: WorkflowRunRecord,
+    conversationId: string,
+    step: WorkflowStepRecord,
+  ): Promise<void> => {
+    if (deps.abortGeneration == null) {
+      return;
+    }
+    try {
+      const generation = await deps.getGeneration(conversationId);
+      if (generation == null) {
+        return;
+      }
+      const metadata = generation.metadata;
+      const belongsToStep =
+        metadata?.workflowRunId == null && metadata?.workflowStepId == null
+          ? true
+          : metadata.workflowRunId === run.id && metadata.workflowStepId === step.id;
+      if (!belongsToStep) {
+        return;
+      }
+      await deps.abortGeneration(conversationId, {
+        ...(generation.createdAt == null ? {} : { expectedCreatedAt: generation.createdAt }),
+      });
+    } catch (cause) {
+      logger.warn('[workflows] orphaned dispatch abort failed', {
+        runId: run.id,
+        stepId: step.id,
+        error: failureMessage(cause),
+      });
+    }
+  };
+
+  /**
    * Returns the patch that should be persisted for one run, or null when the
    * run is waiting and its durable state is already accurate.
    */
@@ -384,33 +533,53 @@ export function createWorkflowEngine(
       return 'released';
     }
 
-    // 1. Settle branches whose dependencies can never complete.
-    for (let pass = 0; pass < steps.length; pass += 1) {
-      let skipped = false;
-      steps.forEach((step, index) => {
-        if (terminalStep(step.status)) {
-          return;
+    const settleSkippedBranches = (): void => {
+      for (let pass = 0; pass < steps.length; pass += 1) {
+        let skipped = false;
+        steps.forEach((step, index) => {
+          if (terminalStep(step.status)) {
+            return;
+          }
+          const decision = readiness(steps, index);
+          if (decision.kind !== 'skip') {
+            return;
+          }
+          step.status = 'skipped';
+          step.settledAt = at;
+          step.reason = decision.reason;
+          step.availableAt = undefined;
+          note('step.skipped', { stepId: step.id, message: decision.reason });
+          skipped = true;
+        });
+        if (!skipped) {
+          break;
         }
-        const decision = readiness(steps, index);
-        if (decision.kind !== 'skip') {
-          return;
-        }
-        step.status = 'skipped';
-        step.settledAt = at;
-        step.reason = decision.reason;
-        step.availableAt = undefined;
-        note('step.skipped', { stepId: step.id, message: decision.reason });
-        skipped = true;
-      });
-      if (!skipped) {
-        break;
       }
-    }
+    };
+
+    // 1. Settle branches whose dependencies can never complete.
+    settleSkippedBranches();
 
     // 2. Read back the generations this run has in flight.
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index];
       if (step.status !== 'running') {
+        continue;
+      }
+      // A worker can crash after persisting the dispatch intent but before the
+      // delivery id is written. No generation can belong to this attempt yet, so
+      // re-queue it after a short grace instead of waiting for the full timeout.
+      if (step.deliveryKey == null) {
+        const startedAtMs = step.startedAt?.getTime() ?? at.getTime();
+        if (at.getTime() - startedAtMs >= retryBaseMs) {
+          if (step.attempts >= step.maxAttempts) {
+            failStep(index, ENQUEUE_ERROR);
+            status = 'failed';
+            error = ENQUEUE_ERROR;
+          } else {
+            retryStep(index, ENQUEUE_ERROR);
+          }
+        }
         continue;
       }
       const conversationId = step.conversationId ?? run.conversationId;
@@ -495,6 +664,11 @@ export function createWorkflowEngine(
       }
     }
 
+    // A step can settle during readback (completed or failed), which may now
+    // decide a branch that was waiting at the start of this tick. Settle those
+    // before dispatch so a rejected branch cannot linger another interval.
+    settleSkippedBranches();
+
     if (!steps.every((step) => terminalStep(step.status))) {
       const running = steps.filter((step) => step.status === 'running').length;
 
@@ -556,20 +730,30 @@ export function createWorkflowEngine(
         startedAt = startedAt ?? at;
         status = status === 'queued' ? 'running' : status;
 
+        // Persist the dispatch intent before enqueueing. This write is fenced by
+        // the run lease, so a cancellation (which clears the lease) wins the race
+        // and this worker must not start a turn at all. A crash between this write
+        // and the delivery id is recovered by the delivery-less running branch above.
+        const intent = await saveRun();
+        if (intent === 'lost') {
+          return 'lost';
+        }
+
         try {
           const deliveryKey = await deps.enqueueStep({
             run: { ...run, status, events, steps, startedAt },
             step: { ...step, instruction },
             stepIndex: index,
           });
+          budget -= 1;
           step.deliveryKey = deliveryKey;
           note(step.attempts > 1 ? 'step.retried' : 'step.dispatched', {
             stepId: step.id,
             message: `Attempt ${step.attempts}`,
           });
-          budget -= 1;
           const saved = await saveRun();
           if (saved === 'lost') {
+            await abortDispatchedStep(run, conversationId, step);
             return 'lost';
           }
         } catch (cause) {
@@ -615,9 +799,11 @@ export function createWorkflowEngine(
         step.status === 'failed' &&
         !steps.some(
           (candidate) =>
-            candidate.runIf?.stepId === step.id &&
-            candidate.runIf.status === 'failed' &&
-            candidate.status === 'completed',
+            candidate.status === 'completed' &&
+            conditionsOf(candidate).some(
+              (condition) =>
+                condition.stepId === step.id && conditionStatus(condition) === 'failed',
+            ),
         ),
     );
     status = unhandledFailure ? 'failed' : 'completed';

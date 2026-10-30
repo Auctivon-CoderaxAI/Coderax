@@ -281,4 +281,117 @@ describe('workflow persistence', () => {
       ),
     ).toHaveLength(1);
   });
+
+  it('persists rich branch conditions and joins through a reload', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Branching',
+      agentId: 'agent-1',
+      steps: [
+        { id: 'review', title: 'Review', instruction: 'Review the change' },
+        {
+          id: 'ship',
+          title: 'Ship',
+          instruction: 'Ship the change',
+          dependsOn: ['review'],
+          join: 'any',
+          runIf: [
+            { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+            { stepId: 'review', status: 'failed' },
+          ],
+        },
+      ],
+    });
+
+    const reloaded = await methods.getWorkflow(workflow.id, userId);
+    expect(reloaded?.steps[1].join).toBe('any');
+    expect(reloaded?.steps[1].runIf).toEqual([
+      { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+      { stepId: 'review', status: 'failed' },
+    ]);
+  });
+
+  it('starts one durable run per event occurrence and keeps tenants and owners apart', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      tenantId: 'tenant-1',
+      name: 'Deploy watch',
+      agentId: 'agent-1',
+      steps: [{ id: 'inspect', title: 'Inspect', instruction: 'Inspect the deployment' }],
+      eventTriggers: [{ eventType: 'deploy.failed', input: 'Inspect the failed deployment.' }],
+    });
+    const restricted = await methods.createWorkflow({
+      userId,
+      tenantId: 'tenant-1',
+      name: 'One source',
+      agentId: 'agent-1',
+      steps: [{ id: 'inspect', title: 'Inspect', instruction: 'Inspect the deployment' }],
+      eventTriggers: [{ eventType: 'deploy.failed', sourceId: 'webhook-2' }],
+    });
+
+    const lookup = {
+      userId,
+      tenantId: 'tenant-1',
+      eventType: 'deploy.failed',
+      sourceId: 'webhook-1',
+    };
+    expect((await methods.listWorkflowsForEvent(lookup)).map((entry) => entry.id)).toEqual([
+      workflow.id,
+    ]);
+    expect(await methods.listWorkflowsForEvent({ ...lookup, sourceId: 'webhook-2' })).toHaveLength(
+      2,
+    );
+    expect(await methods.listWorkflowsForEvent({ ...lookup, tenantId: 'tenant-2' })).toEqual([]);
+    expect(await methods.listWorkflowsForEvent({ ...lookup, userId: owner() })).toEqual([]);
+
+    const now = new Date('2026-06-01T00:00:00.000Z');
+    const first = await methods.createWorkflowEventRun({
+      ...lookup,
+      workflowId: workflow.id,
+      eventId: 'event-1',
+      now,
+    });
+    expect(first?.status).toBe('queued');
+    expect(first?.trigger).toEqual({
+      type: 'event',
+      sourceId: 'webhook-1',
+      label: 'deploy.failed',
+    });
+    expect(first?.dedupeKey).toBe(`workflow-event:${workflow.id}:webhook-1:event-1`);
+    expect(first?.input).toBe('Inspect the failed deployment.');
+
+    expect(
+      await methods.createWorkflowEventRun({
+        ...lookup,
+        workflowId: workflow.id,
+        eventId: 'event-1',
+        now,
+      }),
+    ).toBeNull();
+    expect(await methods.listWorkflowRuns(userId, workflow.id)).toHaveLength(1);
+
+    expect(
+      await methods.createWorkflowEventRun({
+        ...lookup,
+        workflowId: restricted.id,
+        eventId: 'event-1',
+        now,
+      }),
+    ).toBeNull();
+    expect(
+      await methods.createWorkflowEventRun({
+        ...lookup,
+        userId: owner(),
+        workflowId: workflow.id,
+        eventId: 'event-2',
+        now,
+      }),
+    ).toBeNull();
+
+    const cleared = await methods.updateWorkflow(workflow.id, userId, { eventTriggers: null });
+    expect(cleared?.eventTriggers ?? []).toEqual([]);
+    expect(await methods.listWorkflowsForEvent({ ...lookup, sourceId: 'webhook-1' })).toEqual([]);
+  });
 });

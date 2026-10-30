@@ -1,3 +1,4 @@
+import { WORKFLOW_HANDOFF_MAX_LENGTH } from 'coderax-data-provider';
 import { getTenantId, SYSTEM_TENANT_ID } from '@coderax/data-schemas';
 import type {
   WorkflowEngineStore,
@@ -244,7 +245,10 @@ describe('createWorkflowEngine', () => {
 
 type EnqueuedStep = { id: string; conversationId?: string; instruction: string };
 
-function branchSetup(steps: WorkflowStepRecord[], options: { maxParallel?: number } = {}) {
+function branchSetup(
+  steps: WorkflowStepRecord[],
+  options: { maxParallel?: number; result?: (stepId: string) => string } = {},
+) {
   let clock = new Date('2026-02-01T00:00:00.000Z');
   const now = () => new Date(clock);
   const advance = (ms: number) => {
@@ -295,7 +299,7 @@ function branchSetup(steps: WorkflowStepRecord[], options: { maxParallel?: numbe
         return `delivery:${entry.id}:${entry.attempts}`;
       },
       getGeneration: async (conversationId) => generations.get(conversationId) ?? null,
-      readStepResult: async ({ step: entry }) => `result:${entry.id}`,
+      readStepResult: async ({ step: entry }) => options.result?.(entry.id) ?? `result:${entry.id}`,
       now,
       random: () => 0.5,
       workerId: 'worker-1',
@@ -439,8 +443,8 @@ describe('createWorkflowEngine branches', () => {
   it('does not dispatch dependent branches while a parallel root drains for pause', async () => {
     const ctx = branchSetup(
       [
-        step({ id: 'root-a', maxAttempts: 1 }),
-        step({ id: 'root-b', maxAttempts: 1 }),
+        step({ id: 'root-a', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'root-b', dependsOn: [], maxAttempts: 1 }),
         step({ id: 'after-a', dependsOn: ['root-a'], maxAttempts: 1 }),
       ],
       { maxParallel: 2 },
@@ -494,10 +498,7 @@ describe('createWorkflowEngine branches', () => {
     });
 
     await engine.runTick();
-    expect(observed).toEqual([
-      `schedule:${SYSTEM_TENANT_ID}`,
-      `run:${SYSTEM_TENANT_ID}`,
-    ]);
+    expect(observed).toEqual([`schedule:${SYSTEM_TENANT_ID}`, `run:${SYSTEM_TENANT_ID}`]);
   });
 
   it('drains a due schedule once and advances its next occurrence', async () => {
@@ -539,5 +540,228 @@ describe('createWorkflowEngine branches', () => {
         nextRunAt,
       }),
     );
+  });
+});
+
+describe('createWorkflowEngine advanced branching', () => {
+  it('starts an any-join merge as soon as one branch completes', async () => {
+    const ctx = branchSetup(
+      [
+        step({ id: 'left', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'right', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'merge', dependsOn: ['left', 'right'], join: 'any', maxAttempts: 1 }),
+      ],
+      { maxParallel: 2 },
+    );
+
+    await ctx.engine.runTick();
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['left', 'right']);
+
+    ctx.complete('left', 'complete');
+    await ctx.engine.runTick();
+
+    const merge = ctx.enqueued.find((entry) => entry.id === 'merge');
+    expect(merge).toBeDefined();
+    expect(merge?.instruction).toContain('result:left');
+    expect(merge?.instruction).not.toContain('result:right');
+  });
+
+  it('runs a step only when the predecessor result contains the required text', async () => {
+    const approved = branchSetup(
+      [
+        step({ id: 'review', maxAttempts: 1 }),
+        step({
+          id: 'ship',
+          dependsOn: ['review'],
+          runIf: { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+          maxAttempts: 1,
+        }),
+      ],
+      { result: (id) => (id === 'review' ? 'Verdict: APPROVED' : `result:${id}`) },
+    );
+
+    await approved.engine.runTick();
+    approved.complete('review', 'complete');
+    await approved.engine.runTick();
+    expect(approved.enqueued.map((entry) => entry.id)).toEqual(['review', 'ship']);
+
+    const rejected = branchSetup(
+      [
+        step({ id: 'review', maxAttempts: 1 }),
+        step({
+          id: 'ship',
+          dependsOn: ['review'],
+          runIf: { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+          maxAttempts: 1,
+        }),
+      ],
+      { result: (id) => (id === 'review' ? 'Verdict: REJECTED' : `result:${id}`) },
+    );
+
+    await rejected.engine.runTick();
+    rejected.complete('review', 'complete');
+    await rejected.engine.runTick();
+    expect(rejected.enqueued.map((entry) => entry.id)).toEqual(['review']);
+    expect(rejected.run.steps.find((entry) => entry.id === 'ship')?.reason).toContain(
+      'did not produce the required result',
+    );
+  });
+
+  it('requires every condition in an array to hold', async () => {
+    const ctx = branchSetup(
+      [
+        step({ id: 'review', maxAttempts: 1 }),
+        step({
+          id: 'ship',
+          dependsOn: ['review'],
+          runIf: [
+            { stepId: 'review', status: 'completed' },
+            { stepId: 'review', status: 'completed', resultIncludes: 'APPROVED' },
+          ],
+          maxAttempts: 1,
+        }),
+      ],
+      { result: () => 'Verdict: REJECTED' },
+    );
+
+    await ctx.engine.runTick();
+    ctx.complete('review', 'complete');
+    await ctx.engine.runTick();
+
+    expect(ctx.enqueued.map((entry) => entry.id)).toEqual(['review']);
+    expect(ctx.run.steps.find((entry) => entry.id === 'ship')?.status).toBe('skipped');
+  });
+
+  it('shares long branch outputs with a merge step instead of dropping them', async () => {
+    const marker = (id: string) => `${id}-marker-${'x'.repeat(12_000)}`;
+    const ctx = branchSetup(
+      [
+        step({ id: 'left', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'right', dependsOn: [], maxAttempts: 1 }),
+        step({ id: 'merge', dependsOn: ['left', 'right'], maxAttempts: 1 }),
+      ],
+      { maxParallel: 2, result: marker },
+    );
+
+    await ctx.engine.runTick();
+    ctx.complete('left', 'complete');
+    ctx.complete('right', 'complete');
+    await ctx.engine.runTick();
+
+    const merge = ctx.enqueued.find((entry) => entry.id === 'merge');
+    expect(merge).toBeDefined();
+    expect(merge?.instruction).toContain('left-marker');
+    expect(merge?.instruction).toContain('right-marker');
+    expect(merge?.instruction.length).toBeLessThanOrEqual(8_000 + WORKFLOW_HANDOFF_MAX_LENGTH);
+  });
+});
+
+describe('createWorkflowEngine cancellation fencing', () => {
+  function runWith(steps: WorkflowStepRecord[]): WorkflowRunRecord {
+    return {
+      id: 'run-cancel',
+      userId: 'user-1',
+      workflowId: 'wf-1',
+      workflowName: 'Cancel',
+      agentId: 'agent-1',
+      status: 'queued',
+      currentStep: 0,
+      steps: steps.map((entry) => ({ ...entry })),
+      conversationId: 'conversation-1',
+      events: [],
+    };
+  }
+
+  it('does not enqueue a step when the lease-fenced dispatch write loses to cancellation', async () => {
+    const run = runWith([step({ id: 'first', maxAttempts: 1 })]);
+    const enqueued: string[] = [];
+    const engine = createWorkflowEngine(
+      {
+        store: {
+          claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+          saveRun: async () => false,
+          releaseRun: async () => undefined,
+        },
+        enqueueStep: async ({ step: entry }) => {
+          enqueued.push(entry.id);
+          return 'delivery';
+        },
+        getGeneration: async () => null,
+        workerId: 'worker-1',
+      },
+      { retryBaseMs: 1_000, retryCapMs: 1_000 },
+    );
+
+    await engine.runTick();
+    expect(enqueued).toEqual([]);
+  });
+
+  it('aborts a turn admitted just before the run was cancelled', async () => {
+    const run = runWith([step({ id: 'first', maxAttempts: 1 })]);
+    let saveCalls = 0;
+    let generation: WorkflowGenerationState | null = null;
+    const abortGeneration = jest.fn(async () => undefined);
+    const engine = createWorkflowEngine({
+      store: {
+        claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+        saveRun: async () => {
+          saveCalls += 1;
+          // The intent write succeeds, then cancellation clears the lease.
+          return saveCalls === 1;
+        },
+        releaseRun: async () => undefined,
+      },
+      enqueueStep: async () => {
+        generation = { status: 'running', createdAt: 100 };
+        return 'delivery:first:1';
+      },
+      getGeneration: async () => generation,
+      abortGeneration,
+      workerId: 'worker-1',
+    });
+
+    await engine.runTick();
+    expect(abortGeneration).toHaveBeenCalledWith('conversation-1', { expectedCreatedAt: 100 });
+  });
+
+  it('re-queues a dispatch intent whose worker crashed before enqueueing', async () => {
+    const startedAt = new Date('2026-05-01T00:00:00.000Z');
+    const run = runWith([
+      step({ id: 'first', maxAttempts: 2, status: 'running', attempts: 1, startedAt }),
+    ]);
+    let clock = new Date(startedAt.getTime() + 5_000);
+    const enqueued: string[] = [];
+    const engine = createWorkflowEngine(
+      {
+        store: {
+          claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+          saveRun: async ({ patch }) => {
+            Object.assign(run, patch);
+            if (patch.steps != null) {
+              run.steps = patch.steps.map((entry) => ({ ...entry }));
+            }
+            return true;
+          },
+          releaseRun: async () => undefined,
+        },
+        enqueueStep: async ({ step: entry }) => {
+          enqueued.push(entry.id);
+          return 'delivery';
+        },
+        getGeneration: async () => null,
+        now: () => new Date(clock),
+        workerId: 'worker-1',
+      },
+      { retryBaseMs: 1_000, retryCapMs: 1_000 },
+    );
+
+    await engine.runTick();
+    expect(run.steps[0].status).toBe('queued');
+    expect(enqueued).toEqual([]);
+
+    clock = new Date(clock.getTime() + 1_000);
+    await engine.runTick();
+    expect(enqueued).toEqual(['first']);
+    expect(run.steps[0].attempts).toBe(2);
   });
 });

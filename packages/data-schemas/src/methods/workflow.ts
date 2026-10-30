@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   WORKFLOW_EVENTS_MAX,
   WORKFLOW_RUNS_PAGE_MAX,
+  WORKFLOW_RUN_INPUT_MAX_LENGTH,
   WORKFLOW_STEP_MAX_ATTEMPTS,
 } from 'coderax-data-provider';
 import type {
+  WorkflowEventTrigger,
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunTrigger,
@@ -35,6 +37,7 @@ export interface CreateWorkflowInput {
   steps: WorkflowStepInput[];
   settings?: WorkflowSettings;
   schedule?: WorkflowScheduleWrite;
+  eventTriggers?: WorkflowEventTrigger[];
   onCompleteWorkflowId?: string;
 }
 
@@ -45,6 +48,7 @@ export interface UpdateWorkflowInput {
   steps?: WorkflowStepInput[];
   settings?: WorkflowSettings | null;
   schedule?: WorkflowScheduleWrite | null;
+  eventTriggers?: WorkflowEventTrigger[] | null;
   onCompleteWorkflowId?: string | null;
 }
 
@@ -61,6 +65,24 @@ export interface CreateWorkflowRunInput {
   trigger?: WorkflowRunTrigger;
   onCompleteWorkflowId?: string;
   dedupeKey?: string;
+}
+
+export interface WorkflowEventLookupInput {
+  userId: string;
+  tenantId?: string;
+  eventType: string;
+  sourceId: string;
+}
+
+export interface CreateWorkflowEventRunInput {
+  userId: string;
+  tenantId?: string;
+  workflowId: string;
+  eventId: string;
+  eventType: string;
+  sourceId: string;
+  input?: string;
+  now: Date;
 }
 
 export interface ClaimWorkflowRunsInput {
@@ -133,6 +155,10 @@ export interface WorkflowMethods {
   pauseWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   resumeWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   cancelWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
+  /** Workflows owned by the principal that subscribe to this event. */
+  listWorkflowsForEvent: (input: WorkflowEventLookupInput) => Promise<IWorkflow[]>;
+  /** Starts one durable run per event occurrence; null means it already exists. */
+  createWorkflowEventRun: (input: CreateWorkflowEventRunInput) => Promise<IWorkflowRun | null>;
   claimDueWorkflowSchedules: (input: ClaimWorkflowSchedulesInput) => Promise<IWorkflow[]>;
   completeWorkflowScheduleClaim: (
     input: CompleteWorkflowScheduleClaimInput,
@@ -169,7 +195,23 @@ function stepFields(step: WorkflowStepInput, index: number, steps: WorkflowStepI
     dependsOn: dependencyIds(step, index, steps),
     ...(step.agentId == null ? {} : { agentId: step.agentId }),
     ...(step.runIf == null ? {} : { runIf: step.runIf }),
+    ...(step.join == null ? {} : { join: step.join }),
     ...(step.timeoutMs == null ? {} : { timeoutMs: step.timeoutMs }),
+  };
+}
+
+/** Matches one stored subscription: exact event type, and either any source or this one. */
+function eventTriggerLookup(input: {
+  eventType: string;
+  sourceId: string;
+}): Record<string, unknown> {
+  return {
+    eventTriggers: {
+      $elemMatch: {
+        eventType: input.eventType,
+        $or: [{ sourceId: { $exists: false } }, { sourceId: null }, { sourceId: input.sourceId }],
+      },
+    },
   };
 }
 
@@ -260,6 +302,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         steps: input.steps.map((step, index) => stepFields(step, index, input.steps)),
         ...(input.settings == null ? {} : { settings: input.settings }),
         ...(input.schedule == null ? {} : { schedule: input.schedule }),
+        ...(input.eventTriggers == null || input.eventTriggers.length === 0
+          ? {}
+          : { eventTriggers: input.eventTriggers }),
         ...(input.onCompleteWorkflowId == null
           ? {}
           : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
@@ -304,6 +349,15 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         $unset.schedule = '';
       } else if (input.schedule !== undefined) {
         $set.schedule = input.schedule;
+      }
+      if (input.eventTriggers === null) {
+        $unset.eventTriggers = '';
+      } else if (input.eventTriggers !== undefined) {
+        if (input.eventTriggers.length === 0) {
+          $unset.eventTriggers = '';
+        } else {
+          $set.eventTriggers = input.eventTriggers;
+        }
       }
       if (input.onCompleteWorkflowId === null) {
         $unset.onCompleteWorkflowId = '';
@@ -563,6 +617,85 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           { new: true },
         )
         .lean<IWorkflowRun | null>();
+    },
+
+    listWorkflowsForEvent: async (input) => {
+      const filter: Record<string, unknown> = {
+        user: objectId(input.userId),
+        ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
+        ...eventTriggerLookup(input),
+      };
+      return workflowModel()
+        .find(filter)
+        .sort({ createdAt: 1 })
+        .limit(WORKFLOW_RUNS_PAGE_MAX)
+        .lean<IWorkflow[]>();
+    },
+
+    createWorkflowEventRun: async (input) => {
+      const workflow = await workflowModel()
+        .findOne({
+          id: input.workflowId,
+          user: objectId(input.userId),
+          ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
+          ...eventTriggerLookup(input),
+        })
+        .lean<IWorkflow | null>();
+      if (workflow == null) {
+        return null;
+      }
+      const trigger = (workflow.eventTriggers ?? []).find(
+        (entry) =>
+          entry.eventType === input.eventType &&
+          (entry.sourceId == null || entry.sourceId === input.sourceId),
+      );
+      const inputText = [trigger?.input, input.input]
+        .filter((value): value is string => value != null && value.trim().length > 0)
+        .join('\n\n')
+        .slice(0, WORKFLOW_RUN_INPUT_MAX_LENGTH);
+      const dedupeKey = `workflow-event:${workflow.id}:${input.sourceId}:${input.eventId}`;
+      // A read first keeps the call idempotent even before the unique sparse
+      // index has finished building; the index still closes the replica race.
+      if ((await runModel().exists({ dedupeKey })) != null) {
+        return null;
+      }
+      try {
+        const created = await runModel().create({
+          id: randomUUID(),
+          workflowId: workflow.id,
+          user: workflow.user,
+          ...(workflow.tenantId == null ? {} : { tenantId: workflow.tenantId }),
+          workflowName: workflow.name,
+          agentId: workflow.agentId,
+          status: 'queued',
+          currentStep: 0,
+          steps: workflow.steps.map((step, index) => normalizeStep(step, index, workflow.steps)),
+          conversationId: randomUUID(),
+          ...(inputText.length === 0 ? {} : { input: inputText }),
+          ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          ...(workflow.onCompleteWorkflowId == null
+            ? {}
+            : { onCompleteWorkflowId: workflow.onCompleteWorkflowId }),
+          trigger: {
+            type: 'event',
+            sourceId: input.sourceId,
+            label: input.eventType,
+          },
+          events: [
+            event('trigger.fired', input.now, {
+              message: `${input.eventType} from ${input.sourceId}`,
+            }),
+            event('run.queued', input.now, { message: 'event' }),
+          ],
+          dedupeKey,
+        });
+        return created.toObject() as IWorkflowRun;
+      } catch (error) {
+        if (!isDuplicateKey(error)) {
+          throw error;
+        }
+        return null;
+      }
     },
 
     claimDueWorkflowSchedules: async ({ workerId, now, leaseUntil, limit }) => {
