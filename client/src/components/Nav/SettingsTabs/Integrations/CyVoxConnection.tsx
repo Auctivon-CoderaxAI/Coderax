@@ -55,6 +55,11 @@ export default function CyVoxConnection() {
   const [editingToken, setEditingToken] = useState(false);
   const [testState, setTestState] = useState<TestState>('idle');
   const [testMessage, setTestMessage] = useState('');
+  const [details, setDetails] = useState<{
+    capabilities?: string[];
+    apiVersion?: string;
+    latencyMs?: number;
+  }>({});
   const tokenInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -124,8 +129,14 @@ export default function CyVoxConnection() {
           if (result.success) {
             setTestState('connected');
             setTestMessage('');
+            setDetails({
+              capabilities: result.capabilities,
+              apiVersion: result.apiVersion,
+              latencyMs: result.latencyMs,
+            });
             return;
           }
+          setDetails({});
           setTestState('failed');
           setTestMessage(localize(testErrorKey(result.errorCode)));
         },
@@ -200,6 +211,41 @@ export default function CyVoxConnection() {
           <span>{statusLabel}</span>
         </div>
       </div>
+
+      {details.apiVersion || details.latencyMs != null || details.capabilities?.length ? (
+        <dl className="border-border-light bg-surface-primary-alt grid gap-1 rounded-lg border p-3 text-xs">
+          {details.apiVersion ? (
+            <div className="flex flex-wrap gap-x-2">
+              <dt className="text-text-secondary">{localize('com_ui_cyvox_api_version')}</dt>
+              <dd className="font-mono">{details.apiVersion}</dd>
+            </div>
+          ) : null}
+          {details.latencyMs != null ? (
+            <div className="flex flex-wrap gap-x-2">
+              <dt className="text-text-secondary">{localize('com_ui_cyvox_latency')}</dt>
+              <dd>{details.latencyMs}</dd>
+            </div>
+          ) : null}
+          {details.capabilities?.length ? (
+            <div className="flex flex-wrap gap-x-2">
+              <dt className="text-text-secondary">{localize('com_ui_cyvox_capabilities')}</dt>
+              <dd>
+                {details.capabilities.length} · {details.capabilities.slice(0, 8).join(', ')}
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : null}
+
+      {status?.lastProbe && testState === 'idle' ? (
+        <p className="text-text-secondary text-xs">
+          {localize('com_ui_cyvox_last_check')}{' '}
+          {new Date(status.lastProbe.checkedAt).toLocaleString()} —{' '}
+          {status.lastProbe.success
+            ? localize('com_ui_cyvox_last_check_ok')
+            : localize(testErrorKey(status.lastProbe.errorCode ?? 'unreachable'))}
+        </p>
+      ) : null}
 
       {status?.source === 'environment' && (
         <p className="border-border-light bg-surface-primary-alt rounded-lg border p-3 text-sm">

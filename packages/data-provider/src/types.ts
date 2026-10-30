@@ -1368,6 +1368,20 @@ export type TCyVoxConnectionStatus = {
   tokenConfigured: boolean;
   tokenPreview?: string;
   updatedAt?: string;
+  /** Result of the last administrator-initiated check of the saved connection. */
+  lastProbe?: TCyVoxProbeRecord;
+};
+
+/**
+ * Outcome of one connection check, kept for the settings screen. It records what
+ * the service answered, never the credential used to ask.
+ */
+export type TCyVoxProbeRecord = {
+  checkedAt: string;
+  success: boolean;
+  errorCode?: TCyVoxConnectionTestErrorCode;
+  capabilities?: string[];
+  apiVersion?: string;
 };
 
 export type TUpdateCyVoxConnectionRequest = {
@@ -1395,8 +1409,21 @@ export type TCyVoxConnectionTestErrorCode =
   | 'unexpected_response';
 
 export type TCyVoxConnectionTestResponse =
-  | { success: true; summary?: string }
-  | { success: false; errorCode: TCyVoxConnectionTestErrorCode };
+  | {
+      success: true;
+      summary?: string;
+      /** Names reported by the service's capability endpoint, when it has one. */
+      capabilities?: string[];
+      apiVersion?: string;
+      latencyMs?: number;
+      checkedAt?: string;
+    }
+  | {
+      success: false;
+      errorCode: TCyVoxConnectionTestErrorCode;
+      latencyMs?: number;
+      checkedAt?: string;
+    };
 
 export type TLangfuseSessionLinkResponse = {
   url: string | null;

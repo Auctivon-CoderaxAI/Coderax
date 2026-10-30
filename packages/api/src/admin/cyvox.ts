@@ -1,6 +1,10 @@
 import { PrincipalModel, PrincipalType } from 'coderax-data-provider';
 import { BASE_CONFIG_PRINCIPAL_ID, logger } from '@coderax/data-schemas';
-import type { TCyVoxConnectionStatus, TCyVoxConnectionTestResponse } from 'coderax-data-provider';
+import type {
+  TCyVoxConnectionStatus,
+  TCyVoxConnectionTestResponse,
+  TCyVoxProbeRecord,
+} from 'coderax-data-provider';
 import type { IConfig } from '@coderax/data-schemas';
 import type { ClientSession, Types } from 'mongoose';
 import type { Response } from 'express';
@@ -14,6 +18,8 @@ import {
   requiresAuthToken,
   resolveCyvoxTarget,
   verifyCyvoxEndpoint,
+  buildProbeFields,
+  toProbeRecord,
 } from '~/cyvox/settings';
 import { encryptConfigSecretFields, resolveConfigSecret } from './secrets';
 
@@ -78,6 +84,26 @@ export function createAdminCyVoxHandlers(deps: AdminCyVoxDeps): {
     return options
       ? findConfigByPrincipal(PrincipalType.ROLE, BASE_CONFIG_PRINCIPAL_ID, options)
       : findConfigByPrincipal(PrincipalType.ROLE, BASE_CONFIG_PRINCIPAL_ID);
+  }
+
+  /**
+   * Records what the saved connection answered so the settings screen can show
+   * the last known state. A failed write must not turn a successful check into
+   * an error the administrator cannot act on, so it is logged and dropped.
+   */
+  async function persistProbe(record: TCyVoxProbeRecord): Promise<void> {
+    try {
+      const existing = await findBaseConfig({ includeInactive: true });
+      await patchConfigFields(
+        PrincipalType.ROLE,
+        BASE_CONFIG_PRINCIPAL_ID,
+        PrincipalModel.ROLE,
+        buildProbeFields(record),
+        existing?.priority ?? DEFAULT_PRIORITY,
+      );
+    } catch (error) {
+      logger.warn('[adminCyVox] Failed to record the connection check', error);
+    }
   }
 
   function statusFor(
@@ -218,7 +244,12 @@ export function createAdminCyVoxHandlers(deps: AdminCyVoxDeps): {
         return res.status(200).json(failed);
       }
 
-      return res.status(200).json(await verifyCyvoxEndpoint(target));
+      const result = await verifyCyvoxEndpoint(target);
+      /** Only the saved connection keeps a last-check record; testing a draft leaves nothing behind. */
+      if (!baseUrl && target.source === 'settings') {
+        await persistProbe(toProbeRecord(result));
+      }
+      return res.status(200).json(result);
     } catch (error) {
       logger.error('[adminCyVox] testConnection error:', error);
       const failed: TCyVoxConnectionTestResponse = {

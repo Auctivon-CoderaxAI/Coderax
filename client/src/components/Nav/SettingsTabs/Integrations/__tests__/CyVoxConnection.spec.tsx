@@ -104,4 +104,36 @@ describe('CyVoxConnection', () => {
       await screen.findByText('com_ui_cyvox_test_error_invalid_credentials'),
     ).toBeInTheDocument();
   });
+
+  it('shows discovered capabilities, API version and round trip after a successful test', async () => {
+    mockTest.mockImplementation((_payload, options) => {
+      options?.onSuccess?.({
+        success: true,
+        apiVersion: '1.4.0',
+        capabilities: ['browser', 'shell'],
+        latencyMs: 42,
+      });
+    });
+    render(<CyVoxConnection />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_cyvox_test' }));
+
+    expect(await screen.findByText('1.4.0')).toBeInTheDocument();
+    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getByText(/browser, shell/)).toBeInTheDocument();
+  });
+
+  it('shows the recorded outcome of the last saved-connection check', async () => {
+    mockGet.mockReturnValue(
+      queryResult(
+        configuredStatus({
+          lastProbe: { checkedAt: '2026-10-30T00:00:00.000Z', success: true },
+        }),
+      ),
+    );
+    render(<CyVoxConnection />);
+
+    expect(await screen.findByText(/com_ui_cyvox_last_check/)).toBeInTheDocument();
+    expect(screen.getByText(/com_ui_cyvox_last_check_ok/)).toBeInTheDocument();
+  });
 });
