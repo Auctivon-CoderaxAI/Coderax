@@ -198,6 +198,16 @@ describe('workflow engine with Mongo persistence', () => {
     expect(retireQueuedDelivery).toHaveBeenCalledWith('delivery:queued-step:1', workflow.id);
     expect(abortActiveRun).toHaveBeenCalledWith('cancel-conversation');
     expect((await methods.getWorkflowRun(run.id, userId))?.status).toBe('cancelled');
+
+    // A later chat turn may reuse this conversation. Repeating cancellation
+    // must not abort it or re-retire a delivery after the run is terminal.
+    abortActiveRun.mockClear();
+    retireQueuedDelivery.mockClear();
+    await handlers.cancelRun(request, response);
+    expect(response.status).toHaveBeenLastCalledWith(200);
+    expect(abortActiveRun).not.toHaveBeenCalled();
+    expect(retireQueuedDelivery).not.toHaveBeenCalled();
+
     await engine.runTick();
     expect(enqueued).toEqual(['queued-step']);
   });
