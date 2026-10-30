@@ -492,6 +492,9 @@ const startServer = async () => {
   app.use('/api/roles', routes.roles);
   app.use('/api/agents/chat', rejectChatStartsUntilReady);
   app.use('/api/agents', routes.agents);
+  /* Work reads native conversations/models and aborts generations; task start
+   * and follow-up stay on the native agent chat path and its SSE protocol. */
+  app.use('/api/work', requireJwtAuth, require('./routes/work'));
   app.use('/api/banner', routes.banner);
   app.use('/api/memories', routes.memories);
   app.use('/api/schedules', rejectScheduleWritesUntilReady, routes.schedules);
@@ -508,7 +511,7 @@ const startServer = async () => {
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);
 
-  /** SPA fallback - serve index.html for all unmatched routes */
+  /** SPA fallback - serve index.html for all unmatched requests */
   app.use(createSpaFallback(sendIndexHtml));
 
   /** Record trace errors before the final error controller. */
