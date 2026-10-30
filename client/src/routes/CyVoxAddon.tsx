@@ -4,7 +4,13 @@ import { Button } from '@coderax/client';
 import { ArrowUp, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useLocation, useParams } from 'react-router-dom';
-import { isCyvoxFreeOrLocalModel, QueryKeys, SettingsTabValues } from 'coderax-data-provider';
+import {
+  CYVOX_THINKING_EFFORTS,
+  isCyvoxFreeOrLocalModel,
+  QueryKeys,
+  SettingsTabValues,
+} from 'coderax-data-provider';
+import type { CyvoxThinkingEffort } from 'coderax-data-provider';
 import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
 import ConversationModeNav from '~/components/Chat/ConversationModeNav';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
@@ -349,11 +355,50 @@ function getCreatedTaskId(value: unknown): string | null {
   );
 }
 
+export const CYVOX_AUTO_MODEL = 'cyvox/auto';
+
+export type CyvoxEffortChoice = 'auto' | CyvoxThinkingEffort;
+
+const effortLabels = {
+  instant: 'com_cyvox_effort_instant',
+  medium: 'com_cyvox_effort_medium',
+  high: 'com_cyvox_effort_high',
+  extra_high: 'com_cyvox_effort_extra_high',
+} as const;
+
+/**
+ * Builds the `actions/startTask` body. `auto` means "let CyVox decide", so the
+ * field is omitted instead of sent empty; a task without a selection keeps the
+ * previous request shape byte for byte.
+ */
+export function buildStartTaskPayload({
+  task,
+  mode,
+  model,
+  effort,
+}: {
+  task: string;
+  mode: 'Autonomous Run' | 'Coding Team';
+  model: string;
+  effort: CyvoxEffortChoice;
+}): { task: string; mode: string; model?: string; thinking_effort?: CyvoxThinkingEffort } {
+  const payload: {
+    task: string;
+    mode: string;
+    model?: string;
+    thinking_effort?: CyvoxThinkingEffort;
+  } = { task, mode };
+  if (model !== CYVOX_AUTO_MODEL) payload.model = model;
+  if (effort !== 'auto') payload.thinking_effort = effort;
+  return payload;
+}
+
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
   const [mode, setMode] = useState<'Autonomous Run' | 'Coding Team'>('Autonomous Run');
-  const [model, setModel] = useState('cyvox/auto');
+  const [model, setModel] = useState(CYVOX_AUTO_MODEL);
+  const [effort, setEffort] = useState<CyvoxEffortChoice>('auto');
   const [activeTaskId, setActiveTaskId] = useState('');
   const action = useCyVoxAction();
   const models = useCyVox<CyVoxModelList>('models');
@@ -364,6 +409,8 @@ function WorkView() {
   const choices = (models.data?.models ?? []).filter(
     (item) => item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name),
   );
+  // Only advertise models CyVox itself returned; a stale pick falls back to auto.
+  const activeModel = choices.some((item) => item.name === model) ? model : CYVOX_AUTO_MODEL;
   let unavailableError: unknown = null;
   if (tasks.isError) {
     unavailableError = tasks.error;
@@ -389,7 +436,7 @@ function WorkView() {
 
     const started = await action.send(
       'actions/startTask',
-      { task: description, mode },
+      buildStartTaskPayload({ task: description, mode, model: activeModel, effort }),
       localize('com_cyvox_start_work_confirmation'),
     );
     if (!started.ok) return;
@@ -581,34 +628,34 @@ function WorkView() {
                 <select
                   id="cyvox-work-model"
                   className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
-                  value={model}
+                  value={activeModel}
                   onChange={(event) => setModel(event.target.value)}
                 >
-                  <option value="cyvox/auto">{localize('com_cyvox_auto_model')}</option>
+                  <option value={CYVOX_AUTO_MODEL}>{localize('com_cyvox_auto_model')}</option>
                   {choices
-                    .filter((item) => item.name !== 'cyvox/auto')
+                    .filter((item) => item.name !== CYVOX_AUTO_MODEL)
                     .map((item) => (
                       <option key={item.name} value={item.name}>
                         {item.name}
                       </option>
                     ))}
                 </select>
-                {model !== 'cyvox/auto' && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={action.busy}
-                    onClick={() =>
-                      void action.send(
-                        'actions/selectModel',
-                        { model },
-                        localize('com_cyvox_select_model_confirmation', { model }),
-                      )
-                    }
-                  >
-                    {localize('com_cyvox_apply_model')}
-                  </Button>
-                )}
+                <label htmlFor="cyvox-work-effort" className="sr-only">
+                  {localize('com_cyvox_thinking_effort')}
+                </label>
+                <select
+                  id="cyvox-work-effort"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
+                  value={effort}
+                  onChange={(event) => setEffort(event.target.value as CyvoxEffortChoice)}
+                >
+                  <option value="auto">{localize('com_cyvox_effort_auto')}</option>
+                  {CYVOX_THINKING_EFFORTS.map((value) => (
+                    <option key={value} value={value}>
+                      {localize(effortLabels[value])}
+                    </option>
+                  ))}
+                </select>
               </div>
               <Button
                 type="submit"
@@ -633,6 +680,9 @@ function WorkView() {
                 {action.message}
               </p>
             )}
+            <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+              {localize('com_cyvox_task_selection_note')}
+            </p>
             <p className="text-text-secondary mt-2 px-3 text-center text-xs">
               {localize('com_cyvox_work_policy_note')}
             </p>

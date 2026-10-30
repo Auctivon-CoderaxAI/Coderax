@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+import { CYVOX_THINKING_EFFORTS } from 'coderax-data-provider';
 
 import { createCyvoxAddonRouter } from './addon';
 
@@ -283,6 +284,123 @@ describe('CyVox fast routing contract', () => {
       max_steps: 15,
       routing_mode: 'FAST',
     });
+  });
+});
+
+describe('CyVox per-task selection contract', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const admin = () =>
+    express()
+      .use(express.json())
+      .use((req, _res, next) => {
+        Object.assign(req, { user: { role: 'ADMIN' } });
+        next();
+      })
+      .use(createCyvoxAddonRouter('https://cyvox.example.com', true, 'secret'));
+
+  const created = () =>
+    new Response(JSON.stringify({ id: 'task-1' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  const bodyOf = (fetchMock: jest.SpyInstance) =>
+    JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+
+  it('sends the selected model and thinking effort with the task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({
+        task: '  Inspect tests  ',
+        mode: 'Coding Team',
+        model: 'ollama:llama3:latest',
+        thinking_effort: 'high',
+      });
+
+    expect(response.status).toBe(200);
+    expect(bodyOf(fetchMock)).toEqual({
+      task: 'Inspect tests',
+      mode: 'Coding Team',
+      max_steps: 15,
+      routing_mode: 'FAST',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'high',
+    });
+  });
+
+  it.each([undefined, null, ''])(
+    'omits an unset selection (%p) instead of sending an empty value',
+    async (value) => {
+      const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+      const response = await request(admin())
+        .post('/actions/startTask')
+        .set('X-CyVox-Confirm', 'yes')
+        .send({
+          task: 'Inspect tests',
+          mode: 'Autonomous Run',
+          model: value,
+          thinking_effort: value,
+        });
+
+      expect(response.status).toBe(200);
+      expect(bodyOf(fetchMock)).toEqual({
+        task: 'Inspect tests',
+        mode: 'Autonomous Run',
+        max_steps: 15,
+        routing_mode: 'FAST',
+      });
+    },
+  );
+
+  it('rejects a billed model before contacting CyVox', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'openai:gpt-4o' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown thinking effort before contacting CyVox', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', thinking_effort: 'ultra' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(CYVOX_THINKING_EFFORTS)('accepts the supported effort %s', async (effort) => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', thinking_effort: effort });
+
+    expect(response.status).toBe(200);
+    expect(bodyOf(fetchMock).thinking_effort).toBe(effort);
+  });
+
+  it('never writes the deployment-global model while starting a task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    await request(admin()).post('/actions/startTask').set('X-CyVox-Confirm', 'yes').send({
+      task: 'Inspect tests',
+      mode: 'Autonomous Run',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'medium',
+    });
+
+    const paths = fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname);
+    expect(paths).toEqual(['/api/tasks']);
+    expect(paths).not.toContain('/api/models/select');
   });
 });
 

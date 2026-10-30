@@ -1,5 +1,5 @@
 import express from 'express';
-import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
+import { isCyvoxFreeOrLocalModel, isCyvoxThinkingEffort, SystemRoles } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { CyvoxTarget } from './settings';
 import { resolveCyvoxTarget } from './settings';
@@ -28,16 +28,6 @@ function isResource(value: string): value is Resource {
 
 function isSafeId(value: string): boolean {
   return /^[A-Za-z0-9_-]{1,120}$/.test(value);
-}
-
-/**
- * Mirrors `cyvox/model_selection.THINKING_EFFORT_PROFILES`. CyVox stays
- * authoritative; this only rejects an obvious typo before the round trip.
- */
-const THINKING_EFFORTS = ['instant', 'medium', 'high', 'extra_high'] as const;
-
-function isThinkingEffort(value: string): boolean {
-  return (THINKING_EFFORTS as readonly string[]).includes(value);
 }
 
 /**
@@ -190,7 +180,7 @@ export function createCyvoxAddonRouter(
       ) {
         if (
           typeof body.thinking_effort !== 'string' ||
-          !isThinkingEffort(body.thinking_effort)
+          !isCyvoxThinkingEffort(body.thinking_effort)
         ) {
           res.status(400).json({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
           return;
