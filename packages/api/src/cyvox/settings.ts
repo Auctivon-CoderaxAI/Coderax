@@ -1,6 +1,11 @@
 import { PrincipalType } from 'coderax-data-provider';
 import { BASE_CONFIG_PRINCIPAL_ID, logger } from '@coderax/data-schemas';
-import type { TCyVoxConnectionStatus, TCyVoxConnectionTestResponse } from 'coderax-data-provider';
+import type {
+  TCyVoxConnectionStatus,
+  TCyVoxConnectionTestResponse,
+  TCyVoxConnectionTestErrorCode,
+  TCyVoxProbeRecord,
+} from 'coderax-data-provider';
 import type { IConfig } from '@coderax/data-schemas';
 import { resolveConfigSecret, getSecretPreview } from '~/admin/secrets';
 import { readBoundedBody } from './response';
@@ -16,6 +21,7 @@ export type StoredCyvoxConfig = {
   baseUrl?: string;
   authToken?: string;
   authTokenPreview?: string;
+  lastProbe?: TCyVoxProbeRecord;
 };
 
 export type CyvoxTarget = {
@@ -26,6 +32,9 @@ export type CyvoxTarget = {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const VERIFICATION_TIMEOUT_MS = 10_000;
+const MAX_CAPABILITIES = 50;
+const MAX_CAPABILITY_LENGTH = 80;
+const MAX_VERSION_LENGTH = 40;
 
 function isLoopback(url: URL): boolean {
   return LOOPBACK_HOSTS.has(url.hostname);
@@ -137,6 +146,7 @@ export function buildCyvoxConnectionStatus(input: {
     tokenConfigured,
     tokenPreview: fromSettings ? stored?.authTokenPreview : undefined,
     updatedAt: input.updatedAt,
+    lastProbe: fromSettings ? stored?.lastProbe : undefined,
   };
 }
 
@@ -168,71 +178,185 @@ export function buildCyvoxUpdateFields(input: {
   return { fields, preview: getSecretPreview(token) };
 }
 
-function classifyStatus(status: number): TCyVoxConnectionTestResponse {
+function classifyStatus(status: number): TCyVoxConnectionTestErrorCode {
   if (status === 401) {
-    return { success: false, errorCode: 'invalid_credentials' };
+    return 'invalid_credentials';
   }
   if (status === 403) {
-    return { success: false, errorCode: 'access_denied' };
+    return 'access_denied';
   }
   if (status === 404) {
-    return { success: false, errorCode: 'invalid_endpoint' };
+    return 'invalid_endpoint';
   }
   if (status === 429) {
-    return { success: false, errorCode: 'rate_limited' };
+    return 'rate_limited';
   }
   if (status >= 500) {
-    return { success: false, errorCode: 'server_error' };
+    return 'server_error';
   }
-  return { success: false, errorCode: 'unexpected_response' };
+  return 'unexpected_response';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /**
- * A connection test reads CyVox's readiness summary. It uses the same bounded
- * body reader as the proxy so a misbehaving upstream cannot stream an unbounded
- * response into the admin request.
+ * CyVox has reported capabilities as bare names, as objects with a name, and as
+ * a nested item list. Accept all three, drop anything unreadable, and bound the
+ * result: this reaches an administrator's screen and is persisted with the
+ * connection, so an upstream cannot grow it without limit.
+ */
+export function parseCapabilities(payload: unknown): string[] {
+  const root = asRecord(payload);
+  if (!root) {
+    return [];
+  }
+  const raw = root.capabilities ?? root.items;
+  let entries: unknown[] = [];
+  if (Array.isArray(raw)) {
+    entries = raw;
+  } else {
+    const nested = asRecord(raw)?.items;
+    if (Array.isArray(nested)) {
+      entries = nested;
+    }
+  }
+  const names = entries
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      const record = asRecord(entry);
+      const name = record?.name ?? record?.id;
+      return typeof name === 'string' ? name : null;
+    })
+    .filter((name): name is string => name != null)
+    .map((name) => name.trim().slice(0, MAX_CAPABILITY_LENGTH))
+    .filter((name) => name.length > 0);
+  return [...new Set(names)].slice(0, MAX_CAPABILITIES);
+}
+
+/** Version strings the service advertises, if it advertises one at all. */
+export function parseApiVersion(payload: unknown): string | undefined {
+  const root = asRecord(payload);
+  if (!root) {
+    return undefined;
+  }
+  const candidates = [
+    root.api_version,
+    root.apiVersion,
+    root.version,
+    asRecord(root.api)?.version,
+    asRecord(root.build)?.version,
+    asRecord(root.app)?.version,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().slice(0, MAX_VERSION_LENGTH);
+    }
+  }
+  return undefined;
+}
+
+type JsonRead =
+  | { ok: true; body: unknown }
+  | { ok: false; errorCode: TCyVoxConnectionTestErrorCode };
+
+/** One bounded JSON read; the same guard the proxy applies to every upstream body. */
+async function readJson(url: URL, headers: Record<string, string>): Promise<JsonRead> {
+  const response = await fetch(url, {
+    headers,
+    signal: AbortSignal.timeout(VERIFICATION_TIMEOUT_MS),
+    redirect: 'error',
+  });
+  if (!response.ok) {
+    return { ok: false, errorCode: classifyStatus(response.status) };
+  }
+  if (!(response.headers.get('Content-Type') ?? '').includes('application/json')) {
+    return { ok: false, errorCode: 'unexpected_response' };
+  }
+  const bounded = await readBoundedBody(response);
+  if (!bounded.ok) {
+    return { ok: false, errorCode: 'unexpected_response' };
+  }
+  try {
+    return { ok: true, body: JSON.parse(bounded.body) };
+  } catch {
+    return { ok: false, errorCode: 'unexpected_response' };
+  }
+}
+
+/**
+ * A connection test reads CyVox's readiness summary, then — best effort — the
+ * capability and status endpoints, so an administrator sees what the service
+ * can actually do rather than only whether it answered. Capability discovery is
+ * display-only: an older CyVox without those endpoints still passes the test.
  */
 export async function verifyCyvoxEndpoint(
   target: CyvoxTarget,
 ): Promise<TCyVoxConnectionTestResponse> {
+  const startedAt = Date.now();
+  const checkedAt = new Date().toISOString();
+  const elapsed = () => Date.now() - startedAt;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (target.authToken) {
+    headers.Authorization = `Bearer ${target.authToken}`;
+  }
   try {
-    const response = await fetch(new URL('/api/readiness', target.url), {
-      headers: {
-        Accept: 'application/json',
-        ...(target.authToken ? { Authorization: `Bearer ${target.authToken}` } : {}),
-      },
-      signal: AbortSignal.timeout(VERIFICATION_TIMEOUT_MS),
-      redirect: 'error',
-    });
-    if (!response.ok) {
-      return classifyStatus(response.status);
+    const readiness = await readJson(new URL('/api/readiness', target.url), headers);
+    if (!readiness.ok) {
+      return { success: false, errorCode: readiness.errorCode, latencyMs: elapsed(), checkedAt };
     }
-    if (!(response.headers.get('Content-Type') ?? '').includes('application/json')) {
-      return { success: false, errorCode: 'unexpected_response' };
-    }
-    const bounded = await readBoundedBody(response);
-    if (!bounded.ok) {
-      return { success: false, errorCode: 'unexpected_response' };
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(bounded.body);
-    } catch {
-      return { success: false, errorCode: 'unexpected_response' };
-    }
-    const summary =
-      parsed != null &&
-      typeof parsed === 'object' &&
-      typeof (parsed as { summary?: unknown }).summary === 'string'
-        ? (parsed as { summary: string }).summary.slice(0, 300)
-        : undefined;
-    return { success: true, ...(summary ? { summary } : {}) };
+    const summaryValue = asRecord(readiness.body)?.summary;
+    const summary = typeof summaryValue === 'string' ? summaryValue.slice(0, 300) : undefined;
+    const [capabilityProbe, statusProbe] = await Promise.all([
+      readJson(new URL('/api/kernel/capabilities', target.url), headers).catch(() => null),
+      readJson(new URL('/api/system/status', target.url), headers).catch(() => null),
+    ]);
+    const capabilities = capabilityProbe?.ok ? parseCapabilities(capabilityProbe.body) : [];
+    const apiVersion =
+      (capabilityProbe?.ok ? parseApiVersion(capabilityProbe.body) : undefined) ??
+      (statusProbe?.ok ? parseApiVersion(statusProbe.body) : undefined);
+    return {
+      success: true,
+      ...(summary ? { summary } : {}),
+      ...(capabilities.length > 0 ? { capabilities } : {}),
+      ...(apiVersion ? { apiVersion } : {}),
+      latencyMs: elapsed(),
+      checkedAt,
+    };
   } catch (error) {
     if (error instanceof Error && error.name === 'TimeoutError') {
-      return { success: false, errorCode: 'timeout' };
+      return { success: false, errorCode: 'timeout', latencyMs: elapsed(), checkedAt };
     }
-    return { success: false, errorCode: 'unreachable' };
+    return { success: false, errorCode: 'unreachable', latencyMs: elapsed(), checkedAt };
   }
+}
+
+/** The persisted form of a check: outcome and capability summary, never the token. */
+export function toProbeRecord(result: TCyVoxConnectionTestResponse): TCyVoxProbeRecord {
+  const record: TCyVoxProbeRecord = {
+    checkedAt: result.checkedAt ?? new Date().toISOString(),
+    success: result.success,
+  };
+  if (!result.success) {
+    record.errorCode = result.errorCode;
+    return record;
+  }
+  if (result.capabilities?.length) {
+    record.capabilities = result.capabilities;
+  }
+  if (result.apiVersion) {
+    record.apiVersion = result.apiVersion;
+  }
+  return record;
+}
+
+export function buildProbeFields(record: TCyVoxProbeRecord): Record<string, unknown> {
+  return { 'cyvox.lastProbe': record };
 }
 
 export type CyvoxTargetResolver = () => Promise<CyvoxTarget | null>;

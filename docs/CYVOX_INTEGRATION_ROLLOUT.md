@@ -8,7 +8,13 @@ deployable for Robot, computer use, delegated work and diagnostics.
 Configure the connection once in **Settings → Coderax Work** as an administrator
 with config access (or `manage:configs:cyvox`). The service URL is an origin only,
 and the access token is encrypted at rest and never returned to the browser.
-Use **Test connection** before enabling the integration.
+Use **Test connection** before enabling the integration. The test reads CyVox's
+readiness summary and, when the service exposes them, `/api/kernel/capabilities`
+and `/api/system/status`, so the screen can show the reported capabilities and
+API version. Discovery is informational: a CyVox that predates those endpoints
+still passes. The outcome of the last check of the saved connection is recorded
+with the connection and shown on the tab; a check of an unsaved draft is not
+recorded.
 
 Deployment environment variables remain a fallback for deployments that manage
 configuration outside the app:
