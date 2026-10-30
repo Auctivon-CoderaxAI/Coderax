@@ -1692,8 +1692,8 @@ describe('agent trigger delivery methods', () => {
     const source = { id: 'workflow-one', type: 'workflow' };
     const queued = await methods.enqueueAgentTriggerDelivery(
       enqueueInput({
-        deliveryKey: 'wf:run-one:step-one:1',
-        envelope: { event: { source } },
+        deliveryKey: `trigger_${'a'.repeat(64)}`,
+        envelope: { deliveryId: 'wf:run-one:step-one:1', event: { source } },
       }),
     );
     const retirement = {
@@ -1728,8 +1728,8 @@ describe('agent trigger delivery methods', () => {
     const source = { id: 'workflow-two', type: 'workflow' };
     const queued = await methods.enqueueAgentTriggerDelivery(
       enqueueInput({
-        deliveryKey: 'wf:run-two:step-two:1',
-        envelope: { event: { source } },
+        deliveryKey: `trigger_${'b'.repeat(64)}`,
+        envelope: { deliveryId: 'wf:run-two:step-two:1', event: { source } },
       }),
     );
     const retirement = {
@@ -1745,7 +1745,7 @@ describe('agent trigger delivery methods', () => {
     ).rejects.toThrow(TypeError);
     await expect(
       methods.retireAgentTriggerDelivery({ ...retirement, deliveryKey: 'not-workflow' }),
-    ).rejects.toThrow(TypeError);
+    ).resolves.toBe(false);
     await expect(
       methods.claimNextAgentTriggerDelivery({
         workerId: 'workflow-worker',
@@ -1758,6 +1758,28 @@ describe('agent trigger delivery methods', () => {
     await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
       status: 'leased',
       leaseBy: 'workflow-worker',
+    });
+  });
+
+  it('rejects workflow-source retirement without a workflow envelope identity', async () => {
+    const source = { id: 'workflow-three', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: `trigger_${'c'.repeat(64)}`,
+        envelope: { deliveryId: 'not-a-workflow', event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(false);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'pending',
     });
   });
 
