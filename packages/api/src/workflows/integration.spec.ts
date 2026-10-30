@@ -2,8 +2,11 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createMethods, createModels } from '@coderax/data-schemas';
 import type { WorkflowAgentEvent } from './events';
+import { createWorkflowSettlementHandler, createWorkflowTerminalOutcomeHandler } from './host';
+import { InMemoryEventTransport } from '../stream/implementations/InMemoryEventTransport';
+import { InMemoryJobStore } from '../stream/implementations/InMemoryJobStore';
+import { GenerationJobManagerClass } from '../stream/GenerationJobManager';
 import { createWorkflowSchedules, createWorkflowStore } from './store';
-import { createWorkflowSettlementHandler } from './host';
 import { computeNextRunAt } from '../schedules/cadence';
 import { createWorkflowEventStarter } from './events';
 import { createWorkflowHandlers } from './handlers';
@@ -213,6 +216,126 @@ describe('workflow engine with Mongo persistence', () => {
 
     await engine.runTick();
     expect(enqueued).toEqual(['queued-step']);
+  });
+
+  it('completes a workflow step from the durable receipt after generation cleanup', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Durable receipt',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'First' }],
+    });
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'p1-conversation',
+      trigger: { type: 'manual' },
+    });
+    const preparedAt = new Date();
+    const [leased] = await methods.claimWorkflowRuns({
+      workerId: 'prepare-worker',
+      leaseToken: 'prepare-lease',
+      now: preparedAt,
+      leaseUntil: new Date(preparedAt.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(leased?.id).toBe(run.id);
+    const running = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'prepare-lease',
+      now: preparedAt,
+      patch: {
+        status: 'running',
+        steps: leased.steps.map((step) => ({
+          ...step,
+          status: 'running' as const,
+          attempts: 1,
+          deliveryKey: 'delivery-one',
+          startedAt: preparedAt,
+        })),
+      },
+    });
+    if (running == null) {
+      throw new Error('workflow run did not start');
+    }
+    await methods.releaseWorkflowRun(run.id, 'prepare-lease', preparedAt);
+    const released = await methods.getWorkflowRun(run.id, userId);
+    expect(released?.leaseToken).toBeUndefined();
+    expect(released?.status).toBe('running');
+
+    const manager = new GenerationJobManagerClass();
+    try {
+      manager.configure({
+        jobStore: new InMemoryJobStore(),
+        eventTransport: new InMemoryEventTransport(),
+        isRedis: false,
+        cleanupOnComplete: true,
+      });
+      manager.initialize();
+      manager.setTerminalHostActionHandler(
+        createWorkflowTerminalOutcomeHandler({
+          record: methods.recordWorkflowStepOutcome,
+          readResult: async () => 'receipt result',
+          now: () => new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const job = await manager.createJob('p1-stream', userId, 'p1-conversation', {
+        initialMetadata: {
+          workflowRunId: run.id,
+          workflowStepId: 'one',
+          workflowStepAttempt: 1,
+        },
+      });
+      await manager.armTerminalHostAction('p1-stream', job.createdAt);
+      const executionId = job.metadata.providerExecutionId as string;
+      await manager.beginProviderExecution('p1-stream', job.createdAt, executionId);
+      await manager.completeJob('p1-stream', undefined, job.createdAt);
+      await manager.markProviderExecutionDrained('p1-stream', job.createdAt, executionId);
+
+      expect(await manager.getJob('p1-stream')).toBeUndefined();
+      const persisted = await methods.getWorkflowRun(run.id, userId);
+      if (persisted == null) {
+        throw new Error('workflow run disappeared');
+      }
+      expect(persisted.steps[0]).toEqual(
+        expect.objectContaining({
+          status: 'running',
+          attempts: 1,
+          terminalStatus: 'complete',
+          terminalAttempt: 1,
+          result: 'receipt result',
+        }),
+      );
+
+      const enqueueStep = jest.fn(async () => 'unused');
+      const getGeneration = jest.fn(async () => {
+        throw new Error('the deleted job must not be read');
+      });
+      const engine = createWorkflowEngine({
+        store: createWorkflowStore(methods),
+        enqueueStep,
+        getGeneration,
+        workerId: 'receipt-worker',
+      });
+      expect(await engine.runTick()).toBe(1);
+
+      expect(getGeneration).not.toHaveBeenCalled();
+      expect(enqueueStep).not.toHaveBeenCalled();
+      const completed = await methods.getWorkflowRun(run.id, userId);
+      if (completed == null) {
+        throw new Error('completed workflow run disappeared');
+      }
+      expect(completed.status).toBe('completed');
+      expect(completed.steps[0].status).toBe('completed');
+      expect(completed.steps[0].result).toBe('receipt result');
+    } finally {
+      await manager.destroy();
+    }
   });
 
   it('serializes reciprocal completion-target updates and leaves no cycle', async () => {
