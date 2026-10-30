@@ -1,32 +1,45 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
+const {
+  buildWorkModelOptions,
+  resolveWorkSelection,
+  WORK_AUTO_MODEL_ID,
+} = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
 
-const WORK_AUTO = 'auto';
-
-/** Work may only ever run on a model that costs nothing per call. */
-const isFreeOrLocal = (model) => model.local === true || model.free === true;
+/** The app config field that carries the deployment's default model, if any. */
+const configuredDefaultFromRequest = (req) => req?.config?.defaultModel ?? null;
 
 /**
- * Decide the concrete model a Work turn runs on, from the server's own model
- * configuration. `auto` is a UI choice only: it resolves here to a concrete
- * free/local model, never to a sentinel, never to a paid gateway model.
+ * Resolve the concrete model a Work turn stores and runs on.
+ *
+ * `auto` is a sentinel, never a model: it resolves through the configured
+ * default and only when that exact model is in the offered free/local set.
+ * Picking "the first local model" would silently substitute a choice the user
+ * did not make, so an absent or paid default fails with an actionable error
+ * instead.
  *
  * @returns {{isWork: true, workModel: string} | {error: string}}
  */
-function resolveWorkContext(models, requested) {
-  const usable = (models ?? []).filter(isFreeOrLocal);
-  /** An explicit pick is answered directly: "not allowed" is more actionable than
-   * "none configured", and it never degrades into a silent substitution. */
-  if (requested && requested !== WORK_AUTO) {
-    const match = usable.find((model) => model.id === requested);
-    return match ? { isWork: true, workModel: match.id } : { error: 'WORK_MODEL_NOT_ALLOWED' };
+function resolveWorkContext(sources, requested, configuredDefault) {
+  const options = buildWorkModelOptions(sources);
+  const explicit = requested != null && requested !== WORK_AUTO_MODEL_ID;
+  const selection = resolveWorkSelection(
+    options,
+    requested ?? WORK_AUTO_MODEL_ID,
+    configuredDefault,
+  );
+  if (selection.ok) {
+    return { isWork: true, workModel: selection.model.id };
   }
-  if (usable.length === 0) {
+  /** An explicit pick is answered specifically, even when nothing is offered. */
+  if (explicit) {
+    return { error: 'WORK_MODEL_NOT_ALLOWED' };
+  }
+  if (options.length === 0) {
     return { error: 'WORK_NO_FREE_MODEL' };
   }
-  const preferred = usable.find((model) => model.local === true) ?? usable[0];
-  return { isWork: true, workModel: preferred.id };
+  return { error: 'WORK_AUTO_UNRESOLVED' };
 }
 
 /**
@@ -42,23 +55,43 @@ function stripClientWorkFields(body) {
   return rest;
 }
 
+const MESSAGES = {
+  WORK_MODEL_NOT_ALLOWED:
+    'That model is not available for Work. Choose a free or locally served model.',
+  WORK_AUTO_UNRESOLVED:
+    'Work has no default free or locally served model. Choose a model explicitly, or configure a default that is free or local.',
+  WORK_NO_FREE_MODEL:
+    'Work needs a free or locally served model. Configure a local model, then try again.',
+};
+
 const fail = (res, status, error, message) => res.status(status).json({ error, message });
 
 /**
  * Sets `req.workContext` for the Work alias and nothing else. Exported so the
  * contract can be tested without a live model controller or Mongo.
  */
-function workContextMiddleware(loadModelsForRequest) {
+function workContextMiddleware(
+  loadModelsForRequest,
+  configuredDefaultModel = configuredDefaultFromRequest,
+) {
   return async (req, res, next) => {
     try {
       const config = await loadModelsForRequest(req);
-      const context = resolveWorkContext(flattenModelConfig(config), req.body?.model);
+      /** The source may be sync or async; awaiting covers both. A failure to read it
+       *  leaves no default, which the resolver reports instead of guessing. */
+      let configuredDefault = null;
+      try {
+        configuredDefault = await configuredDefaultModel(req);
+      } catch {
+        configuredDefault = null;
+      }
+      const context = resolveWorkContext(
+        flattenModelConfig(config),
+        req.body?.model,
+        typeof configuredDefault === 'string' ? configuredDefault : null,
+      );
       if (context.error) {
-        const message =
-          context.error === 'WORK_MODEL_NOT_ALLOWED'
-            ? 'That model is not available for Work. Choose a free or locally served model.'
-            : 'Work needs a free or locally served model. Configure a local model, then try again.';
-        return fail(res, 409, context.error, message);
+        return fail(res, 409, context.error, MESSAGES[context.error]);
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
@@ -89,19 +122,25 @@ function workContextMiddleware(loadModelsForRequest) {
  * The Work start path is the existing chat handler, reached through an alias so
  * the server can attach Work context. No second runner, no duplicated stream.
  */
-function createWorkChatRouter({ loadModelsForRequest } = {}) {
+function createWorkChatRouter({ loadModelsForRequest, configuredDefaultModel } = {}) {
   const router = express.Router();
   router.use(
     workContextMiddleware(
       loadModelsForRequest ??
         ((req) => require('~/server/controllers/ModelController').loadModels(req)),
+      configuredDefaultModel,
     ),
   );
   router.use(require('./agents/chat'));
   return router;
 }
 
-module.exports = { resolveWorkContext, stripClientWorkFields, workContextMiddleware, WORK_AUTO };
+module.exports = {
+  resolveWorkContext,
+  stripClientWorkFields,
+  workContextMiddleware,
+  WORK_AUTO_MODEL_ID,
+};
 
 /** Lazily built so requiring this module never builds the chat router twice. */
 let cached;
