@@ -1,21 +1,17 @@
 import express from 'express';
 import type { NextFunction, Request, Response, Router } from 'express';
-import { buildWorkModelOptions, buildWorkModels, resolveWorkSelection } from './models';
-import type { WorkModel, WorkModelSource } from './models';
-import {
-  isTerminalWorkState,
-  isValidWorkTask,
-  isWorkConversation,
-  toWorkHistory,
-  toWorkTask,
-  workTitle,
-} from './task';
+import { buildWorkModelOptions } from './models';
+import type { WorkModelSource } from './models';
+import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
 import type { WorkConversation } from './task';
 
 /**
- * Every capability the Work routes need is supplied by the caller. The router
- * owns no storage and no model client, so conversations, runs and aborts stay
- * with the native Coderax implementations instead of a parallel engine.
+ * Work reads Coderax conversations and models; it never starts a run.
+ *
+ * Task start and follow-up belong to the existing agent chat path, which owns
+ * the generation job, the model call, tool permissions, action approvals and
+ * the SSE stream. A Work route that accepted a task and returned `accepted`
+ * could not stream a reply and would be a second runner, so it does not exist.
  */
 export type WorkDeps = {
   listModels: () => Promise<WorkModelSource[]>;
@@ -30,13 +26,7 @@ export type WorkDeps = {
     userId: string;
     conversationId: string;
   }) => Promise<WorkConversation | null>;
-  createConversation: (input: {
-    userId: string;
-    title: string;
-    isWork: true;
-    workModel?: string;
-  }) => Promise<WorkConversation>;
-  appendTurn: (input: { userId: string; conversationId: string; message: string }) => Promise<void>;
+  /** Aborts the native generation for this conversation. */
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
 };
 
@@ -84,63 +74,6 @@ export function createWorkRouter(deps: WorkDeps): Router {
     }
   });
 
-  router.post('/tasks', async (req: Request, res: Response) => {
-    const userId = userIdOf(req) as string;
-    const body = (req.body ?? {}) as { task?: unknown; model?: unknown };
-    if (!isValidWorkTask(body.task)) {
-      res.status(400).json({ code: 'WORK_INVALID_TASK' });
-      return;
-    }
-    let models: WorkModel[];
-    try {
-      models = buildWorkModels(await deps.listModels());
-    } catch {
-      res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
-      return;
-    }
-
-    const configuredDefault = deps.configuredDefaultModel
-      ? await deps.configuredDefaultModel().catch(() => null)
-      : null;
-    const selection = resolveWorkSelection(
-      models,
-      typeof body.model === 'string' ? body.model : null,
-      configuredDefault,
-    );
-
-    /**
-     * A task never starts on an unresolved model. `auto` is a UI choice, so it
-     * must resolve to a concrete free/local model here; otherwise the caller is
-     * told to pick one instead of silently running (or persisting) a default
-     * that may be paid.
-     */
-    if (!selection.ok) {
-      const code =
-        selection.reason === 'model_unavailable' ? 'WORK_MODEL_UNAVAILABLE' : 'WORK_MODEL_REQUIRED';
-      res.status(409).json({ code });
-      return;
-    }
-
-    try {
-      const conversation = await deps.createConversation({
-        userId,
-        title: workTitle(body.task),
-        isWork: true,
-        /** Always a concrete model id: never the `auto` sentinel. */
-        workModel: selection.model.id,
-      });
-      await deps.appendTurn({
-        userId,
-        conversationId: conversation.conversationId,
-        message: body.task.trim(),
-      });
-      const task = toWorkTask(conversation, 'running');
-      res.status(202).json({ task });
-    } catch {
-      res.status(503).json({ code: 'WORK_START_FAILED' });
-    }
-  });
-
   router.get('/tasks/:conversationId', async (req: Request, res: Response) => {
     const userId = userIdOf(req) as string;
     const { conversationId } = req.params;
@@ -161,33 +94,6 @@ export function createWorkRouter(deps: WorkDeps): Router {
     }
     res.setHeader('Cache-Control', 'no-store');
     res.json({ task: toWorkTask(conversation) });
-  });
-
-  router.post('/tasks/:conversationId/messages', async (req: Request, res: Response) => {
-    const userId = userIdOf(req) as string;
-    const { conversationId } = req.params;
-    const message = (req.body ?? {}).message;
-    if (!ID_PATTERN.test(conversationId) || !isValidWorkTask(message)) {
-      res.status(400).json({ code: 'WORK_INVALID_MESSAGE' });
-      return;
-    }
-    let conversation: WorkConversation | null;
-    try {
-      conversation = await deps.getConversation({ userId, conversationId });
-    } catch {
-      res.status(503).json({ code: 'WORK_TASK_UNAVAILABLE' });
-      return;
-    }
-    if (!conversation || !isWorkConversation(conversation)) {
-      res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
-      return;
-    }
-    try {
-      await deps.appendTurn({ userId, conversationId, message: message.trim() });
-      res.status(202).json({ accepted: true });
-    } catch {
-      res.status(503).json({ code: 'WORK_FOLLOW_UP_FAILED' });
-    }
   });
 
   router.post('/tasks/:conversationId/cancel', async (req: Request, res: Response) => {
