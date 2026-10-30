@@ -21,6 +21,7 @@ const presets = require('./presets');
 const projects = require('./projects');
 const prompts = require('./prompts');
 const schedules = require('./schedules');
+const workflows = require('./workflows');
 const skills = require('./skills');
 const balance = require('./balance');
 const actions = require('./actions');
@@ -81,6 +82,7 @@ module.exports = {
   prompts,
   projects,
   schedules,
+  workflows,
   skills,
   actions,
   presets,

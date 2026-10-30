@@ -25,6 +25,7 @@ import * as q from './types/queries';
 import * as sk from './types/skills';
 import * as f from './types/files';
 import * as config from './config';
+import * as wf from './workflows';
 import request from './request';
 import * as s from './schemas';
 import * as r from './roles';
@@ -1388,6 +1389,79 @@ export function deleteSchedule(id: string): Promise<{ id: string }> {
 export function runScheduleNow(id: string): Promise<sch.TScheduleRunNowResponse> {
   return request.post(endpoints.runSchedule(id), {});
 }
+
+/* Workflows */
+
+export function listWorkflows(): Promise<wf.WorkflowListResponse> {
+  return request.get(endpoints.workflows());
+}
+
+export function createWorkflow(payload: wf.CreateWorkflowRequest): Promise<wf.WorkflowView> {
+  return request.post(endpoints.workflows(), payload);
+}
+
+export function updateWorkflow(
+  id: string,
+  payload: wf.UpdateWorkflowRequest,
+): Promise<wf.WorkflowView> {
+  return request.patch(endpoints.workflow(id), payload);
+}
+
+export function deleteWorkflow(id: string): Promise<{ id: string }> {
+  return request.delete(endpoints.workflow(id));
+}
+
+export function listWorkflowTemplates(): Promise<wf.WorkflowTemplatesResponse> {
+  return request.get(endpoints.workflowTemplates());
+}
+
+export function listWorkflowRuns(workflowId: string): Promise<wf.WorkflowRunListResponse> {
+  return request.get(endpoints.workflowRuns(workflowId));
+}
+
+export function startWorkflowRun(
+  workflowId: string,
+  payload: wf.StartWorkflowRunRequest,
+): Promise<wf.StartWorkflowRunResponse> {
+  return request.post(endpoints.workflowRuns(workflowId), payload);
+}
+
+export function getWorkflowRun(runId: string): Promise<{ run: wf.WorkflowRunView }> {
+  return request.get(endpoints.workflowRun(runId));
+}
+
+export function approveWorkflowStep(
+  runId: string,
+  stepIndex: number,
+): Promise<{ run: wf.WorkflowRunView }> {
+  return request.post(endpoints.approveWorkflowStep(runId), { stepIndex });
+}
+
+export function pauseWorkflowRun(runId: string): Promise<{ run: wf.WorkflowRunView }> {
+  return request.post(endpoints.pauseWorkflowRun(runId), {});
+}
+
+export function resumeWorkflowRun(runId: string): Promise<{ run: wf.WorkflowRunView }> {
+  return request.post(endpoints.resumeWorkflowRun(runId), {});
+}
+
+export function cancelWorkflowRun(runId: string): Promise<{ run: wf.WorkflowRunView }> {
+  return request.post(endpoints.cancelWorkflowRun(runId), {});
+}
+
+/** Same-origin SSE URL for a live run; used by EventSource, which carries cookies. */
+export function getWorkflowRunStreamUrl(runId: string): string {
+  return endpoints.workflowRunStream(runId);
+}
+
+/** Download URL for a run's structured log and step artifacts. */
+export function getWorkflowRunExportUrl(runId: string): string {
+  return endpoints.workflowRunExport(runId);
+}
+
+/** Authenticated export; the bearer header is attached by the shared transport. */
+export const getWorkflowRunExport = async (runId: string): Promise<AxiosResponse> =>
+  request.get(endpoints.workflowRunExport(runId), { responseType: 'blob' });
 
 export function getSkill(id: string): Promise<sk.TSkill> {
   return request.get(endpoints.getSkill(id));

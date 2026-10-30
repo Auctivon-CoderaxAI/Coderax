@@ -23,8 +23,8 @@ import ShareRoute from './ShareRoute';
 import CyVoxAddon from './CyVoxAddon';
 import ChatRoute from './ChatRoute';
 import Search from './Search';
-import Root from './Root';
 import Studio from './Studio';
+import Root from './Root';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
  * access can open the existing account sign-in form. Never show it by default.
@@ -69,6 +69,11 @@ const loadProjectsView = () =>
 const loadProjectWorkspace = () =>
   importWithRecovery(() => import('~/components/Projects')).then((m) => ({
     Component: m.ProjectWorkspace,
+  }));
+
+const loadWorkflowsView = () =>
+  importWithRecovery(() => import('~/components/Workflows')).then((m) => ({
+    Component: m.WorkflowsView,
   }));
 
 const baseEl = document.querySelector('base');
@@ -176,6 +181,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'studio',
                   element: <Studio />,
+                },
+                {
+                  path: 'workflows',
+                  lazy: loadWorkflowsView,
                 },
                 {
                   path: 'prompts',

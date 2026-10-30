@@ -87,6 +87,7 @@ const { initializeGitHubSkillSync } = require('./services/Skills/sync');
 const { initializeAgentTriggerService } = require('./services/Agents/triggers');
 const { resumeAgentEventDetachedAction } = require('./services/Agents/detachedActionResume');
 const { initializeScheduleEngine, recordExpiredScheduleApproval } = require('./services/Schedules');
+const { initializeWorkflowEngine } = require('./services/Workflows');
 const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { startExpiredFileSweep } = require('./services/Files/process');
 const { checkMigrations } = require('./services/start/migration');
@@ -561,6 +562,15 @@ const startServer = async () => {
           appConfig?.endpoints?.agents?.backgroundTasks?.completionReceiptBatching,
         idlePolling: appConfig?.endpoints?.agents?.eventDriven?.idlePolling,
       });
+      // Test processes never own durable runs; arming the runner there would also
+      // bypass their mocked schedule/trigger services. The API route starts it
+      // lazily, and production arms it at boot so queued runs recover unattended.
+      if (process.env.NODE_ENV !== 'test') {
+        const workflowEngineArmed = initializeWorkflowEngine(appConfig?.workflows);
+        if (!workflowEngineArmed) {
+          console.warn('[workflows] engine unavailable; runs remain queued until a later startup');
+        }
+      }
       const scheduleEngineArmed = (await initializeScheduleEngine()) != null;
       scheduleEngineState = scheduleEngineArmed ? 'armed' : 'unavailable';
       if (!scheduleEngineArmed) {

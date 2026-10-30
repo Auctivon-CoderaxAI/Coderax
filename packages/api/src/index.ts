@@ -93,6 +93,7 @@ export * from './messages';
 /* Skills */
 export * from './schedules';
 export * from './schedules/service';
+export * from './workflows';
 export * from './skills';
 export * from './favorites';
 /* User */

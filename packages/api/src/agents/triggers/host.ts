@@ -182,6 +182,7 @@ export interface AgentTriggerExecutionHost {
       maxAttempts?: number;
       deliveryClaimToken?: string;
       requiredWorkerCapability?: string;
+      beforeDispatch?: () => Promise<void> | void;
     },
   ) => Promise<AgentTriggerExecutionResult>;
 }
@@ -647,6 +648,10 @@ async function startRun(
     const fetcher: AgentTriggerFetch = deps.fetch ?? globalThis.fetch;
     let response: Response;
     await readyPreparation?.beginDispatch?.();
+    // Re-check source admission after token/timezone/base-URL setup. The first
+    // check runs before host setup; this one is the last durable boundary before
+    // the HTTP request that asks the controller to create a generation.
+    await context.beforeDispatch?.();
     try {
       response = await fetcher(url, {
         method: 'POST',

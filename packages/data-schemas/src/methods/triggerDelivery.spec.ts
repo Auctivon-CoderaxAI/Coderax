@@ -1688,6 +1688,101 @@ describe('agent trigger delivery methods', () => {
     ).resolves.toMatchObject({ id: successor.delivery.id });
   });
 
+  it('retires only matching unclaimed workflow deliveries on cancellation', async () => {
+    const source = { id: 'workflow-one', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: `trigger_${'a'.repeat(64)}`,
+        envelope: { deliveryId: 'wf:run-one:step-one:1', event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(
+      methods.retireAgentTriggerDelivery({
+        deliveryKey: retirement.deliveryKey,
+        sourceId: retirement.sourceId,
+        settledAt: retirement.settledAt,
+        reason: retirement.reason,
+        onlyIfUnclaimed: true,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, sourceId: 'another-workflow' }),
+    ).resolves.toBe(false);
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(true);
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(true);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'succeeded',
+      result: { reason: 'workflow_cancelled' },
+    });
+  });
+
+  it('never retires a claimed workflow delivery or grants unrestricted workflow retirement', async () => {
+    const source = { id: 'workflow-two', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: `trigger_${'b'.repeat(64)}`,
+        envelope: { deliveryId: 'wf:run-two:step-two:1', event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, onlyIfUnclaimed: false }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      methods.retireAgentTriggerDelivery({ ...retirement, deliveryKey: 'not-workflow' }),
+    ).resolves.toBe(false);
+    await expect(
+      methods.claimNextAgentTriggerDelivery({
+        workerId: 'workflow-worker',
+        claimToken: 'workflow-claim',
+        now: START,
+        leaseUntil: new Date(START.getTime() + 60_000),
+      }),
+    ).resolves.toMatchObject({ id: queued.delivery.id });
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(false);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'leased',
+      leaseBy: 'workflow-worker',
+    });
+  });
+
+  it('rejects workflow-source retirement without a workflow envelope identity', async () => {
+    const source = { id: 'workflow-three', type: 'workflow' };
+    const queued = await methods.enqueueAgentTriggerDelivery(
+      enqueueInput({
+        deliveryKey: `trigger_${'c'.repeat(64)}`,
+        envelope: { deliveryId: 'not-a-workflow', event: { source } },
+      }),
+    );
+    const retirement = {
+      deliveryKey: queued.delivery.deliveryKey,
+      sourceId: source.id,
+      sourceType: 'workflow' as const,
+      settledAt: START,
+      reason: 'workflow_cancelled',
+      onlyIfUnclaimed: true,
+    };
+    await expect(methods.retireAgentTriggerDelivery(retirement)).resolves.toBe(false);
+    await expect(Delivery.findById(queued.delivery.id).lean()).resolves.toMatchObject({
+      status: 'pending',
+    });
+  });
+
   it('treats an already successful internal delivery as terminal retirement evidence', async () => {
     const source = { id: 'agent-queued-turn', type: 'internal' };
     const queued = await methods.enqueueAgentTriggerDelivery(

@@ -118,6 +118,7 @@ jest.mock('~/models', () => ({
   removeUserFromAllGroups: jest.fn(),
   deleteAclEntries: jest.fn(),
   deleteSchedulesByUser: (...args) => mockDeleteSchedulesByUser(...args),
+  deleteWorkflowsByUser: jest.fn().mockResolvedValue(undefined),
   getSoleOwnedResourceIds: jest.fn().mockResolvedValue([]),
 }));
 

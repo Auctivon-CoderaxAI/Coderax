@@ -155,6 +155,68 @@ describe('createAgentTriggerService', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  const workflowEnvelope = (attempt = 1) =>
+    createAgentTriggerEnvelope({
+      mode: 'fire',
+      requestId: 'workflow-request',
+      deliveryId: `wf:run-1:step-1:${attempt}`,
+      receivedAt: 20,
+      principal: { id: 'user-1', tenantId: 'tenant-1' },
+      target: { agentId: 'agent-1' },
+      event: {
+        id: `wf:run-1:step-1:${attempt}`,
+        type: 'workflow.step',
+        occurredAt: 10,
+        source: { id: 'workflow-1', type: 'workflow' },
+      },
+      input: 'Run the workflow step.',
+      run: { metadata: { workflowRunId: 'run-1', workflowStepId: 'step-1' } },
+    });
+
+  it('denies cancelled workflow deliveries before invoking the agent host', async () => {
+    process.env.AGENT_TRIGGERS_SELF_URL = 'https://triggers.internal';
+    const fetcher = jest.fn(async () => accepted());
+    const isWorkflowStepActive = jest.fn(async () => false);
+    const service = createAgentTriggerService({
+      fetch: fetcher,
+      mintToken: () => 'token',
+      isWorkflowStepActive,
+    });
+
+    await expect(service.dispatch(workflowEnvelope())).rejects.toThrow(
+      'Workflow step delivery is no longer active',
+    );
+    expect(isWorkflowStepActive).toHaveBeenCalledWith({
+      runId: 'run-1',
+      stepId: 'step-1',
+      attempt: 1,
+      workflowId: 'workflow-1',
+      userId: 'user-1',
+      tenantId: 'tenant-1',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('permits only a durable active workflow attempt', async () => {
+    process.env.AGENT_TRIGGERS_SELF_URL = 'https://triggers.internal';
+    const fetcher = jest.fn(async () => accepted());
+    const isWorkflowStepActive = jest.fn(async ({ attempt }: { attempt: number }) => attempt === 2);
+    const service = createAgentTriggerService({
+      fetch: fetcher,
+      mintToken: () => 'token',
+      isWorkflowStepActive,
+    });
+
+    await expect(service.dispatch(workflowEnvelope(1))).rejects.toThrow(
+      'Workflow step delivery is no longer active',
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(service.dispatch(workflowEnvelope(2))).resolves.toMatchObject({
+      status: 'started',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('fails safely when dispatch starts before a listener or override exists', async () => {
     expect.hasAssertions();
     const service = createAgentTriggerService({

@@ -46,6 +46,7 @@ export * from './types/mcpServers';
 export * from './types/mutations';
 export * from './types/queries';
 export * from './types/schedules';
+export * from './workflows';
 export * from './cadence';
 export * from './types/skills';
 export * from './types/runs';
