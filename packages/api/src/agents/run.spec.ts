@@ -9,6 +9,7 @@ import {
   shouldReplayReasoningContent,
   anyAgentReplaysReasoningContent,
   collectRunMCPToolAliases,
+  collectMandatoryRunToolApprovalNames,
 } from './run';
 
 describe('getRunDiscoveredTools', () => {
@@ -469,5 +470,37 @@ describe('collectRunMCPToolAliases', () => {
     };
 
     expect(collectRunMCPToolAliases([root] as never)).toEqual([graphAlias]);
+  });
+});
+
+describe('collectMandatoryRunToolApprovalNames', () => {
+  it('requires approval for both MCP names and registered inline memory mutations', () => {
+    const agent = {
+      id: 'root',
+      tools: [{ name: 'memory' }],
+      mcpToolAliases: [{ name: 'delete_mcp_acme', aliasName: 'acme_delete_mcp_acme' }],
+    };
+
+    expect(collectMandatoryRunToolApprovalNames([agent] as never)).toEqual([
+      'delete_mcp_acme',
+      'acme_delete_mcp_acme',
+      'set_memory',
+      'delete_memory',
+    ]);
+  });
+
+  it('respects denied inline-memory registration and discovers nested MCP tools', () => {
+    const alias = { name: 'write_mcp_acme', aliasName: 'acme_write_mcp_acme' };
+    const root = {
+      id: 'root',
+      tools: [{ name: 'memory' }],
+      memoryToolsRegistered: false,
+      subagentAgentConfigs: [{ id: 'child', tools: [], mcpToolAliases: [alias] }],
+    };
+
+    expect(collectMandatoryRunToolApprovalNames([root] as never)).toEqual([
+      alias.name,
+      alias.aliasName,
+    ]);
   });
 });

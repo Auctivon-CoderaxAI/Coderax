@@ -1,5 +1,5 @@
-import { createToolPolicyHook } from '@librechat/agents';
 import { ReasoningEffort } from 'coderax-data-provider';
+import { createToolPolicyHook } from '@librechat/agents';
 import type { Agents, TToolApprovalPolicy } from 'coderax-data-provider';
 import {
   resolveToolApprovalPolicy,
@@ -124,6 +124,54 @@ describe('resolveToolApprovalPolicy', () => {
   test('preserves the administrator emergency override for BYOM', () => {
     const endpoint: TToolApprovalPolicy = { enabled: false };
     expect(resolveToolApprovalPolicy({ endpoint, attachedCodeEnvironment: true })).toBe(endpoint);
+  });
+
+  test('requires a review for mandatory tools while keeping unrelated tools bypassed', async () => {
+    const resolved = resolveToolApprovalPolicy({
+      endpoint: { enabled: false, mode: 'default', allow: ['set_memory'] },
+      mandatoryAskTools: ['set_memory', 'delete_memory', 'set_memory'],
+    });
+    expect(resolved).toEqual({
+      enabled: true,
+      mode: 'bypass',
+      allow: ['set_memory'],
+      ask: ['set_memory', 'delete_memory'],
+    });
+
+    const hook = createToolPolicyHook(mapToolApprovalPolicy(resolved)!);
+    const runHook = (toolName: string) =>
+      hook(
+        {
+          hook_event_name: 'PreToolUse',
+          runId: 'mandatory-approval',
+          toolName,
+          toolInput: {},
+          toolUseId: toolName,
+        },
+        new AbortController().signal,
+      );
+    expect((await runHook('set_memory'))?.decision).toBe('ask');
+    expect((await runHook('delete_memory'))?.decision).toBe('ask');
+    expect((await runHook('ordinary_tool'))?.decision).toBe('allow');
+  });
+
+  test('keeps administrator denies ahead of mandatory asks', async () => {
+    const resolved = resolveToolApprovalPolicy({
+      endpoint: { enabled: false, deny: ['delete_memory'] },
+      mandatoryAskTools: ['delete_memory'],
+    });
+    const hook = createToolPolicyHook(mapToolApprovalPolicy(resolved)!);
+    const result = await hook(
+      {
+        hook_event_name: 'PreToolUse',
+        runId: 'mandatory-deny',
+        toolName: 'delete_memory',
+        toolInput: {},
+        toolUseId: 'delete-memory',
+      },
+      new AbortController().signal,
+    );
+    expect(result?.decision).toBe('deny');
   });
 
   test('ignores the reserved agent/skills layers for now (behaviour-preserving)', () => {
