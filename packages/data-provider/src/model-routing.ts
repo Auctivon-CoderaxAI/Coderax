@@ -96,6 +96,12 @@ export function toModelRouteCandidate(source: ModelRouteSource): ModelRouteCandi
   const free = isFreeOrLocalModel(source);
   const promptCost = Number.isFinite(source.promptCost) ? source.promptCost : undefined;
   const completionCost = Number.isFinite(source.completionCost) ? source.completionCost : undefined;
+  let costPerMillion: number | undefined;
+  if (free) {
+    costPerMillion = 0;
+  } else if (promptCost != null && completionCost != null) {
+    costPerMillion = promptCost + completionCost;
+  }
   return {
     id,
     label: (source.label ?? id).trim() || id,
@@ -108,11 +114,7 @@ export function toModelRouteCandidate(source: ModelRouteSource): ModelRouteCandi
     ...(Number.isFinite(source.context) && source.context! > 0 ? { context: source.context } : {}),
     ...(promptCost != null ? { promptCost } : {}),
     ...(completionCost != null ? { completionCost } : {}),
-    ...(free
-      ? { costPerMillion: 0 }
-      : promptCost != null && completionCost != null
-        ? { costPerMillion: promptCost + completionCost }
-        : {}),
+    ...(costPerMillion !== undefined ? { costPerMillion } : {}),
   };
 }
 

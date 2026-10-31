@@ -52,7 +52,6 @@ export default function PaidModelConsent({
           selectClasses: 'bg-surface-submit text-text-on-status hover:bg-surface-submit-hover',
         }}
         showCancelButton={true}
-        footerClassName="flex justify-end gap-2 px-6 pb-6 pt-2"
       />
     </OGDialog>
   );

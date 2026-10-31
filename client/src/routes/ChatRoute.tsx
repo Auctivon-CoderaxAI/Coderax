@@ -294,17 +294,20 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     const parsedQuerySettings = processValidSettings(queryParams);
     /** Work accepts only an explicit, available agent preset. Chat model specs
      * and provider selections cannot override its server-side model gate. */
-    const querySettings: TPreset = isWorkMode
-      ? parsedQuerySettings.endpoint === EModelEndpoint.agents &&
+    let querySettings: TPreset = parsedQuerySettings;
+    if (isWorkMode) {
+      const isExplicitWorkAgent =
+        parsedQuerySettings.endpoint === EModelEndpoint.agents &&
         typeof parsedQuerySettings.agent_id === 'string' &&
-        typeof parsedQuerySettings.model === 'string'
+        typeof parsedQuerySettings.model === 'string';
+      querySettings = isExplicitWorkAgent
         ? {
             endpoint: EModelEndpoint.agents,
             agent_id: parsedQuerySettings.agent_id,
             model: parsedQuerySettings.model,
           }
-        : ({} as TPreset)
-      : parsedQuerySettings;
+        : ({} as TPreset);
+    }
 
     const notFoundConvo =
       Boolean(conversationId) &&
