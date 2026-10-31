@@ -7,6 +7,9 @@ export enum QueryKeys {
   sharedStartupConfig = 'sharedStartupConfig',
   sharedLinks = 'sharedLinks',
   allConversations = 'allConversations',
+  workModels = 'workModels',
+  workTasks = 'workTasks',
+  workTask = 'workTask',
   archivedConversations = 'archivedConversations',
   pinnedConversations = 'pinnedConversations',
   searchConversations = 'searchConversations',
@@ -124,6 +127,7 @@ export enum QueryKeys {
 
 // Dynamic query keys that require parameters
 export const DynamicQueryKeys = {
+  workTask: (conversationId: string) => [QueryKeys.workTask, conversationId] as const,
   agentFiles: (agentId: string) => ['agentFiles', agentId] as const,
   projectFiles: (projectId: string) => [QueryKeys.projectFiles, projectId] as const,
   projectAvailableFiles: (projectId: string) =>
@@ -132,6 +136,7 @@ export const DynamicQueryKeys = {
 } as const;
 
 export enum MutationKeys {
+  cancelWorkTask = 'cancelWorkTask',
   resetToolApprovalGrants = 'resetToolApprovalGrants',
   subagentControl = 'subagentControl',
   cancelBackgroundTasks = 'cancelBackgroundTasks',

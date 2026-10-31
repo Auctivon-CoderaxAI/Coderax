@@ -22,6 +22,7 @@ import GuestEntry from './GuestEntry';
 import ShareRoute from './ShareRoute';
 import CyVoxAddon from './CyVoxAddon';
 import ChatRoute from './ChatRoute';
+import WorkRoute from './WorkRoute';
 import Search from './Search';
 import Studio from './Studio';
 import Root from './Root';
@@ -171,8 +172,8 @@ export const router = createBrowserRouter(
                   element: <Search />,
                 },
                 {
-                  path: 'work',
-                  element: <CyVoxAddon />,
+                  path: 'work/:conversationId?',
+                  element: <WorkRoute />,
                 },
                 {
                   path: 'cyvox/:tool',

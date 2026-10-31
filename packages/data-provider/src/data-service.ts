@@ -1038,6 +1038,18 @@ export function getConversationById(id: string, signal?: AbortSignal): Promise<s
   return request.get(endpoints.conversationById(id), signal ? { signal } : undefined);
 }
 
+export function getWorkModels(): Promise<t.TWorkModelsResponse> {
+  return request.get(endpoints.workModels());
+}
+
+export function getWorkTasks(signal?: AbortSignal): Promise<t.TWorkTasksResponse> {
+  return request.get(endpoints.workTasks(), signal ? { signal } : undefined);
+}
+
+export function cancelWorkTask(conversationId: string): Promise<{ canceled: true }> {
+  return request.post(endpoints.cancelWorkTask(conversationId), {});
+}
+
 export function updateConversation(
   payload: t.TUpdateConversationRequest,
 ): Promise<t.TUpdateConversationResponse> {

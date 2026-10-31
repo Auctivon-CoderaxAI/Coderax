@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
-import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
+import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -49,7 +49,9 @@ import store from '~/store';
 const isValidChatProjectId = (projectId: string | null): projectId is string =>
   projectId != null && /^[a-f\d]{24}$/i.test(projectId);
 
-export default function ChatRoute() {
+export default function ChatRoute({ workMode = false }: { workMode?: boolean }) {
+  const location = useLocation();
+  const isWorkMode = workMode || location.pathname.startsWith('/work/');
   const { data: startupConfig } = useGetStartupConfig();
   const { isAuthenticated, user, roles } = useAuthRedirect();
   const queryClient = useQueryClient();
@@ -161,6 +163,10 @@ export default function ChatRoute() {
       conversationId !== Constants.NEW_CONVO &&
       (!hasSetConversation.current || routeState.pending),
   });
+  const conversationModeMismatch =
+    conversationId !== Constants.NEW_CONVO &&
+    initialConvoQuery.isSuccess &&
+    (initialConvoQuery.data?.isWork === true) !== isWorkMode;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const assistantListMap = useAssistantListMap();
   /** The map comes from Root's shared context (one mapping pass app-wide); the
@@ -178,6 +184,9 @@ export default function ChatRoute() {
   const forceTemporaryChat = isForcedTemporaryRetention(startupConfig?.interface?.retentionMode);
 
   useEffect(() => {
+    if (conversationModeMismatch) {
+      return;
+    }
     if (conversationId === Constants.NEW_CONVO) {
       setIsTemporary(forceTemporaryChat || defaultTemporaryChat);
     } else if (forceTemporaryChat || isTemporaryChat) {
@@ -185,12 +194,22 @@ export default function ChatRoute() {
     } else {
       setIsTemporary(false);
     }
-  }, [conversationId, isTemporaryChat, setIsTemporary, defaultTemporaryChat, forceTemporaryChat]);
+  }, [
+    conversationId,
+    conversationModeMismatch,
+    isTemporaryChat,
+    setIsTemporary,
+    defaultTemporaryChat,
+    forceTemporaryChat,
+  ]);
 
   /** This effect is mainly for the first conversation state change on first load of the page.
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
+    if (conversationModeMismatch) {
+      return;
+    }
     // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
     const rolesLoaded = roles?.USER != null;
     const isNewConvo = conversationId === Constants.NEW_CONVO;
@@ -271,7 +290,10 @@ export default function ChatRoute() {
       clearMessagesCache(queryClient, conversation?.conversationId);
       newConversation({
         modelsData: modelsQuery.data,
-        template: projectTemplate,
+        template: {
+          ...projectTemplate,
+          ...(isWorkMode ? { isWork: true } : {}),
+        },
         ...(preset ? { preset } : {}),
       });
 
@@ -304,6 +326,7 @@ export default function ChatRoute() {
         initialConvoQuery.error,
       );
       newConversation({
+        template: isWorkMode ? { isWork: true } : {},
         modelsData: modelsQuery.data,
         ...(spec ? { preset: getModelSpecPreset(spec) } : {}),
       });
@@ -340,6 +363,8 @@ export default function ChatRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     conversationId,
+    conversationModeMismatch,
+    isWorkMode,
     routeState.pending,
     roles,
     agentsMap,
@@ -369,6 +394,18 @@ export default function ChatRoute() {
 
   if (!isAuthenticated) {
     return null;
+  }
+
+  if (conversationModeMismatch) {
+    return (
+      <Navigate
+        to={{
+          pathname: `${initialConvoQuery.data?.isWork === true ? '/work' : '/c'}/${conversationId}`,
+          search: location.search,
+        }}
+        replace
+      />
+    );
   }
 
   // if not a conversation

@@ -7,7 +7,13 @@
 export const WORK_MAX_TASK_LENGTH = 4000;
 
 /** Run states the Work surface knows how to render. */
-export type WorkTaskState = 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown';
+export type WorkTaskState =
+  | 'running'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'unknown';
 
 /**
  * A stored conversation proves a task existed, never that it is still running.
@@ -22,6 +28,8 @@ const STATE_ALIASES: Record<string, WorkTaskState> = {
   in_progress: 'running',
   started: 'running',
   queued: 'running',
+  requires_action: 'awaiting_approval',
+  awaiting_approval: 'awaiting_approval',
   complete: 'completed',
   completed: 'completed',
   done: 'completed',

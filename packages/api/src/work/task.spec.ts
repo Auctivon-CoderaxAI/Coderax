@@ -38,6 +38,7 @@ describe('work task mapping', () => {
 
   it('normalises the states the run registry reports', () => {
     expect(normalizeWorkState('running')).toBe('running');
+    expect(normalizeWorkState('requires_action')).toBe('awaiting_approval');
     expect(normalizeWorkState('IN_PROGRESS')).toBe('running');
     expect(normalizeWorkState('complete')).toBe('completed');
     expect(normalizeWorkState('error')).toBe('failed');
