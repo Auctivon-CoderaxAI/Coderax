@@ -47,7 +47,11 @@ function resolveWorkContext(sources, requested, configuredDefault) {
     configuredDefault,
   );
   if (selection.ok) {
-    return { isWork: true, workModel: selection.model.id };
+    return {
+      isWork: true,
+      workModel: selection.model.id,
+      workProvider: selection.model.provider,
+    };
   }
   /** An explicit pick is answered specifically, even when nothing is offered. */
   if (explicit) {
@@ -174,6 +178,9 @@ function workContextMiddleware(
        */
       if (req.body && typeof req.body === 'object') {
         req.body.model = context.workModel;
+        if (context.workProvider) {
+          req.body.endpoint = context.workProvider;
+        }
       }
       return next();
     } catch {

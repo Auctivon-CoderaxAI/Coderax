@@ -15,6 +15,7 @@ const {
   isAgentsEndpoint,
   parseCompactConvo,
   getDefaultParamsEndpoint,
+  resolveEndpointType,
 } = require('coderax-data-provider');
 const azureAssistants = require('~/server/services/Endpoints/azureAssistants');
 const assistants = require('~/server/services/Endpoints/assistants');
@@ -57,16 +58,23 @@ function inspectResolvedCurrentUser(req, promptPrefixTemplate) {
 }
 
 async function buildEndpointOption(req, res, next) {
-  const { endpoint, endpointType } = req.body;
-  const isAgents =
-    isAgentsEndpoint(endpoint) || req.baseUrl.startsWith(EndpointURLs[EModelEndpoint.agents]);
-
   let endpointsConfig;
   try {
     endpointsConfig = await getEndpointsConfig(req);
   } catch (error) {
     logger.error('Error fetching endpoints config in buildEndpointOption', error);
   }
+
+  if (req.workContext?.isWork === true && req.workContext.workProvider) {
+    req.body.endpoint = req.workContext.workProvider;
+    req.body.endpointType = resolveEndpointType(endpointsConfig, req.workContext.workProvider);
+  }
+
+  const { endpoint, endpointType } = req.body;
+  const isAgents =
+    req.workContext?.isWork === true ||
+    isAgentsEndpoint(endpoint) ||
+    req.baseUrl.startsWith(EndpointURLs[EModelEndpoint.agents]);
 
   const defaultParamsEndpoint = getDefaultParamsEndpoint(endpointsConfig, endpoint);
 

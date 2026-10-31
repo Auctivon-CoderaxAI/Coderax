@@ -1,5 +1,4 @@
 import { EModelEndpoint, EndpointURLs } from 'coderax-data-provider';
-import type { TPayload } from 'coderax-data-provider';
 
 /** Rewrite only native agent generation starts through Work's model gate. SSE,
  * resume, cancellation, approvals and queued-turn controls stay on the shared
@@ -33,9 +32,4 @@ export function toWorkChatServer(
 
   requestUrl.pathname = `${workPath}${requestUrl.pathname.slice(nativePrefix.length)}`;
   return requestUrl.toString();
-}
-
-/** Ensure an explicit Work model choice reaches the server-side free/local gate. */
-export function withWorkModel(payload: TPayload, workModel?: string): TPayload {
-  return workModel ? { ...payload, model: workModel } : payload;
 }

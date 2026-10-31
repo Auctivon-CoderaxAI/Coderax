@@ -57,11 +57,14 @@ function ChatView({
   index = 0,
   project,
   routePending = false,
+  workMode = false,
 }: {
   index?: number;
   project?: TChatProject;
   /** The route is loading another conversation, or failed to. */
   routePending?: boolean;
+  /** Work keeps its model selector; Chat selects automatically and shows none. */
+  workMode?: boolean;
 }) {
   const { conversationId } = useParams();
   const localize = useLocalize();
@@ -260,6 +263,7 @@ function ChatView({
                               <ChatForm
                                 index={index}
                                 routePending={routePending}
+                                workMode={workMode}
                                 placeholder={chatFormPlaceholder}
                                 project={isProjectLandingPage ? project : undefined}
                                 isLandingPage={isLandingPage}

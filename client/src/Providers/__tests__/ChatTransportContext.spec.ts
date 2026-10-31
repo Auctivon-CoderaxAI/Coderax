@@ -1,15 +1,16 @@
-import { toWorkChatServer, withWorkModel } from '../workTransport';
+import { createWorkChatTransport } from '../ChatTransportContext';
+import { toWorkChatServer } from '../workTransport';
 
 describe('toWorkChatServer', () => {
   const nativeEndpoint = 'https://coderax.example/api/agents/chat';
 
-  it('routes native model starts through Work and preserves path and query', () => {
+  it('routes native agent starts through Work and preserves path and query', () => {
     expect(
       toWorkChatServer(
-        'https://coderax.example/api/agents/chat/openAI?generationProtocolVersion=2',
+        'https://coderax.example/api/agents/chat/agents?generationProtocolVersion=2',
         nativeEndpoint,
       ),
-    ).toBe('https://coderax.example/api/work/chat/openAI?generationProtocolVersion=2');
+    ).toBe('https://coderax.example/api/work/chat/agents?generationProtocolVersion=2');
   });
 
   it('keeps the configured application base path', () => {
@@ -34,18 +35,30 @@ describe('toWorkChatServer', () => {
   });
 });
 
-describe('withWorkModel', () => {
-  it('sends the selected Work model through the native admission gate', () => {
+describe('createWorkChatTransport', () => {
+  it('routes the selected accessible agent through Work without replacing its request fields', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'work-generation' });
+    const transport = createWorkChatTransport({ start } as never);
     const payload = {
+      endpoint: 'agents',
+      agent_id: 'agent-work-1',
+      model: 'llama3:latest',
       isContinued: false,
       isTemporary: false,
-      model: 'paid-default',
       conversationId: 'new',
     };
-    expect(withWorkModel(payload, 'ollama/llama3')).toEqual({
-      ...payload,
-      model: 'ollama/llama3',
-    });
-    expect(withWorkModel(payload)).toBe(payload);
+    const request = {
+      server: '/api/agents/chat/agents',
+      payload,
+    } as never;
+
+    await expect(transport.start(request)).resolves.toEqual({ generationId: 'work-generation' });
+    expect(start).toHaveBeenCalledWith(
+      {
+        server: expect.stringMatching(/\/api\/work\/chat\/agents$/),
+        payload,
+      },
+      undefined,
+    );
   });
 });

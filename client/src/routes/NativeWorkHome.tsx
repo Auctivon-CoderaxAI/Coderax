@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { Button } from '@coderax/client';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { dataService, MutationKeys, QueryKeys, WORK_AUTO_MODEL_ID } from 'coderax-data-provider';
+import { dataService, EModelEndpoint, MutationKeys, QueryKeys } from 'coderax-data-provider';
 import type { TWorkTask } from 'coderax-data-provider';
+import { WorkAgentSelect, useWorkAgentOptions } from '~/components/Chat/Input/WorkAgentSelector';
 import { useLocalize } from '~/hooks';
 
 function canCancelTask(state: TWorkTask['state']) {
@@ -16,14 +17,9 @@ export default function NativeWorkHome() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [task, setTask] = useState('');
-  const [model, setModel] = useState(WORK_AUTO_MODEL_ID);
+  const [selectedAgentId, setSelectedAgentId] = useState('');
   const [cancelError, setCancelError] = useState(false);
-  const models = useQuery({
-    queryKey: [QueryKeys.workModels],
-    queryFn: () => dataService.getWorkModels(),
-    retry: false,
-    staleTime: 30_000,
-  });
+  const workAgents = useWorkAgentOptions();
   const tasks = useQuery({
     queryKey: [QueryKeys.workTasks],
     queryFn: () => dataService.getWorkTasks(),
@@ -40,18 +36,36 @@ export default function NativeWorkHome() {
     },
     onError: () => setCancelError(true),
   });
-  const choices = models.data?.models ?? [];
-  const hasModels = choices.some((choice) => choice.id !== WORK_AUTO_MODEL_ID);
-  const activeModel = choices.some((choice) => choice.id === model) ? model : WORK_AUTO_MODEL_ID;
+  const hasModels = (workAgents.modelsQuery.data?.models ?? []).some(
+    (model) => model.auto !== true,
+  );
+  const selectedAgent = workAgents.agents.find((agent) => agent.id === selectedAgentId);
+  useEffect(() => {
+    if (workAgents.agents.length > 0 && !selectedAgent) {
+      setSelectedAgentId(workAgents.agents[0]!.id);
+    }
+  }, [selectedAgent, workAgents.agents]);
   const recentTasks = (tasks.data?.tasks ?? []).slice(0, 12);
 
   const startTask = () => {
     const description = task.trim();
-    if (!description || models.isLoading || models.isError || !hasModels) {
+    if (
+      !description ||
+      workAgents.isLoading ||
+      workAgents.isError ||
+      !hasModels ||
+      !selectedAgent
+    ) {
       return;
     }
-    const search = new URLSearchParams({ prompt: description, submit: 'true' });
-    navigate(`/work/new?${search.toString()}`, { state: { workModel: activeModel } });
+    const search = new URLSearchParams({
+      prompt: description,
+      submit: 'true',
+      endpoint: EModelEndpoint.agents,
+      agent_id: selectedAgent.id,
+      model: selectedAgent.model ?? '',
+    });
+    navigate(`/work/new?${search.toString()}`);
   };
 
   const cancel = async (item: TWorkTask) => {
@@ -163,22 +177,12 @@ export default function NativeWorkHome() {
             />
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <label htmlFor="work-model" className="sr-only">
-                  {localize('com_cyvox_model')}
-                </label>
-                <select
-                  id="work-model"
-                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
-                  value={activeModel}
-                  onChange={(event) => setModel(event.target.value)}
-                  disabled={models.isLoading || !hasModels}
-                >
-                  {choices.map((choice) => (
-                    <option key={choice.id} value={choice.id}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
+                <WorkAgentSelect
+                  agents={workAgents.agents}
+                  value={selectedAgent?.id ?? ''}
+                  onChange={(agent) => setSelectedAgentId(agent.id)}
+                  disabled={workAgents.isLoading || workAgents.isError}
+                />
               </div>
               <Button
                 type="submit"
@@ -186,23 +190,44 @@ export default function NativeWorkHome() {
                 size="icon-sm"
                 shape="round"
                 aria-label={localize('com_cyvox_work_start_task_aria')}
-                disabled={models.isLoading || models.isError || !hasModels || !task.trim()}
+                disabled={
+                  workAgents.isLoading ||
+                  workAgents.isError ||
+                  !hasModels ||
+                  !selectedAgent ||
+                  !task.trim()
+                }
               >
                 <ArrowUp className="size-4" aria-hidden="true" />
               </Button>
             </div>
           </div>
           <div className="space-y-1">
-            {models.isError && (
+            {workAgents.modelsQuery.isError && (
               <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
                 {localize('com_work_models_unavailable')}
               </p>
             )}
-            {!models.isLoading && models.data != null && !hasModels && (
+            {workAgents.agentsQuery.isError && (
               <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
-                {localize('com_work_no_models')}
+                {localize('com_work_agents_unavailable')}
               </p>
             )}
+            {!workAgents.modelsQuery.isLoading &&
+              workAgents.modelsQuery.data != null &&
+              !hasModels && (
+                <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
+                  {localize('com_work_no_models')}
+                </p>
+              )}
+            {!workAgents.isLoading &&
+              !workAgents.isError &&
+              hasModels &&
+              workAgents.agents.length === 0 && (
+                <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
+                  {localize('com_work_no_agents')}
+                </p>
+              )}
             {cancelError && (
               <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
                 {localize('com_work_cancel_failed')}

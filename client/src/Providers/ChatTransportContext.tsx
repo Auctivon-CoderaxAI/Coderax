@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
 import { EndpointURLs } from 'coderax-data-provider';
 import type { Transport } from '~/hooks/Chat/contract';
-import { toWorkChatServer, withWorkModel } from './workTransport';
 import { createSSETransport } from '~/hooks/SSE/transport';
+import { toWorkChatServer } from './workTransport';
 import * as requests from '~/data-provider';
 
 export { toWorkChatServer } from './workTransport';
@@ -35,17 +35,14 @@ export const defaultChatTransport: Transport = {
   cancelQueued: (input) => requests.cancelAgentQueuedTurn(input),
 };
 
-export function createWorkChatTransport(
-  transport: Transport = defaultChatTransport,
-  workModel?: string,
-): Transport {
+export function createWorkChatTransport(transport: Transport = defaultChatTransport): Transport {
   return {
     ...transport,
     start: ({ server, payload }, options) =>
       transport.start(
         {
           server: toWorkChatServer(server),
-          payload: withWorkModel(payload, workModel),
+          payload,
         },
         options,
       ),

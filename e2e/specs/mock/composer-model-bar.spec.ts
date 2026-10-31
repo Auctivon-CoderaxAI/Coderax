@@ -1,94 +1,109 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
-import {
-  MOCK_ENDPOINTS,
-  NEW_CHAT_PATH,
-  mockReply,
-  selectMockEndpoint,
-  sendMessage,
-} from './helpers';
+import { mockReply, NEW_CHAT_PATH } from './helpers';
 
-const MODEL_BAR = 'composer-model-bar';
-const MODEL_TRIGGER = 'Select a model';
+const LOCAL_MODEL_A = 'e2e-work-local-a';
+const LOCAL_MODEL_B = 'e2e-work-local-b';
 
-const modelTrigger = (page: Page) => page.getByRole('button', { name: MODEL_TRIGGER }).first();
-
-/** Screenshots are a local inspection aid; CI does not need repo-root artifacts. */
-async function capture(page: Page, name: string) {
-  if (process.env.E2E_SCREENSHOTS === '1') {
-    await page.screenshot({ path: `screenshots/${name}.png` });
-  }
-}
-
-/**
- * The read-out describes persisted conversation state. It must name the model
- * the next message will use, follow a switch, survive a reload of the saved
- * conversation, and never become a second control.
- */
-test.describe('composer active-model read-out', () => {
-  test.use({ colorScheme: 'light' });
-
-  test('follows the picker, survives a saved conversation, and stays a read-out', async ({
+test.describe('automatic Chat routing and native Work model selection', () => {
+  test('Chat hides model controls and fails over between configured local models', async ({
     page,
   }) => {
+    const attempts: Array<{ endpoint?: string; model?: string }> = [];
+    await page.route('**/api/agents/chat/**', async (route) => {
+      const request = route.request();
+      if (request.method() !== 'POST') {
+        await route.continue();
+        return;
+      }
+
+      const payload = request.postDataJSON() as { endpoint?: string; model?: string };
+      attempts.push(payload);
+      if (payload.model === LOCAL_MODEL_A) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'LOCAL_MODEL_UNAVAILABLE' }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
     await page.goto(NEW_CHAT_PATH);
-    await expect(modelTrigger(page)).toBeVisible();
+    const input = page.getByRole('textbox', { name: 'Message input' });
+    await expect(input).toBeVisible();
+    await expect(page.getByTestId('model-selector-button')).toHaveCount(0);
+    await expect(page.getByTestId('work-model-selector')).toHaveCount(0);
 
-    const bar = page.getByTestId(MODEL_BAR);
-    const triggerText = (await modelTrigger(page).textContent())?.trim() ?? '';
-    if (triggerText === MODEL_TRIGGER || triggerText === '') {
-      /* Nothing is attached yet, so there is nothing truthful to describe. */
-      await expect(bar).toHaveCount(0);
-    } else {
-      /* A model spec presets the conversation, so the picker names the spec while
-         the read-out names the model that spec resolves to. */
-      await expect(bar).toBeVisible();
-      await expect(bar).not.toBeEmpty();
-    }
+    await input.fill('Use the configured local model automatically.');
+    const [start] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.startsWith('/api/agents/chat') &&
+          response.status() === 200,
+        { timeout: 30_000 },
+      ),
+      input.press('Enter'),
+    ]);
+    expect(start.status()).toBe(200);
 
-    const [first, second] = MOCK_ENDPOINTS;
-    await selectMockEndpoint(page, first);
-    await expect(bar).toContainText(first.model);
-    await expect(bar).toContainText(first.label);
-    await expect(modelTrigger(page)).not.toHaveText(MODEL_TRIGGER);
-    await capture(page, 'composer-model-bar-light');
-
-    await selectMockEndpoint(page, second);
-    await expect(bar).toContainText(second.model);
-    await expect(bar).not.toContainText(first.model);
-    await expect(bar).toContainText(second.label);
-    await expect(modelTrigger(page)).toContainText(second.label);
-
-    /* One control, one read-out: the strip owns no interactive element, and the
-       picker stays the only model selector in the composer. */
-    await expect(bar.locator('button, a, input, select, textarea')).toHaveCount(0);
-    await expect(page.getByRole('button', { name: MODEL_TRIGGER })).toHaveCount(1);
-
-    await sendMessage(page, 'Model read-out persistence check');
     await expect(mockReply(page)).toBeVisible({ timeout: 20_000 });
-    await expect(page).toHaveURL(/\/c\/(?!new)/, { timeout: 15_000 });
-
-    await page.reload();
-    await expect(page.getByTestId(MODEL_BAR)).toContainText(second.model, { timeout: 15_000 });
-    await expect(page.getByTestId(MODEL_BAR)).toContainText(second.label);
+    expect(attempts.map(({ model }) => model)).toEqual([LOCAL_MODEL_A, LOCAL_MODEL_B]);
+    expect(attempts.every(({ endpoint }) => endpoint?.toLowerCase() === 'ollama')).toBe(true);
   });
-});
 
-test.describe('composer active-model read-out on the dark canvas and a phone', () => {
-  test.use({ colorScheme: 'dark' });
+  test('Work selection reaches the native runner and completes with CyVox disabled', async ({
+    page,
+  }) => {
+    const workStarts: Array<{ endpoint?: string; model?: string }> = [];
+    page.on('request', (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (request.method() === 'POST' && pathname.startsWith('/api/work/chat')) {
+        workStarts.push(request.postDataJSON() as { endpoint?: string; model?: string });
+      }
+    });
 
-  test('keeps the read-out legible at both sizes', async ({ page }) => {
-    await page.goto(NEW_CHAT_PATH);
-    await expect(modelTrigger(page)).toBeVisible();
-    await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
+    await page.goto('/work');
+    const selector = page.getByRole('combobox', { name: 'Model' });
+    await expect(selector).toBeVisible();
+    await expect(page.getByTestId('model-selector-button')).toHaveCount(0);
+    await expect(selector.locator('option').filter({ hasText: LOCAL_MODEL_B })).toHaveCount(1);
+    await selector.selectOption(LOCAL_MODEL_B);
+    await expect(selector).toHaveValue(LOCAL_MODEL_B);
 
-    const bar = page.getByTestId(MODEL_BAR);
-    await expect(bar).toContainText(MOCK_ENDPOINTS[0].model);
-    await capture(page, 'composer-model-bar-dark');
+    const taskInput = page.locator('#work-task');
+    await taskInput.fill('Reply with the mock result.');
+    await expect(taskInput).toHaveValue('Reply with the mock result.');
+    const startButton = page.locator('form button[type="submit"]');
+    await expect(startButton).toBeEnabled();
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (candidate) =>
+          candidate.request().method() === 'POST' &&
+          new URL(candidate.url()).pathname.startsWith('/api/work/chat'),
+        { timeout: 30_000 },
+      ),
+      startButton.click(),
+    ]);
+    expect(response.status()).toBe(200);
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await expect(bar).toBeVisible();
-    await expect(bar).toContainText(MOCK_ENDPOINTS[0].model);
-    await capture(page, 'composer-model-bar-mobile');
+    await expect(mockReply(page)).toBeVisible({ timeout: 20_000 });
+    expect(workStarts).toHaveLength(1);
+    expect(workStarts[0]?.model).toBe(LOCAL_MODEL_B);
+    await expect(page).toHaveURL(/\/work\/(?!new)[^/?]+/);
+
+    const conversationId = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!);
+    const conversation = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/convos/${encodeURIComponent(id)}`, {
+        credentials: 'include',
+      });
+      return response.ok ? response.json() : { status: response.status };
+    }, conversationId);
+    expect(conversation).toMatchObject({
+      isWork: true,
+      workModel: LOCAL_MODEL_B,
+      endpoint: 'ollama',
+    });
   });
 });

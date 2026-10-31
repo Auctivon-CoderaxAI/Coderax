@@ -79,6 +79,33 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
     jest.clearAllMocks();
   });
 
+  it('builds a Work-selected provider through the native agent runner under /api/work', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({
+      Ollama: { type: EModelEndpoint.custom },
+    });
+
+    const req = createReq(
+      { endpoint: 'old-provider', model: 'e2e-work-local-b' },
+      { modelSpecs: null },
+    );
+    req.baseUrl = '/api/work';
+    req.workContext = { isWork: true, workProvider: 'Ollama' };
+    const next = jest.fn();
+
+    await buildEndpointOption(req, createRes(), next);
+
+    expect(req.body.endpoint).toBe('Ollama');
+    expect(req.body.endpointType).toBe(EModelEndpoint.custom);
+    expect(mockAgentBuildOptions).toHaveBeenCalledWith(
+      req,
+      'Ollama',
+      expect.objectContaining({ model: 'e2e-work-local-b' }),
+      EModelEndpoint.custom,
+    );
+    expect(mockBuildOptions).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   it('should pass defaultParamsEndpoint to parseCompactConvo and preserve maxOutputTokens', async () => {
     mockGetEndpointsConfig.mockResolvedValue({
       AnthropicClaude: {

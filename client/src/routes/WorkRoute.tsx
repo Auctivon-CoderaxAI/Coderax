@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import {
   ChatTransportContext,
@@ -26,18 +26,20 @@ export default function WorkRoute() {
     conversationId === 'new' &&
     searchParams.get('submit')?.toLowerCase() === 'true' &&
     Boolean(prompt?.trim());
-  const showChat = Boolean(conversationId && conversationId !== 'new') || shouldStartPrompt;
-  const workModel =
-    location.state != null &&
-    typeof location.state === 'object' &&
-    'workModel' in location.state &&
-    typeof location.state.workModel === 'string'
-      ? location.state.workModel
-      : undefined;
-  const workChatTransport = useMemo(
-    () => createWorkChatTransport(defaultChatTransport, workModel),
-    [workModel],
-  );
+  /** URL submission handling removes its prompt flags once it has taken
+   * ownership of the draft. Keep `/work/new` mounted until that first task has
+   * moved to its persisted conversation route. */
+  const [startingPrompt, setStartingPrompt] = useState(shouldStartPrompt);
+  useEffect(() => {
+    if (shouldStartPrompt) {
+      setStartingPrompt(true);
+    } else if (conversationId !== 'new') {
+      setStartingPrompt(false);
+    }
+  }, [conversationId, shouldStartPrompt]);
+  const showChat =
+    Boolean(conversationId && conversationId !== 'new') || shouldStartPrompt || startingPrompt;
+  const workChatTransport = useMemo(() => createWorkChatTransport(defaultChatTransport), []);
 
   if (!showChat) {
     return <NativeWorkHome />;
