@@ -1,16 +1,19 @@
-import { saveTurnConversation, seedTurnConversation } from './save';
 import type { TurnConversationWrite } from './save';
+import { saveTurnConversation, seedTurnConversation } from './save';
 
 type Write = Record<string, unknown>;
 
 /** Records exactly what the store was asked to persist. */
 function makeStore() {
   const fields: Write[] = [];
+  const options: Write[] = [];
   return {
     fields,
+    options,
     getConvo: async () => null,
-    saveConvo: async (_ctx: unknown, payload: Write) => {
+    saveConvo: async (_ctx: unknown, payload: Write, meta: Write) => {
       fields.push(payload);
+      options.push(meta);
       return { conversationId: payload.conversationId as string };
     },
   };
@@ -73,6 +76,26 @@ describe('Work marker persistence', () => {
     expect(store.fields[0]).not.toHaveProperty('workModel');
   });
 
+  it('ignores client Work markers on an ordinary chat turn', async () => {
+    const store = makeStore();
+    await saveTurnConversation(
+      store as never,
+      baseWrite({
+        req: { user: { id: 'user-1' } } as never,
+        endpointOptions: {
+          model: 'llama3:latest',
+          isWork: true,
+          workModel: 'gpt-4o',
+          workState: 'running',
+        } as never,
+      }),
+    );
+
+    expect(store.fields[0]).not.toHaveProperty('isWork');
+    expect(store.fields[0]).not.toHaveProperty('workModel');
+    expect(store.fields[0]).not.toHaveProperty('workState');
+  });
+
   it('never persists the auto sentinel as a model', async () => {
     const store = makeStore();
     await saveTurnConversation(
@@ -96,5 +119,24 @@ describe('Work marker persistence', () => {
 
     expect(store.fields[0].isWork).toBe(true);
     expect(store.fields[0].workModel).toBe('llama3:latest');
+  });
+
+  it('preserves an existing Work marker when a non-Work save omits server context', async () => {
+    const store = makeStore();
+    store.getConvo = async () => ({
+      conversationId: 'convo-1',
+      isWork: true,
+      workModel: 'llama3:latest',
+      workState: 'running',
+    });
+    await saveTurnConversation(
+      store as never,
+      baseWrite({ req: { user: { id: 'user-1' } } as never }),
+    );
+
+    expect(store.fields[0].isWork).toBeUndefined();
+    expect(store.fields[0].workModel).toBeUndefined();
+    expect(store.options[0].unsetFields).not.toHaveProperty('isWork');
+    expect(store.options[0].unsetFields).not.toHaveProperty('workModel');
   });
 });

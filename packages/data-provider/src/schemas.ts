@@ -1314,6 +1314,11 @@ export const tConversationSchema = z.object({
   /* temporary chat */
   expiredAt: z.string().nullable().optional(),
   isTemporary: z.boolean().optional(),
+  /** Server-owned marker for conversations started through native Work. */
+  isWork: z.boolean().optional(),
+  /** Concrete free or locally served model selected for the Work conversation. */
+  workModel: z.string().optional(),
+  workState: z.string().optional(),
   /* file token limits */
   fileTokenLimit: coerceNumber.optional(),
   /** @deprecated */

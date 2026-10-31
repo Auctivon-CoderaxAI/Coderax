@@ -403,8 +403,11 @@ const ChatForm = memo(function ChatForm({
   /** A queued message becomes the first message of a fresh chat through the same
    *  `prompt` + `submit` query contract that deep links already use. */
   const startQueuedInNewChat = useCallback(
-    (text: string) => navigate(`/c/new?${new URLSearchParams({ prompt: text, submit: 'true' })}`),
-    [navigate],
+    (text: string) => {
+      const routeBase = conversation?.isWork === true ? '/work' : '/c';
+      navigate(`${routeBase}/new?${new URLSearchParams({ prompt: text, submit: 'true' })}`);
+    },
+    [conversation?.isWork, navigate],
   );
   const { restoreReclaimedSteer, canRestoreToComposer } = useComposerRestore({
     index,

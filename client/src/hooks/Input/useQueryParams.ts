@@ -529,11 +529,12 @@ export default function useQueryParams({
       }
 
       const currentConversation = conversationRef.current;
+      const routeBase = currentConversation?.isWork === true ? '/work' : '/c';
       if (
         routePendingRef.current ||
         !currentConversation ||
         (currentConversation.conversationId != null &&
-          routeRef.current.pathname !== `/c/${currentConversation.conversationId}`)
+          routeRef.current.pathname !== `${routeBase}/${currentConversation.conversationId}`)
       ) {
         return;
       }

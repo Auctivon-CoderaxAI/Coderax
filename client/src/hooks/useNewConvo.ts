@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useRecoilState, useRecoilValue, useSetRecoilState, useRecoilCallback } from 'recoil';
 import {
   Constants,
@@ -76,6 +76,7 @@ export function clearInheritedAgentWorkspace(
 }
 
 const useNewConvo = (index = 0) => {
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { data: startupConfig } = useGetStartupConfig();
@@ -293,7 +294,8 @@ const useNewConvo = (index = 0) => {
           if (appTitle) {
             setDocumentTitle(appTitle, true);
           }
-          const path = `/c/${Constants.NEW_CONVO}${getParams(conversation)}`;
+          const routeBase = conversation.isWork === true ? '/work' : '/c';
+          const path = `${routeBase}/${Constants.NEW_CONVO}${getParams(conversation)}`;
           /** Honor disableFocus here too: the transient focus intent survives
            * follow-up navigations (unlike the old location.state), so e.g.
            * SearchBar's clear-search must not have focus stolen back. */
@@ -304,7 +306,8 @@ const useNewConvo = (index = 0) => {
           return;
         }
 
-        const path = `/c/${conversation.conversationId}${getParams(conversation)}`;
+        const routeBase = conversation.isWork === true ? '/work' : '/c';
+        const path = `${routeBase}/${conversation.conversationId}${getParams(conversation)}`;
         if (!disableFocus) {
           requestChatFocus();
         }
@@ -358,6 +361,7 @@ const useNewConvo = (index = 0) => {
         conversationId: Constants.NEW_CONVO as string,
         title: 'New Chat',
         endpoint: null,
+        ...(location.pathname.startsWith('/work') ? { isWork: true } : {}),
         ...template,
         createdAt: '',
         updatedAt: '',
@@ -530,6 +534,7 @@ const useNewConvo = (index = 0) => {
       pauseGlobalAudio,
       switchToConversation,
       applyModelSpecEffects,
+      location.pathname,
     ],
   );
 

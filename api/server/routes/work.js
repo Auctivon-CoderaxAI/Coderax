@@ -1,9 +1,12 @@
-const express = require('express');
 const { logger } = require('@coderax/data-schemas');
-const { createWorkRouter, GenerationJobManager } = require('@coderax/api');
+const {
+  createWorkRouter,
+  GenerationJobManager,
+  persistTerminalWorkState,
+  workStateForJobStatus,
+} = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
-
 const {
   flattenModelConfig,
   toWorkConversation,
@@ -11,6 +14,15 @@ const {
   onlyWorkRows,
 } = require('./workModels');
 const { getWorkChatRouter } = require('./workChat');
+const { createWorkApiRouter } = require('./workApi');
+
+/** The native generation record is transient; persist its terminal outcome on
+ * the existing owner-scoped Work conversation before the manager deletes it. */
+GenerationJobManager.onGenerationSettled((event) => {
+  void persistTerminalWorkState(event, db).catch(() => {
+    logger.warn('[Work] Could not persist terminal task state.');
+  });
+});
 
 /**
  * A Work request carries its own authenticated context: model discovery is
@@ -30,6 +42,8 @@ function depsFor(req) {
     },
     getConversation: async ({ userId, conversationId }) =>
       toWorkConversation(await db.getConvo(userId, conversationId)),
+    getRunState: async ({ conversationId }) =>
+      workStateForJobStatus(await GenerationJobManager.getJobStatus(conversationId)),
     cancelRun: async ({ userId, conversationId }) => {
       const job = await GenerationJobManager.getJob(conversationId);
       if (!job) {
@@ -57,20 +71,7 @@ function depsFor(req) {
   };
 }
 
-const router = express.Router();
-
-/**
- * Work start is the native chat handler behind an alias: the alias attaches the
- * server-owned Work context, then delegates to the same SSE stream, tools and
- * approval machinery as ordinary chat. Declared before the read routes so it is
- * never matched by the task router.
- */
-router.use('/chat', getWorkChatRouter());
-
-/**
- * The Work router is dependency-injected and request-scoped, so it is built per
- * request from the authenticated context rather than cached at module load.
- */
-router.use((req, res, next) => createWorkRouter(depsFor(req))(req, res, next));
-
-module.exports = router;
+module.exports = createWorkApiRouter({
+  chatRouter: getWorkChatRouter(),
+  createReadRouterForRequest: (req) => createWorkRouter(depsFor(req)),
+});

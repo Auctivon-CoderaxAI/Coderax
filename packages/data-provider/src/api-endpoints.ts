@@ -138,6 +138,12 @@ export const apiKeys = () => apiKeysEndpoint;
 export const apiKeyById = (id: string) => `${apiKeysEndpoint}/${id}`;
 
 export const conversationsRoot = `${BASE_URL}/api/convos`;
+export const workRoot = `${BASE_URL}/api/work`;
+export const workModels = () => `${workRoot}/models`;
+export const workTasks = () => `${workRoot}/tasks`;
+export const workTask = (conversationId: string) =>
+  `${workTasks()}/${encodeURIComponent(conversationId)}`;
+export const cancelWorkTask = (conversationId: string) => `${workTask(conversationId)}/cancel`;
 
 export const conversations = (params: q.ConversationListParams) => {
   return `${conversationsRoot}${buildQuery(params)}`;
