@@ -12,7 +12,8 @@ jest.mock('~/server/services/Config', () => ({
   loadConfigModels: (...args) => mockLoadConfigModels(...args),
 }));
 
-const { loadModels } = require('./ModelController');
+const { modelController, loadModels } = require('./ModelController');
+const { logger } = require('@coderax/data-schemas');
 
 function deferred() {
   let resolve;
@@ -53,5 +54,27 @@ describe('loadModels', () => {
       anthropic: ['default-anthropic'],
       custom: ['custom-model'],
     });
+  });
+});
+
+describe('modelController', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns a safe catalog error without echoing provider details', async () => {
+    const privateProviderMessage = 'provider rejected key private-provider-detail';
+    mockLoadDefaultModels.mockRejectedValue(new Error(privateProviderMessage));
+    const res = {
+      send: jest.fn(),
+      status: jest.fn().mockReturnThis(),
+    };
+
+    await modelController({ user: { id: 'user-1' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.send).toHaveBeenCalledWith({ error: 'Failed to load model catalog' });
+    expect(JSON.stringify(res.send.mock.calls)).not.toContain(privateProviderMessage);
+    expect(logger.error).toHaveBeenCalledWith('Error fetching models', { errorName: 'Error' });
   });
 });

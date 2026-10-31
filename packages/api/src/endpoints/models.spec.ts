@@ -984,22 +984,89 @@ describe('getGoogleModels', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env };
+    mockedAxios.get.mockClear();
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
-  it('returns default models when GOOGLE_MODELS is not set', () => {
+  it('returns default models when discovery is not configured', async () => {
     delete process.env.GOOGLE_MODELS;
-    const models = getGoogleModels();
+    delete process.env.GOOGLE_KEY;
+    delete process.env.GOOGLE_REVERSE_PROXY;
+    const models = await getGoogleModels();
     expect(models).toEqual(defaultModels[EModelEndpoint.google]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 
-  it('returns models from GOOGLE_MODELS when set', () => {
+  it('returns models from GOOGLE_MODELS when set', async () => {
     process.env.GOOGLE_MODELS = 'gemini-pro, bard ';
-    const models = getGoogleModels();
+    const models = await getGoogleModels();
     expect(models).toEqual(['gemini-pro', 'bard']);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it('does not discover over an explicitly configured model list', async () => {
+    process.env.GOOGLE_KEY = 'google-test-key';
+
+    await expect(getGoogleModels({ configuredModels: [] })).resolves.toEqual([]);
+    expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it('discovers only models that support generateContent', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'google-test-key';
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [
+          { name: 'models/gemini-chat', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/text-embedding', supportedGenerationMethods: ['embedContent'] },
+          { name: 'gemini-duplicate', supportedGenerationMethods: ['generateContent'] },
+        ],
+      },
+    });
+
+    await expect(getGoogleModels()).resolves.toEqual(['gemini-chat', 'gemini-duplicate']);
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',
+      expect.objectContaining({
+        timeout: 5000,
+        maxRedirects: 0,
+        headers: expect.objectContaining({ 'x-goog-api-key': 'google-test-key' }),
+      }),
+    );
+  });
+
+  it('forwards the configured endpoint headers with user context', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'google-test-key';
+    const headers = { 'X-Tenant': 'tenant-a' };
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        models: [{ name: 'models/gemini-chat', supportedGenerationMethods: ['generateContent'] }],
+      },
+    });
+
+    await getGoogleModels({ headers, userObject: { id: 'user-1' } });
+
+    expect(resolveHeaders).toHaveBeenCalledWith({
+      headers,
+      user: { id: 'user-1' },
+      stripUnresolved: true,
+    });
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Tenant': 'tenant-a' }) }),
+    );
+  });
+
+  it('falls back to the configured catalog when live discovery fails', async () => {
+    delete process.env.GOOGLE_MODELS;
+    process.env.GOOGLE_KEY = 'google-test-key';
+    mockedAxios.get.mockRejectedValueOnce(new Error('provider response contained a private value'));
+
+    await expect(getGoogleModels()).resolves.toEqual(defaultModels[EModelEndpoint.google]);
   });
 });
 
