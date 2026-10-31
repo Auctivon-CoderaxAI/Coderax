@@ -46,7 +46,11 @@ describe('loadDefaultModels', () => {
       }),
     );
     expect(models[Providers.VERTEXAI]).toBeUndefined();
-    expect(getGoogleModels).toHaveBeenCalledTimes(1);
+    expect(getGoogleModels).toHaveBeenCalledWith({
+      configuredModels: undefined,
+      headers: undefined,
+      userObject: request.user,
+    });
   });
 
   it('keeps the configured Google catalog empty when its model source fails', async () => {

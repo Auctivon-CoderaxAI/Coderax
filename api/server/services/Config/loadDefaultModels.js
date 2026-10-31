@@ -33,6 +33,10 @@ async function loadDefaultModels(req) {
       allHeaders,
       appConfig?.endpoints?.[EModelEndpoint.anthropic]?.headers,
     );
+    const googleHeaders = mergeHeaders(
+      allHeaders,
+      appConfig?.endpoints?.[EModelEndpoint.google]?.headers,
+    );
 
     const [openAI, anthropic, azureOpenAI, assistants, azureAssistants, google, bedrock] =
       await Promise.all([
@@ -67,7 +71,13 @@ async function loadDefaultModels(req) {
           logger.error('Error fetching Azure OpenAI Assistants API models:', error);
           return [];
         }),
-        Promise.resolve(getGoogleModels()).catch((error) => {
+        Promise.resolve(
+          getGoogleModels({
+            configuredModels: configuredModelList(appConfig, EModelEndpoint.google),
+            headers: googleHeaders,
+            userObject: req.user,
+          }),
+        ).catch((error) => {
           logger.error('Error getting Google models:', error);
           return [];
         }),

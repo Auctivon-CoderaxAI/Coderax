@@ -1,550 +1,113 @@
-import axios from 'axios';
-import crypto from 'crypto';
-import { logger } from '@coderax/data-schemas';
-import {
-  Time,
-  CacheKeys,
-  KnownEndpoints,
-  EModelEndpoint,
-  defaultModels,
-} from 'coderax-data-provider';
-import type { IUser } from '@coderax/data-schemas';
-import type { AxiosRequestConfig } from 'axios';
-import {
-  processModelData,
-  extractBaseURL,
-  isUserProvided,
-  resolveHeaders,
-  deriveBaseURL,
-  logAxiosError,
-  inputSchema,
-  applyAxiosProxyConfig,
-} from '~/utils';
-import { getModelCacheTokenConfigKey, isScopedTokenConfigKey } from '~/endpoints/keys';
-import { createSSRFSafeAgents, validateEndpointURL } from '~/auth';
-import { standardCache, tokenConfigCache } from '~/cache';
-
-type SSRFSafeAgents = ReturnType<typeof createSSRFSafeAgents>;
-
-export interface FetchModelsParams {
-  /** User ID for API requests */
-  user?: string;
-  /** API key for authentication */
-  apiKey: string;
-  /** Base URL for the API */
-  baseURL?: string;
-  /** Whether the base URL came from a user-stored credential */
-  baseURLIsUserProvided?: boolean;
-  /** Admin-approved internal host:port exemptions for user-provided base URLs */
-  allowedAddresses?: string[] | null;
-  /** Endpoint name (defaults to 'openAI') */
-  name?: string;
-  /** Whether directEndpoint was configured */
-  direct?: boolean;
-  /** Whether to fetch from Azure */
-  azure?: boolean;
-  /** Whether to send user ID as query parameter */
-  userIdQuery?: boolean;
-  /** Whether to create token configuration from API response */
-  createTokenConfig?: boolean;
-  /** Cache key for token configuration (uses name if omitted) */
-  tokenKey?: string;
-  /** Optional headers for the request */
-  headers?: Record<string, string> | null;
-  /** Optional user object for header resolution */
-  userObject?: Partial<IUser>;
-  /** Skip MODEL_QUERIES cache (e.g., for user-provided keys) */
-  skipCache?: boolean;
-}
-
-function applyUserProvidedBaseURLProtection(
-  options: AxiosRequestConfig,
-  ssrfAgents?: SSRFSafeAgents,
-): AxiosRequestConfig {
-  if (!ssrfAgents) {
-    return options;
-  }
-
-  options.maxRedirects = 0;
-
-  options.proxy = false;
-  options.httpAgent = ssrfAgents.httpAgent;
-  options.httpsAgent = ssrfAgents.httpsAgent;
-
-  return options;
-}
-
-/**
- * Fetches Ollama models from the specified base API path.
- * @param baseURL - The Ollama server URL
- * @param options - Optional configuration
- * @returns Promise resolving to array of model names
- */
-async function fetchOllamaModels(
-  baseURL: string,
-  options: {
-    headers?: Record<string, string> | null;
-    ssrfAgents?: SSRFSafeAgents;
-    user?: Partial<IUser>;
-  } = {},
-): Promise<string[]> {
-  if (!baseURL) {
-    return [];
-  }
-
-  const ollamaEndpoint = deriveBaseURL(baseURL);
-
-  const resolvedHeaders = resolveHeaders({
-    headers: options.headers ?? undefined,
-    user: options.user,
-    stripUnresolved: true,
-  });
-
-  const requestOptions: AxiosRequestConfig & {
-    headers: Record<string, string>;
-    timeout: number;
-  } = {
-    headers: resolvedHeaders,
-    timeout: 5000,
-    maxRedirects: 0,
-  };
-  applyUserProvidedBaseURLProtection(requestOptions, options.ssrfAgents);
-
-  const response = await axios.get<{ models: Array<{ name: string }> }>(
-    `${ollamaEndpoint}/api/tags`,
-    requestOptions,
-  );
-
-  return response.data.models.map((tag) => tag.name);
-}
-
-async function backfillTokenConfigFromModelCache(
-  cacheKey: string,
-  tokenKey: string,
-): Promise<boolean> {
-  const cachedTokenConfig = await tokenConfigCache().get(getModelCacheTokenConfigKey(cacheKey));
-  if (cachedTokenConfig == null) {
-    return false;
-  }
-
-  await tokenConfigCache().set(tokenKey, cachedTokenConfig);
-  return true;
-}
-
-/**
- * Splits a string by commas and trims each resulting value.
- * @param input - The input string to split.
- * @returns An array of trimmed values.
- */
-export function splitAndTrim(input: string | null | undefined): string[] {
-  if (!input || typeof input !== 'string') {
-    return [];
-  }
-  return input
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-/**
- * Fetches models from the specified base API path or Azure, based on the provided configuration.
- *
- * @param params - The parameters for fetching the models.
- * @returns A promise that resolves to an array of model identifiers.
- */
-export async function fetchModels({
-  user,
-  apiKey,
-  baseURL: _baseURL,
-  baseURLIsUserProvided = false,
-  allowedAddresses,
-  name = EModelEndpoint.openAI,
-  direct = false,
-  azure = false,
-  userIdQuery = false,
-  createTokenConfig = true,
-  tokenKey,
-  headers,
-  userObject,
-  skipCache = false,
-}: FetchModelsParams): Promise<string[]> {
-  let models: string[] = [];
-  const baseURL = direct ? extractBaseURL(_baseURL ?? '') : _baseURL;
-
-  if (!baseURL && !azure) {
-    return models;
-  }
-
-  if (!apiKey) {
-    return models;
-  }
-
-  const ssrfAgents = baseURLIsUserProvided ? createSSRFSafeAgents(allowedAddresses) : undefined;
-  if (baseURLIsUserProvided && baseURL) {
-    await validateEndpointURL(baseURL, name, allowedAddresses);
-  }
-
-  // The MODEL_QUERIES cache is keyed by baseURL+apiKey only. That's safe
-  // when the response is identical for every caller, but fails when callers
-  // forward header templates that resolve to a user-bound value (e.g.
-  // `Authorization: Bearer {{CODERAX_OPENID_ID_TOKEN}}`): one user's
-  // filtered list could otherwise be served to the next request that
-  // shares the same baseURL+apiKey. Skip the cache whenever both `headers`
-  // and `userObject` are supplied, since that's the signal the caller is
-  // resolving headers against a specific user's identity.
-  const hasUserScopedHeaders = !!headers && Object.keys(headers).length > 0 && !!userObject;
-  const shouldCache = !skipCache && !(userIdQuery && user) && !hasUserScopedHeaders;
-  const cacheKey = shouldCache ? modelsCacheKey(baseURL ?? '', apiKey) : '';
-  const modelsCache = shouldCache ? standardCache(CacheKeys.MODEL_QUERIES) : null;
-  if (modelsCache && cacheKey) {
-    const cachedModels = await modelsCache.get(cacheKey);
-    if (cachedModels) {
-      if (createTokenConfig && tokenKey) {
-        const tokenConfigBackfilled = await backfillTokenConfigFromModelCache(cacheKey, tokenKey);
-        if (!tokenConfigBackfilled && isScopedTokenConfigKey(tokenKey)) {
-          models = cachedModels as string[];
-        } else {
-          return cachedModels as string[];
-        }
-      } else {
-        return cachedModels as string[];
-      }
-    }
-  }
-
-  if (name && name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
-    let ollamaModels: string[] | null = null;
-    try {
-      ollamaModels = await fetchOllamaModels(baseURL ?? '', {
-        headers,
-        ssrfAgents,
-        user: userObject,
-      });
-    } catch (ollamaError) {
-      logAxiosError({
-        message:
-          'Failed to fetch models from Ollama API. Attempting to fetch via OpenAI-compatible endpoint.',
-        error: ollamaError as Error,
-      });
-    }
-    if (ollamaModels !== null) {
-      if (modelsCache && cacheKey && ollamaModels.length > 0) {
-        await modelsCache.set(cacheKey, ollamaModels, Time.TWO_MINUTES);
-      }
-      return ollamaModels;
-    }
-  }
-
-  try {
-    // Resolve template variables (e.g. {{CODERAX_OPENID_ID_TOKEN}}) in the
-    // configured headers, mirroring fetchOllamaModels above. Without this,
-    // placeholder strings are forwarded literally on the model-fetch path.
-    const resolvedHeaders = resolveHeaders({
-      headers: headers ?? undefined,
-      user: userObject,
-      stripUnresolved: true,
-    });
-
-    const options: AxiosRequestConfig & {
-      headers: Record<string, string>;
-      timeout: number;
-    } = {
-      headers: {
-        ...resolvedHeaders,
-      },
-      timeout: 5000,
-    };
-
-    if (name === EModelEndpoint.anthropic) {
-      // Keep configured custom headers (e.g. gateway metadata) while the
-      // provider-managed auth/version headers stay authoritative.
-      options.headers = {
-        ...resolvedHeaders,
-        'x-api-key': apiKey,
-        'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
-      };
-    } else {
-      // Only fall back to the apiKey-based Bearer when the configured
-      // headers did not already supply an Authorization. This lets
-      // auth-aware proxies (e.g. LiteLLM with JWT auth) receive the user's
-      // token on /v1/models so they can return a per-user filtered list.
-      const hasAuthHeader = Object.keys(options.headers).some(
-        (k) => k.toLowerCase() === 'authorization',
-      );
-      if (!hasAuthHeader) {
-        options.headers.Authorization = `Bearer ${apiKey}`;
-      }
-    }
-
-    if (process.env.OPENAI_ORGANIZATION && baseURL?.includes('openai')) {
-      options.headers['OpenAI-Organization'] = process.env.OPENAI_ORGANIZATION;
-    }
-
-    const url = new URL(`${(baseURL ?? '').replace(/\/+$/, '')}${azure ? '' : '/models'}`);
-    if (user && userIdQuery) {
-      url.searchParams.append('user', user);
-    }
-    if (name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
-      options.maxRedirects = 0;
-    }
-    applyAxiosProxyConfig(options, url);
-    applyUserProvidedBaseURLProtection(options, ssrfAgents);
-    const res = await axios.get(url.toString(), options);
-
-    const input = res.data;
-
-    const validationResult = inputSchema.safeParse(input);
-    if (validationResult.success && createTokenConfig) {
-      const endpointTokenConfig = processModelData(input);
-      const cache = tokenConfigCache();
-      await cache.set(tokenKey ?? name, endpointTokenConfig);
-      if (modelsCache && cacheKey) {
-        await cache.set(getModelCacheTokenConfigKey(cacheKey), endpointTokenConfig);
-      }
-    }
-    models = input.data.map((item: { id: string }) => item.id);
-  } catch (error) {
-    const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
-    logAxiosError({ message: logMessage, error: error as Error });
-  }
-
-  if (modelsCache && cacheKey && models.length > 0) {
-    await modelsCache.set(cacheKey, models, Time.TWO_MINUTES);
-  }
-
-  return models;
-}
-
-function modelsCacheKey(baseURL: string, apiKey: string): string {
-  return crypto.createHash('sha256').update(`${baseURL}:${apiKey}`).digest('hex').slice(0, 32);
-}
-
-/** Options for fetching OpenAI models */
-export interface GetOpenAIModelsOptions {
-  /** User ID for API requests */
-  user?: string;
-  /** Whether to fetch from Azure */
-  azure?: boolean;
-  /** Whether to fetch models for the Assistants endpoint */
-  assistants?: boolean;
-  /** OpenAI API key (if not using environment variable) */
-  openAIApiKey?: string;
-  /** Skip MODEL_QUERIES cache (e.g., for user-provided keys) */
-  skipCache?: boolean;
-  /** Configured custom headers forwarded to the (gateway-fronted) provider */
-  headers?: Record<string, string> | null;
-  /** User object for resolving header placeholders */
-  userObject?: Partial<IUser>;
-  /** A model list configured for the endpoint; when set, it is returned without discovery. */
-  configuredModels?: string[];
-}
-
-function resolveOpenAIApiKey(opts: GetOpenAIModelsOptions): string | undefined {
-  return opts.openAIApiKey || process.env.OPENAI_API_KEY;
-}
-
-/**
- * Fetches models from OpenAI or Azure based on the provided options.
- * @param opts - Options for fetching models
- * @param _models - Fallback models array
- * @returns Promise resolving to array of model IDs
- */
-export async function fetchOpenAIModels(
-  opts: GetOpenAIModelsOptions,
-  _models: string[] = [],
-): Promise<string[]> {
-  let models = _models.slice() ?? [];
-  const apiKey = resolveOpenAIApiKey(opts);
-  const openaiBaseURL = 'https://api.openai.com/v1';
-  let baseURL = openaiBaseURL;
-  let reverseProxyUrl = process.env.OPENAI_REVERSE_PROXY;
-
-  if (opts.assistants && process.env.ASSISTANTS_BASE_URL) {
-    reverseProxyUrl = process.env.ASSISTANTS_BASE_URL;
-  } else if (opts.azure) {
-    return models;
-  }
-
-  if (reverseProxyUrl) {
-    baseURL = extractBaseURL(reverseProxyUrl) ?? openaiBaseURL;
-  }
-
-  if (baseURL || opts.azure) {
-    models = await fetchModels({
-      apiKey: apiKey ?? '',
-      baseURL,
-      azure: opts.azure,
-      user: opts.user,
-      name: EModelEndpoint.openAI,
-      skipCache: opts.skipCache,
-      headers: opts.headers,
-      userObject: opts.userObject,
-    });
-  }
-
-  if (models.length === 0) {
-    return _models;
-  }
-
-  if (baseURL === openaiBaseURL) {
-    const regex = /(text-davinci-003|gpt-|o\d+|chat-latest)/;
-    const excludeRegex = /audio|realtime/;
-    models = models.filter((model) => regex.test(model) && !excludeRegex.test(model));
-    const instructModels = models.filter((model) => model.includes('instruct'));
-    const otherModels = models.filter((model) => !model.includes('instruct'));
-    models = otherModels.concat(instructModels);
-  }
-
-  return models;
-}
-
-/**
- * Loads the default models for OpenAI or Azure.
- * @param opts - Options for getting models
- * @returns Promise resolving to array of model IDs
- */
-export async function getOpenAIModels(opts: GetOpenAIModelsOptions = {}): Promise<string[]> {
-  if (opts.configuredModels) {
-    return opts.configuredModels;
-  }
-  let models = defaultModels[EModelEndpoint.openAI];
-
-  if (opts.assistants) {
-    models = defaultModels[EModelEndpoint.assistants];
-  } else if (opts.azure) {
-    models = defaultModels[EModelEndpoint.azureAssistants];
-  }
-
-  let key: string;
-  if (opts.assistants) {
-    key = 'ASSISTANTS_MODELS';
-  } else if (opts.azure) {
-    key = 'AZURE_OPENAI_MODELS';
-  } else {
-    key = 'OPENAI_MODELS';
-  }
-
-  if (process.env[key]) {
-    return splitAndTrim(process.env[key]);
-  }
-
-  if (isUserProvided(resolveOpenAIApiKey(opts))) {
-    return models;
-  }
-
-  return await fetchOpenAIModels(opts, models);
-}
-
-/**
- * Fetches models from the Anthropic API.
- * @param opts - Options for fetching models
- * @param _models - Fallback models array
- * @returns Promise resolving to array of model IDs
- */
-export async function fetchAnthropicModels(
-  opts: {
-    user?: string;
-    skipCache?: boolean;
-    headers?: Record<string, string> | null;
-    userObject?: Partial<IUser>;
-  } = {},
-  _models: string[] = [],
-): Promise<string[]> {
-  let models = _models.slice() ?? [];
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const anthropicBaseURL = 'https://api.anthropic.com/v1';
-  let baseURL = anthropicBaseURL;
-  const reverseProxyUrl = process.env.ANTHROPIC_REVERSE_PROXY;
-
-  if (reverseProxyUrl) {
-    baseURL = extractBaseURL(reverseProxyUrl) ?? anthropicBaseURL;
-  }
-
-  if (!apiKey) {
-    return models;
-  }
-
-  if (baseURL) {
-    models = await fetchModels({
-      apiKey,
-      baseURL,
-      user: opts.user,
-      name: EModelEndpoint.anthropic,
-      tokenKey: EModelEndpoint.anthropic,
-      skipCache: opts.skipCache,
-      headers: opts.headers,
-      userObject: opts.userObject,
-    });
-  }
-
-  if (models.length === 0) {
-    return _models;
-  }
-
-  return models;
-}
-
-/**
- * Gets Anthropic models from environment or API.
- * @param opts - Options for fetching models
- * @returns Promise resolving to array of model IDs
- */
-export async function getAnthropicModels(
-  opts: {
-    user?: string;
-    vertexModels?: string[];
-    headers?: Record<string, string> | null;
-    userObject?: Partial<IUser>;
-    /** A model list configured for the endpoint; when set, it is returned without discovery. */
-    configuredModels?: string[];
-  } = {},
-): Promise<string[]> {
-  if (opts.configuredModels) {
-    return opts.configuredModels;
-  }
-  const models = defaultModels[EModelEndpoint.anthropic];
-
-  // Vertex AI models from YAML config take priority
-  if (opts.vertexModels && opts.vertexModels.length > 0) {
-    return opts.vertexModels;
-  }
-
-  if (process.env.ANTHROPIC_MODELS) {
-    return splitAndTrim(process.env.ANTHROPIC_MODELS);
-  }
-
-  if (isUserProvided(process.env.ANTHROPIC_API_KEY)) {
-    return models;
-  }
-
-  try {
-    return await fetchAnthropicModels(opts, models);
-  } catch (error) {
-    logger.error('Error fetching Anthropic models:', error);
-    return models;
-  }
-}
-
-/**
- * Gets Google models from environment or defaults.
- * @returns Array of model IDs
- */
-export function getGoogleModels(): string[] {
-  let models = defaultModels[EModelEndpoint.google];
-  if (process.env.GOOGLE_MODELS) {
-    models = splitAndTrim(process.env.GOOGLE_MODELS);
-  }
-  return models;
-}
-
-/**
- * Gets Bedrock models from environment or defaults.
- * @returns Array of model IDs
- */
-export function getBedrockModels(): string[] {
-  let models = defaultModels[EModelEndpoint.bedrock];
-  if (process.env.BEDROCK_AWS_MODELS) {
-    models = splitAndTrim(process.env.BEDROCK_AWS_MODELS);
-  }
-  return models;
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíë­;N‹Z–‹­¦ëeŠw¬Õ¥µÁ½ÉĞ…á¥½Ì™É½´€…á¥½Ìœì)¥µÁ½ÉĞÉåÁÑ¼™É½´€ÉåÁÑ¼œì)¥µÁ½ÉĞì±½•Èô™É½´€½‘•É…à½‘…Ñ„µÍ¡•µ…Ìœì)¥µÁ½ÉĞì(€Q¥µ”°(€…¡•-•åÌ°(€-¹½İ¹¹‘Á½¥¹ÑÌ°(€5½‘•±¹‘Á½¥¹Ğ°(€‘•™…Õ±Ñ5½‘•±Ì°)ô™É½´€½‘•É…àµ‘…Ñ„µÁÉ½Ù¥‘•Èœì)¥µÁ½ÉĞÑåÁ”ì%UÍ•Èô™É½´€½‘•É…à½‘…Ñ„µÍ¡•µ…Ìœì)¥µÁ½ÉĞÑåÁ”ìá¥½ÍI•ÅÕ•ÍÑ½¹™¥œô™É½´€…á¥½Ìœì)¥µÁ½ÉĞì(€ÁÉ½•ÍÍ5½‘•±…Ñ„°(€•áÑÉ…Ñ	…Í•UI0°(€¥ÍUÍ•ÉAÉ½Ù¥‘•°(€É•Í½±Ù•!•…‘•ÉÌ°(€‘•É¥Ù•	…Í•UI0°(€±½á¥½ÍÉÉ½È°(€¥¹ÁÕÑM¡•µ„°(€…ÁÁ±åá¥½ÍAÉ½áå½¹™¥œ°)ô™É½´€ø½ÕÑ¥±Ìœì)¥µÁ½ÉĞì•Ñ5½‘•±…¡•Q½­•¹½¹™¥-•ä°¥ÍM½Á•‘Q½­•¹½¹™¥-•äô™É½´€ø½•¹‘Á½¥¹ÑÌ½­•åÌœì)¥µÁ½ÉĞìÉ•…Ñ•MMIM…™••¹ÑÌ°Ù…±¥‘…Ñ•¹‘Á½¥¹ÑUI0ô™É½´€ø½…ÕÑ œì)¥µÁ½ÉĞìÍÑ…¹‘…É‘…¡”°Ñ½­•¹½¹™¥…¡”ô™É½´€ø½…¡”œì()ÑåÁ”MMIM…™••¹ÑÌ€ôI•ÑÕÉ¹QåÁ”ñÑåÁ•½˜É•…Ñ•MMIM…™••¹ÑÌøì()•áÁ½ÉĞ¥¹Ñ•É™…”•Ñ¡5½‘•±ÍA…É…µÌì(€€¼¨¨UÍ•È%™½ÈA$É•ÅÕ•ÍÑÌ€¨¼(€ÕÍ•ÈüèÍÑÉ¥¹œì(€€¼¨¨A$­•ä™½È…ÕÑ¡•¹Ñ¥…Ñ¥½¸€¨¼(€…Á¥-•äèÍÑÉ¥¹œì(€€¼¨¨	…Í”UI0™½ÈÑ¡”A$€¨¼(€‰…Í•UI0üèÍÑÉ¥¹œì(€€¼¨¨]¡•Ñ¡•ÈÑ¡”‰…Í”UI0…µ”™É½´„ÕÍ•ÈµÍÑ½É•É•‘•¹Ñ¥…°€¨¼(€‰…Í•UI1%ÍUÍ•ÉAÉ½Ù¥‘•üè‰½½±•…¸ì(€€¼¨¨‘µ¥¸µ…ÁÁÉ½Ù•¥¹Ñ•É¹…°¡½ÍĞéÁ½ÉĞ•á•µÁÑ¥½¹Ì™½ÈÕÍ•ÈµÁÉ½Ù¥‘•‰…Í”UI1Ì€¨¼(€…±±½İ•‘‘‘É•ÍÍ•ÌüèÍÑÉ¥¹mtğ¹Õ±°ì(€€¼¨¨¹‘Á½¥¹Ğ¹…µ”€¡‘•™…Õ±ÑÌÑ¼€½Á•¹$œ¤€¨¼(€¹…µ”üèÍÑÉ¥¹œì(€€¼¨¨]¡•Ñ¡•È‘¥É•Ñ¹‘Á½¥¹Ğİ…Ì½¹™¥ÕÉ•€¨¼(€‘¥É•Ğüè‰½½±•…¸ì(€€¼¨¨]¡•Ñ¡•ÈÑ¼™•Ñ ™É½´éÕÉ”€¨¼(€…éÕÉ”üè‰½½±•…¸ì(€€¼¨¨]¡•Ñ¡•ÈÑ¼Í•¹ÕÍ•È%…ÌÅÕ•ÉäÁ…É…µ•Ñ•È€¨¼(€ÕÍ•É%‘EÕ•Éäüè‰½½±•…¸ì(€€¼¨¨]¡•Ñ¡•ÈÑ¼É•…Ñ”Ñ½­•¸½¹™¥ÕÉ…Ñ¥½¸™É½´A$É•ÍÁ½¹Í”€¨¼(€É•…Ñ•Q½­•¹½¹™¥œüè‰½½±•…¸ì(€€¼¨¨…¡”­•ä™½ÈÑ½­•¸½¹™¥ÕÉ…Ñ¥½¸€¡ÕÍ•Ì¹…µ”¥˜½µ¥ÑÑ•¤€¨¼(€Ñ½­•¹-•äüèÍÑÉ¥¹œì(€€¼¨¨=ÁÑ¥½¹…°¡•…‘•ÉÌ™½ÈÑ¡”É•ÅÕ•ÍĞ€¨¼(€¡•…‘•ÉÌüèI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œøğ¹Õ±°ì(€€¼¨¨=ÁÑ¥½¹…°ÕÍ•È½‰©•Ğ™½È¡•…‘•ÈÉ•Í½±ÕÑ¥½¸€¨¼(€ÕÍ•É=‰©•ĞüèA…ÉÑ¥…°ñ%UÍ•Èøì(€€¼¨¨M­¥À5=1}EUI%L…¡”€¡”¹œ¸°™½ÈÕÍ•ÈµÁÉ½Ù¥‘•­•åÌ¤€¨¼(€Í­¥Á…¡”üè‰½½±•…¸ì)ô()™Õ¹Ñ¥½¸…ÁÁ±åUÍ•ÉAÉ½Ù¥‘•‘	…Í•UI1AÉ½Ñ•Ñ¥½¸ (€½ÁÑ¥½¹Ìèá¥½ÍI•ÅÕ•ÍÑ½¹™¥œ°(€ÍÍÉ™•¹ÑÌüèMMIM…™••¹ÑÌ°(¤èá¥½ÍI•ÅÕ•ÍÑ½¹™¥œì(€¥˜€ …ÍÍÉ™•¹ÑÌ¤ì(€€€É•ÑÕÉ¸½ÁÑ¥½¹Ìì(€ô((€½ÁÑ¥½¹Ì¹µ…áI•‘¥É•ÑÌ€ô€Àì((€½ÁÑ¥½¹Ì¹ÁÉ½áä€ô™…±Í”ì(€½ÁÑ¥½¹Ì¹¡ÑÑÁ•¹Ğ€ôÍÍÉ™•¹ÑÌ¹¡ÑÑÁ•¹Ğì(€½ÁÑ¥½¹Ì¹¡ÑÑÁÍ•¹Ğ€ôÍÍÉ™•¹ÑÌ¹¡ÑÑÁÍ•¹Ğì((€É•ÑÕÉ¸½ÁÑ¥½¹Ìì)ô((¼¨¨(€¨•Ñ¡•Ì=±±…µ„µ½‘•±Ì™É½´Ñ¡”ÍÁ•¥™¥•‰…Í”A$Á…Ñ ¸(€¨Á…É…´‰…Í•UI0€´Q¡”=±±…µ„Í•ÉÙ•ÈUI0(€¨Á…É…´½ÁÑ¥½¹Ì€´=ÁÑ¥½¹…°½¹™¥ÕÉ…Ñ¥½¸(€¨É•ÑÕÉ¹ÌAÉ½µ¥Í”É•Í½±Ù¥¹œÑ¼…ÉÉ…ä½˜µ½‘•°¹…µ•Ì(€¨¼)…Íå¹Œ™Õ¹Ñ¥½¸™•Ñ¡=±±…µ…5½‘•±Ì (€‰…Í•UI0èÍÑÉ¥¹œ°(€½ÁÑ¥½¹Ìèì(€€€¡•…‘•ÉÌüèI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œøğ¹Õ±°ì(€€€ÍÍÉ™•¹ÑÌüèMMIM…™••¹ÑÌì(€€€ÕÍ•ÈüèA…ÉÑ¥…°ñ%UÍ•Èøì(€ô€ôíô°(¤èAÉ½µ¥Í”ñÍÑÉ¥¹mtøì(€¥˜€ …‰…Í•UI0¤ì(€€€É•ÑÕÉ¸mtì(€ô((€½¹ÍĞ½±±…µ…¹‘Á½¥¹Ğ€ô‘•É¥Ù•	…Í•UI0¡‰…Í•UI0¤ì((€½¹ÍĞÉ•Í½±Ù•‘!•…‘•ÉÌ€ôÉ•Í½±Ù•!•…‘•ÉÌ¡ì(€€€¡•…‘•ÉÌè½ÁÑ¥½¹Ì¹¡•…‘•ÉÌ€üüÕ¹‘•™¥¹•°(€€€ÕÍ•Èè½ÁÑ¥½¹Ì¹ÕÍ•È°(€€€ÍÑÉ¥ÁU¹É•Í½±Ù•èÑÉÕ”°(€ô¤ì((€½¹ÍĞÉ•ÅÕ•ÍÑ=ÁÑ¥½¹Ìèá¥½ÍI•ÅÕ•ÍÑ½¹™¥œ€˜ì(€€€¡•…‘•ÉÌèI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œøì(€€€Ñ¥µ•½ÕĞè¹Õµ‰•Èì(€ô€ôì(€€€¡•…‘•ÉÌèÉ•Í½±Ù•‘!•…‘•ÉÌ°(€€€Ñ¥µ•½ÕĞè€ÔÀÀÀ°(€€€µ…áI•‘¥É•ÑÌè€À°(€ôì(€…ÁÁ±åUÍ•ÉAÉ½Ù¥‘•‘	…Í•UI1AÉ½Ñ•Ñ¥½¸¡É•ÅÕ•ÍÑ=ÁÑ¥½¹Ì°½ÁÑ¥½¹Ì¹ÍÍÉ™•¹ÑÌ¤ì((€½¹ÍĞÉ•ÍÁ½¹Í”€ô…İ…¥Ğ…á¥½Ì¹•Ğñìµ½‘•±ÌèÉÉ…äñì¹…µ”èÍÑÉ¥¹œôøôø (€€€€‘í½±±…µ…¹‘Á½¥¹Ñô½…Á¤½Ñ…Í€°(€€€É•ÅÕ•ÍÑ=ÁÑ¥½¹Ì°(€€¤ì((€É•ÑÕÉ¸É•ÍÁ½¹Í”¹‘…Ñ„¹µ½‘•±Ì¹µ…À ¡Ñ…œ¤€ôøÑ…œ¹¹…µ”¤ì)ô()…Íå¹Œ™Õ¹Ñ¥½¸‰…­™¥±±Q½­•¹½¹™¥É½µ5½‘•±…¡” (€…¡•-•äèÍÑÉ¥¹œ°(€Ñ½­•¹-•äèÍÑÉ¥¹œ°(¤èAÉ½µ¥Í”ñ‰½½±•…¸øì(€½¹ÍĞ…¡•‘Q½­•¹½¹™¥œ€ô…İ…¥ĞÑ½­•¹½¹™¥…¡” ¤¹•Ğ¡•Ñ5½‘•±…¡•Q½­•¹½¹™¥-•ä¡…¡•-•ä¤¤ì(€¥˜€¡…¡•‘Q½­•¹½¹™¥œ€ôô¹Õ±°¤ì(€€€É•ÑÕÉ¸™…±Í”ì(€ô((€…İ…¥ĞÑ½­•¹½¹™¥…¡” ¤¹Í•Ğ¡Ñ½­•¹-•ä°…¡•‘Q½­•¹½¹™¥œ¤ì(€É•ÑÕÉ¸ÑÉÕ”ì)ô((¼¨¨(€¨MÁ±¥ÑÌ„ÍÑÉ¥¹œ‰ä½µµ…Ì…¹ÑÉ¥µÌ•… É•ÍÕ±Ñ¥¹œÙ…±Õ”¸(€¨Á…É…´¥¹ÁÕĞ€´Q¡”¥¹ÁÕĞÍÑÉ¥¹œÑ¼ÍÁ±¥Ğ¸(€¨É•ÑÕÉ¹Ì¸…ÉÉ…ä½˜ÑÉ¥µµ•Ù…±Õ•Ì¸(€¨¼)•áÁ½ÉĞ™Õ¹Ñ¥½¸ÍÁ±¥Ñ¹‘QÉ¥´¡¥¹ÁÕĞèÍÑÉ¥¹œğ¹Õ±°ğÕ¹‘•™¥¹•¤èÍÑÉ¥¹mtì(€¥˜€ …¥¹ÁÕĞñğÑåÁ•½˜¥¹ÁÕĞ€„ôô€ÍÑÉ¥¹œœ¤ì(€€€É•ÑÕÉ¸mtì(€ô(€É•ÑÕÉ¸¥¹ÁÕĞ(€€€€¹ÍÁ±¥Ğ œ°œ¤(€€€€¹µ…À ¡¥Ñ•´¤€ôø¥Ñ•´¹ÑÉ¥´ ¤¤(€€€€¹™¥±Ñ•È¡	½½±•…¸¤ì)ô((¼¨¨(€¨•Ñ¡•Ìµ½‘•±Ì™É½´Ñ¡”ÍÁ•¥™¥•‰…Í”A$Á…Ñ ½ÈéÕÉ”°‰…Í•½¸Ñ¡”ÁÉ½Ù¥‘•½¹™¥ÕÉ…Ñ¥½¸¸(€¨(€¨Á…É…´Á…É…µÌ€´Q¡”Á…É…µ•Ñ•ÉÌ™½È™•Ñ¡¥¹œÑ¡”µ½‘•±Ì¸(€¨É•ÑÕÉ¹ÌÁÉ½µ¥Í”Ñ¡…ĞÉ•Í½±Ù•ÌÑ¼…¸…ÉÉ…ä½˜µ½‘•°¥‘•¹Ñ¥™¥•ÉÌ¸(€¨¼)•áÁ½ÉĞ…Íå¹Œ™Õ¹Ñ¥½¸™•Ñ¡5½‘•±Ì¡ì(€ÕÍ•È°(€…Á¥-•ä°(€‰…Í•UI0è}‰…Í•UI0°(€‰…Í•UI1%ÍUÍ•ÉAÉ½Ù¥‘•€ô™…±Í”°(€…±±½İ•‘‘‘É•ÍÍ•Ì°(€¹…µ”€ô5½‘•±¹‘Á½¥¹Ğ¹½Á•¹$°(€‘¥É•Ğ€ô™…±Í”°(€…éÕÉ”€ô™…±Í”°(€ÕÍ•É%‘EÕ•Éä€ô™…±Í”°(€É•…Ñ•Q½­•¹½¹™¥œ€ôÑÉÕ”°(€Ñ½­•¹-•ä°(€¡•…‘•ÉÌ°(€ÕÍ•É=‰©•Ğ°(€Í­¥Á…¡”€ô™…±Í”°)ôè•Ñ¡5½‘•±ÍA…É…µÌ¤èAÉ½µ¥Í”ñÍÑÉ¥¹mtøì(€±•Ğµ½‘•±ÌèÍÑÉ¥¹mt€ômtì(€½¹ÍĞ‰…Í•UI0€ô‘¥É•Ğ€ü•áÑÉ…Ñ	…Í•UI0¡}‰…Í•UI0€üü€œœ¤€è}‰…Í•UI0ì((€¥˜€ …‰…Í•UI0€˜˜€……éÕÉ”¤ì(€€€É•ÑÕÉ¸µ½‘•±Ìì(€ô((€¥˜€ ……Á¥-•ä¤ì(€€€É•ÑÕÉ¸µ½‘•±Ìì(€ô((€½¹ÍĞÍÍÉ™•¹ÑÌ€ô‰…Í•UI1%ÍUÍ•ÉAÉ½Ù¥‘•€üÉ•…Ñ•MMIM…™••¹ÑÌ¡…±±½İ•‘‘‘É•ÍÍ•Ì¤€èÕ¹‘•™¥¹•ì(€¥˜€¡‰…Í•UI1%ÍUÍ•ÉAÉ½Ù¥‘•€˜˜‰…Í•UI0¤ì(€€€…İ…¥ĞÙ…±¥‘…Ñ•¹‘Á½¥¹ÑUI0¡‰…Í•UI0°¹…µ”°…±±½İ•‘‘‘É•ÍÍ•Ì¤ì(€ô((€€¼¼Q¡”5=1}EUI%L…¡”¥Ì­•å•‰ä‰…Í•UI0­…Á¥-•ä½¹±ä¸Q¡…ĞÌÍ…™”(€€¼¼İ¡•¸Ñ¡”É•ÍÁ½¹Í”¥Ì¥‘•¹Ñ¥…°™½È•Ù•Éä…±±•È°‰ÕĞ™…¥±Ìİ¡•¸…±±•ÉÌ(€€¼¼™½Éİ…É¡•…‘•ÈÑ•µÁ±…Ñ•ÌÑ¡…ĞÉ•Í½±Ù”Ñ¼„ÕÍ•Èµ‰½Õ¹Ù…±Õ”€¡”¹œ¸(€€¼¼ÕÑ¡½É¥é…Ñ¥½¸è	•…É•Èíí=Ia}=A9%}%}Q=-9õõ€¤è½¹”ÕÍ•ÈÌ(€€¼¼™¥±Ñ•É•±¥ÍĞ½Õ±½Ñ¡•Éİ¥Í”‰”Í•ÉÙ•Ñ¼Ñ¡”¹•áĞÉ•ÅÕ•ÍĞÑ¡…Ğ(€€¼¼Í¡…É•ÌÑ¡”Í…µ”‰…Í•UI0­…Á¥-•ä¸M­¥ÀÑ¡”…¡”İ¡•¹•Ù•È‰½Ñ ¡•…‘•ÉÍ€(€€¼¼…¹ÕÍ•É=‰©•Ñ€…É”ÍÕÁÁ±¥•°Í¥¹”Ñ¡…ĞÌÑ¡”Í¥¹…°Ñ¡”…±±•È¥Ì(€€¼¼É•Í½±Ù¥¹œ¡•…‘•ÉÌ……¥¹ÍĞ„ÍÁ•¥™¥ŒÕÍ•ÈÌ¥‘•¹Ñ¥Ñä¸(€½¹ÍĞ¡…ÍUÍ•ÉM½Á•‘!•…‘•ÉÌ€ô€„…¡•…‘•ÉÌ€˜˜=‰©•Ğ¹­•åÌ¡¡•…‘•ÉÌ¤¹±•¹Ñ €ø€À€˜˜€„…ÕÍ•É=‰©•Ğì(€½¹ÍĞÍ¡½Õ±‘…¡”€ô€…Í­¥Á…¡”€˜˜€„¡ÕÍ•É%‘EÕ•Éä€˜˜ÕÍ•È¤€˜˜€…¡…ÍUÍ•ÉM½Á•‘!•…‘•ÉÌì(€½¹ÍĞ…¡•-•ä€ôÍ¡½Õ±‘…¡”€üµ½‘•±Í…¡•-•ä¡‰…Í•UI0€üü€œœ°…Á¥-•ä¤€è€œœì(€½¹ÍĞµ½‘•±Í…¡”€ôÍ¡½Õ±‘…¡”€üÍÑ…¹‘…É‘…¡”¡…¡•-•åÌ¹5=1}EUI%L¤€è¹Õ±°ì(€¥˜€¡µ½‘•±Í…¡”€˜˜…¡•-•ä¤ì(€€€½¹ÍĞ…¡•‘5½‘•±Ì€ô…İ…¥Ğµ½‘•±Í…¡”¹•Ğ¡…¡•-•ä¤ì(€€€¥˜€¡…¡•‘5½‘•±Ì¤ì(€€€€€¥˜€¡É•…Ñ•Q½­•¹½¹™¥œ€˜˜Ñ½­•¹-•ä¤ì(€€€€€€€½¹ÍĞÑ½­•¹½¹™¥	…­™¥±±•€ô…İ…¥Ğ‰…­™¥±±Q½­•¹½¹™¥É½µ5½‘•±…¡”¡…¡•-•ä°Ñ½­•¹-•ä¤ì(€€€€€€€¥˜€ …Ñ½­•¹½¹™¥	…­™¥±±•€˜˜¥ÍM½Á•‘Q½­•¹½¹™¥-•ä¡Ñ½­•¹-•ä¤¤ì(€€€€€€€€€µ½‘•±Ì€ô…¡•‘5½‘•±Ì…ÌÍÑÉ¥¹mtì(€€€€€€€ô•±Í”ì(€€€€€€€€€É•ÑÕÉ¸…¡•‘5½‘•±Ì…ÌÍÑÉ¥¹mtì(€€€€€€€ô(€€€€€ô•±Í”ì(€€€€€€€É•ÑÕÉ¸…¡•‘5½‘•±Ì…ÌÍÑÉ¥¹mtì(€€€€€ô(€€€ô(€ô((€¥˜€¡¹…µ”€˜˜¹…µ”¹Ñ½1½İ•É…Í” ¤¹ÍÑ…ÉÑÍ]¥Ñ ¡-¹½İ¹¹‘Á½¥¹ÑÌ¹½±±…µ„¤¤ì(€€€±•Ğ½±±…µ…5½‘•±ÌèÍÑÉ¥¹mtğ¹Õ±°€ô¹Õ±°ì(€€€ÑÉäì(€€€€€½±±…µ…5½‘•±Ì€ô…İ…¥Ğ™•Ñ¡=±±…µ…5½‘•±Ì¡‰…Í•UI0€üü€œœ°ì(€€€€€€€¡•…‘•ÉÌ°(€€€€€€€ÍÍÉ™•¹ÑÌ°(€€€€€€€ÕÍ•ÈèÕÍ•É=‰©•Ğ°(€€€€€ô¤ì(€€€ô…Ñ €¡½±±…µ…ÉÉ½È¤ì(€€€€€±½á¥½ÍÉÉ½È¡ì(€€€€€€€µ•ÍÍ…”è(€€€€€€€€€€…¥±•Ñ¼™•Ñ µ½‘•±Ì™É½´=±±…µ„A$¸ÑÑ•µÁÑ¥¹œÑ¼™•Ñ Ù¥„=Á•¹$µ½µÁ…Ñ¥‰±”•¹‘Á½¥¹Ğ¸œ°(€€€€€€€•ÉÉ½Èè½±±…µ…ÉÉ½È…ÌÉÉ½È°(€€€€€ô¤ì(€€€ô(€€€¥˜€¡½±±…µ…5½‘•±Ì€„ôô¹Õ±°¤ì(€€€€€¥˜€¡µ½‘•±Í…¡”€˜˜…¡•-•ä€˜˜½±±…µ…5½‘•±Ì¹±•¹Ñ €ø€À¤ì(€€€€€€€…İ…¥Ğµ½‘•±Í…¡”¹Í•Ğ¡…¡•-•ä°½±±…µ…5½‘•±Ì°Q¥µ”¹Q]=}5%9UQL¤ì(€€€€€ô(€€€€€É•ÑÕÉ¸½±±…µ…5½‘•±Ìì(€€€ô(€ô((€ÑÉäì(€€€€¼¼I•Í½±Ù”Ñ•µÁ±…Ñ”Ù…É¥…‰±•Ì€¡”¹œ¸íí=Ia}=A9%}%}Q=-9õô¤¥¸Ñ¡”(€€€€¼¼½¹™¥ÕÉ•¡•…‘•ÉÌ°µ¥ÉÉ½É¥¹œ™•Ñ¡=±±…µ…5½‘•±Ì…‰½Ù”¸]¥Ñ¡½ÕĞÑ¡¥Ì°(€€€€¼¼Á±…•¡½±‘•ÈÍÑÉ¥¹Ì…É”™½Éİ…É‘•±¥Ñ•É…±±ä½¸Ñ¡”µ½‘•°µ™•Ñ Á…Ñ ¸(€€€½¹ÍĞÉ•Í½±Ù•‘!•…‘•ÉÌ€ôÉ•Í½±Ù•!•…‘•ÉÌ¡ì(€€€€€¡•…‘•ÉÌè¡•…‘•ÉÌ€üüÕ¹‘•™¥¹•°(€€€€€ÕÍ•ÈèÕÍ•É=‰©•Ğ°(€€€€€ÍÑÉ¥ÁU¹É•Í½±Ù•èÑÉÕ”°(€€€ô¤ì((€€€½¹ÍĞ½ÁÑ¥½¹Ìèá¥½ÍI•ÅÕ•ÍÑ½¹™¥œ€˜ì(€€€€€¡•…‘•ÉÌèI•½ÉñÍÑÉ¥¹œ°ÍÑÉ¥¹œøì(€€€€€Ñ¥µ•½ÕĞè¹Õµ‰•Èì(€€€ô€ôì(€€€€€¡•…‘•ÉÌèì(€€€€€€€€¸¸¹É•Í½±Ù•‘!•…‘•ÉÌ°(€€€€€ô°(€€€€€Ñ¥µ•½ÕĞè€ÔÀÀÀ°(€€€ôì((€€€¥˜€¡¹…µ”€ôôô5½‘•±¹‘Á½¥¹Ğ¹…¹Ñ¡É½Á¥Œ¤ì(€€€€€€¼¼-••À½¹™¥ÕÉ•ÕÍÑ½´¡•…‘•ÉÌ€¡”¹œ¸…Ñ•İ…äµ•Ñ…‘…Ñ„¤İ¡¥±”Ñ¡”(€€€€€€¼¼ÁÉ½Ù¥‘•Èµµ…¹…•…ÕÑ ½Ù•ÉÍ¥½¸¡•…‘•ÉÌÍÑ…ä…ÕÑ¡½É¥Ñ…Ñ¥Ù”¸(€€€€€½ÁÑ¥½¹Ì¹¡•…‘•ÉÌ€ôì(€€€€€€€€¸¸¹É•Í½±Ù•‘!•…‘•ÉÌ°(€€€€€€€€àµ…Á¤µ­•äœè…Á¥-•ä°(€€€€€€€€…¹Ñ¡É½Á¥ŒµÙ•ÉÍ¥½¸œèÁÉ½•ÍÌ¹•¹Ø¹9Q!I=A%}YIM%=8ñğ€œÈÀÈÌ´ÀØ´ÀÄœ°(€€€€€ôì(€€€ô•±Í”ì(€€€€€€¼¼=¹±ä™…±°‰…¬Ñ¼Ñ¡”…Á¥-•äµ‰…Í•	•…É•Èİ¡•¸Ñ¡”½¹™¥ÕÉ•(€€€€€€¼¼¡•…‘•ÉÌ‘¥¹½Ğ…±É•…‘äÍÕÁÁ±ä…¸ÕÑ¡½É¥é…Ñ¥½¸¸Q¡¥Ì±•ÑÌ(€€€€€€¼¼…ÕÑ µ…İ…É”ÁÉ½á¥•Ì€¡”¹œ¸1¥Ñ•114İ¥Ñ )]P…ÕÑ ¤É••¥Ù”Ñ¡”ÕÍ•ÈÌ(€€€€€€¼¼Ñ½­•¸½¸€½ØÄ½µ½‘•±ÌÍ¼Ñ¡•ä…¸É•ÑÕÉ¸„Á•ÈµÕÍ•È™¥±Ñ•É•±¥ÍĞ¸(€€€€€½¹ÍĞ¡…ÍÕÑ¡!•…‘•È€ô=‰©•Ğ¹­•åÌ¡½ÁÑ¥½¹Ì¹¡•…‘•ÉÌ¤¹Í½µ” (€€€€€€€€¡¬¤€ôø¬¹Ñ½1½İ•É…Í” ¤€ôôô€…ÕÑ¡½É¥é…Ñ¥½¸œ°(€€€€€€¤ì(€€€€€¥˜€ …¡…ÍÕÑ¡!•…‘•È¤ì(€€€€€€€½ÁÑ¥½¹Ì¹¡•…‘•ÉÌ¹ÕÑ¡½É¥é…Ñ¥½¸€ô	•…É•È€‘í…Á¥-•åõ€ì(€€€€€ô(€€€ô((€€€¥˜€¡ÁÉ½•ÍÌ¹•¹Ø¹=A9%}=I9%iQ%=8€˜˜‰…Í•UI0ü¹¥¹±Õ‘•Ì ½Á•¹…¤œ¤¤ì(€€€€€½ÁÑ¥½¹Ì¹¡•…‘•ÉÍl=Á•¹$µ=É…¹¥é…Ñ¥½¸t€ôÁÉ½•ÍÌ¹•¹Ø¹=A9%}=I9%iQ%=8ì(€€€ô((€€€½¹ÍĞÕÉ°€ô¹•ÜUI0¡€‘ì¡‰…Í•UI0€üü€œœ¤¹É•Á±…” ½p¼¬¼°€œœ¥ô‘í…éÕÉ”€ü€œœ€è€œ½µ½‘•±Ìõ€¤ì(€€€¥˜€¡ÕÍ•È€˜˜ÕÍ•É%‘EÕ•Éä¤ì(€€€€€ÕÉ°¹Í•…É¡A…É…µÌ¹…ÁÁ•¹ ÕÍ•Èœ°ÕÍ•È¤ì(€€€ô(€€€¥˜€¡¹…µ”¹Ñ½1½İ•É…Í” ¤¹ÍÑ‡­;¶‰ËkºwµçH™\ÛÛš[™ÈXY\ˆXÙZÛ\œÈ
+‹Âˆ\Ù\“Øš™XİÎˆ\X[U\Ù\ÂˆÊŠˆH[Ù[\İÛÛ™šYİ\™Y›ÜˆH[™Ú[ÈÚ[ˆÙ]]\È™]\›™YÚ]İ]\ØÛİ™\Kˆ
+‹ÂˆÛÛ™šYİ\™Y[Ù[ÏÎˆİš[™Ö×NÂŸB‚™[˜İ[Ûˆ™\ÛÛ™SÜ[RP\RÙ^JÜÎˆÙ]Ü[RS[Ù[ÓÜ[ÛœÊNˆİš[™È[™Yš[™YÂˆ™]\›ˆÜË›Ü[RP\RÙ^H›ØÙ\ÜË™[‹“ÔSRWĞTWÒÑVNÂŸB‚‹ÊŠ‚ˆ
+ˆ™]Ú\È[Ù[Èœ›ÛHÜ[RHÜˆ^\™H˜\ÙYÛˆH›İšYYÜ[ÛœË‚ˆ
+ˆ\˜[HÜÈHÜ[ÛœÈ›Üˆ™]Ú[™È[Ù[Âˆ
+ˆ\˜[HÛ[Ù[ÈH˜[˜XÚÈ[Ù[È\œ˜^Bˆ
+ˆ™]\›œÈ›ÛZ\ÙH™\ÛÛš[™ÈÈ\œ˜^HÙˆ[Ù[QÂˆ
+‹Â™^Ü\Ş[˜È[˜İ[Ûˆ™]ÚÜ[RS[Ù[ÊˆÜÎˆÙ]Ü[RS[Ù[ÓÜ[ÛœËˆÛ[Ù[Îˆİš[™Ö×HH×KŠNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆ][Ù[ÈHÛ[Ù[ËœÛXÙJ
+HÏÈ×NÂˆÛÛœİ\RÙ^HH™\ÛÛ™SÜ[RP\RÙ^JÜÊNÂˆÛÛœİÜ[˜ZP˜\ÙUT“H	ÚÎ‹ËØ\K›Ü[˜ZK˜ÛÛKİŒIÎÂˆ]˜\ÙUT“HÜ[˜ZP˜\ÙUT“Âˆ]™]™\œÙT›ŞU\›H›ØÙ\ÜË™[‹“ÔSRWÔ‘U‘T”ÑWÔ“ÖNÂ‚ˆYˆ
+ÜË˜\ÜÚ\İ[È	‰ˆ›ØÙ\ÜË™[‹TÔÒTÕS•×ĞTÑWÕT“
+HÂˆ™]™\œÙT›ŞU\›H›ØÙ\ÜË™[‹TÔÒTÕS•×ĞTÑWÕT“ÂˆH[ÙHYˆ
+ÜË˜^\™JHÂˆ™]\›ˆ[Ù[ÎÂˆB‚ˆYˆ
+™]™\œÙT›ŞU\›
+HÂˆ˜\ÙUT“H^˜Xİ˜\ÙUT“
+™]™\œÙT›ŞU\›
+HÏÈÜ[˜ZP˜\ÙUT“ÂˆB‚ˆYˆ
+˜\ÙUT“ÜË˜^\™JHÂˆ[Ù[ÈH]ØZ]™]Ú[Ù[ÊÂˆ\RÙ^Nˆ\RÙ^HÏÈ	ÉËˆ˜\ÙUT“ˆ^\™NˆÜË˜^\™Kˆ\Ù\ˆÜË\Ù\‹ˆ˜[YNˆS[Ù[[™Ú[›Ü[RKˆÚÚ\ØXÚNˆÜËœÚÚ\ØXÚKˆXY\œÎˆÜËšXY\œËˆ\Ù\“Øš™XİˆÜË\Ù\“Øš™XİˆJNÂˆB‚ˆYˆ
+[Ù[Ë›[™İOOH
+HÂˆ™]\›ˆÛ[Ù[ÎÂˆB‚ˆYˆ
+˜\ÙUT“OOHÜ[˜ZP˜\ÙUT“
+HÂˆÛÛœİ™YÙ^HÊ^Y]š[˜ÚKLßÜ_×
+ßÚ][]\İ
+KÎÂˆÛÛœİ^ÛYT™YÙ^HØ]Y[ß™X[[YKÎÂˆ[Ù[ÈH[Ù[Ë™š[\Š
+[Ù[
+HOˆ™YÙ^\İ
+[Ù[
+H	‰ˆY^ÛYT™YÙ^\İ
+[Ù[
+JNÂˆÛÛœİ[œİXİ[Ù[ÈH[Ù[Ë™š[\Š
+[Ù[
+HOˆ[Ù[š[˜ÛY\Ê	Ú[œİXİ	ÊJNÂˆÛÛœİİ\“[Ù[ÈH[Ù[Ë™š[\Š
+[Ù[
+HOˆ[[Ù[š[˜ÛY\Ê	Ú[œİXİ	ÊJNÂˆ[Ù[ÈHİ\“[Ù[Ë˜ÛÛ˜Ø]
+[œİXİ[Ù[ÊNÂˆB‚ˆ™]\›ˆ[Ù[ÎÂŸB‚‹ÊŠ‚ˆ
+ˆØYÈHY˜][[Ù[È›ÜˆÜ[RHÜˆ^\™K‚ˆ
+ˆ\˜[HÜÈHÜ[ÛœÈ›ÜˆÙ][™È[Ù[Âˆ
+ˆ™]\›œÈ›ÛZ\ÙH™\ÛÛš[™ÈÈ\œ˜^HÙˆ[Ù[QÂˆ
+‹Â™^Ü\Ş[˜È[˜İ[ÛˆÙ]Ü[RS[Ù[ÊÜÎˆÙ]Ü[RS[Ù[ÓÜ[ÛœÈHßJNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆYˆ
+ÜË˜ÛÛ™šYİ\™Y[Ù[ÊHÂˆ™]\›ˆÜË˜ÛÛ™šYİ\™Y[Ù[ÎÂˆBˆ][Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[›Ü[RWNÂ‚ˆYˆ
+ÜË˜\ÜÚ\İ[ÊHÂˆ[Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[˜\ÜÚ\İ[×NÂˆH[ÙHYˆ
+ÜË˜^\™JHÂˆ[Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[˜^\™P\ÜÚ\İ[×NÂˆB‚ˆ]Ù^Nˆİš[™ÎÂˆYˆ
+ÜË˜\ÜÚ\İ[ÊHÂˆÙ^HH	ĞTÔÒTÕS•×ÓSÑSÉÎÂˆH[ÙHYˆ
+ÜË˜^\™JHÂˆÙ^HH	ĞV•T‘WÓÔSRWÓSÑSÉÎÂˆH[ÙHÂˆÙ^HH	ÓÔSRWÓSÑSÉÎÂˆB‚ˆYˆ
+›ØÙ\ÜË™[–ÚÙ^WJHÂˆ™]\›ˆÜ][™š[J›ØÙ\ÜË™[–ÚÙ^WJNÂˆB‚ˆYˆ
+\Õ\Ù\”›İšYY
+™\ÛÛ™SÜ[RP\RÙ^JÜÊJJHÂˆ™]\›ˆ[Ù[ÎÂˆB‚ˆ™]\›ˆ]ØZ]™]ÚÜ[RS[Ù[ÊÜË[Ù[ÊNÂŸB‚‹ÊŠ‚ˆ
+ˆ™]Ú\È[Ù[Èœ›ÛHH[›ÜXÈTK‚ˆ
+ˆ\˜[HÜÈHÜ[ÛœÈ›Üˆ™]Ú[™È[Ù[Âˆ
+ˆ\˜[HÛ[Ù[ÈH˜[˜XÚÈ[Ù[È\œ˜^Bˆ
+ˆ™]\›œÈ›ÛZ\ÙH™\ÛÛš[™ÈÈ\œ˜^HÙˆ[Ù[QÂˆ
+‹Â™^Ü\Ş[˜È[˜İ[Ûˆ™]Ú[›ÜXÓ[Ù[ÊˆÜÎˆÂˆ\Ù\Îˆİš[™ÎÂˆÚÚ\ØXÚOÎˆ›ÛÛX[ÂˆXY\œÏÎˆ™XÛÜ™İš[™Ëİš[™Ïˆ[Âˆ\Ù\“Øš™XİÎˆ\X[U\Ù\ÂˆHHßKˆÛ[Ù[Îˆİš[™Ö×HH×KŠNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆ][Ù[ÈHÛ[Ù[ËœÛXÙJ
+HÏÈ×NÂˆÛÛœİ\RÙ^HH›ØÙ\ÜË™[‹S•“ÔP×ĞTWÒÑVNÂˆÛÛœİ[›ÜXĞ˜\ÙUT“H	ÚÎ‹ËØ\K˜[›ÜXË˜ÛÛKİŒIÎÂˆ]˜\ÙUT“H[›ÜXĞ˜\ÙUT“ÂˆÛÛœİ™]™\œÙT›ŞU\›H›ØÙ\ÜË™[‹S•“ÔP×Ô‘U‘T”ÑWÔ“ÖNÂ‚ˆYˆ
+™]™\œÙT›ŞU\›
+HÂˆ˜\ÙUT“H^˜Xİ˜\ÙUT“
+™]™\œÙT›ŞU\›
+HÏÈ[›ÜXĞ˜\ÙUT“ÂˆB‚ˆYˆ
+X\RÙ^JHÂˆ™]\›ˆ[Ù[ÎÂˆB‚ˆYˆ
+˜\ÙUT“
+HÂˆ[Ù[ÈH]ØZ]™]Ú[Ù[ÊÂˆ\RÙ^Kˆ˜\ÙUT“ˆ\Ù\ˆÜË\Ù\‹ˆ˜[YNˆS[Ù[[™Ú[˜[›ÜXËˆÚÙ[’Ù^NˆS[Ù[[™Ú[˜[›ÜXËˆÚÚ\ØXÚNˆÜËœÚÚ\ØXÚKˆXY\œÎˆÜËšXY\œËˆ\Ù\“Øš™XİˆÜË\Ù\“Øš™XİˆJNÂˆB‚ˆYˆ
+[Ù[Ë›[™İOOH
+HÂˆ™]\›ˆÛ[Ù[ÎÂˆB‚ˆ™]\›ˆ[Ù[ÎÂŸB‚‹ÊŠ‚ˆ
+ˆÙ]È[›ÜXÈ[Ù[Èœ›ÛH[š\›Û›Y[ÜˆTK‚ˆ
+ˆ\˜[HÜÈHÜ[ÛœÈ›Üˆ™]Ú[™È[Ù[Âˆ
+ˆ™]\›œÈ›ÛZ\ÙH™\ÛÛš[™ÈÈ\œ˜^HÙˆ[Ù[QÂˆ
+‹Â™^Ü\Ş[˜È[˜İ[ÛˆÙ][›ÜXÓ[Ù[ÊˆÜÎˆÂˆ\Ù\Îˆİš[™ÎÂˆ™\^[Ù[ÏÎˆİš[™Ö×NÂˆXY\œÏÎˆ™XÛÜ™İš[™Ëİš[™Ïˆ[Âˆ\Ù\“Øš™XİÎˆ\X[U\Ù\ÂˆÊŠˆH[Ù[\İÛÛ™šYİ\™Y›ÜˆH[™Ú[ÈÚ[ˆÙ]]\È™]\›™YÚ]İ]\ØÛİ™\Kˆ
+‹ÂˆÛÛ™šYİ\™Y[Ù[ÏÎˆİš[™Ö×NÂˆHHßKŠNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆYˆ
+ÜË˜ÛÛ™šYİ\™Y[Ù[ÊHÂˆ™]\›ˆÜË˜ÛÛ™šYİ\™Y[Ù[ÎÂˆBˆÛÛœİ[Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[˜[›ÜX×NÂ‚ˆËÈ™\^RH[Ù[Èœ›ÛHPSSÛÛ™šYÈZÙHš[Üš]BˆYˆ
+ÜË™\^[Ù[È	‰ˆÜË™\^[Ù[Ë›[™İˆ
+HÂˆ™]\›ˆÜË™\^[Ù[ÎÂˆB‚ˆYˆ
+›ØÙ\ÜË™[‹S•“ÔP×ÓSÑSÊHÂˆ™]\›ˆÜ][™š[J›ØÙ\ÜË™[‹S•“ÔP×ÓSÑSÊNÂˆB‚ˆYˆ
+\Õ\Ù\”›İšYY
+›ØÙ\ÜË™[‹S•“ÔP×ĞTWÒÑVJJHÂˆ™]\›ˆ[Ù[ÎÂˆB‚ˆHÂˆ™]\›ˆ]ØZ]™]Ú[›ÜXÓ[Ù[ÊÜË[Ù[ÊNÂˆHØ]Ú
+\œ›ÜŠHÂˆÙÙÙ\‹™\œ›ÜŠ	Ñ\œ›Üˆ™]Ú[™È[›ÜXÈ[Ù[Î‰Ë\œ›ÜŠNÂˆ™]\›ˆ[Ù[ÎÂˆBŸB‚š[\™˜XÙHÛÛÙÛS[Ù[\ØÛİ™\SÜ[ÛœÈÂˆÊŠˆÛÛ™šYİ\™YÛÛÙÛHRHİY[ÈTHÙ^Kˆ™\^Ù\šXÙKXXØÛİ[Ü™Y[X[È\ÙHÛÛ™šYİ\™Y[Ù[Ëˆ
+‹Âˆ\RÙ^OÎˆİš[™ÎÂˆÊŠˆ\İY™]™\œÙK\›ŞH˜\ÙHT“Ú[ˆÛÛ™šYİ\™Y›ÜˆÛÛÙÛHRHİY[Ëˆ
+‹Âˆ˜\ÙUT“Îˆİš[™ÎÂˆÊŠˆ^XÚ][Ù[[™[ÜNÈ[ˆ[\H\İ[[[Û˜[H\ØX›\È\ØÛİ™\Kˆ
+‹ÂˆÛÛ™šYİ\™Y[Ù[ÏÎˆİš[™Ö×NÂˆXY\œÏÎˆ™XÛÜ™İš[™Ëİš[™Ïˆ[Âˆ\Ù\“Øš™XİÎˆ\X[U\Ù\ÂŸB‚‹ÊŠ‚ˆ
+ˆ™]Ú\ÈHÛÛÙÛHRHİY[È[Ù[Ø][ÙÈ[™ÙY\È[Ù[È]İ\ÜBˆ
+ˆÙ[™\˜]PÛÛ[Ü\˜][Ûˆ\ÙYHÛÙ\˜^Ú]ˆ[Ù[˜[Y\È[™İ\ÜYˆ
+ˆÜ\˜][ÛœÈÛÛYHœ›ÛHÛÛÙÛIÜÈ]™HØ][ÙÎÈ›ÈØØ[HİY\ÜÙY[Ù[QÈ\™Bˆ
+ˆYYÈHİXØÙ\ÜÙ[™\ÜÛœÙK‚ˆ
+‹Â˜\Ş[˜È[˜İ[Ûˆ™]ÚÛÛÙÛS[Ù[ÊÂˆ\RÙ^Kˆ˜\ÙUT“ˆXY\œËˆ\Ù\“Øš™XİŸNˆÛÛÙÛS[Ù[\ØÛİ™\SÜ[ÛœÊNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆÛÛœİØ][ÙĞ˜\ÙUT“H
+˜\ÙUT“ÏÈ	ÚÎ‹ËÙÙ[™\˜]]™[[™İXYÙK™ÛÛÙÛX\\Ë˜ÛÛKİŒX™]IÊKœ™\XÙJˆ×ÊÉËˆ	ÉËˆ
+NÂˆÛÛœİ™\ÛÛ™YXY\œÈH™\ÛÛ™RXY\œÊÂˆXY\œÎˆXY\œÈÏÈ[™Yš[™Yˆ\Ù\ˆ\Ù\“Øš™Xİˆİš\[œ™\ÛÛ™YˆYKˆJNÂˆÛÛœİ™\]Y\İXY\œÈHÈ‹‹œ™\ÛÛ™YXY\œÈNÂˆYˆ
+\RÙ^JHÂˆ™\]Y\İXY\œÖÉŞYÛÛÙËX\KZÙ^I×HH\RÙ^NÂˆB‚ˆÛÛœİ[Ù[Îˆİš[™Ö×HH×NÂˆ]YÙUÚÙ[ˆİš[™È[™Yš[™YÂˆ›Üˆ
+]YÙHHÈYÙHLÈYÙJÊÊHÂˆÛÛœİ\›H™]ÈT“
+	ØØ][ÙĞ˜\ÙUT“KÛ[Ù[Ø
+NÂˆ\›œÙX\˜Ú\˜[\ËœÙ]
+	ÜYÙTÚ^™IË	ÌL	ÊNÂˆYˆ
+YÙUÚÙ[ŠHÂˆ\›œÙX\˜Ú\˜[\ËœÙ]
+	ÜYÙUÚÙ[‰ËYÙUÚÙ[ŠNÂˆBˆÛÛœİÜ[ÛœÎˆ^[ÜÔ™\]Y\İÛÛ™šYÈHÂˆXY\œÎˆ™\]Y\İXY\œËˆ[Y[İ]ˆLˆX^™Y\™XİÎˆˆNÂˆ\P^[ÜÔ›ŞPÛÛ™šYÊÜ[ÛœË\›
+NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]^[ÜË™Ù]Âˆ[Ù[ÏÎˆ\œ˜^OÈ˜[YOÎˆİš[™ÎÈİ\ÜYÙ[™\˜][Û“Y]ÙÏÎˆİš[™Ö×HOÂˆ™^YÙUÚÙ[Îˆİš[™ÎÂˆOŠ\›Ôİš[™Ê
+KÜ[ÛœÊNÂˆÛÛœİYÙS[Ù[ÈH™\ÜÛœÙK™]OË›[Ù[ÎÂˆYˆ
+P\œ˜^Kš\Ğ\œ˜^JYÙS[Ù[ÊJHÂˆ›İÈ™]È\œ›ÜŠ	ÑÛÛÙÛH[Ù[Ø][ÙÈ™]\›™Y[ˆ[˜[Y™\ÜÛœÙIÊNÂˆB‚ˆ›Üˆ
+ÛÛœİ[Ù[ÙˆYÙS[Ù[ÊHÂˆYˆ
+ˆ\[Ùˆ[Ù[›˜[YHOOH	Üİš[™ÉÈ	‰‚ˆ\œ˜^Kš\Ğ\œ˜^J[Ù[œİ\ÜYÙ[™\˜][Û“Y]ÙÊH	‰‚ˆ[Ù[œİ\ÜYÙ[™\˜][Û“Y]ÙËš[˜ÛY\Ê	ÙÙ[™\˜]PÛÛ[	ÊBˆ
+HÂˆ[Ù[Ëœ\Ú
+[Ù[›˜[YKœ™\XÙJ×›[Ù[×ËË	ÉÊJNÂˆBˆB‚ˆYÙUÚÙ[ˆH™\ÜÛœÙK™]K›™^YÙUÚÙ[ÂˆYˆ
+\YÙUÚÙ[ŠHÂˆœ™XZÎÂˆBˆB‚ˆ™]\›ˆË‹‹›™]ÈÙ]
+[Ù[ÊWNÂŸB‚‹ÊŠ‚ˆ
+ˆÙ]ÈÛÛÙÛIÜÈ]™HÙ[™\˜]PÛÛ[Ø][ÙÈÚ[ˆHÙ\™\ˆTHÙ^H\Âˆ
+ˆÛÛ™šYİ\™Yˆ^XÚ][š\›Û›Y[\İÈZÙH™XÙY[˜ÙK[™[˜ÛÛ™šYİ\™YÜ‚ˆ
+ˆ[˜]˜Z[X›H›İšY\œÈ™]Z[ˆH\İX›\ÚYY˜][Ø][ÙË‚ˆ
+‹Â™^Ü\Ş[˜È[˜İ[ÛˆÙ]ÛÛÙÛS[Ù[ÊÜÎˆÛÛÙÛS[Ù[\ØÛİ™\SÜ[ÛœÈHßJNˆ›ÛZ\ÙOİš[™Ö×OˆÂˆYˆ
+ÜË˜ÛÛ™šYİ\™Y[Ù[ÊHÂˆ™]\›ˆÜË˜ÛÛ™šYİ\™Y[Ù[ÎÂˆBˆYˆ
+›ØÙ\ÜË™[‹‘ÓÓÑÓWÓSÑSÊHÂˆ™]\›ˆÜ][™š[J›ØÙ\ÜË™[‹‘ÓÓÑÓWÓSÑSÊNÂˆB‚ˆÛÛœİ[Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[™ÛÛÙÛWNÂˆÛÛœİ\RÙ^HHÜË˜\RÙ^HÏÈ›ØÙ\ÜË™[‹‘ÓÓÑÓWÒÑVNÂˆYˆ
+X\RÙ^H\Õ\Ù\”›İšYY
+\RÙ^JJHÂˆ™]\›ˆ[Ù[ÎÂˆB‚ˆHÂˆ™]\›ˆ]ØZ]™]ÚÛÛÙÛS[Ù[ÊÂˆ‹‹›ÜËˆ\RÙ^Kˆ˜\ÙUT“ˆÜË˜˜\ÙUT“ÏÈ›ØÙ\ÜË™[‹‘ÓÓÑÓWÔ‘U‘T”ÑWÔ“ÖKˆJNÂˆHØ]Ú
+\œ›ÜŠHÂˆÙÙÙ\‹Ø\›Š	ÖÙÙ]ÛÛÙÛS[Ù[×H]™H\ØÛİ™\H˜Z[YÈ\Ú[™ÈHÛÛ™šYİ\™YY˜][Ø][ÙÉËÂˆ\œ›Ü“˜[YNˆ\œ›Üˆ[œİ[˜Ù[Ùˆ\œ›ÜˆÈ\œ›Ü‹›˜[YHˆ	Õ[šÛ›İÛ‘\œ›Ü‰ËˆJNÂˆ™]\›ˆ[Ù[ÎÂˆBŸB‚‹ÊŠ‚ˆ
+ˆÙ]È™Y›ØÚÈ[Ù[Èœ›ÛH[š\›Û›Y[ÜˆY˜][Ë‚ˆ
+ˆ™]\›œÈ\œ˜^HÙˆ[Ù[QÂˆ
+‹Â™^Ü[˜İ[ÛˆÙ]™Y›ØÚÓ[Ù[Ê
+Nˆİš[™Ö×HÂˆ][Ù[ÈHY˜][[Ù[ÖÑS[Ù[[™Ú[˜™Y›ØÚ×NÂˆYˆ
+›ØÙ\ÜË™[‹‘Q“ĞÒ×ĞUÔ×ÓSÑSÊHÂˆ[Ù[ÈHÜ][™š[J›ØÙ\ÜË™[‹‘Q“ĞÒ×ĞUÔ×ÓSÑSÊNÂˆBˆ™]\›ˆ[Ù[ÎÂŸB
