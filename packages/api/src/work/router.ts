@@ -1,9 +1,9 @@
 import express from 'express';
 import type { NextFunction, Request, Response, Router } from 'express';
-import { buildWorkModelOptions } from './models';
 import type { WorkModelSource } from './models';
-import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
 import type { WorkConversation } from './task';
+import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { buildWorkModelOptions } from './models';
 
 /**
  * Work reads Coderax conversations and models; it never starts a run.
@@ -26,12 +26,38 @@ export type WorkDeps = {
     userId: string;
     conversationId: string;
   }) => Promise<WorkConversation | null>;
+  /** Current native job state, when the in-process generation registry knows it. */
+  getRunState?: (input: { userId: string; conversationId: string }) => Promise<string | null>;
   /** Aborts the native generation for this conversation. */
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
 };
 
 const HISTORY_LIMIT = 50;
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
+
+async function withResolvedRunState(
+  conversation: WorkConversation,
+  userId: string,
+  getRunState?: WorkDeps['getRunState'],
+): Promise<WorkConversation> {
+  if (!getRunState) {
+    return conversation.workState === 'running'
+      ? { ...conversation, workState: 'unknown' }
+      : conversation;
+  }
+  try {
+    const liveState = await getRunState({ userId, conversationId: conversation.conversationId });
+    if (typeof liveState === 'string' && liveState.length > 0) {
+      return { ...conversation, workState: liveState };
+    }
+  } catch {
+    // The persisted conversation still proves history exists; unknown is safer
+    // than carrying an old running marker through a lost registry lookup.
+  }
+  return conversation.workState === 'running'
+    ? { ...conversation, workState: 'unknown' }
+    : conversation;
+}
 
 /**
  * Identity comes from the authenticated request only. A body or query `userId`
@@ -67,8 +93,13 @@ export function createWorkRouter(deps: WorkDeps): Router {
     const userId = userIdOf(req) as string;
     try {
       const conversations = await deps.listConversations({ userId, limit: HISTORY_LIMIT });
+      const withState = await Promise.all(
+        conversations.map((conversation) =>
+          withResolvedRunState(conversation, userId, deps.getRunState),
+        ),
+      );
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ tasks: toWorkHistory(conversations, HISTORY_LIMIT) });
+      res.json({ tasks: toWorkHistory(withState, HISTORY_LIMIT) });
     } catch {
       res.status(503).json({ code: 'WORK_HISTORY_UNAVAILABLE' });
     }
@@ -92,8 +123,9 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
     }
+    const resolved = await withResolvedRunState(conversation, userId, deps.getRunState);
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ task: toWorkTask(conversation) });
+    res.json({ task: toWorkTask(resolved) });
   });
 
   router.post('/tasks/:conversationId/cancel', async (req: Request, res: Response) => {
@@ -114,7 +146,8 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
       return;
     }
-    const state = toWorkTask(conversation)?.state;
+    const resolved = await withResolvedRunState(conversation, userId, deps.getRunState);
+    const state = toWorkTask(resolved)?.state;
     if (state && isTerminalWorkState(state)) {
       res.status(409).json({ code: 'WORK_TASK_ALREADY_FINISHED' });
       return;

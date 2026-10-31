@@ -92,6 +92,7 @@ export * from './conversations';
 export * from './work/models';
 export * from './work/task';
 export * from './work/router';
+export * from './work/state';
 /* Messages */
 export * from './messages';
 /* Skills */

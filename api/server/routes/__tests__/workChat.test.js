@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const http = require('node:http');
+const { createWorkApiRouter } = require('../workApi');
 const {
+  createWorkChatRouter,
   delegateToAgents,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
@@ -94,7 +96,10 @@ test('the alias middleware sets server-owned context and strips client claims', 
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
     () => 'llama3:latest',
   );
-  const req = { body: { text: 'plan', model: 'auto', isWork: true, workModel: 'gpt-4o' }, user: {} };
+  const req = {
+    body: { text: 'plan', model: 'auto', isWork: true, workModel: 'gpt-4o' },
+    user: {},
+  };
   const res = response();
   let continued = false;
   await middleware(req, res, () => {
@@ -217,7 +222,7 @@ test('seeds a new Work conversation with the marker and the authenticated owner'
   assert.equal(db.saves[0].fields.conversationId, 'convo-1');
 });
 
-test('never re-stamps a conversation that already exists', async () => {
+test('refuses to convert an existing non-Work conversation', async () => {
   const db = fakeDb({ conversationId: 'convo-1', isWork: false });
   const result = await seedWorkConversation(
     { user: { id: 'user-1' }, body: { conversationId: 'convo-1' } },
@@ -225,7 +230,7 @@ test('never re-stamps a conversation that already exists', async () => {
     db,
   );
 
-  assert.deepEqual(result, { seeded: false, reason: 'exists' });
+  assert.deepEqual(result, { seeded: false, reason: 'not_work' });
   assert.equal(db.saves.length, 0);
 });
 
@@ -243,6 +248,18 @@ test('does nothing without an authenticated user or a conversation id', async ()
     { seeded: false, reason: 'no_target' },
   );
   assert.equal(noConvo.saves.length, 0);
+});
+
+test('does not persist the new-chat route sentinel as a Work conversation', async () => {
+  const db = fakeDb();
+  const result = await seedWorkConversation(
+    { user: { id: 'user-1' }, body: { conversationId: 'new' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+
+  assert.deepEqual(result, { seeded: false, reason: 'no_target' });
+  assert.equal(db.saves.length, 0);
 });
 
 test('a seed failure does not block the Work turn', async () => {
@@ -264,6 +281,29 @@ test('a seed failure does not block the Work turn', async () => {
   assert.equal(res.statusCode, 0);
   assert.equal(req.workContext.workModel, 'llama3:latest');
   assert.equal(req.body.model, 'llama3:latest');
+});
+
+test('rejects a normal conversation before it reaches the Work agent router', async () => {
+  const db = fakeDb({ conversationId: 'chat-1', isWork: false });
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => 'llama3:latest',
+    (req, context) => seedWorkConversation(req, context, db),
+  );
+  const req = {
+    body: { text: 'plan', model: 'auto', conversationId: 'chat-1' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_CONVERSATION_REQUIRED');
+  assert.equal(db.saves.length, 0);
 });
 
 test('reads the hard default spec model from the real app config shape', () => {
@@ -297,7 +337,9 @@ test('returns null when the config names no concrete default model', () => {
     null,
   );
   assert.equal(
-    resolveConfiguredDefaultModel({ modelSpecs: { list: [{ default: true, preset: { model: '  ' } }] } }),
+    resolveConfiguredDefaultModel({
+      modelSpecs: { list: [{ default: true, preset: { model: '  ' } }] },
+    }),
     null,
   );
 });
@@ -441,11 +483,14 @@ test('/api/work/chat runs admission after Work context and hands it the concrete
   });
   app.use(
     '/api/work',
-    require('../workChat').createWorkChatRouter({
-      loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
-      configuredDefaultModel: () => 'llama3:latest',
-      seedConversation: async () => ({ seeded: true }),
-      agentsRouter: fakeAgents,
+    createWorkApiRouter({
+      chatRouter: createWorkChatRouter({
+        loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+        configuredDefaultModel: () => 'llama3:latest',
+        seedConversation: async () => ({ seeded: true }),
+        agentsRouter: fakeAgents,
+      }),
+      createReadRouterForRequest: () => express.Router(),
     }),
   );
 
@@ -479,14 +524,17 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
   });
   app.use(
     '/api/work',
-    require('../workChat').createWorkChatRouter({
-      loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
-      configuredDefaultModel: () => 'gpt-4o',
-      seedConversation: async () => ({ seeded: false }),
-      agentsRouter: (_req, res) => {
-        reached = true;
-        res.status(200).json({ ok: true });
-      },
+    createWorkApiRouter({
+      chatRouter: createWorkChatRouter({
+        loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
+        configuredDefaultModel: () => 'gpt-4o',
+        seedConversation: async () => ({ seeded: false }),
+        agentsRouter: (_req, res) => {
+          reached = true;
+          res.status(200).json({ ok: true });
+        },
+      }),
+      createReadRouterForRequest: () => express.Router(),
     }),
   );
 
@@ -502,6 +550,37 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
     assert.equal(response.status, 409);
     assert.equal(body.error, 'WORK_MODEL_NOT_ALLOWED');
     assert.equal(reached, false, 'the native chain never ran for a refused model');
+  } finally {
+    server.close();
+  }
+});
+
+test('Work model reads skip chat-only model resolution', async () => {
+  let loadedChatModels = false;
+  const chatRouter = createWorkChatRouter({
+    loadModelsForRequest: async () => {
+      loadedChatModels = true;
+      throw new Error('chat model config unavailable');
+    },
+    agentsRouter: (_req, res) => res.status(200).json({ ok: true }),
+  });
+  const readRouter = express.Router();
+  readRouter.get('/models', (_req, res) => res.status(200).json({ models: [] }));
+
+  const app = express();
+  app.use(
+    '/api/work',
+    createWorkApiRouter({
+      chatRouter,
+      createReadRouterForRequest: () => readRouter,
+    }),
+  );
+  const { server, port } = await serve(app);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/work/models');
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { models: [] });
+    assert.equal(loadedChatModels, false);
   } finally {
     server.close();
   }

@@ -1,10 +1,6 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
-const {
-  buildWorkModelOptions,
-  resolveWorkSelection,
-  WORK_AUTO_MODEL_ID,
-} = require('@coderax/api');
+const { buildWorkModelOptions, resolveWorkSelection, WORK_AUTO_MODEL_ID } = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
 
 /**
@@ -72,7 +68,7 @@ function stripClientWorkFields(body) {
   if (!body || typeof body !== 'object') {
     return body;
   }
-  const { isWork, workModel, workContext, ...rest } = body;
+  const { isWork: _isWork, workModel: _workModel, workContext: _workContext, ...rest } = body;
   return rest;
 }
 
@@ -92,10 +88,18 @@ async function seedWorkConversation(req, context, db) {
   const store = db ?? require('~/models');
   const userId = req?.user?.id;
   const conversationId = req?.body?.conversationId;
-  if (!userId || typeof conversationId !== 'string' || conversationId === '') {
+  if (
+    !userId ||
+    typeof conversationId !== 'string' ||
+    conversationId === '' ||
+    conversationId === 'new'
+  ) {
     return { seeded: false, reason: 'no_target' };
   }
   const existing = await store.getConvo(userId, conversationId);
+  if (existing && existing.isWork !== true) {
+    return { seeded: false, reason: 'not_work' };
+  }
   if (existing) {
     return { seeded: false, reason: 'exists' };
   }
@@ -151,9 +155,17 @@ function workContextMiddleware(
       /** A seed failure must not fail the turn: the marker is also written by the
        *  turn's own save, so the run stays usable and the gap is logged. */
       try {
-        await seedConversation(req, context);
-      } catch (error) {
-        logger.warn(`[Work] Failed to seed the Work conversation: ${error?.message ?? error}`);
+        const seedResult = await seedConversation(req, context);
+        if (seedResult?.reason === 'not_work') {
+          return fail(
+            res,
+            409,
+            'WORK_CONVERSATION_REQUIRED',
+            'This conversation belongs to Chat. Start a new Work conversation or open it in Chat.',
+          );
+        }
+      } catch {
+        logger.warn('[Work] Failed to seed the Work conversation.');
       }
       /**
        * `auto` is a UI choice, never a provider id: the native runner receives
@@ -164,10 +176,8 @@ function workContextMiddleware(
         req.body.model = context.workModel;
       }
       return next();
-    } catch (error) {
-      logger.warn(
-        `[Work] Model discovery failed for Work alias: ${error?.message ?? 'unknown error'}`,
-      );
+    } catch {
+      logger.warn('[Work] Model discovery failed for Work alias.');
       return fail(
         res,
         503,
@@ -216,6 +226,7 @@ function createWorkChatRouter({
 } = {}) {
   const router = express.Router();
   router.use(
+    '/chat',
     workContextMiddleware(
       loadModelsForRequest ??
         ((req) => require('~/server/controllers/ModelController').loadModels(req)),

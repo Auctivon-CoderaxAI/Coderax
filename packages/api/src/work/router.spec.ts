@@ -1,9 +1,9 @@
 import express from 'express';
 import request from 'supertest';
 import type { Application } from 'express';
-import { createWorkRouter } from './router';
-import type { WorkDeps } from './router';
 import type { WorkConversation } from './task';
+import type { WorkDeps } from './router';
+import { createWorkRouter } from './router';
 
 type Stored = WorkConversation & { userId: string };
 
@@ -84,6 +84,30 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
+  it('uses live native job state and clears a stale running marker', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'c-1', title: 'Plan', isWork: true, workState: 'running' },
+      ],
+      getRunState: async () => 'complete',
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks[0].state).toBe('completed');
+  });
+
+  it('reports unknown when an old running row has no live registry job', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'c-1', title: 'Plan', isWork: true, workState: 'running' },
+      ],
+      getRunState: async () => null,
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks[0].state).toBe('unknown');
+  });
+
   it('does not list another tenant’s Work conversation', async () => {
     const res = await request(app()).get('/api/work/tasks');
     expect(res.body.tasks.map((task: { id: string }) => task.id)).not.toContain('c-3');
@@ -155,6 +179,15 @@ describe('native Work router', () => {
     const res = await request(server).post('/api/work/tasks/c-1/cancel');
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('WORK_TASK_ALREADY_FINISHED');
+  });
+
+  it('refuses cancellation when the live native job is already complete', async () => {
+    const cancelRun = jest.fn(async () => true);
+    const server = app({ getRunState: async () => 'complete', cancelRun });
+    const res = await request(server).post('/api/work/tasks/c-1/cancel');
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('WORK_TASK_ALREADY_FINISHED');
+    expect(cancelRun).not.toHaveBeenCalled();
   });
 
   it('reports a cancel service failure as unavailable', async () => {
