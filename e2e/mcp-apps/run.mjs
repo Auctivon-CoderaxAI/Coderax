@@ -54,7 +54,14 @@ function run(executable, args, overrides = {}) {
 }
 
 const phases = [
-  { name: 'true', policy: 'true', minimumPassed: 2 },
+  { name: 'true', policy: 'true', minimumPassed: 1 },
+  {
+    name: 'phase-labels',
+    policy: 'true',
+    minimumPassed: 1,
+    phaseLabels: true,
+    grep: 'keeps two labeled phase App results visible and correlated while panels stay closed',
+  },
   { name: 'false', policy: 'false', minimumPassed: 1 },
   { name: 'omitted', policy: 'omitted', minimumPassed: 1 },
   {
@@ -85,11 +92,13 @@ try {
         'playwright',
         'test',
         '--config=e2e/playwright.config.mcp-apps.ts',
+        ...(phase.grep ? ['--grep', phase.grep] : []),
         '--reporter=line,html,json',
       ],
       {
         E2E_MCP_APPS_PHASE: phase.name,
         E2E_MCP_APPS_POLICY: phase.policy,
+        E2E_MCP_APP_PHASE_LABELS: phase.phaseLabels ? 'true' : '',
         E2E_MCP_APP_RESOURCE_LIMIT: phase.E2E_MCP_APP_RESOURCE_LIMIT || '',
         E2E_MCP_APP_TOOL_CALL_LIMIT: phase.E2E_MCP_APP_TOOL_CALL_LIMIT || '',
         PLAYWRIGHT_HTML_OPEN: 'never',

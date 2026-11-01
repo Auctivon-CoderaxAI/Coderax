@@ -1,6 +1,12 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
-const { buildWorkModelOptions, resolveWorkSelection, WORK_AUTO_MODEL_ID } = require('@coderax/api');
+const { Constants, EModelEndpoint, PermissionBits } = require('coderax-data-provider');
+const {
+  buildWorkModelOptions,
+  resolveWorkAgentModel,
+  resolveWorkSelection,
+  WORK_AUTO_MODEL_ID,
+} = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
 
 /**
@@ -26,6 +32,47 @@ function resolveConfiguredDefaultModel(config) {
 }
 
 const configuredDefaultFromRequest = (req) => resolveConfiguredDefaultModel(req?.config);
+
+function defaultFindAgent(agentId) {
+  return require('~/models').getAgentWithVersionCount({ id: agentId });
+}
+
+/** A concrete selected agent; the ephemeral sentinel is not a selection. */
+function selectedAgentId(body) {
+  const agentId = body && typeof body === 'object' ? body.agent_id : undefined;
+  if (typeof agentId !== 'string' || !agentId || agentId === Constants.EPHEMERAL_AGENT_ID) {
+    return null;
+  }
+  return /^[A-Za-z0-9_-]{1,200}$/.test(agentId) ? agentId : null;
+}
+
+function hasMalformedSelectedAgentId(body) {
+  const agentId = body && typeof body === 'object' ? body.agent_id : undefined;
+  return (
+    agentId != null &&
+    agentId !== '' &&
+    agentId !== Constants.EPHEMERAL_AGENT_ID &&
+    (typeof agentId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(agentId))
+  );
+}
+
+function defaultAuthorizeAgent(req, res, next) {
+  const { canAccessAgentFromBody } = require('~/server/middleware');
+  return canAccessAgentFromBody({ requiredPermission: PermissionBits.VIEW })(req, res, next);
+}
+
+function selectedAgentAuthorizationMiddleware(authorizeAgent = defaultAuthorizeAgent) {
+  return (req, res, next) => {
+    if (hasMalformedSelectedAgentId(req.body)) {
+      return fail(res, 400, 'WORK_AGENT_ID_INVALID', 'The selected Work agent identifier is invalid.');
+    }
+    if (!selectedAgentId(req.body)) {
+      return next();
+    }
+    req.body.endpoint = EModelEndpoint.agents;
+    return authorizeAgent(req, res, next);
+  };
+}
 
 /**
  * Resolve the concrete model a Work turn stores and runs on.
@@ -116,6 +163,10 @@ async function seedWorkConversation(req, context, db) {
 }
 
 const MESSAGES = {
+  WORK_AGENT_ID_INVALID: 'The selected Work agent identifier is invalid.',
+  WORK_AGENT_NOT_FOUND: 'The selected Work agent is no longer available. Choose another agent.',
+  WORK_AGENT_UNAVAILABLE:
+    'Work could not verify the selected agent. Try again, or choose another agent.',
   WORK_MODEL_NOT_ALLOWED:
     'That model is not available for Work. Choose a free or locally served model.',
   WORK_AUTO_UNRESOLVED:
@@ -134,9 +185,13 @@ function workContextMiddleware(
   loadModelsForRequest,
   configuredDefaultModel = configuredDefaultFromRequest,
   seedConversation = seedWorkConversation,
+  findAgent = defaultFindAgent,
 ) {
   return async (req, res, next) => {
     try {
+      if (hasMalformedSelectedAgentId(req.body)) {
+        return fail(res, 400, 'WORK_AGENT_ID_INVALID', MESSAGES.WORK_AGENT_ID_INVALID);
+      }
       const config = await loadModelsForRequest(req);
       /** The source may be sync or async; awaiting covers both. A failure to read it
        *  leaves no default, which the resolver reports instead of guessing. */
@@ -146,11 +201,32 @@ function workContextMiddleware(
       } catch {
         configuredDefault = null;
       }
-      const context = resolveWorkContext(
-        flattenModelConfig(config),
-        req.body?.model,
-        typeof configuredDefault === 'string' ? configuredDefault : null,
-      );
+      const sources = flattenModelConfig(config);
+      const requestedAgentId = selectedAgentId(req.body);
+      let selectedModel = null;
+      if (requestedAgentId) {
+        let agent;
+        try {
+          agent = await findAgent(requestedAgentId);
+        } catch {
+          logger.warn('[Work] Failed to read the selected agent.');
+          return fail(res, 503, 'WORK_AGENT_UNAVAILABLE', MESSAGES.WORK_AGENT_UNAVAILABLE);
+        }
+        if (!agent) {
+          return fail(res, 404, 'WORK_AGENT_NOT_FOUND', MESSAGES.WORK_AGENT_NOT_FOUND);
+        }
+        selectedModel = resolveWorkAgentModel(buildWorkModelOptions(sources), agent);
+        if (!selectedModel) {
+          return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
+        }
+      }
+      const context = selectedModel
+        ? { isWork: true, workModel: selectedModel.id, workProvider: selectedModel.provider }
+        : resolveWorkContext(
+            sources,
+            req.body?.model,
+            typeof configuredDefault === 'string' ? configuredDefault : null,
+          );
       if (context.error) {
         return fail(res, 409, context.error, MESSAGES[context.error]);
       }
@@ -178,7 +254,11 @@ function workContextMiddleware(
        */
       if (req.body && typeof req.body === 'object') {
         req.body.model = context.workModel;
-        if (context.workProvider) {
+        if (requestedAgentId) {
+          req.body.endpoint = EModelEndpoint.agents;
+          req.body.agent_id = requestedAgentId;
+        }
+        if (!requestedAgentId && context.workProvider) {
           req.body.endpoint = context.workProvider;
         }
       }
@@ -230,8 +310,11 @@ function createWorkChatRouter({
   configuredDefaultModel,
   seedConversation,
   agentsRouter,
+  findAgent,
+  authorizeAgent,
 } = {}) {
   const router = express.Router();
+  router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
   router.use(
     '/chat',
     workContextMiddleware(
@@ -239,6 +322,7 @@ function createWorkChatRouter({
         ((req) => require('~/server/controllers/ModelController').loadModels(req)),
       configuredDefaultModel,
       seedConversation,
+      findAgent,
     ),
   );
   router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
@@ -258,7 +342,7 @@ module.exports = {
 
 /** Lazily built so requiring this module never builds the chat router twice. */
 let cached;
-module.exports.getWorkChatRouter = () => {
-  cached ??= createWorkChatRouter();
+module.exports.getWorkChatRouter = (deps = {}) => {
+  cached ??= createWorkChatRouter(deps);
   return cached;
 };

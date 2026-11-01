@@ -112,6 +112,38 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a Work agent on the native agents endpoint and carries its provider as type', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({
+      Ollama: { type: EModelEndpoint.custom },
+    });
+
+    const req = createReq(
+      {
+        endpoint: EModelEndpoint.agents,
+        agent_id: 'agent-plan',
+        model: 'e2e-work-local-b',
+      },
+      { modelSpecs: null },
+    );
+    req.baseUrl = '/api/work';
+    req.workContext = { isWork: true, workProvider: 'Ollama' };
+    const next = jest.fn();
+
+    await buildEndpointOption(req, createRes(), next);
+
+    expect(req.body.endpoint).toBe(EModelEndpoint.agents);
+    expect(req.body.endpointType).toBe(EModelEndpoint.custom);
+    expect(mockAgentBuildOptions).toHaveBeenCalledWith(
+      req,
+      EModelEndpoint.agents,
+      expect.objectContaining({ agent_id: 'agent-plan' }),
+      EModelEndpoint.custom,
+    );
+    expect(req.body.model).toBe('e2e-work-local-b');
+    expect(mockBuildOptions).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
   it('should pass defaultParamsEndpoint to parseCompactConvo and preserve maxOutputTokens', async () => {
     mockGetEndpointsConfig.mockResolvedValue({
       AnthropicClaude: {
@@ -194,6 +226,7 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       const req = createReq(
         {
           endpoint: EModelEndpoint.openAI,
+          agent_id: 'agent_reasoning_test',
           model: 'gpt-5.1',
           reasoningOverride: { key: 'reasoning_effort', value: 'high' },
         },
@@ -218,6 +251,7 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       const req = createReq(
         {
           endpoint: EModelEndpoint.openAI,
+          agent_id: 'agent_reasoning_test',
           model: 'gpt-5.1',
           reasoningOverride: { key: 'effort', value: 'high' },
         },

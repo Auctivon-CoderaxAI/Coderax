@@ -516,10 +516,10 @@ test('/api/work/chat runs the native path when CyVox is disabled and passes the 
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: 'plan', model: 'auto', isWork: true, workModel: 'gpt-4o' }),
     });
-    const body = await response.json();
+    const responseText = await response.text();
 
-    assert.equal(response.status, 200);
-    assert.deepEqual(body, { ok: true });
+    assert.equal(response.status, 200, responseText);
+    assert.deepEqual(JSON.parse(responseText), { ok: true });
     assert.equal(seen.length, 1, 'the native handler ran exactly once');
     assert.equal(seen[0].url, '/chat', 'admission receives the native chat path');
     assert.equal(seen[0].workModel, 'llama3:latest', 'Work context set before admission');
@@ -562,11 +562,245 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text: 'plan', model: 'gpt-4o' }),
     });
-    const body = await response.json();
+    const responseText = await response.text();
 
-    assert.equal(response.status, 409);
+    assert.equal(response.status, 409, responseText);
+    const body = JSON.parse(responseText);
     assert.equal(body.error, 'WORK_MODEL_NOT_ALLOWED');
     assert.equal(reached, false, 'the native chain never ran for a refused model');
+  } finally {
+    server.close();
+  }
+});
+
+const agentContextMiddleware = (findAgent, configuredDefault = null) =>
+  workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }], openAI: [{ model: 'gpt-4o' }] }),
+    () => configuredDefault,
+    async () => ({ seeded: false }),
+    findAgent,
+  );
+
+test('keeps the selected native agent and its own model on the Work path', async () => {
+  const middleware = agentContextMiddleware(async (id) => ({
+    id,
+    model: 'llama3:latest',
+    provider: 'ollama',
+  }));
+  const req = {
+    body: { text: 'plan', model: 'auto', endpoint: 'agents', agent_id: 'agent-plan' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, true);
+  assert.deepEqual(req.workContext, {
+    isWork: true,
+    workModel: 'llama3:latest',
+    workProvider: 'ollama',
+  });
+  assert.equal(req.body.model, 'llama3:latest');
+  assert.equal(req.body.endpoint, 'agents', 'the native agent endpoint reaches the runner');
+  assert.equal(req.body.agent_id, 'agent-plan');
+});
+
+test('refuses an agent whose own model is paid even when the request names a free model', async () => {
+  const middleware = agentContextMiddleware(async (id) => ({
+    id,
+    model: 'gpt-4o',
+    provider: 'openAI',
+  }));
+  const req = {
+    body: { text: 'plan', model: 'llama3:latest', endpoint: 'agents', agent_id: 'agent-paid' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_MODEL_NOT_ALLOWED');
+});
+
+test('refuses an agent that claims a local model on a paid provider', async () => {
+  const middleware = agentContextMiddleware(async (id) => ({
+    id,
+    model: 'llama3:latest',
+    provider: 'openAI',
+  }));
+  const req = {
+    body: { text: 'plan', model: 'llama3:latest', endpoint: 'agents', agent_id: 'agent-spoofed' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_MODEL_NOT_ALLOWED');
+});
+
+test('reports an unavailable selected agent instead of running a different one', async () => {
+  const middleware = agentContextMiddleware(async () => null);
+  const req = {
+    body: { text: 'plan', model: 'llama3:latest', endpoint: 'agents', agent_id: 'agent-gone' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 404);
+  assert.equal(res.payload.error, 'WORK_AGENT_NOT_FOUND');
+});
+
+test('reports an agent lookup failure as unavailable', async () => {
+  const middleware = agentContextMiddleware(async () => {
+    throw new Error('agent store down');
+  });
+  const req = {
+    body: { text: 'plan', model: 'llama3:latest', endpoint: 'agents', agent_id: 'agent-plan' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.payload.error, 'WORK_AGENT_UNAVAILABLE');
+});
+
+test('/api/work/chat keeps the selected agent and does not require CyVox', async () => {
+  const seen = [];
+  const fakeAgents = (req, res) => {
+    seen.push({
+      url: req.url,
+      endpoint: req.body?.endpoint,
+      agent_id: req.body?.agent_id,
+      model: req.body?.model,
+      cyvox: req.config?.cyvox,
+    });
+    res.status(200).json({ ok: true });
+  };
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/work', (req, _res, next) => {
+    req.user = { id: 'user-1' };
+    req.config = { cyvox: false };
+    next();
+  });
+  app.use(
+    '/api/work',
+    createWorkApiRouter({
+      chatRouter: createWorkChatRouter({
+        loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+        configuredDefaultModel: () => null,
+        seedConversation: async () => ({ seeded: true }),
+        findAgent: async (id) => ({ id, model: 'llama3:latest', provider: 'ollama' }),
+        authorizeAgent: (_req, _res, next) => next(),
+        agentsRouter: fakeAgents,
+      }),
+      createReadRouterForRequest: () => express.Router(),
+    }),
+  );
+
+  const { server, port } = await serve(app);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/work/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: 'plan',
+        model: 'auto',
+        endpoint: 'agents',
+        agent_id: 'agent-plan',
+      }),
+    });
+    const responseText = await response.text();
+
+    assert.equal(response.status, 200, responseText);
+    assert.deepEqual(JSON.parse(responseText), { ok: true });
+    assert.deepEqual(seen, [
+      {
+        url: '/chat',
+        endpoint: 'agents',
+        agent_id: 'agent-plan',
+        model: 'llama3:latest',
+        cyvox: false,
+      },
+    ]);
+  } finally {
+    server.close();
+  }
+});
+
+test('/api/work/chat checks access to the selected agent before reading its model', async () => {
+  const findAgent = async (id) => ({ id, model: 'llama3:latest', provider: 'ollama' });
+  let findAgentCalls = 0;
+  const findAgentSpy = async (id) => {
+    findAgentCalls += 1;
+    return findAgent(id);
+  };
+  const seen = [];
+  const app = express();
+  app.use(express.json());
+  app.use('/api/work', (req, _res, next) => {
+    req.user = { id: 'user-2' };
+    req.config = { cyvox: false };
+    next();
+  });
+  app.use(
+    '/api/work',
+    createWorkApiRouter({
+      chatRouter: createWorkChatRouter({
+        loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+        configuredDefaultModel: () => null,
+        seedConversation: async () => ({ seeded: false }),
+        findAgent: findAgentSpy,
+        authorizeAgent: (_req, res) => res.status(403).json({ error: 'Forbidden' }),
+        agentsRouter: (req, res) => {
+          seen.push(req.body.agent_id);
+          res.status(200).json({ ok: true });
+        },
+      }),
+      createReadRouterForRequest: () => express.Router(),
+    }),
+  );
+
+  const { server, port } = await serve(app);
+  try {
+    const response = await fetch('http://127.0.0.1:' + port + '/api/work/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: 'plan',
+        model: 'auto',
+        agent_id: 'agent-private',
+      }),
+    });
+
+    const responseText = await response.text();
+    assert.equal(response.status, 403, responseText);
+    assert.deepEqual(JSON.parse(responseText), { error: 'Forbidden' });
+    assert.equal(findAgentCalls, 0);
+    assert.deepEqual(seen, []);
   } finally {
     server.close();
   }
@@ -596,7 +830,7 @@ test('Work model reads skip chat-only model resolution', async () => {
   try {
     const response = await fetch('http://127.0.0.1:' + port + '/api/work/models');
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { models: [] });
+    assert.equal(await response.text(), '{"models":[]}');
     assert.equal(loadedChatModels, false);
   } finally {
     server.close();

@@ -194,7 +194,11 @@ export function applyModelSpecPreset({
     throw new Error('Model spec preset produced an empty parsed body');
   }
 
-  const modelSpecParsedBody = reparsedBody as ModelSpecParsedBody;
+  const modelSpecParsedBody = {
+    ...reparsedBody,
+    ...pickEnforcedModelSpecRequestFields(conversation),
+    spec: modelSpec.name,
+  } as ModelSpecParsedBody;
   if (modelSpec.iconURL != null && modelSpec.iconURL !== '') {
     modelSpecParsedBody.iconURL = modelSpec.iconURL;
   }

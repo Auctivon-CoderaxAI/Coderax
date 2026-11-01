@@ -202,7 +202,9 @@ async function buildEndpointOption(req, res, next) {
   }
 
   if (req.workContext?.isWork === true && req.workContext.workProvider) {
-    req.body.endpoint = req.workContext.workProvider;
+    if (!isAgentsEndpoint(req.body.endpoint)) {
+      req.body.endpoint = req.workContext.workProvider;
+    }
     req.body.endpointType = resolveEndpointType(endpointsConfig, req.workContext.workProvider);
   }
 
