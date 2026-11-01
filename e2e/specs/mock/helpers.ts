@@ -53,6 +53,13 @@ export const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]
 /** Open the model selector, choose an endpoint, then its model (committed on the model click). */
 export async function selectMockEndpoint(page: Page, endpoint: MockEndpoint) {
   const trigger = modelSelectorTrigger(page);
+  if (!(await trigger.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    // The current Chat route selects its configured free/local model on the server.
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible({
+      timeout: 30_000,
+    });
+    return;
+  }
   await trigger.click();
   await page.getByRole('option', { name: endpoint.label }).click();
   const modelOption = page.getByRole('option', { name: endpoint.model, exact: true });
