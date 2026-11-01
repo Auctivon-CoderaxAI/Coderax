@@ -125,6 +125,9 @@ describe('automatic Chat model transport', () => {
     });
     expect(start).toHaveBeenCalledTimes(1);
     expect(start.mock.calls[0]?.[0].payload.model).toBe('paid-model');
+    expect(start.mock.calls[0]?.[0].payload).toEqual(
+      expect.objectContaining({ paidModelConsent: true }),
+    );
   });
 
   it('keeps native agent and assistant conversations on their configured execution path', async () => {

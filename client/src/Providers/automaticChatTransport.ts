@@ -94,6 +94,7 @@ function withCandidate(
   request: ChatTransportRequest,
   candidate: ModelRouteCandidate,
   endpointsConfig: TEndpointsConfig | undefined,
+  paidConsent: boolean,
 ): ChatTransportRequest {
   const origin = typeof window === 'undefined' ? 'http://coderax.local' : window.location.origin;
   const nativeEndpoint = new URL(EndpointURLs[EModelEndpoint.agents], origin);
@@ -116,6 +117,11 @@ function withCandidate(
   };
   if (!endpointType) {
     delete payload.endpointType;
+  }
+  const consentPayload = payload as TPayload & { paidModelConsent?: boolean };
+  delete consentPayload.paidModelConsent;
+  if (paidConsent) {
+    consentPayload.paidModelConsent = true;
   }
   return { server: url.toString(), payload };
 }
@@ -182,7 +188,7 @@ export function createAutomaticChatTransport({
       let lastError: unknown;
       for (let index = 0; index < candidates.length; index += 1) {
         const candidate = candidates[index] as ModelRouteCandidate;
-        const routedRequest = withCandidate(request, candidate, endpointsConfig);
+        const routedRequest = withCandidate(request, candidate, endpointsConfig, paidRequest);
         const startedAt = Date.now();
         try {
           const result = await transport.start(routedRequest, options);
