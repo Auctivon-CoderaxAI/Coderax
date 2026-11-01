@@ -108,6 +108,38 @@ export function resolveWorkModel(
   return workConcreteModels(models).find((model) => model.id === selected) ?? null;
 }
 
+export type WorkAgentSource = {
+  id?: string;
+  /** The model the native runner will use for this agent, not the request body's. */
+  model?: string;
+  provider?: string;
+};
+
+/**
+ * A persisted agent runs on its own configured model and provider. The submitted
+ * `model` is client input and cannot authorize the agent, so both the agent's id
+ * and its provider must match an offered free/local model. A provider mismatch is
+ * a paid-agent bypass even when the model name collides with a local one.
+ */
+export function resolveWorkAgentModel(
+  models: WorkModel[],
+  agent: WorkAgentSource | null | undefined,
+): WorkModel | null {
+  if (!agent || typeof agent.id !== 'string' || !agent.id) {
+    return null;
+  }
+  const modelId = (agent.model ?? '').trim();
+  const provider = (agent.provider ?? '').trim();
+  if (!modelId || !provider) {
+    return null;
+  }
+  return (
+    workConcreteModels(models).find(
+      (model) => model.id === modelId && model.provider === provider,
+    ) ?? null
+  );
+}
+
 export type WorkModelSelectionFailure = 'model_unavailable' | 'auto_unresolved';
 
 export type WorkModelSelection =

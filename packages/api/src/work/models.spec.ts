@@ -3,6 +3,7 @@ import {
   buildWorkModelOptions,
   buildWorkModels,
   isWorkSupportedModel,
+  resolveWorkAgentModel,
   resolveWorkModel,
   resolveWorkSelection,
 } from './models';
@@ -92,6 +93,40 @@ describe('native work model discovery', () => {
       ok: false,
       reason: 'auto_unresolved',
     });
+  });
+
+  it('authorizes an agent by its own provider and model, never the submitted model', () => {
+    const models = buildWorkModelOptions([
+      { id: 'llama3:latest', provider: 'ollama', local: true },
+      { id: 'free/alpha', provider: 'custom', free: true },
+      { id: 'gpt-4o', provider: 'openAI' },
+    ]);
+
+    expect(
+      resolveWorkAgentModel(models, {
+        id: 'agent-local',
+        model: 'llama3:latest',
+        provider: 'ollama',
+      }),
+    ).toMatchObject({ id: 'llama3:latest', provider: 'ollama' });
+    expect(
+      resolveWorkAgentModel(models, { id: 'agent-paid', model: 'gpt-4o', provider: 'openAI' }),
+    ).toBeNull();
+    /** The same model id on a paid provider is not the local model. */
+    expect(
+      resolveWorkAgentModel(models, {
+        id: 'agent-spoofed-provider',
+        model: 'llama3:latest',
+        provider: 'openAI',
+      }),
+    ).toBeNull();
+    expect(resolveWorkAgentModel(models, null)).toBeNull();
+    expect(
+      resolveWorkAgentModel(models, { id: 'agent-empty', model: '', provider: 'ollama' }),
+    ).toBeNull();
+    expect(
+      resolveWorkAgentModel(models, { id: '', model: 'llama3:latest', provider: 'ollama' }),
+    ).toBeNull();
   });
 
   it('honours an explicit free or local selection', () => {

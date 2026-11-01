@@ -72,6 +72,8 @@ function depsFor(req) {
 }
 
 module.exports = createWorkApiRouter({
-  chatRouter: getWorkChatRouter(),
+  chatRouter: getWorkChatRouter({
+    findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
+  }),
   createReadRouterForRequest: (req) => createWorkRouter(depsFor(req)),
 });
