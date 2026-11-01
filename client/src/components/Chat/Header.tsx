@@ -8,9 +8,9 @@ import {
   Permissions,
   isForcedTemporaryRetention,
 } from 'coderax-data-provider';
-import { OpenSidebar, PresetsMenu, NewChat, HeaderMenu } from './Menus';
 import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import { OpenSidebar, NewChat, HeaderMenu } from './Menus';
 import { BackgroundTasksButton } from './BackgroundTasks';
 import ConversationModeNav from './ConversationModeNav';
 import { TraceButton, useTraceControl } from './Trace';
@@ -110,9 +110,6 @@ function Header({
               work: localize('com_cyvox_work'),
             }}
           />
-        )}
-        {!readOnly && interfaceConfig.presets === true && interfaceConfig.modelSelect === true && (
-          <PresetsMenu />
         )}
         {hasAccessToBookmarks === true && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>

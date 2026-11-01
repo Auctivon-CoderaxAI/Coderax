@@ -6,6 +6,7 @@ import type { TConversation, EModelEndpoint, EndpointFileConfig } from 'coderax-
 import type { PaletteEntry, PaletteMode } from '~/hooks/Input/usePaletteEntries';
 import type { Dictation } from '~/hooks/Input/useDictation';
 import type { ExtendedFile, FileSetter } from '~/common';
+import { WorkAgentConversationSelector } from '../WorkAgentSelector';
 import usePaletteEntries from '~/hooks/Input/usePaletteEntries';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import useToolFavorites from '~/hooks/Input/useToolFavorites';
@@ -15,8 +16,6 @@ import { useBadgeRowContext } from '~/Providers';
 import TokenUsage from '../TokenUsage';
 import { useLocalize } from '~/hooks';
 import Thinking from './Thinking';
-import ModelSelector from '~/components/Chat/Menus/Endpoints/ModelSelector';
-import { useGetStartupConfig } from '~/data-provider';
 import Palette from './Palette';
 import { cn } from '~/utils';
 import Chip from './Chip';
@@ -200,6 +199,8 @@ interface BarProps {
   /** Mirrors the old `showEphemeralBadges` gate: agents and assistants carry
    *  their own tool config, and a spec can suppress the row outright. */
   showTools: boolean;
+  /** Only Work exposes an agent selector here. */
+  showWorkAgentSelector?: boolean;
   isSubmitting: boolean;
   showSpeech: boolean;
   speechDisabled: boolean;
@@ -234,6 +235,7 @@ function Bar({
   canAttach,
   anchorRef,
   showTools,
+  showWorkAgentSelector = false,
   isSubmitting,
   showSpeech,
   speechDisabled,
@@ -243,7 +245,6 @@ function Bar({
   dictation,
 }: BarProps) {
   const localize = useLocalize();
-  const { data: startupConfig } = useGetStartupConfig();
   const context = useBadgeRowContext();
   /* Latched on the palette's first open and never released: the skills catalog
      is only walked for composers whose palette was actually used, and closing
@@ -427,10 +428,10 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* The provider picker belongs with the message it configures, not in the page header. */}
-        {index === 0 && (
-          <div className="min-w-0 max-w-36 shrink overflow-hidden sm:max-w-52" data-testid="composer-model-selection">
-            <ModelSelector startupConfig={startupConfig} />
+        {/* Work chooses an authenticated agent; Chat routes models automatically. */}
+        {index === 0 && showWorkAgentSelector && (
+          <div className="max-w-56 min-w-0 shrink overflow-hidden">
+            <WorkAgentConversationSelector />
           </div>
         )}
         {/* A box rather than `contents` so it has something to move: the split

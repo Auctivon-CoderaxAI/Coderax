@@ -35,10 +35,12 @@ test('auto resolves through the configured default when it is offered', () => {
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'llama3:latest'), {
     isWork: true,
     workModel: 'llama3:latest',
+    workProvider: 'ollama',
   });
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'free/alpha'), {
     isWork: true,
     workModel: 'free/alpha',
+    workProvider: 'custom',
   });
 });
 
@@ -70,6 +72,7 @@ test('an allowed pick is kept even when a different default exists', () => {
   assert.deepEqual(resolveWorkContext([PAID, LOCAL, FREE], 'free/alpha', 'llama3:latest'), {
     isWork: true,
     workModel: 'free/alpha',
+    workProvider: 'custom',
   });
 });
 
@@ -107,7 +110,11 @@ test('the alias middleware sets server-owned context and strips client claims', 
   });
 
   assert.equal(continued, true);
-  assert.deepEqual(req.workContext, { isWork: true, workModel: 'llama3:latest' });
+  assert.deepEqual(req.workContext, {
+    isWork: true,
+    workModel: 'llama3:latest',
+    workProvider: 'ollama',
+  });
   assert.equal(req.body.isWork, undefined);
   assert.equal(req.body.workModel, undefined);
   assert.equal(req.body.text, 'plan');
@@ -128,6 +135,7 @@ test('the alias hands the handler the concrete model, never the auto sentinel', 
   assert.equal(received, 'llama3:latest');
   assert.notEqual(received, 'auto');
   assert.equal(req.workContext.workModel, received);
+  assert.equal(req.body.endpoint, 'ollama');
 });
 
 test('an omitted model resolves through the configured default', async () => {
@@ -468,10 +476,16 @@ function serve(app) {
   });
 }
 
-test('/api/work/chat runs admission after Work context and hands it the concrete model', async () => {
+test('/api/work/chat runs the native path when CyVox is disabled and passes the selected model and provider', async () => {
   const seen = [];
   const fakeAgents = (req, res) => {
-    seen.push({ url: req.url, workModel: req.workContext?.workModel, model: req.body?.model });
+    seen.push({
+      url: req.url,
+      workModel: req.workContext?.workModel,
+      model: req.body?.model,
+      endpoint: req.body?.endpoint,
+      cyvox: req.config?.cyvox,
+    });
     res.status(200).json({ ok: true });
   };
 
@@ -479,6 +493,7 @@ test('/api/work/chat runs admission after Work context and hands it the concrete
   app.use(express.json());
   app.use('/api/work', (req, _res, next) => {
     req.user = { id: 'user-1' };
+    req.config = { cyvox: false };
     next();
   });
   app.use(
@@ -509,6 +524,8 @@ test('/api/work/chat runs admission after Work context and hands it the concrete
     assert.equal(seen[0].url, '/chat', 'admission receives the native chat path');
     assert.equal(seen[0].workModel, 'llama3:latest', 'Work context set before admission');
     assert.equal(seen[0].model, 'llama3:latest', 'the concrete model reaches the runner');
+    assert.equal(seen[0].endpoint, 'ollama', 'the selected model provider reaches the runner');
+    assert.equal(seen[0].cyvox, false, 'native Work does not need CyVox');
   } finally {
     server.close();
   }

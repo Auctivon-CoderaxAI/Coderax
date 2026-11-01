@@ -188,6 +188,19 @@ endpoints:
         # Generic fallback inference is intentionally disabled for custom targets.
         paramDefinitions:
           - key: effort
+    # Credential-free local provider for Chat auto-routing and native Work E2E.
+    # The in-process fake model replaces the runtime model before any provider
+    # network call, so this endpoint never reaches a real Ollama service.
+    - name: 'Ollama'
+      apiKey: 'e2e-local-model'
+      baseURL: 'http://127.0.0.1:8889/v1'
+      models:
+        default:
+          - 'e2e-work-local-a'
+          - 'e2e-work-local-b'
+        fetch: false
+      titleConvo: false
+      modelDisplayLabel: 'E2E Local Models'
     - name: 'Mock Titles immediate'
       apiKey: 'e2e-mock-title-key'
       baseURL: 'http://127.0.0.1:8889/v1'

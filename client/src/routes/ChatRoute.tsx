@@ -9,6 +9,7 @@ import {
   EModelEndpoint,
   PermissionBits,
   isForcedTemporaryRetention,
+  selectAutomaticChatModel,
 } from 'coderax-data-provider';
 import type { TPreset, TAgentsMap } from 'coderax-data-provider';
 import {
@@ -31,7 +32,13 @@ import {
   useGetEndpointsQuery,
   useListAgentsQuery,
   useProjectQuery,
+  useTokenConfigQuery,
 } from '~/data-provider';
+import {
+  buildChatModelSources,
+  getConfiguredDefaultModel,
+  toChatModelPreset,
+} from '~/hooks/Chat/chatModelRouting';
 import {
   useAssistantListMap,
   useIdChangeEffect,
@@ -39,6 +46,9 @@ import {
   useNewConvo,
   useLocalize,
 } from '~/hooks';
+import { useChatTransport, ChatTransportContext } from '~/Providers/ChatTransportContext';
+import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
+import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
 import ChatView from '~/components/Chat/ChatView';
 import { NotificationSeverity } from '~/common';
@@ -168,6 +178,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     initialConvoQuery.isSuccess &&
     (initialConvoQuery.data?.isWork === true) !== isWorkMode;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
+  const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
+  const baseChatTransport = useChatTransport();
   const assistantListMap = useAssistantListMap();
   /** The map comes from Root's shared context (one mapping pass app-wide); the
    * select-less observer only tracks settle state. Only a loaded list may
@@ -178,6 +190,45 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   const agentsQuery = useListAgentsQuery(
     { requiredPermission: PermissionBits.VIEW },
     { enabled: isAuthenticated },
+  );
+  /** Chat has no model picker: its model is derived from the server's configured
+   * catalog, preferring free/local models. Work keeps its own explicit selector. */
+  const automaticChatSelection = useMemo(
+    () =>
+      selectAutomaticChatModel(
+        buildChatModelSources(modelsQuery.data, endpointsQuery.data, tokenConfigQuery.data),
+        {
+          preferredPaidModel: getConfiguredDefaultModel(startupConfig),
+        },
+      ),
+    [modelsQuery.data, endpointsQuery.data, tokenConfigQuery.data, startupConfig],
+  );
+  const automaticChatPreset = useMemo(() => {
+    if (isWorkMode) {
+      return undefined;
+    }
+    const candidate = automaticChatSelection.ok
+      ? automaticChatSelection.model
+      : automaticChatSelection.paid;
+    return candidate ? toChatModelPreset(candidate, endpointsQuery.data) : undefined;
+  }, [isWorkMode, automaticChatSelection, endpointsQuery.data]);
+  const chatRoutingController = useMemo(
+    () =>
+      createAutomaticChatTransport({
+        transport: baseChatTransport,
+        selection: automaticChatSelection,
+        endpointsConfig: endpointsQuery.data,
+      }),
+    [baseChatTransport, automaticChatSelection, endpointsQuery.data],
+  );
+  const chatModelRouting = useMemo(
+    () => ({
+      ...chatRoutingController,
+      selection: automaticChatSelection,
+      consentModel: automaticChatSelection.ok ? null : automaticChatSelection.paid,
+      unavailable: !automaticChatSelection.ok && automaticChatSelection.paid == null,
+    }),
+    [chatRoutingController, automaticChatSelection],
   );
 
   const isTemporaryChat = isTemporaryConversation(conversation);
@@ -240,7 +291,23 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         queryParams[key] = value;
       }
     });
-    const querySettings = processValidSettings(queryParams);
+    const parsedQuerySettings = processValidSettings(queryParams);
+    /** Work accepts only an explicit, available agent preset. Chat model specs
+     * and provider selections cannot override its server-side model gate. */
+    let querySettings: TPreset = parsedQuerySettings;
+    if (isWorkMode) {
+      const isExplicitWorkAgent =
+        parsedQuerySettings.endpoint === EModelEndpoint.agents &&
+        typeof parsedQuerySettings.agent_id === 'string' &&
+        typeof parsedQuerySettings.model === 'string';
+      querySettings = isExplicitWorkAgent
+        ? {
+            endpoint: EModelEndpoint.agents,
+            agent_id: parsedQuerySettings.agent_id,
+            model: parsedQuerySettings.model,
+          }
+        : ({} as TPreset);
+    }
 
     const notFoundConvo =
       Boolean(conversationId) &&
@@ -271,11 +338,17 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         ? startupConfig?.modelSpecs?.list?.find((spec) => spec.name === querySettings.spec)
         : undefined;
 
-      const result = urlSpec
-        ? undefined
-        : getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
+      /** An empty Chat selection is automatic: pin the highest-ranked free/local
+       * model, or the configured paid fallback that the composer will gate behind
+       * explicit cost consent. Explicit URL/settings selections still win. */
+      const automatic =
+        !urlSpec && Object.keys(querySettings).length === 0 ? automaticChatPreset : undefined;
+      const result =
+        isWorkMode || urlSpec || automatic
+          ? undefined
+          : getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
       const spec = urlSpec ?? result?.default ?? result?.last ?? result?.softDefault;
-      const specPreset = spec ? getModelSpecPreset(spec) : undefined;
+      const specPreset = spec ? getModelSpecPreset(spec) : automatic;
 
       if (Object.keys(querySettings).length > 0) {
         return mergeQuerySettingsWithSpec(specPreset, querySettings);
@@ -314,7 +387,9 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       initialConvoQuery.isError &&
       isNotFoundError(initialConvoQuery.error)
     ) {
-      const result = getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
+      const result = isWorkMode
+        ? undefined
+        : getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
       const spec = result?.default ?? result?.last ?? result?.softDefault;
       showToast({
         message: localize('com_ui_conversation_not_found'),
@@ -382,6 +457,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     queryClient,
     conversation?.chatProjectId,
     conversation?.conversationId,
+    automaticChatPreset,
   ]);
 
   if (endpointsQuery.isLoading || modelsQuery.isLoading) {
@@ -421,6 +497,15 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     return null;
   }
 
+  const chatView = (
+    <ChatView
+      index={index}
+      project={verifiedChatProjectId ? projectQuery.data : undefined}
+      routePending={routeState.pending}
+      workMode={isWorkMode}
+    />
+  );
+
   return (
     <ToolCallsMapProvider conversationId={conversation.conversationId ?? ''}>
       {routeState.pending && (
@@ -438,11 +523,15 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         </div>
       )}
       <div hidden={routeState.pending} className={routeState.pending ? 'hidden' : 'contents'}>
-        <ChatView
-          index={index}
-          project={verifiedChatProjectId ? projectQuery.data : undefined}
-          routePending={routeState.pending}
-        />
+        {isWorkMode ? (
+          chatView
+        ) : (
+          <ChatModelRoutingContext.Provider value={chatModelRouting}>
+            <ChatTransportContext.Provider value={chatRoutingController.transport}>
+              {chatView}
+            </ChatTransportContext.Provider>
+          </ChatModelRoutingContext.Provider>
+        )}
       </div>
     </ToolCallsMapProvider>
   );
