@@ -87,7 +87,6 @@ import SendButton from './SendButton';
 import Queue from './Composer/Queue';
 import Tray from './Composer/Tray';
 import Bar from './Composer/Bar';
-import Mention from './Mention';
 import store from '~/store';
 
 export function toRestoredComposerFile(
@@ -227,8 +226,6 @@ const ChatForm = memo(function ChatForm({
   const { isTemporary } = useChatSettings();
 
   const [showStopButton, setShowStopButton] = useRecoilState(store.showStopButtonByIndex(index));
-  const plusPopoverAtom = useMemo(() => store.showPlusPopoverFamily(index), [index]);
-  const mentionPopoverAtom = useMemo(() => store.showMentionPopoverFamily(index), [index]);
 
   const { requiresKey } = useRequiresKey();
   const methods = useChatFormContext();
@@ -563,14 +560,13 @@ const ChatForm = memo(function ChatForm({
     permission: Permissions.USE,
   });
   const slashCommandEnabled = useRecoilValue(store.slashCommand);
-  const atCommandEnabled = useRecoilValue(store.atCommand);
   const idleActions = useMemo(
     () => ({
       prompts: hasPromptsAccess && slashCommandEnabled,
-      mentions: atCommandEnabled,
+      mentions: false,
       attach: attachTarget.canAttach,
     }),
-    [hasPromptsAccess, slashCommandEnabled, atCommandEnabled, attachTarget.canAttach],
+    [hasPromptsAccess, slashCommandEnabled, attachTarget.canAttach],
   );
   const { submitText: submitAnswerText } = answerMode;
   const dictationAnswerModeActive = answerMode.composerAnswers;
@@ -872,21 +868,6 @@ const ChatForm = memo(function ChatForm({
             </div>
           )}
           <div className={cn('flex w-full items-center', isRTL && 'flex-row-reverse')}>
-            <Mention
-              index={index}
-              popoverAtom={plusPopoverAtom}
-              newConversation={generateConversation}
-              textAreaRef={textAreaRef}
-              commandChar="+"
-              placeholder="com_ui_add_model_preset"
-              includeAssistants={false}
-            />
-            <Mention
-              index={index}
-              popoverAtom={mentionPopoverAtom}
-              newConversation={newConversation}
-              textAreaRef={textAreaRef}
-            />
             <PromptsCommand index={index} textAreaRef={textAreaRef} submitPrompt={submitPrompt} />
             {index === 0 && (
               <AskUserQuestionPopover conversationId={conversationId} textAreaRef={textAreaRef} />
