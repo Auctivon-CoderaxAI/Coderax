@@ -72,7 +72,28 @@ export async function selectMockEndpoint(page: Page, endpoint: MockEndpoint) {
 /** Open the model selector and choose a configured model spec by label. */
 export async function selectModelSpec(page: Page, label: string) {
   const trigger = modelSelectorTrigger(page);
-  await expect(trigger).toBeVisible();
+  if (!(await trigger.isVisible({ timeout: 1_000 }).catch(() => false))) {
+    /** Chat no longer exposes a model picker. Model specs remain addressable through the
+     *  supported `?spec=` route, which keeps these behavior tests on the configured preset. */
+    const specName = await page.evaluate(async (targetLabel) => {
+      const response = await fetch('/api/config', { credentials: 'include' });
+      if (!response.ok) {
+        return null;
+      }
+      const config = (await response.json()) as {
+        modelSpecs?: { list?: Array<{ label?: string; name?: string }> };
+      };
+      return config.modelSpecs?.list?.find((spec) => spec.label === targetLabel)?.name ?? null;
+    }, label);
+    if (specName == null) {
+      throw new Error('Configured model spec was not found for label: ' + label);
+    }
+    const url = new URL(page.url());
+    url.searchParams.set('spec', specName);
+    await page.goto(url.pathname + url.search, { timeout: 10_000 });
+    await expect(page).toHaveURL((currentUrl) => currentUrl.searchParams.get('spec') === specName);
+    return;
+  }
   if ((await trigger.textContent())?.includes(label)) {
     return;
   }
