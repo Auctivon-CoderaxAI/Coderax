@@ -25,3 +25,4 @@ export type TWorkModel = {
 
 export type TWorkModelsResponse = { models: TWorkModel[] };
 export type TWorkTasksResponse = { tasks: TWorkTask[] };
+export type TWorkTaskResponse = { task: TWorkTask };

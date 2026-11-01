@@ -1,8 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useQueries } from '@tanstack/react-query';
 import { useDrag, useDragLayer, useDrop } from 'react-dnd';
+import { dataService, DynamicQueryKeys } from 'coderax-data-provider';
 import { Skeleton, useMediaQuery, useToastContext, buttonVariants } from '@coderax/client';
-import type { TConversation, TEndpointsConfig } from 'coderax-data-provider';
+import type { TConversation, TEndpointsConfig, TWorkTask } from 'coderax-data-provider';
 import type {
   SelectEndpointHandler,
   SelectSpecHandler,
@@ -25,6 +28,7 @@ import {
 } from '~/data-provider';
 import useFavoritesData from '~/components/Nav/Favorites/useFavoritesData';
 import FavoriteItem from '~/components/Nav/Favorites/FavoriteItem';
+import WorkTaskRow, { workTaskPinKey } from './WorkTaskRow';
 import { useLocalize, useLocalStorage } from '~/hooks';
 import { getSpecAgentAvatarURL, cn } from '~/utils';
 import { NotificationSeverity } from '~/common';
@@ -33,6 +37,12 @@ import { focusFirstRow } from './focus';
 import Convo from './Convo';
 
 const FAVORITE_ROW_DRAG_TYPE = 'favorite-item';
+const WORK_TASK_DRAG_TYPE = 'work-task';
+const CHAT_WORK_ROW_DRAG_TYPES = [CONVERSATION_DRAG_TYPE, WORK_TASK_DRAG_TYPE];
+
+function pinnedEntryGroup(entry: PinnedEntry): 'favorite' | 'conversation' {
+  return entry.kind === 'favorite' ? 'favorite' : 'conversation';
+}
 
 /** Declared on each row's focus target: a screen-reader user tabbing straight
  *  to a row would otherwise never meet the section's written hint, leaving the
@@ -67,7 +77,8 @@ const convoEntryKey = (conversationId: string): string => `convo:${conversationI
 
 type PinnedEntry =
   | { key: string; kind: 'favorite'; favorite: Favorite }
-  | { key: string; kind: 'convo'; conversationId: string };
+  | { key: string; kind: 'convo'; conversationId: string }
+  | { key: string; kind: 'work'; task: TWorkTask };
 
 type PinnedRowDragItem = ConversationDragItem & { key: string };
 
@@ -109,11 +120,14 @@ const DraggablePinnedRow = ({
   const ref = useRef<HTMLDivElement>(null);
   const hasHoverPointer = useMediaQuery('(hover: hover)');
   const [{ handlerId }, drop] = useDrop<PinnedRowDragItem, unknown, { handlerId: unknown }>({
-    /* A row only takes a drag of its own kind, so a pinned chat never shifts a
-     * pinned agent or model out of the way — not even as a preview. The two
-     * groups are ordered independently, and the drag layer shows no
-     * displacement for a target that cannot receive it. */
-    accept: entry.kind === 'convo' ? CONVERSATION_DRAG_TYPE : FAVORITE_ROW_DRAG_TYPE,
+    /* Favorites keep their own group. Chat and Work rows share the other group,
+     * so either can be reordered around the other while neither moves a
+     * favorite — not even in the drag preview. */
+    accept: entry.kind === 'favorite' ? FAVORITE_ROW_DRAG_TYPE : CHAT_WORK_ROW_DRAG_TYPES,
+    canDrop: (item) =>
+      entry.kind === 'favorite'
+        ? (item as PinnedRowDragItem).key != null
+        : (item as PinnedRowDragItem).key != null && item.pinned === true,
     /* A release on a row ends a reorder; it files nothing. The row has to stay
      * droppable to get there — the HTML5 backend reports hover only for targets
      * that could receive the drag, and the hover is what reorders — so it names
@@ -153,17 +167,31 @@ const DraggablePinnedRow = ({
   });
 
   const [{ isDragging }, drag] = useDrag<PinnedRowDragItem, unknown, { isDragging: boolean }>({
-    type: entry.kind === 'convo' ? CONVERSATION_DRAG_TYPE : FAVORITE_ROW_DRAG_TYPE,
+    type:
+      entry.kind === 'convo'
+        ? CONVERSATION_DRAG_TYPE
+        : entry.kind === 'work'
+          ? WORK_TASK_DRAG_TYPE
+          : FAVORITE_ROW_DRAG_TYPE,
     item: (): PinnedRowDragItem => {
       beginPinnedDrag();
-      return entry.kind === 'convo'
-        ? {
+      if (entry.kind === 'convo') {
+        return {
             key: entry.key,
             conversationId: entry.conversationId,
             chatProjectId: conversation?.chatProjectId ?? null,
             pinned: conversation?.pinned === true,
-          }
-        : { key: entry.key, conversationId: '', chatProjectId: null, pinned: false };
+          };
+      }
+      if (entry.kind === 'work') {
+        return {
+          key: entry.key,
+          conversationId: entry.task.id,
+          chatProjectId: null,
+          pinned: true,
+        };
+      }
+      return { key: entry.key, conversationId: '', chatProjectId: null, pinned: false };
     },
     collect: (monitor) => ({ isDragging: monitor.isDragging() }),
     /* A drop the list itself answered is a reorder and keeps the arrangement.
@@ -302,11 +330,10 @@ interface PinnedSectionProps {
   membershipUpdatedAt?: number;
 }
 
-/** Pinned chats and pinned agents/models/specs (favorites) render as ONE
- *  reorderable list, kept in two groups — favorites first, then chats — because
- *  a row only reorders against its own kind. The order persists per user, and
- *  the section opens with the same collapse motion as the Projects section
- *  above it. */
+/** Pinned chats, Work tasks and pinned agents/models/specs (favorites) render
+ *  as ONE reorderable list, kept in two groups — favorites first, then the
+ *  mixed Chat/Work rows. The order persists per user, and the section opens
+ *  with the same collapse motion as the Projects section above it. */
 const PinnedSection = ({
   conversations,
   toggleNav,
@@ -315,6 +342,7 @@ const PinnedSection = ({
   membershipUpdatedAt = 0,
 }: PinnedSectionProps) => {
   const localize = useLocalize();
+  const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useLocalStorage('pinnedSectionExpanded', true);
   const { data: activeJobsData } = useActiveJobs();
   const favoritesData = useFavoritesData();
@@ -332,6 +360,34 @@ const PinnedSection = ({
     dataUpdatedAt: orderUpdatedAt,
   } = useGetPinnedOrderQuery();
   const orderLoaded = orderFetched && !orderFetching;
+  const pinnedWorkIds = useMemo(
+    () => [
+      ...new Set(
+        (storedOrder ?? []).filter((key) => key.startsWith('work:')).map((key) => key.slice(5)),
+      ),
+    ],
+    [storedOrder],
+  );
+  const pinnedWorkQueries = useQueries({
+    queries: pinnedWorkIds.map((conversationId) => ({
+      queryKey: DynamicQueryKeys.workTask(conversationId),
+      queryFn: ({ signal }) => dataService.getWorkTask(conversationId, signal),
+      retry: false,
+      staleTime: 30_000,
+    })),
+  });
+  const pinnedWorkTasks = useMemo(
+    () =>
+      pinnedWorkIds.map(
+        (id, index) =>
+          pinnedWorkQueries[index]?.data?.task ?? {
+            id,
+            title: id,
+            state: 'unknown' as const,
+          },
+      ),
+    [pinnedWorkIds, pinnedWorkQueries],
+  );
   const updatePinnedOrder = useUpdatePinnedOrderMutation();
   const pinMutation = usePinConversationMutation();
   const { showToast } = useToastContext();
@@ -414,8 +470,16 @@ const PinnedSection = ({
       seen.add(key);
       entries.push({ key, kind: 'convo', conversationId });
     }
+    for (const task of pinnedWorkTasks) {
+      const key = workTaskPinKey(task.id);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      entries.push({ key, kind: 'work', task });
+    }
     return entries;
-  }, [favoritesData.favorites, conversations]);
+  }, [favoritesData.favorites, conversations, pinnedWorkTasks]);
 
   /** Stored keys order the entries they still resolve to; the rest append in
    *  natural order, so a stale order never hides an item. Kinds stay grouped —
@@ -444,7 +508,7 @@ const PinnedSection = ({
     }
     return [
       ...ordered.filter((entry) => entry.kind === 'favorite'),
-      ...ordered.filter((entry) => entry.kind === 'convo'),
+      ...ordered.filter((entry) => entry.kind !== 'favorite'),
     ];
   }, [storedOrder, naturalEntries]);
 
@@ -502,14 +566,13 @@ const PinnedSection = ({
    * still holds, and releasing would save something no longer on screen. */
   const arrangementRef = useRef(0);
 
-  /** A move only ever swaps two rows of the same kind. Chats and favorites are
-   *  two independently ordered groups, so the position announced for the
-   *  keyboard path counts within the moved row's own group. */
+  /** A move only swaps rows within a display group: favorites stay together,
+   *  while chats and Work tasks share one order. */
   const moveEntry = useCallback((dragKey: string, hoverKey: string) => {
     const list = [...dragEntriesRef.current];
     const from = list.findIndex((entry) => entry.key === dragKey);
     const to = list.findIndex((entry) => entry.key === hoverKey);
-    if (from < 0 || to < 0 || from === to || list[from].kind !== list[to].kind) {
+    if (from < 0 || to < 0 || from === to || pinnedEntryGroup(list[from]) !== pinnedEntryGroup(list[to])) {
       return;
     }
     const [moved] = list.splice(from, 1);
@@ -532,20 +595,25 @@ const PinnedSection = ({
       const list = [...dragEntriesRef.current];
       const from = list.findIndex((entry) => entry.key === key);
       const to = from + delta;
-      if (from < 0 || to < 0 || to >= list.length || list[from].kind !== list[to].kind) {
+      if (
+        from < 0 ||
+        to < 0 ||
+        to >= list.length ||
+        pinnedEntryGroup(list[from]) !== pinnedEntryGroup(list[to])
+      ) {
         return;
       }
-      const kind = list[from].kind;
+      const group = pinnedEntryGroup(list[from]);
       const [moved] = list.splice(from, 1);
       list.splice(to, 0, moved);
       dragEntriesRef.current = list;
       hasReorderedRef.current = true;
       arrangementRef.current += 1;
       setLiveEntries(list);
-      const group = list.filter((entry) => entry.kind === kind);
-      const position = group.findIndex((entry) => entry.key === key) + 1;
+      const groupEntries = list.filter((entry) => pinnedEntryGroup(entry) === group);
+      const position = groupEntries.findIndex((entry) => entry.key === key) + 1;
       setAnnouncement(
-        localize('com_ui_moved_to_position', { 0: `${position}`, 1: `${group.length}` }),
+        localize('com_ui_moved_to_position', { 0: `${position}`, 1: `${groupEntries.length}` }),
       );
       commitOrderRef.current();
     },
@@ -659,6 +727,26 @@ const PinnedSection = ({
   const handleRemoveFocus = useCallback(() => {
     focusFirstRow(sectionRef.current);
   }, []);
+
+  const unpinWorkTask = useCallback(
+    (conversationId: string) => {
+      if (!orderLoaded || updatePinnedOrder.isLoading) {
+        return;
+      }
+      const key = workTaskPinKey(conversationId);
+      const nextOrder = (storedOrder ?? []).filter((entry) => entry !== key);
+      updatePinnedOrder.mutate(nextOrder, {
+        onError: () =>
+          showToast({
+            message: localize('com_ui_unpin_error'),
+            severity: NotificationSeverity.ERROR,
+            showIcon: true,
+          }),
+      });
+      window.setTimeout(handleRemoveFocus, 0);
+    },
+    [handleRemoveFocus, localize, orderLoaded, showToast, storedOrder, updatePinnedOrder],
+  );
 
   const handleSelectEndpoint = useCallback<SelectEndpointHandler>(
     (...args) => {
@@ -786,6 +874,30 @@ const PinnedSection = ({
                         isGenerating={activeJobIds.has(convo.conversationId ?? '')}
                         keyShortcuts={orderLoaded ? REORDER_SHORTCUTS : undefined}
                         onRenamingChange={(renaming) => setRowRenaming(entry.key, renaming)}
+                      />
+                    </DraggablePinnedRow>
+                  </li>
+                );
+              }
+              if (entry.kind === 'work') {
+                return (
+                  <li key={entry.key} className="list-none">
+                    <DraggablePinnedRow
+                      entry={entry}
+                      indexOfKey={indexOfKey}
+                      moveEntry={moveEntry}
+                      moveEntryBy={moveEntryBy}
+                      onDrop={commitOrder}
+                      canDrag={orderLoaded}
+                    >
+                      <WorkTaskRow
+                        task={entry.task}
+                        pinned
+                        onSelect={() =>
+                          toggleNav(() => navigate(`/work/${encodeURIComponent(entry.task.id)}`))
+                        }
+                        onTogglePin={() => unpinWorkTask(entry.task.id)}
+                        pinDisabled={!orderLoaded || updatePinnedOrder.isLoading}
                       />
                     </DraggablePinnedRow>
                   </li>
