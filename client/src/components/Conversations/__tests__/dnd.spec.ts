@@ -5,7 +5,7 @@ import {
   markPinnedHover,
   mergeVisibleOrder,
   shouldSwapOnHover,
-} from '../dnd';
+} from '../pinnedOrder';
 
 /** A 36px favorite row and a 48px chat row, the two heights the pinned list
  *  mixes below the `md` breakpoint. */
@@ -101,6 +101,29 @@ describe('mergeVisibleOrder', () => {
     expect(merged.filter((key) => key.startsWith('convo:'))).toEqual([
       'convo:c2',
       'convo:hidden',
+      'convo:c1',
+    ]);
+  });
+
+  /* Work pins share the conversation run, not the favorites': grouped as a
+   * favorite, a Work row was lifted above the chats it had traded places with. */
+  it('merges Work pins inside the conversation run', () => {
+    const stored = ['convo:c1', 'work:t1', 'convo:c2'];
+    const visible = ['convo:c2', 'work:t1', 'convo:c1'];
+
+    expect(mergeVisibleOrder(stored, visible)).toEqual(['convo:c2', 'work:t1', 'convo:c1']);
+  });
+
+  /* A hidden Work pin is as immovable as a hidden chat: the visible chats take
+   * their own slots around it instead of carrying it out of the run. */
+  it('keeps a hidden Work pin in its conversation slot', () => {
+    const stored = ['convo:c1', 'work:hidden', 'convo:c2', 'model:6:openAI:gpt-4o'];
+    const visible = ['convo:c2', 'convo:c1', 'model:6:openAI:gpt-4o'];
+
+    expect(mergeVisibleOrder(stored, visible)).toEqual([
+      'model:6:openAI:gpt-4o',
+      'convo:c2',
+      'work:hidden',
       'convo:c1',
     ]);
   });

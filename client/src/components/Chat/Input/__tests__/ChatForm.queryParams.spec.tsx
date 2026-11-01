@@ -215,6 +215,22 @@ describe('ChatForm URL submission', () => {
     jest.useRealTimers();
   });
 
+  it.each([
+    ['@', 'com_ui_mention'],
+    ['+', 'com_ui_add_model_preset'],
+  ])(
+    'keeps the automatic Chat composer free of manual model selection via %s',
+    (key, placeholder) => {
+      mountComposer(initialConversation, { query: '' });
+      fireEvent.keyDown(screen.getByTestId('text-input'), { key });
+
+      expect(screen.queryByPlaceholderText(placeholder)).not.toBeInTheDocument();
+      expect(document.getElementById('composer-hint-0')?.textContent ?? '').not.toContain(
+        'com_ui_composer_hint_mentions',
+      );
+    },
+  );
+
   it('processes a queued prompt URL after ordinary conversation navigation without remounting', async () => {
     const source = { ...initialConversation, conversationId: 'source-chat' };
     const view = mountComposer(source, { query: '' });

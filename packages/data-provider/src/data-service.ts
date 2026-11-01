@@ -1046,6 +1046,13 @@ export function getWorkTasks(signal?: AbortSignal): Promise<t.TWorkTasksResponse
   return request.get(endpoints.workTasks(), signal ? { signal } : undefined);
 }
 
+export function getWorkTask(
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<t.TWorkTaskResponse> {
+  return request.get(endpoints.workTask(conversationId), signal ? { signal } : undefined);
+}
+
 export function cancelWorkTask(conversationId: string): Promise<{ canceled: true }> {
   return request.post(endpoints.cancelWorkTask(conversationId), {});
 }

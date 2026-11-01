@@ -24,6 +24,7 @@ import {
   useScrollFade,
 } from '~/hooks';
 import { chatFacetParamsAtom, useFreshLocalDay } from '~/components/Conversations/facets';
+import WorkTasksSection from '~/components/Conversations/WorkTasksSection';
 import ProjectsSection from '~/components/Conversations/ProjectsSection';
 import ChatFilterMenu from '~/components/Conversations/ChatFilterMenu';
 import PinnedSection from '~/components/Conversations/PinnedSection';
@@ -131,7 +132,9 @@ const ConversationsSection = memo(() => {
   });
 
   const conversations = useMemo(() => {
-    return data ? data.pages.flatMap((page) => page.conversations) : [];
+    return data
+      ? data.pages.flatMap((page) => page.conversations).filter((conversation) => !conversation.isWork)
+      : [];
   }, [data]);
 
   /** Pins are fetched on their own so one older than the first page of the chats list
@@ -151,7 +154,10 @@ const ConversationsSection = memo(() => {
      cache holds the same unarchived chats this section shows. */
   const pinnedConversations = useMemo(
     () =>
-      collectPinnedConversations(pinnedData?.conversations, isArchivedView ? [] : conversations),
+      collectPinnedConversations(
+        pinnedData?.conversations.filter((conversation) => !conversation.isWork),
+        isArchivedView ? [] : conversations,
+      ),
     [pinnedData?.conversations, conversations, isArchivedView],
   );
 
@@ -275,6 +281,9 @@ const ConversationsSection = memo(() => {
                 scrollViewport={scrollViewport}
                 scrollContent={scrollContent}
               />
+              {!search.query && (
+                <WorkTasksSection isAuthenticated={isAuthenticated} toggleNav={toggleNav} />
+              )}
             </div>
           </div>
           {/* The last row fades rather than being cut off, so a list that continues
