@@ -5,12 +5,10 @@ import { expect, test } from '@playwright/test';
 import { encodeEphemeralAgentId } from 'coderax-data-provider';
 import type { FrameLocator, Page, Response, Route } from '@playwright/test';
 import {
-  MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
   getAccessToken,
   messagesView,
   requestJson,
-  selectMockEndpoint,
   sendMessage,
   sendMessageAndWaitForCompletion,
 } from './helpers';
@@ -400,6 +398,7 @@ async function createShare(page: Page, conversationId: string): Promise<SharePay
 }
 
 test.describe('MCP Apps full integration', () => {
+  // Chat selects its configured free/local model automatically; it has no model picker.
   test.skip(process.env.E2E_MCP_APPS !== 'true', 'requires the dedicated MCP Apps fixture profile');
 
   test('runs an official SDK View, reloads its snapshot, and omits UI from a public share', async ({
@@ -425,7 +424,6 @@ test.describe('MCP Apps full integration', () => {
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
       maxAdmissionRequestsPerMinute: 240,
     });
-    await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
     await selectMcpAppServer(page);
 
     const sandboxResponse = page.waitForResponse(
@@ -811,7 +809,6 @@ test.describe('MCP Apps full integration', () => {
       legacyHtmlEnabled: true,
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
     });
-    await selectMockEndpoint(page, MCP_APP_PHASE_ENDPOINT);
     await selectMcpAppServer(page);
 
     const generation = await sendMessageAndWaitForCompletion(page, `E2E_MCP_APP_PHASE:${label}`, {
@@ -992,7 +989,6 @@ test.describe('MCP Apps full integration', () => {
       legacyHtmlEnabled: true,
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
     });
-    await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
     await selectMcpAppServer(page);
 
     const appGeneration = await sendMessageAndWaitForCompletion(page, `E2E_MCP_APP:${label}`);
