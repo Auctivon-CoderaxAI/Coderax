@@ -397,10 +397,7 @@ test.describe('MCP Apps full integration', () => {
   test('runs an official SDK View, reloads its snapshot, and omits UI from a public share', async ({
     page,
   }, testInfo) => {
-    test.skip(
-      !['standalone', 'phase-labels'].includes(PHASE) ||
-        process.env.E2E_MCP_APP_PHASE_LABELS !== 'true',
-    );
+    test.skip(!['standalone', 'true'].includes(PHASE));
     test.setTimeout(180_000);
     const label = randomLabel();
     const appRequests: string[] = [];
