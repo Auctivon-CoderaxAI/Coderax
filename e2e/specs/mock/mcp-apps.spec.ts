@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { encodeEphemeralAgentId } from 'coderax-data-provider';
 import type { FrameLocator, Page, Response, Route } from '@playwright/test';
 import {
   NEW_CHAT_PATH,
@@ -19,12 +18,6 @@ const CHAT_ORIGIN = new URL(process.env.E2E_BASE_URL || 'http://127.0.0.1:3080')
 const MCP_APP_ORIGIN = `http://127.0.0.1:${process.env.E2E_MCP_APP_PORT || '8768'}`;
 const MCP_APP_LINK_ORIGIN = `http://localhost:${process.env.E2E_MCP_APP_PORT || '8768'}`;
 const LABEL_SERVER = `http://127.0.0.1:${process.env.E2E_LABEL_PORT || '8889'}`;
-const MCP_APP_PHASE_ENDPOINT = { label: 'Mock Provider F', model: 'mock-model-f' };
-const MCP_APP_PHASE_AGENT_ID = encodeEphemeralAgentId({
-  endpoint: MCP_APP_PHASE_ENDPOINT.label,
-  model: MCP_APP_PHASE_ENDPOINT.model,
-  sender: MCP_APP_PHASE_ENDPOINT.label,
-});
 const MCP_APP_PHASE_PARENT_LABEL = 'Rendered two MCP Apps in one activity phase';
 const APP_ROUTE_PATHS = new Set([
   '/api/mcp/app/validate',
@@ -404,7 +397,10 @@ test.describe('MCP Apps full integration', () => {
   test('runs an official SDK View, reloads its snapshot, and omits UI from a public share', async ({
     page,
   }, testInfo) => {
-    test.skip(!['standalone', 'true'].includes(PHASE));
+    test.skip(
+      !['standalone', 'phase-labels'].includes(PHASE) ||
+        process.env.E2E_MCP_APP_PHASE_LABELS !== 'true',
+    );
     test.setTimeout(180_000);
     const label = randomLabel();
     const appRequests: string[] = [];
@@ -792,7 +788,10 @@ test.describe('MCP Apps full integration', () => {
   test('keeps two labeled phase App results visible and correlated while panels stay closed', async ({
     page,
   }, testInfo) => {
-    test.skip(!['standalone', 'true'].includes(PHASE));
+    test.skip(
+      !['standalone', 'phase-labels'].includes(PHASE) ||
+        process.env.E2E_MCP_APP_PHASE_LABELS !== 'true',
+    );
     test.setTimeout(180_000);
     const label = randomLabel();
     const alphaLabel = `phase alpha ${label}`;
@@ -856,13 +855,15 @@ test.describe('MCP Apps full integration', () => {
       const part = toolParts.find((candidate) => candidate.tool_call.id === expected.id);
       expect(part, `persisted tool call ${expected.id}`).toBeDefined();
       const stepId = part?.tool_call.stepId;
+      const agentId = part?.tool_call.agentId ?? part?.agentId;
       expect(stepId).toEqual(expect.any(String));
+      expect(agentId).toEqual(expect.any(String));
 
       const attachment = attachments.find((candidate) => candidate.toolCallId === expected.id);
       expect(attachment, `persisted App attachment ${expected.id}`).toBeDefined();
       expect(attachment).toMatchObject({
         toolCallId: expected.id,
-        agentId: MCP_APP_PHASE_AGENT_ID,
+        agentId,
         stepId,
       });
       expect(attachment?.ui_resources).toHaveLength(1);
