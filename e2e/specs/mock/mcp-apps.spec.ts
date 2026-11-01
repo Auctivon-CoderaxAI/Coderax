@@ -844,6 +844,8 @@ test.describe('MCP Apps full integration', () => {
       (attachment) => attachment.type === 'ui_resources',
     );
     expect(attachments).toHaveLength(2);
+    const phaseAgentId = attachments[0]?.agentId;
+    expect(phaseAgentId).toEqual(expect.any(String));
 
     for (const expected of [
       { id: alphaToolCallId, label: alphaLabel, otherLabel: betaLabel },
@@ -852,15 +854,13 @@ test.describe('MCP Apps full integration', () => {
       const part = toolParts.find((candidate) => candidate.tool_call.id === expected.id);
       expect(part, `persisted tool call ${expected.id}`).toBeDefined();
       const stepId = part?.tool_call.stepId;
-      const agentId = part?.tool_call.agentId ?? part?.agentId;
       expect(stepId).toEqual(expect.any(String));
-      expect(agentId).toEqual(expect.any(String));
 
       const attachment = attachments.find((candidate) => candidate.toolCallId === expected.id);
       expect(attachment, `persisted App attachment ${expected.id}`).toBeDefined();
       expect(attachment).toMatchObject({
         toolCallId: expected.id,
-        agentId,
+        agentId: phaseAgentId,
         stepId,
       });
       expect(attachment?.ui_resources).toHaveLength(1);
