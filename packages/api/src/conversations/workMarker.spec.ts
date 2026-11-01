@@ -10,7 +10,7 @@ function makeStore() {
   return {
     fields,
     options,
-    getConvo: async () => null,
+    getConvo: async (): Promise<unknown> => null,
     saveConvo: async (_ctx: unknown, payload: Write, meta: Write) => {
       fields.push(payload);
       options.push(meta);
