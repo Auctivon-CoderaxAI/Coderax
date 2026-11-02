@@ -7,7 +7,6 @@ import { useFileHandlingNoChatContext, useLocalize } from '~/hooks';
 import FileRow from '../Files/FileRow';
 import ModelBar from './ModelBar';
 import Chip from './Chip';
-import ModelBar from './ModelBar';
 
 const KIND_ICON: Record<ComposerItemKind, JSX.Element> = {
   quote: <TextQuote className="h-4 w-4" aria-hidden="true" />,
