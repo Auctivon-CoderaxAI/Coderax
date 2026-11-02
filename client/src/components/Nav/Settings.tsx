@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { atom, useAtom } from 'jotai';
+import { useAtom } from 'jotai';
+import { settingsOpenAtom, settingsTabAtom } from './Settings/state';
 
-export const settingsOpenAtom = atom(false);
+export { settingsOpenAtom, settingsTabAtom };
 
 /** Keep settings lazy without tying its lifetime to a responsive account-menu trigger. */
 const SettingsDialog = lazy(() => import('./Settings/Dialog'));

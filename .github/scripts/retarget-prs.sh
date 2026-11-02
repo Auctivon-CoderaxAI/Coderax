@@ -17,6 +17,14 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
+# The on-open workflow checks for dev, but a manual sweep invokes this script directly.
+# Verify the target before inspecting or editing any PR. An absent branch or API error must
+# fail closed, including in dry-run mode (which otherwise suggests an impossible retarget).
+if ! gh api "repos/$REPO/branches/$TARGET_BASE" >/dev/null; then
+  echo "ERROR: cannot verify target branch '$TARGET_BASE' in $REPO; no PRs were modified." >&2
+  exit 1
+fi
+
 # Branches on the upstream repository that legitimately merge into the release branch.
 # Backport branches are deliberately absent: `main` is kept as a fast-forward of `dev`, so a
 # backport merged straight to `main` would break that invariant. Use the label to exempt one.

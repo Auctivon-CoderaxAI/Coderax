@@ -16,8 +16,10 @@ async function modelController(req, res) {
     const modelConfig = await loadModels(req);
     res.send(modelConfig);
   } catch (error) {
-    logger.error('Error fetching models:', error);
-    res.status(500).send({ error: error.message });
+    logger.error('Error fetching models', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
+    res.status(500).send({ error: 'Failed to load model catalog' });
   }
 }
 

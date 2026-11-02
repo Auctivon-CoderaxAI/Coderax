@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+import { CYVOX_THINKING_EFFORTS } from 'coderax-data-provider';
 
 import { createCyvoxAddonRouter } from './addon';
 
@@ -60,6 +61,7 @@ describe('CyVox add-on target', () => {
   });
 
   it('keeps the loopback development connection available to an ADMIN', async () => {
+  it('keeps an administrative loopback development connection available', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
       .mockResolvedValue(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
@@ -120,6 +122,80 @@ describe('CyVox add-on target', () => {
         .use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
 
       const response = await request(app).get(`/${resource}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('CyVox loopback authorization', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const loopback = (role?: string) => {
+    const app = express();
+    if (role) {
+      app.use((req, _res, next) => {
+        Object.assign(req, { user: { role } });
+        next();
+      });
+    }
+    return app.use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+  };
+
+  it('refuses an anonymous read without calling the upstream service', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback()).get('/activity');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a signed-in non-admin read without calling the upstream service', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback('USER')).get('/activity');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-admin approval read', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+
+    const response = await request(loopback('USER')).get('/tasks/task123/approvals');
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards an administrative loopback read to the mapped upstream path', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ entries: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const response = await request(loopback('ADMIN')).get('/activity');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ entries: [] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:18000/api/audit?limit=100'),
+      expect.objectContaining({ redirect: 'error' }),
+    );
+  });
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'rejects the inherited resource name %s without calling the upstream service',
+    async (resource) => {
+      const fetchMock = jest.spyOn(global, 'fetch');
+
+      const response = await request(loopback('ADMIN')).get(`/${resource}`);
 
       expect(response.status).toBe(404);
       expect(response.body).toEqual({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
@@ -260,6 +336,212 @@ describe('CyVox fast routing contract', () => {
       max_steps: 15,
       routing_mode: 'FAST',
     });
+  });
+});
+
+describe('CyVox per-task selection contract', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const admin = () =>
+    express()
+      .use(express.json())
+      .use((req, _res, next) => {
+        Object.assign(req, { user: { role: 'ADMIN' } });
+        next();
+      })
+      .use(createCyvoxAddonRouter('https://cyvox.example.com', true, 'secret'));
+
+  const created = () =>
+    new Response(JSON.stringify({ id: 'task-1' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+  const bodyOf = (fetchMock: jest.SpyInstance) =>
+    JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+
+  it('sends the selected model and thinking effort with the task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({
+        task: '  Inspect tests  ',
+        mode: 'Coding Team',
+        model: 'ollama:llama3:latest',
+        thinking_effort: 'high',
+      });
+
+    expect(response.status).toBe(200);
+    expect(bodyOf(fetchMock)).toEqual({
+      task: 'Inspect tests',
+      mode: 'Coding Team',
+      max_steps: 15,
+      routing_mode: 'FAST',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'high',
+    });
+  });
+
+  it.each([undefined, null, ''])(
+    'omits an unset selection (%p) instead of sending an empty value',
+    async (value) => {
+      const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+      const response = await request(admin())
+        .post('/actions/startTask')
+        .set('X-CyVox-Confirm', 'yes')
+        .send({
+          task: 'Inspect tests',
+          mode: 'Autonomous Run',
+          model: value,
+          thinking_effort: value,
+        });
+
+      expect(response.status).toBe(200);
+      expect(bodyOf(fetchMock)).toEqual({
+        task: 'Inspect tests',
+        mode: 'Autonomous Run',
+        max_steps: 15,
+        routing_mode: 'FAST',
+      });
+    },
+  );
+
+  it('rejects a billed model without submitting a task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ models: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'openai:gpt-4o' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
+  });
+
+  it('rejects an unknown thinking effort before contacting CyVox', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', thinking_effort: 'ultra' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(CYVOX_THINKING_EFFORTS)('accepts the supported effort %s', async (effort) => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', thinking_effort: effort });
+
+    expect(response.status).toBe(200);
+    expect(bodyOf(fetchMock).thinking_effort).toBe(effort);
+  });
+
+  it('accepts a raw installed Ollama model confirmed by the inventory', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'llama3:latest', location: 'OLLAMA', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'llama3:latest' });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+      '/api/tasks',
+    ]);
+    const taskBody = JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body));
+    expect(taskBody).toEqual({
+      task: 'Inspect tests',
+      mode: 'Autonomous Run',
+      max_steps: 15,
+      routing_mode: 'FAST',
+      model: 'llama3:latest',
+    });
+  });
+
+  it('rejects a raw model the inventory does not report as installed Ollama', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'mistral:latest', location: 'OLLAMA', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'llama3:latest' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
+  });
+
+  it('still rejects a paid gateway model even when the inventory lists it', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/models') {
+        return new Response(
+          JSON.stringify({
+            models: [{ name: 'openai:gpt-4o', location: 'MODELGATEWAY', compatible_now: true }],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return created();
+    });
+    const response = await request(admin())
+      .post('/actions/startTask')
+      .set('X-CyVox-Confirm', 'yes')
+      .send({ task: 'Inspect tests', mode: 'Autonomous Run', model: 'openai:gpt-4o' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/api/models',
+    ]);
+  });
+
+  it('never writes the deployment-global model while starting a task', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(created());
+    await request(admin()).post('/actions/startTask').set('X-CyVox-Confirm', 'yes').send({
+      task: 'Inspect tests',
+      mode: 'Autonomous Run',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'medium',
+    });
+
+    const paths = fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname);
+    expect(paths).toEqual(['/api/tasks']);
+    expect(paths).not.toContain('/api/models/select');
   });
 });
 

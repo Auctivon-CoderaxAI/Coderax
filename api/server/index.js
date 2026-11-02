@@ -70,6 +70,7 @@ const {
   warnOnUnreachableDeliveryPaths,
   createCodeApiUploadRegistry,
   createCyvoxAddonRouter,
+  createCyvoxTargetResolver,
 } = require('@coderax/api');
 const { connectDb, indexSync } = require('~/db');
 const {
@@ -77,6 +78,7 @@ const {
   sweepOrphanedPreviews,
   getRoleByName,
   seedDatabase,
+  findConfigByPrincipal,
 } = require('~/models');
 const initializeOAuthReconnectManager = require('./services/initializeOAuthReconnectManager');
 const { capabilityContextMiddleware } = require('./middleware/roles/capabilities');
@@ -85,6 +87,7 @@ const { initializeGitHubSkillSync } = require('./services/Skills/sync');
 const { initializeAgentTriggerService } = require('./services/Agents/triggers');
 const { resumeAgentEventDetachedAction } = require('./services/Agents/detachedActionResume');
 const { initializeScheduleEngine, recordExpiredScheduleApproval } = require('./services/Schedules');
+const { initializeWorkflowEngine } = require('./services/Workflows');
 const { jwtLogin, ldapLogin, passportLogin } = require('~/strategies');
 const { startExpiredFileSweep } = require('./services/Files/process');
 const { checkMigrations } = require('./services/start/migration');
@@ -434,6 +437,16 @@ const startServer = async () => {
       process.env.CYVOX_ADDON_ENABLED === 'true' ||
         (process.env.NODE_ENV === 'development' && ['localhost', '127.0.0.1'].includes(host)),
       process.env.CYVOX_AUTH_TOKEN,
+      createCyvoxTargetResolver({
+        findConfigByPrincipal,
+        environment: {
+          enabled:
+            process.env.CYVOX_ADDON_ENABLED === 'true' ||
+            (process.env.NODE_ENV === 'development' && ['localhost', '127.0.0.1'].includes(host)),
+          baseUrl: process.env.CYVOX_BASE_URL,
+          authToken: process.env.CYVOX_AUTH_TOKEN,
+        },
+      }),
     ),
   );
   app.use('/api/insights', routes.insights);
@@ -442,6 +455,7 @@ const startServer = async () => {
   app.use('/api/admin/code-environments', routes.adminCodeEnvironments);
   app.use('/api/code-environments', routes.codeEnvironments);
   app.use('/api/admin/langfuse', routes.adminLangfuse);
+  app.use('/api/admin/cyvox', routes.adminCyVox);
   app.use('/api/admin/grants', routes.adminGrants);
   app.use('/api/admin/groups', routes.adminGroups);
   app.use('/api/admin/roles', routes.adminRoles);
@@ -478,6 +492,9 @@ const startServer = async () => {
   app.use('/api/roles', routes.roles);
   app.use('/api/agents/chat', rejectChatStartsUntilReady);
   app.use('/api/agents', routes.agents);
+  /* Work reads native conversations/models and aborts generations; task start
+   * and follow-up stay on the native agent chat path and its SSE protocol. */
+  app.use('/api/work', requireJwtAuth, require('./routes/work'));
   app.use('/api/banner', routes.banner);
   app.use('/api/memories', routes.memories);
   app.use('/api/schedules', rejectScheduleWritesUntilReady, routes.schedules);
@@ -494,7 +511,7 @@ const startServer = async () => {
   /** 404 for unmatched API routes */
   app.use('/api', apiNotFound);
 
-  /** SPA fallback - serve index.html for all unmatched routes */
+  /** SPA fallback - serve index.html for all unmatched requests */
   app.use(createSpaFallback(sendIndexHtml));
 
   /** Record trace errors before the final error controller. */
@@ -548,6 +565,15 @@ const startServer = async () => {
           appConfig?.endpoints?.agents?.backgroundTasks?.completionReceiptBatching,
         idlePolling: appConfig?.endpoints?.agents?.eventDriven?.idlePolling,
       });
+      // Test processes never own durable runs; arming the runner there would also
+      // bypass their mocked schedule/trigger services. The API route starts it
+      // lazily, and production arms it at boot so queued runs recover unattended.
+      if (process.env.NODE_ENV !== 'test') {
+        const workflowEngineArmed = initializeWorkflowEngine(appConfig?.workflows);
+        if (!workflowEngineArmed) {
+          console.warn('[workflows] engine unavailable; runs remain queued until a later startup');
+        }
+      }
       const scheduleEngineArmed = (await initializeScheduleEngine()) != null;
       scheduleEngineState = scheduleEngineArmed ? 'armed' : 'unavailable';
       if (!scheduleEngineArmed) {

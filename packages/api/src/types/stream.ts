@@ -54,6 +54,10 @@ export interface GenerationJobMetadata {
   promptTokens?: number;
   /** Agent that initiated the run; a HITL resume verifies it rebuilds the same agent. */
   agent_id?: string;
+  /** Workflow receipt identity for durable step completion. */
+  workflowRunId?: string;
+  workflowStepId?: string;
+  workflowStepAttempt?: number;
   /** Whether the originating turn was a temporary chat; a HITL resume keeps it so. */
   isTemporary?: boolean;
   /** Original server-authenticated retention deadline, serialized across replicas. */

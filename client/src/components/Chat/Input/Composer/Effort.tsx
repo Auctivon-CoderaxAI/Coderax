@@ -533,7 +533,7 @@ function Effort({ setting, conversation, value, onChange }: EffortProps) {
                 className={cn(
                   'rounded-full px-2 py-0.5 text-xs transition-colors',
                   isUngraded
-                    ? 'bg-accent-primary/15 text-accent-primary'
+                    ? 'bg-accent-primary/15 text-text-primary'
                     : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary',
                 )}
               >

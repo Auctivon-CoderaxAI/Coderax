@@ -1,12 +1,21 @@
 import { useState } from 'react';
+import { useSetAtom } from 'jotai';
 import { Button } from '@coderax/client';
 import { ArrowUp, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useLocation, useParams } from 'react-router-dom';
-import { isCyvoxFreeOrLocalModel, QueryKeys } from 'coderax-data-provider';
+import {
+  CYVOX_THINKING_EFFORTS,
+  isCyvoxFreeOrLocalModel,
+  QueryKeys,
+  SettingsTabValues,
+} from 'coderax-data-provider';
+import type { CyvoxThinkingEffort } from 'coderax-data-provider';
+import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
 import ConversationModeNav from '~/components/Chat/ConversationModeNav';
 import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import { useGetStartupConfig } from '~/data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
 
 type Check = {
@@ -52,6 +61,29 @@ type Activity = {
 };
 type Tool = 'readiness' | 'deployments' | 'robot' | 'activity' | 'work';
 
+/** A proxy failure carries the backend's stable code, so each screen can say what to fix. */
+class CyVoxRequestError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(code: string, status: number) {
+    super(code);
+    this.name = 'CyVoxRequestError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+function getCyVoxError(error: unknown): { code: string; status?: number } | null {
+  if (!error) {
+    return null;
+  }
+  if (error instanceof CyVoxRequestError) {
+    return { code: error.code, status: error.status };
+  }
+  return { code: 'CYVOX_UNAVAILABLE' };
+}
+
 function useCyVox<T>(resource: string, enabled = true) {
   const { token } = useAuthContext();
   return useQuery<T>({
@@ -62,7 +94,13 @@ function useCyVox<T>(resource: string, enabled = true) {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'same-origin',
       });
-      if (!response.ok) throw new Error('CYVOX_UNAVAILABLE');
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
+        throw new CyVoxRequestError(
+          typeof body?.code === 'string' ? body.code : 'CYVOX_UNAVAILABLE',
+          response.status,
+        );
+      }
       return (await response.json()) as T;
     },
     retry: false,
@@ -112,7 +150,7 @@ function DeploymentsView() {
   const list = useCyVox<DeploymentList>('deploymentList', query.data?.configured === true);
   const renderList = () => {
     if (list.isLoading) return <p>{localize('com_cyvox_loading')}</p>;
-    if (list.isError) return <p role="alert">{localize('com_cyvox_unavailable')}</p>;
+    if (list.isError) return <CyVoxErrorState error={list.error} />;
     const deployments = list.data?.deployments ?? list.data?.items ?? [];
     if (deployments.length === 0) return <p>{localize('com_cyvox_no_deployments')}</p>;
     return (
@@ -169,9 +207,9 @@ function useCyVoxAction() {
   const send = async (
     path: string,
     body: object = {},
-    confirmation: string,
+    confirmation?: string,
   ): Promise<{ ok: boolean; data?: unknown }> => {
-    if (!window.confirm(confirmation)) return { ok: false };
+    if (confirmation && !window.confirm(confirmation)) return { ok: false };
     setBusy(true);
     setMessage('');
     try {
@@ -186,7 +224,11 @@ function useCyVoxAction() {
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        throw new Error('CYVOX_UNAVAILABLE');
+        const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
+        throw new CyVoxRequestError(
+          typeof body?.code === 'string' ? body.code : 'CYVOX_UNAVAILABLE',
+          response.status,
+        );
       }
       // Successful action endpoints may return 204 or an empty/non-JSON body.
       // Preserve HTTP success while treating absent task metadata as unknown.
@@ -195,8 +237,15 @@ function useCyVoxAction() {
       setMessage(localize('com_cyvox_action_accepted'));
       void queryClient.invalidateQueries({ queryKey: [QueryKeys.cyvoxAddon] });
       return { ok: true, data };
-    } catch {
-      setMessage(localize('com_cyvox_unavailable'));
+    } catch (error) {
+      const code = getCyVoxError(error)?.code;
+      if (code === 'CYVOX_NOT_CONFIGURED') {
+        setMessage(localize('com_cyvox_not_connected_title'));
+      } else if (code === 'CYVOX_FORBIDDEN') {
+        setMessage(localize('com_cyvox_forbidden'));
+      } else {
+        setMessage(localize('com_cyvox_unavailable'));
+      }
       return { ok: false };
     } finally {
       setBusy(false);
@@ -206,7 +255,9 @@ function useCyVoxAction() {
 }
 type CyVoxTask = { id: string; task?: string; goal?: string; state: string };
 type CyVoxTaskList = { tasks: CyVoxTask[] };
-type CyVoxModelList = { models: Array<{ name: string; compatible_now?: boolean }> };
+type CyVoxModelList = {
+  models: Array<{ name: string; compatible_now?: boolean; location?: string }>;
+};
 type CyVoxApprovals = {
   approvals: Array<{ approval_id: string; tool?: string; description?: string }>;
 };
@@ -295,18 +346,61 @@ function getTaskLabel(item: CyVoxTask) {
 function getCreatedTaskId(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null;
   const result = value as Record<string, unknown>;
-  const task = result.task && typeof result.task === 'object'
-    ? (result.task as Record<string, unknown>)
-    : null;
+  const task =
+    result.task && typeof result.task === 'object'
+      ? (result.task as Record<string, unknown>)
+      : null;
   const ids = [result.id, result.task_id, result.taskId, task?.id, task?.task_id, task?.taskId];
-  return ids.find((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(id)) ?? null;
+  return (
+    ids.find((id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(id)) ??
+    null
+  );
+}
+
+export const CYVOX_AUTO_MODEL = 'cyvox/auto';
+
+export type CyvoxEffortChoice = 'auto' | CyvoxThinkingEffort;
+
+const effortLabels = {
+  instant: 'com_cyvox_effort_instant',
+  medium: 'com_cyvox_effort_medium',
+  high: 'com_cyvox_effort_high',
+  extra_high: 'com_cyvox_effort_extra_high',
+} as const;
+
+/**
+ * Builds the `actions/startTask` body. `auto` means "let CyVox decide", so the
+ * field is omitted instead of sent empty; a task without a selection keeps the
+ * previous request shape byte for byte.
+ */
+export function buildStartTaskPayload({
+  task,
+  mode,
+  model,
+  effort,
+}: {
+  task: string;
+  mode: 'Autonomous Run' | 'Coding Team';
+  model: string;
+  effort: CyvoxEffortChoice;
+}): { task: string; mode: string; model?: string; thinking_effort?: CyvoxThinkingEffort } {
+  const payload: {
+    task: string;
+    mode: string;
+    model?: string;
+    thinking_effort?: CyvoxThinkingEffort;
+  } = { task, mode };
+  if (model !== CYVOX_AUTO_MODEL) payload.model = model;
+  if (effort !== 'auto') payload.thinking_effort = effort;
+  return payload;
 }
 
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
   const [mode, setMode] = useState<'Autonomous Run' | 'Coding Team'>('Autonomous Run');
-  const [model, setModel] = useState('cyvox/auto');
+  const [model, setModel] = useState(CYVOX_AUTO_MODEL);
+  const [effort, setEffort] = useState<CyvoxEffortChoice>('auto');
   const [activeTaskId, setActiveTaskId] = useState('');
   const action = useCyVoxAction();
   const models = useCyVox<CyVoxModelList>('models');
@@ -314,9 +408,32 @@ function WorkView() {
   const taskItems = tasks.data?.tasks ?? [];
   const recentTasks = taskItems.slice(-12).reverse();
   const selectedTask = taskItems.find((item) => item.id === activeTaskId);
+  // CyVox reports installed Ollama models by raw tag, so `location` is the
+  // authoritative local signal; the prefix rule covers gateway deployments.
   const choices = (models.data?.models ?? []).filter(
-    (item) => item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name),
+    (item) =>
+      item.compatible_now !== false &&
+      (item.location === 'OLLAMA' || isCyvoxFreeOrLocalModel(item.name)),
   );
+  // Only advertise models CyVox itself returned; a stale pick falls back to auto.
+  const activeModel = choices.some((item) => item.name === model) ? model : CYVOX_AUTO_MODEL;
+  let unavailableError: unknown = null;
+  if (tasks.isError) {
+    unavailableError = tasks.error;
+  } else if (models.isError) {
+    unavailableError = models.error;
+  }
+  const unavailableCode = getCyVoxError(unavailableError)?.code;
+  if (
+    unavailableError &&
+    (unavailableCode === 'CYVOX_NOT_CONFIGURED' || unavailableCode === 'CYVOX_FORBIDDEN')
+  ) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-8">
+        <CyVoxErrorState error={unavailableError} />
+      </div>
+    );
+  }
 
   const startTask = async () => {
     const submittedDraft = task;
@@ -325,8 +442,7 @@ function WorkView() {
 
     const started = await action.send(
       'actions/startTask',
-      { task: description, mode },
-      localize('com_cyvox_start_work_confirmation'),
+      buildStartTaskPayload({ task: description, mode, model: activeModel, effort }),
     );
     if (!started.ok) return;
 
@@ -359,7 +475,7 @@ function WorkView() {
             </Button>
             <div className="flex justify-end">
               <article className="bg-surface-primary-alt max-w-[85%] rounded-3xl px-5 py-3">
-                <h1 className="whitespace-pre-wrap text-left text-base font-normal">
+                <h1 className="text-left text-base font-normal whitespace-pre-wrap">
                   {getTaskLabel(selectedTask)}
                 </h1>
               </article>
@@ -384,7 +500,7 @@ function WorkView() {
                       variant="outline"
                       size="sm"
                       disabled={action.busy}
-                      aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(selectedTask))}
+                      aria-label={localize('com_cyvox_cancel') + ' ' + getTaskLabel(selectedTask)}
                       onClick={() => void cancelTask(selectedTask)}
                     >
                       {localize('com_cyvox_cancel')}
@@ -434,20 +550,22 @@ function WorkView() {
                       <Button
                         variant="card"
                         size="row"
-                        className="min-w-0 flex-1 justify-between gap-4"
+                        className="min-w-0 flex-1 justify-between"
                         onClick={() => setActiveTaskId(item.id)}
                       >
                         <span className="min-w-0 flex-1 truncate text-sm">
                           {getTaskLabel(item)}
                         </span>
-                        <span className="text-text-secondary shrink-0 text-xs">{item.state}</span>
+                        <span className="text-text-secondary ml-4 shrink-0 text-xs">
+                          {item.state}
+                        </span>
                       </Button>
                       {canCancelTask(item.state) && (
                         <Button
                           variant="row-action"
                           size="xs"
                           disabled={action.busy}
-                          aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(item))}
+                          aria-label={localize('com_cyvox_cancel') + ' ' + getTaskLabel(item)}
                           onClick={() => cancelTask(item)}
                         >
                           {localize('com_cyvox_cancel')}
@@ -475,14 +593,19 @@ function WorkView() {
             </label>
             <textarea
               id="cyvox-work-task"
-              className="text-text-primary placeholder:text-text-secondary min-h-20 max-h-48 w-full resize-y bg-transparent px-2 py-2 text-base focus:outline-hidden"
+              className="text-text-primary placeholder:text-text-secondary max-h-48 min-h-20 w-full resize-y bg-transparent px-2 py-2 text-base focus:outline-hidden"
               rows={3}
               maxLength={4000}
               value={task}
               onChange={(event) => setTask(event.target.value)}
               onKeyDown={(event) => {
                 // IME Enter commits a composition; it must never submit a task.
-                if (event.nativeEvent.isComposing || event.key === 'Process' || event.keyCode === 229) return;
+                if (
+                  event.nativeEvent.isComposing ||
+                  event.key === 'Process' ||
+                  event.keyCode === 229
+                )
+                  return;
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
                   void startTask();
@@ -497,7 +620,7 @@ function WorkView() {
                 </label>
                 <select
                   id="cyvox-work-mode"
-                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
                   value={mode}
                   onChange={(event) => setMode(event.target.value as typeof mode)}
                 >
@@ -509,35 +632,35 @@ function WorkView() {
                 </label>
                 <select
                   id="cyvox-work-model"
-                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
-                  value={model}
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
+                  value={activeModel}
                   onChange={(event) => setModel(event.target.value)}
                 >
-                  <option value="cyvox/auto">{localize('com_cyvox_auto_model')}</option>
+                  <option value={CYVOX_AUTO_MODEL}>{localize('com_cyvox_auto_model')}</option>
                   {choices
-                    .filter((item) => item.name !== 'cyvox/auto')
+                    .filter((item) => item.name !== CYVOX_AUTO_MODEL)
                     .map((item) => (
                       <option key={item.name} value={item.name}>
                         {item.name}
                       </option>
                     ))}
                 </select>
-                {model !== 'cyvox/auto' && (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={action.busy}
-                    onClick={() =>
-                      void action.send(
-                        'actions/selectModel',
-                        { model },
-                        localize('com_cyvox_select_model_confirmation', { model }),
-                      )
-                    }
-                  >
-                    {localize('com_cyvox_apply_model')}
-                  </Button>
-                )}
+                <label htmlFor="cyvox-work-effort" className="sr-only">
+                  {localize('com_cyvox_thinking_effort')}
+                </label>
+                <select
+                  id="cyvox-work-effort"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
+                  value={effort}
+                  onChange={(event) => setEffort(event.target.value as CyvoxEffortChoice)}
+                >
+                  <option value="auto">{localize('com_cyvox_effort_auto')}</option>
+                  {CYVOX_THINKING_EFFORTS.map((value) => (
+                    <option key={value} value={value}>
+                      {localize(effortLabels[value])}
+                    </option>
+                  ))}
+                </select>
               </div>
               <Button
                 type="submit"
@@ -562,6 +685,14 @@ function WorkView() {
                 {action.message}
               </p>
             )}
+            {mode === 'Coding Team' && (
+              <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+                {localize('com_cyvox_team_selection_scope')}
+              </p>
+            )}
+            <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+              {localize('com_cyvox_task_selection_note')}
+            </p>
             <p className="text-text-secondary mt-2 px-3 text-center text-xs">
               {localize('com_cyvox_work_policy_note')}
             </p>
@@ -694,7 +825,7 @@ function RobotView() {
   const localize = useLocalize();
   if (status.isLoading || diagnostics.isLoading) return <p>{localize('com_cyvox_loading')}</p>;
   if (status.isError || diagnostics.isError || !status.data || !diagnostics.data)
-    return <p role="alert">{localize('com_cyvox_unavailable')}</p>;
+    return <CyVoxErrorState error={status.error ?? diagnostics.error} />;
   let controlState = localize('com_cyvox_enabled');
   if (status.data.automation.paused) controlState = localize('com_cyvox_paused');
   if (status.data.automation.emergency_stopped) controlState = localize('com_cyvox_emergency_stop');
@@ -759,6 +890,47 @@ function ActivityView() {
   );
 }
 
+function CyVoxErrorState({ error }: { error: unknown }) {
+  const localize = useLocalize();
+  const { data: startupConfig } = useGetStartupConfig();
+  const setSettingsOpen = useSetAtom(settingsOpenAtom);
+  const setSettingsTab = useSetAtom(settingsTabAtom);
+  const code = getCyVoxError(error)?.code;
+
+  if (code === 'CYVOX_FORBIDDEN') {
+    return (
+      <p role="alert" className="text-sm">
+        {localize('com_cyvox_forbidden')}
+      </p>
+    );
+  }
+
+  const notConnected = code === 'CYVOX_NOT_CONFIGURED';
+  return (
+    <div role="alert" className="border-border-light bg-surface-primary-alt rounded-lg border p-5">
+      <h2 className="font-medium">
+        {localize(notConnected ? 'com_cyvox_not_connected_title' : 'com_cyvox_unreachable_title')}
+      </h2>
+      <p className="text-text-secondary mt-2 text-sm">
+        {localize(notConnected ? 'com_cyvox_not_connected_detail' : 'com_cyvox_unreachable_detail')}
+      </p>
+      {notConnected && startupConfig?.cyvoxConnectionAccess === true && (
+        <Button
+          className="mt-3"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setSettingsTab(SettingsTabValues.CYVOX);
+            setSettingsOpen(true);
+          }}
+        >
+          {localize('com_cyvox_open_settings')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function ResourceView<T>({
   query,
   render,
@@ -768,7 +940,7 @@ function ResourceView<T>({
 }) {
   const localize = useLocalize();
   if (query.isLoading) return <p>{localize('com_cyvox_loading')}</p>;
-  if (query.isError || !query.data) return <p role="alert">{localize('com_cyvox_unavailable')}</p>;
+  if (query.isError || !query.data) return <CyVoxErrorState error={query.error} />;
   return render(query.data);
 }
 

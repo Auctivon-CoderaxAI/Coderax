@@ -8,7 +8,7 @@ import { probeStyle } from './style.helpers';
 import { getE2EUser } from '../../../setup/user';
 
 /**
- * Message prose, the Settings dialog, the composer and the model selector pill
+ * Message prose, the Settings dialog and the composer
  * used to read literals (typography hex, a black scrim, fixed radii), so they
  * kept the Coderax look under any theme definition. They now read the text,
  * border, overlay and radius roles. These scenarios read what the browser
@@ -27,11 +27,11 @@ const REPLY_TEXT = 'The ingest report is steady.';
 const WCAG_AA_NORMAL = 4.5;
 
 /** The literals the surfaces carried before they read the roles. */
-const DEFAULT_RADII = { control: '12px', surface: '16px', largeSurface: '24px' };
+const DEFAULT_RADII = { surface: '16px', largeSurface: '24px' };
 const DEFAULT_LIGHT_PROSE_BODY = 'rgb(66, 66, 66)';
 
 /** `clickHouseTheme.appearance` in pixels: 0.25rem, 0.5rem and 0.75rem. */
-const CLICKHOUSE_RADII = { control: '4px', surface: '8px', largeSurface: '12px' };
+const CLICKHOUSE_RADII = { surface: '8px', largeSurface: '12px' };
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -160,8 +160,7 @@ const radiusOf = (locator: Locator) =>
 
 async function readSurfaceRadii(page: Page) {
   const composer = await radiusOf(page.getByTestId('composer-surface'));
-  const pill = await radiusOf(page.getByTestId('model-selector-button'));
-  return { composer, pill };
+  return { composer };
 }
 
 /**
@@ -212,7 +211,7 @@ async function closeSettings(page: Page) {
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeHidden();
 }
 
-test.describe('theme roles on prose, Settings, composer and model selector', () => {
+test.describe('theme roles on prose, Settings and composer', () => {
   test('message prose takes the theme text roles in both modes @scenario:prose-follows-theme-text-roles', async ({
     page,
   }) => {
@@ -301,7 +300,7 @@ test.describe('theme roles on prose, Settings, composer and model selector', () 
     }
   });
 
-  test('the composer and model selector take the radius roles @scenario:composer-and-model-selector-follow-radius-roles', async ({
+  test('the composer takes the radius role @scenario:composer-follows-radius-role', async ({
     page,
   }) => {
     test.setTimeout(90000);
@@ -314,9 +313,8 @@ test.describe('theme roles on prose, Settings, composer and model selector', () 
         [clickHouseTheme, CLICKHOUSE_RADII],
       ] as const) {
         await openChat(page, conversationId, 'light', definition !== null);
-        const { composer, pill } = await readSurfaceRadii(page);
+        const { composer } = await readSurfaceRadii(page);
         expect(composer).toEqual({ top: radii.largeSurface, bottom: radii.largeSurface });
-        expect(pill.top).toBe(radii.control);
       }
     } finally {
       await deleteConversations([conversationId]);

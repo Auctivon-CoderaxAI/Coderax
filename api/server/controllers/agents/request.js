@@ -25,6 +25,8 @@ const {
   checkAndIncrementPendingRequest,
   exemptFromConcurrencyLimiter,
   isScheduleFireRequest,
+  assertWorkflowStepDeliveryActive,
+  workflowStepGenerationMetadata,
   isUnpersistedPreliminaryParent,
   startAgentProjectContextResolution,
   assertChatProjectInstructions,
@@ -79,6 +81,7 @@ const {
   saveConvo,
   getMessages,
   getConvo,
+  getWorkflowRun,
   getChatProject,
   getProjectFiles,
   getAgentEventActorSnapshot,
@@ -939,14 +942,17 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     req.body.overrideUserMessageId = `${recoveredSteerId}${Constants.COMMON_DIVIDER}0`;
   }
   const isNewConvo = !reqConversationId || reqConversationId === 'new';
-  const scheduledNewConversationId =
-    isScheduledFire && typeof req.body?.newConversationId === 'string'
+  // The authenticated trigger lane is trusted for its dedicated conversation
+  // identity, just like a scheduled fire. Ordinary chat callers cannot set it.
+  const trustedTriggerConversationId =
+    (isScheduledFire || req._isAgentTrigger === true) &&
+    typeof req.body?.newConversationId === 'string'
       ? req.body.newConversationId
       : null;
   let conversationId = reqConversationId;
   if (isNewConvo) {
     conversationId =
-      scheduledNewConversationId ??
+      trustedTriggerConversationId ??
       (typeof clientRequestId === 'string' && clientRequestId.length > 0
         ? uuidv5(`${userId}:${clientRequestId}`, NEW_CONVERSATION_IDEMPOTENCY_NAMESPACE)
         : crypto.randomUUID());
@@ -1748,6 +1754,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
               ...(req._isManualScheduledFire === true && { scheduleManual: true }),
             }
           : {}),
+        ...workflowStepGenerationMetadata(req.body?.agentTrigger),
         responseMessageId: preallocatedResponseMessageId,
         mcpRequestBody,
         userMessage: preliminaryUserMessage,
@@ -1771,6 +1778,13 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         status: 409,
       });
     }
+    await assertWorkflowStepDeliveryActive({
+      getWorkflowRun,
+      trigger: req.body?.agentTrigger,
+      userId,
+      ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+      armTerminalOutcome: () => GenerationJobManager.armTerminalHostAction(streamId, jobCreatedAt),
+    });
     if (req._agentEventBindingParentConversationId != null) {
       /** The generation job is the durable marker that a deletion on another replica
        * can abort. Recheck only after that marker exists: either the deletion fence

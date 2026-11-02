@@ -1,6 +1,7 @@
 import { maxWorkers } from '../../config/jest.workers.cjs';
 
 const esModules = [
+  '@langchain/core',
   '@langchain/langgraph',
   '@langchain/langgraph-checkpoint',
   '@langchain/langgraph-sdk',

@@ -10,6 +10,7 @@ export * from './filters';
 export * from './file-config';
 export * from './resolve-llm-delivery-path';
 export * from './cyvox-model';
+export * from './model-routing';
 export * from './fireworks-glm';
 /* messages  */
 export * from './messages';
@@ -46,6 +47,7 @@ export * from './types/mcpServers';
 export * from './types/mutations';
 export * from './types/queries';
 export * from './types/schedules';
+export * from './workflows';
 export * from './cadence';
 export * from './types/skills';
 export * from './types/runs';

@@ -2,7 +2,10 @@ import { createContext, useContext } from 'react';
 import { EndpointURLs } from 'coderax-data-provider';
 import type { Transport } from '~/hooks/Chat/contract';
 import { createSSETransport } from '~/hooks/SSE/transport';
+import { toWorkChatServer } from './workTransport';
 import * as requests from '~/data-provider';
+
+export { toWorkChatServer } from './workTransport';
 
 /**
  * The stock transport: SSE for streams, the generation routes for control requests. Members
@@ -31,6 +34,22 @@ export const defaultChatTransport: Transport = {
   enqueue: (input) => requests.enqueueAgentQueuedTurn(input),
   cancelQueued: (input) => requests.cancelAgentQueuedTurn(input),
 };
+
+export function createWorkChatTransport(transport: Transport = defaultChatTransport): Transport {
+  return {
+    ...transport,
+    start: ({ server, payload }, options) =>
+      transport.start(
+        {
+          server: toWorkChatServer(server),
+          payload,
+        },
+        options,
+      ),
+  };
+}
+
+export const workChatTransport = createWorkChatTransport();
 
 export const ChatTransportContext = createContext<Transport>(defaultChatTransport);
 

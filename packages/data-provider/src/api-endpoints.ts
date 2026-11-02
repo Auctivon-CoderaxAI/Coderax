@@ -138,6 +138,12 @@ export const apiKeys = () => apiKeysEndpoint;
 export const apiKeyById = (id: string) => `${apiKeysEndpoint}/${id}`;
 
 export const conversationsRoot = `${BASE_URL}/api/convos`;
+export const workRoot = `${BASE_URL}/api/work`;
+export const workModels = () => `${workRoot}/models`;
+export const workTasks = () => `${workRoot}/tasks`;
+export const workTask = (conversationId: string) =>
+  `${workTasks()}/${encodeURIComponent(conversationId)}`;
+export const cancelWorkTask = (conversationId: string) => `${workTask(conversationId)}/cancel`;
 
 export const conversations = (params: q.ConversationListParams) => {
   return `${conversationsRoot}${buildQuery(params)}`;
@@ -485,6 +491,19 @@ export const schedule = (id: string) => `${schedules()}/${encodeURIComponent(id)
 export const scheduleMCPConsent = (id: string) => `${schedule(id)}/mcp-consent`;
 export const runSchedule = (id: string) => `${schedule(id)}/run`;
 
+/* Workflows */
+export const workflows = () => `${BASE_URL}/api/workflows`;
+export const workflow = (id: string) => `${workflows()}/${encodeURIComponent(id)}`;
+export const workflowRuns = (id: string) => `${workflow(id)}/runs`;
+export const workflowTemplates = () => `${workflows()}/templates`;
+export const workflowRun = (runId: string) => `${workflows()}/runs/${encodeURIComponent(runId)}`;
+export const approveWorkflowStep = (runId: string) => `${workflowRun(runId)}/approve`;
+export const pauseWorkflowRun = (runId: string) => `${workflowRun(runId)}/pause`;
+export const resumeWorkflowRun = (runId: string) => `${workflowRun(runId)}/resume`;
+export const cancelWorkflowRun = (runId: string) => `${workflowRun(runId)}/cancel`;
+export const workflowRunStream = (runId: string) => `${workflowRun(runId)}/stream`;
+export const workflowRunExport = (runId: string) => `${workflowRun(runId)}/export`;
+
 /* Skills */
 export const skills = () => `${BASE_URL}/api/skills`;
 export const importSkill = () => `${skills()}/import`;
@@ -562,6 +581,10 @@ export const adminLangfuseConnection = () => `${BASE_URL}/api/admin/langfuse/con
 export const adminLangfuseConnectionTest = () => `${adminLangfuseConnection()}/test`;
 export const adminLangfuseSessionLink = (conversationId: string) =>
   `${adminLangfuseConnection()}/session/${encodeURIComponent(conversationId)}`;
+
+/* Coderax Work (CyVox) connection (admin) */
+export const adminCyVoxConnection = () => `${BASE_URL}/api/admin/cyvox/connection`;
+export const adminCyVoxConnectionTest = () => `${adminCyVoxConnection()}/test`;
 
 /* Combined Pinned-section display order: favorite and pinned-chat entry keys interleaved. */
 export const pinnedOrder = () => `${BASE_URL}/api/user/settings/pinned-order`;

@@ -49,6 +49,9 @@ export interface ToolApprovalPolicyLayers {
    * an administrator to opt the whole endpoint into prompts.
    */
   attachedCodeEnvironment?: boolean;
+  /** Exact tool names that must pause for a user decision even when the endpoint
+   * approval policy is otherwise disabled. Administrator denies still win. */
+  mandatoryAskTools?: readonly string[];
 }
 
 /**
@@ -70,6 +73,23 @@ export interface ToolApprovalPolicyLayers {
 export function resolveToolApprovalPolicy(
   layers: ToolApprovalPolicyLayers,
 ): TToolApprovalPolicy | undefined {
+  const mandatoryAskTools = Array.from(
+    new Set((layers.mandatoryAskTools ?? []).filter((name) => name.length > 0)),
+  );
+  if (mandatoryAskTools.length > 0) {
+    const endpoint = layers.endpoint;
+    const endpointEnabled = endpoint?.enabled === true;
+    return {
+      ...endpoint,
+      // Some sensitive tools (external MCP actions and explicit memory writes)
+      // require an approval surface even when general HITL is turned off.
+      // Keep unrelated tools in bypass mode unless the endpoint explicitly
+      // enabled its broader policy.
+      enabled: true,
+      mode: endpointEnabled ? endpoint?.mode : 'bypass',
+      ask: [...new Set([...(endpoint?.ask ?? []), ...mandatoryAskTools])],
+    };
+  }
   if (
     layers.attachedCodeEnvironment === true &&
     layers.endpoint?.enabled !== true &&

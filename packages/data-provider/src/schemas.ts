@@ -954,6 +954,9 @@ export const tMessageSchema = z.object({
   /** Exact HITL message-field identity for caller-authored values stored in mixed responses. */
   userSubmittedMessageFieldPaths: z.array(userSubmittedMessageFieldPathSchema).optional(),
   isTemporary: z.boolean().optional(),
+  isWork: z.boolean().optional(),
+  workModel: z.string().optional(),
+  workState: z.string().optional(),
   expiredAt: z.string().nullable().optional(),
   error: z.boolean().optional(),
   clientTimestamp: z.string().optional(),
@@ -1311,6 +1314,11 @@ export const tConversationSchema = z.object({
   /* temporary chat */
   expiredAt: z.string().nullable().optional(),
   isTemporary: z.boolean().optional(),
+  /** Server-owned marker for conversations started through native Work. */
+  isWork: z.boolean().optional(),
+  /** Concrete free or locally served model selected for the Work conversation. */
+  workModel: z.string().optional(),
+  workState: z.string().optional(),
   /* file token limits */
   fileTokenLimit: coerceNumber.optional(),
   /** @deprecated */

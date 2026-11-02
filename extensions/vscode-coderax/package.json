@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nnabdelshahid/Coderax.git",
+    "url": "https://github.com/CoderaxAI/Coderax.git",
     "directory": "extensions/vscode-coderax"
   },
   "engines": {

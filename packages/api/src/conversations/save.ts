@@ -114,7 +114,7 @@ function getUnsetFields(
   if (agentOwned) {
     kept.add('model');
   }
-  const preserved = new Set<string>(preservedFields);
+  const preserved = new Set<string>([...preservedFields, 'isWork', 'workModel', 'workState']);
   const unsetFields: Record<string, number> = {};
   for (const key of Object.keys(existing)) {
     if ((excludedKeys.has(key) && !kept.has(key)) || preserved.has(key)) {
@@ -166,6 +166,22 @@ function getReplyStamp(
   return { stampReply: true, replyMessageId: reply.messageId as string };
 }
 
+/**
+ * The Work marker is server-owned: it is read from `req.workContext`, which only
+ * the authenticated /api/work/chat alias sets, after it has validated the model
+ * against that user's free/local configuration. A client may express intent to
+ * start Work, but it can never write this field: the alias strips any such claim
+ * from the body before the handler sees it.
+ */
+function workMarkerFields(req?: unknown): { isWork?: true; workModel?: string } {
+  const context = (req as { workContext?: { isWork?: boolean; workModel?: string } } | undefined)
+    ?.workContext;
+  if (context?.isWork !== true || typeof context.workModel !== 'string' || !context.workModel) {
+    return {};
+  }
+  return { isWork: true, workModel: context.workModel };
+}
+
 async function writeConversation(
   deps: ConversationStore,
   write: TurnConversationWrite,
@@ -176,6 +192,9 @@ async function writeConversation(
   const agentOwned = isAgentOwned(write);
   const inserting = write.initialized !== true && existing == null;
   const { chatProjectId, ...storedOptions } = endpointOptions;
+  delete storedOptions.isWork;
+  delete storedOptions.workModel;
+  delete storedOptions.workState;
   const conversation = await deps.saveConvo(
     ctx,
     {
@@ -183,6 +202,7 @@ async function writeConversation(
       endpointType,
       ...storedOptions,
       ...(inserting && chatProjectId !== undefined ? { chatProjectId } : {}),
+      ...workMarkerFields(write.req),
       conversationId: endpointOptions.conversationId ?? conversationId,
     },
     {

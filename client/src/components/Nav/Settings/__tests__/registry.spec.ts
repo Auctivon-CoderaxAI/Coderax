@@ -26,6 +26,7 @@ const settingsContext: SettingsContextValue = {
   aboutEnabled: false,
   engineTTS: 'browser',
   langfuseConnectionAccess: false,
+  cyvoxConnectionAccess: false,
   adminPanelURL: '',
   replyTabBadgeAllowed: true,
   replyNotificationsAllowed: true,
@@ -133,6 +134,7 @@ describe('settings registry', () => {
         langfuseEntry?.show?.({
           ...settingsContext,
           langfuseConnectionAccess: false,
+          cyvoxConnectionAccess: false,
         }),
       ).toBe(false);
     });

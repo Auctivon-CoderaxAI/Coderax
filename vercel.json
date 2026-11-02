@@ -5,7 +5,7 @@
       "root": "client",
       "framework": "vite",
       "installCommand": "cd .. && npm ci --include=dev",
-      "buildCommand": "cd .. && npm run frontend",
+      "buildCommand": "cd .. && npm run frontend && cd client && npm run test:ci -- --runInBand --coverage=false src/routes/__tests__/NativeWorkHome.spec.tsx",
       "outputDirectory": "dist",
       "rewrites": [
         {
@@ -19,7 +19,7 @@
       "entrypoint": "api/proxy.js",
       "framework": "express",
       "installCommand": "npm ci --include=dev",
-      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api && node scripts/verify-coderax-deployment.mjs --repo-only && node --test scripts/verify-coderax-deployment.test.mjs packages/api/proxy.test.mjs scripts/verify-oci-deployment.test.mjs",
+      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api && cd packages/api && npm run test:ci -- --runInBand --coverage=false src/work/models.spec.ts src/work/task.spec.ts src/work/router.spec.ts src/work/state.spec.ts src/conversations/workMarker.spec.ts && cd ../.. && node scripts/verify-coderax-deployment.mjs --repo-only && node --test api/server/routes/__tests__/workModels.test.js api/server/routes/__tests__/workChat.test.js scripts/verify-coderax-deployment.test.mjs packages/api/proxy.test.mjs scripts/verify-oci-deployment.test.mjs",
       "functions": {
         "api/proxy.js": {
           "includeFiles": "{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}",

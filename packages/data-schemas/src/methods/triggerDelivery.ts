@@ -402,6 +402,8 @@ export interface AgentTriggerDeliveryMethods {
       settledAt: Date;
       reason: string;
       onlyIfUnclaimed?: boolean;
+      /** Workflow cancellation may retire only its own unclaimed fire deliveries. */
+      sourceType?: 'workflow';
       onlyIfDead?: boolean;
       /** Accept transport success without a terminal handling receipt, unless the
        * delivery explicitly keeps its lane open for terminal handling. */
@@ -2181,7 +2183,7 @@ export function createAgentTriggerDeliveryMethods(
     return true;
   }
 
-  /** Retires an internally pre-admitted delivery when its producer can prove
+  /** Retires an internal completion or an unclaimed workflow delivery when its producer can prove
    * that the result will never become dispatchable. This transition is keyed
    * by the immutable delivery identity rather than a worker lease so the
    * producer can unblock the lane even while a resolver is deferring it. */
@@ -2192,6 +2194,7 @@ export function createAgentTriggerDeliveryMethods(
       settledAt: Date;
       reason: string;
       onlyIfUnclaimed?: boolean;
+      sourceType?: 'workflow';
       onlyIfDead?: boolean;
       /** Accept transport success without a terminal handling receipt, unless the
        * delivery explicitly keeps its lane open for terminal handling. */
@@ -2208,7 +2211,8 @@ export function createAgentTriggerDeliveryMethods(
       input.sourceId.length === 0 ||
       input.sourceId.length > 256 ||
       Number.isNaN(input.settledAt.getTime()) ||
-      (input.onlyIfUnclaimed === true && input.onlyIfDead === true)
+      (input.onlyIfUnclaimed === true && input.onlyIfDead === true) ||
+      (input.sourceType === 'workflow' && input.onlyIfUnclaimed !== true)
     ) {
       throw new TypeError('Invalid agent trigger delivery retirement');
     }
@@ -2247,8 +2251,9 @@ export function createAgentTriggerDeliveryMethods(
         .findOneAndUpdate(
           {
             deliveryKey: input.deliveryKey,
-            'envelope.event.source.type': 'internal',
+            'envelope.event.source.type': input.sourceType ?? 'internal',
             'envelope.event.source.id': input.sourceId,
+            ...(input.sourceType === 'workflow' && { 'envelope.deliveryId': /^wf:/ }),
             ...statusFence,
             ...(discardEmptyPlan && {
               backgroundToolResultBatch: { $exists: true },
@@ -2324,8 +2329,9 @@ export function createAgentTriggerDeliveryMethods(
     return (
       (await Delivery().exists({
         deliveryKey: input.deliveryKey,
-        'envelope.event.source.type': 'internal',
+        'envelope.event.source.type': input.sourceType ?? 'internal',
         'envelope.event.source.id': input.sourceId,
+        ...(input.sourceType === 'workflow' && { 'envelope.deliveryId': /^wf:/ }),
         status: 'succeeded',
         $or: [
           { handling: { $exists: false } },

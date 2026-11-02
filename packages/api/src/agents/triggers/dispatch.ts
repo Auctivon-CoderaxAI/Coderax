@@ -15,6 +15,8 @@ export interface AgentTriggerDispatchContext {
   deliveryClaimToken?: string;
   requiredWorkerCapability?: string;
   signal?: AbortSignal;
+  /** Re-validates source admission after setup, immediately before transport. */
+  beforeDispatch?: () => Promise<void> | void;
 }
 
 export class AgentTriggerDispatchError extends TypeError {
@@ -53,6 +55,7 @@ export function dispatchAgentTrigger<FireResult, ContinueResult, SteerResult>(
     maxAttempts?: number;
     deliveryClaimToken?: string;
     requiredWorkerCapability?: string;
+    beforeDispatch?: () => Promise<void> | void;
   },
 ): Promise<ContinueResult | FireResult | SteerResult> {
   let normalized: AgentTriggerEnvelope;
@@ -70,6 +73,7 @@ export function dispatchAgentTrigger<FireResult, ContinueResult, SteerResult>(
       requiredWorkerCapability: options.requiredWorkerCapability,
     }),
     ...(options?.signal != null && { signal: options.signal }),
+    ...(options?.beforeDispatch != null && { beforeDispatch: options.beforeDispatch }),
   };
   if (normalized.mode === 'fire') {
     return handlers.fire(normalized, context);
