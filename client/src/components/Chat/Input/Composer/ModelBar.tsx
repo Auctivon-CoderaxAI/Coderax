@@ -22,13 +22,11 @@ export default function ModelBar({ conversation, className }: ModelBarProps) {
       data-testid="composer-model-bar"
       className={cn(
         'flex min-w-0 items-center gap-2 px-2 pt-2 text-xs text-text-secondary',
-        'text-text-secondary flex min-w-0 items-center gap-2 px-2 pt-2 text-xs',
         className,
       )}
     >
       <Cpu className="size-3 shrink-0" aria-hidden="true" />
       <span className="truncate font-medium text-text-primary">{conversation.model}</span>
-      <span className="text-text-primary truncate font-medium">{conversation.model}</span>
       {conversation.endpoint ? (
         <>
           <span aria-hidden="true">·</span>
