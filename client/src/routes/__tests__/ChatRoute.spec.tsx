@@ -13,6 +13,7 @@ let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
 const mockConfig = {};
 const mockRoles = { USER: {} };
 let mockAssistantListMap = {};
+let mockDefaultModelSpec: unknown = {};
 const mockNewConversation = jest.fn(({ template }: { template?: Partial<TConversation> }) => {
   mockConversation = { conversationId: 'new', ...template };
   mockSetConversation();
@@ -43,6 +44,7 @@ jest.mock('~/data-provider', () => ({
   useGetMessagesByConvoId: (...args: unknown[]) => mockUseGetMessagesByConvoId(...args),
   useGetStartupConfig: () => ({ data: mockConfig }),
   useGetEndpointsQuery: () => ({ data: mockConfig }),
+  useTokenConfigQuery: () => ({ data: {} }),
   useListAgentsQuery: () => ({}),
   useProjectQuery: () => ({}),
   useGetConvoIdQuery: (id: string, options: { enabled: boolean }) => {
@@ -73,7 +75,7 @@ jest.mock('@coderax/client', () => ({
 jest.mock('~/utils', () => ({
   defaultSpecAwaitsAgents: () => false,
   processValidSettings: () => ({}),
-  getDefaultModelSpec: () => ({}),
+  getDefaultModelSpec: () => mockDefaultModelSpec,
   hasModelSelection: () => false,
   isNotFoundError: () => false,
   isTemporaryConversation: () => false,
@@ -85,18 +87,21 @@ jest.mock('~/components/Chat/ChatView', () => ({
   default: () => <div data-testid="composer">{mockConversation.conversationId}</div>,
 }));
 
-function Harness() {
+function Harness({ workMode = false }: { workMode?: boolean }) {
   const [, update] = React.useReducer((n: number) => n + 1, 0);
   mockSetConversation.mockImplementation(update);
-  return <ChatRoute />;
+  return <ChatRoute workMode={workMode} />;
 }
 
 function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.length - 1) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createMemoryRouter([{ path: '/c/:conversationId', element: <Harness /> }], {
-    initialEntries,
-    initialIndex,
-  });
+  const router = createMemoryRouter(
+    [
+      { path: '/c/:conversationId', element: <Harness /> },
+      { path: '/work/:conversationId', element: <Harness workMode /> },
+    ],
+    { initialEntries, initialIndex },
+  );
   render(
     <QueryClientProvider client={client}>
       <RouterProvider router={router} />
@@ -109,6 +114,7 @@ beforeEach(() => {
   mockConversation = { conversationId: 'chat-a' };
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
+  mockDefaultModelSpec = {};
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
 });
@@ -248,4 +254,25 @@ it('reconciles a remounted chat route with conversation state retained by the sh
   setup(['/c/chat-b']);
   await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-b'));
   expect(mockFetchConversation).toHaveBeenCalledWith('chat-b');
+});
+
+it('does not apply the Chat default model spec to a new Work conversation', async () => {
+  mockConversation = { conversationId: 'new' };
+  mockHasSetConversation.current = false;
+  mockDefaultModelSpec = {
+    default: {
+      name: 'chat-default',
+      preset: { endpoint: 'Mock Provider A', model: 'mock-model-a' },
+    },
+  };
+
+  setup(['/work/new?prompt=Do+the+task&submit=true']);
+
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalled());
+  expect(mockNewConversation).toHaveBeenCalledWith(
+    expect.objectContaining({
+      template: expect.objectContaining({ isWork: true }),
+    }),
+  );
+  expect(mockNewConversation.mock.calls.at(-1)?.[0]).not.toHaveProperty('preset');
 });

@@ -108,6 +108,8 @@ const reportPath = path.resolve(rootPath, 'e2e/playwright-report');
 const deploymentSkillsPath = path.resolve(rootPath, 'e2e/fixtures/deployment-skills');
 const enableDynamicMcp = process.env.E2E_MCP_LIST_CHANGED === 'true';
 const enableMcpApps = process.env.E2E_MCP_APPS === 'true';
+const enableMcpAppPhaseLabels =
+  enableMcpApps && process.env.E2E_MCP_APP_PHASE_LABELS === 'true';
 const mcpAppsPolicy = process.env.E2E_MCP_APPS_POLICY;
 if (mcpAppsPolicy && !['true', 'false', 'omitted'].includes(mcpAppsPolicy)) {
   throw new Error(`E2E_MCP_APPS_POLICY must be true, false, or omitted; got ${mcpAppsPolicy}`);
@@ -339,6 +341,23 @@ function writeRuntimeMockConfig() {
     .replace('# __E2E_MCP_APPS_ALLOWED_DOMAIN__', mcpAppsConfig.allowedDomain)
     .replace('# __E2E_MCP_APPS_SERVER__', mcpAppsConfig.server)
     .replace('# __E2E_MCP_APP_RATE_LIMITS__', mcpAppsRateLimits);
+  if (enableMcpAppPhaseLabels) {
+    // Phase labels collapse their tool group, so isolate them to the dedicated phase test.
+    const localModelLabel = "      modelDisplayLabel: 'E2E Local Models'";
+    if (!config.includes(localModelLabel)) {
+      throw new Error('Could not find the automatic Chat model for MCP App phase labels');
+    }
+    config = config.replace(
+      localModelLabel,
+      [
+        localModelLabel,
+        '      activityLabel: true',
+        "      activityModel: 'mock-label-model'",
+        '      activityPhaseLabel: true',
+        "      activityPhaseModel: 'mock-phase-label-model'",
+      ].join('\n'),
+    );
+  }
   const codeBridgeURL = process.env.E2E_CODE_BRIDGE_URL;
   const codeBridgePairing = process.env.E2E_CODE_BRIDGE_ADMIN_TOKEN
     ? [

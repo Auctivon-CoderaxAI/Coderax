@@ -22,9 +22,11 @@ import GuestEntry from './GuestEntry';
 import ShareRoute from './ShareRoute';
 import CyVoxAddon from './CyVoxAddon';
 import ChatRoute from './ChatRoute';
+import WorkRoute from './WorkRoute';
 import Search from './Search';
-import Root from './Root';
 import Studio from './Studio';
+import LandingPage from '~/components/Landing';
+import Root from './Root';
 
 /** Keep the former login URL as a redirect; only explicit administrator/manual
  * access can open the existing account sign-in form. Never show it by default.
@@ -71,11 +73,23 @@ const loadProjectWorkspace = () =>
     Component: m.ProjectWorkspace,
   }));
 
+const loadWorkflowsView = () =>
+  importWithRecovery(() => import('~/components/Workflows')).then((m) => ({
+    Component: m.WorkflowsView,
+  }));
+
 const baseEl = document.querySelector('base');
 const baseHref = baseEl?.getAttribute('href') || '/';
 
 export const router = createBrowserRouter(
   [
+    {
+      /** Public marketing page. Lives outside the authenticated shell so the
+       *  chat application's providers and routing stay untouched. */
+      path: 'welcome',
+      element: <LandingPage />,
+      errorElement: <RouteErrorBoundary />,
+    },
     {
       path: 'share/:shareId',
       element: <ShareRoute />,
@@ -166,8 +180,8 @@ export const router = createBrowserRouter(
                   element: <Search />,
                 },
                 {
-                  path: 'work',
-                  element: <CyVoxAddon />,
+                  path: 'work/:conversationId?',
+                  element: <WorkRoute />,
                 },
                 {
                   path: 'cyvox/:tool',
@@ -176,6 +190,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'studio',
                   element: <Studio />,
+                },
+                {
+                  path: 'workflows',
+                  lazy: loadWorkflowsView,
                 },
                 {
                   path: 'prompts',

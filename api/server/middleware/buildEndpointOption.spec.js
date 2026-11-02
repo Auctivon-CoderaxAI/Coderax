@@ -56,6 +56,11 @@ jest.mock('~/server/services/Config', () => ({
   getEndpointsConfig: (...args) => mockGetEndpointsConfig(...args),
 }));
 
+const mockGetModelsConfig = jest.fn();
+jest.mock('~/server/controllers/ModelController', () => ({
+  getModelsConfig: (...args) => mockGetModelsConfig(...args),
+}));
+
 jest.mock('@coderax/api', () => ({
   ...jest.requireActual('@coderax/api'),
   handleError: jest.fn(),
@@ -77,6 +82,66 @@ const createRes = () => ({
 describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetModelsConfig.mockResolvedValue({});
+  });
+
+  it('builds a Work-selected provider through the native agent runner under /api/work', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({
+      Ollama: { type: EModelEndpoint.custom },
+    });
+
+    const req = createReq(
+      { endpoint: 'old-provider', model: 'e2e-work-local-b' },
+      { modelSpecs: null },
+    );
+    req.baseUrl = '/api/work';
+    req.workContext = { isWork: true, workProvider: 'Ollama' };
+    const next = jest.fn();
+
+    await buildEndpointOption(req, createRes(), next);
+
+    expect(req.body.endpoint).toBe('Ollama');
+    expect(req.body.endpointType).toBe(EModelEndpoint.custom);
+    expect(mockAgentBuildOptions).toHaveBeenCalledWith(
+      req,
+      'Ollama',
+      expect.objectContaining({ model: 'e2e-work-local-b' }),
+      EModelEndpoint.custom,
+    );
+    expect(mockBuildOptions).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a Work agent on the native agents endpoint and carries its provider as type', async () => {
+    mockGetEndpointsConfig.mockResolvedValue({
+      Ollama: { type: EModelEndpoint.custom },
+    });
+
+    const req = createReq(
+      {
+        endpoint: EModelEndpoint.agents,
+        agent_id: 'agent-plan',
+        model: 'e2e-work-local-b',
+      },
+      { modelSpecs: null },
+    );
+    req.baseUrl = '/api/work';
+    req.workContext = { isWork: true, workProvider: 'Ollama' };
+    const next = jest.fn();
+
+    await buildEndpointOption(req, createRes(), next);
+
+    expect(req.body.endpoint).toBe(EModelEndpoint.agents);
+    expect(req.body.endpointType).toBe(EModelEndpoint.custom);
+    expect(mockAgentBuildOptions).toHaveBeenCalledWith(
+      req,
+      EModelEndpoint.agents,
+      expect.objectContaining({ agent_id: 'agent-plan' }),
+      EModelEndpoint.custom,
+    );
+    expect(req.body.model).toBe('e2e-work-local-b');
+    expect(mockBuildOptions).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
   });
 
   it('should pass defaultParamsEndpoint to parseCompactConvo and preserve maxOutputTokens', async () => {
@@ -161,6 +226,7 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       const req = createReq(
         {
           endpoint: EModelEndpoint.openAI,
+          agent_id: 'agent_reasoning_test',
           model: 'gpt-5.1',
           reasoningOverride: { key: 'reasoning_effort', value: 'high' },
         },
@@ -185,6 +251,7 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       const req = createReq(
         {
           endpoint: EModelEndpoint.openAI,
+          agent_id: 'agent_reasoning_test',
           model: 'gpt-5.1',
           reasoningOverride: { key: 'effort', value: 'high' },
         },
@@ -748,6 +815,104 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       tenantId: undefined,
     });
     expect(req.body.endpointOption.attachments).toBe(attachments);
+  });
+
+  describe('server-owned ordinary Chat routing', () => {
+    const chatReq = (body, config) => {
+      const req = createReq(body, config);
+      req.baseUrl = '/api/agents/chat';
+      return req;
+    };
+
+    beforeEach(() => {
+      mockGetEndpointsConfig.mockResolvedValue({
+        openAI: { type: EModelEndpoint.openAI },
+        ollama: { type: EModelEndpoint.custom },
+      });
+    });
+
+    it('ignores spoofed provider and model fields and chooses the free/local model', async () => {
+      const req = chatReq(
+        { endpoint: 'openAI', endpointType: EModelEndpoint.openAI, model: 'gpt-4o' },
+        { modelSpecs: null },
+      );
+      mockGetModelsConfig.mockResolvedValue({
+        openAI: ['gpt-4o'],
+        ollama: ['llama3:latest'],
+      });
+
+      await buildEndpointOption(req, createRes(), jest.fn());
+
+      expect(req.body.endpoint).toBe('ollama');
+      expect(req.body.model).toBe('llama3:latest');
+      expect(mockAgentBuildOptions).toHaveBeenCalledWith(
+        req,
+        'ollama',
+        expect.objectContaining({ model: 'llama3:latest' }),
+        EModelEndpoint.custom,
+      );
+    });
+
+    it('excludes paid candidates when no free or local model is configured', async () => {
+      const req = chatReq(
+        { endpoint: 'openAI', endpointType: EModelEndpoint.openAI, model: 'gpt-4o' },
+        { modelSpecs: null },
+      );
+      mockGetModelsConfig.mockResolvedValue({ openAI: ['gpt-4o'] });
+      const res = createRes();
+      const next = jest.fn();
+
+      await buildEndpointOption(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'CHAT_PAID_MODEL_CONSENT_REQUIRED' }),
+      );
+      expect(mockAgentBuildOptions).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('uses the paid model only for a request with explicit consent', async () => {
+      const req = chatReq(
+        { endpoint: 'openAI', model: 'gpt-4o', paidModelConsent: true },
+        { modelSpecs: null },
+      );
+      mockGetModelsConfig.mockResolvedValue({ openAI: ['gpt-4o'] });
+
+      await buildEndpointOption(req, createRes(), jest.fn());
+
+      expect(req.body.endpoint).toBe('openAI');
+      expect(req.body.model).toBe('gpt-4o');
+      expect(req.body.paidModelConsent).toBeUndefined();
+    });
+
+    it('fails closed when the enabled inventory is empty', async () => {
+      const req = chatReq({ endpoint: 'openAI', model: 'gpt-4o' }, { modelSpecs: null });
+      mockGetModelsConfig.mockResolvedValue({});
+      const res = createRes();
+
+      await buildEndpointOption(req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'CHAT_NO_AVAILABLE_MODEL' }),
+      );
+    });
+
+    it('keeps the Work selected provider and model unchanged', async () => {
+      const req = chatReq(
+        { endpoint: 'old-provider', model: 'e2e-work-local-b' },
+        { modelSpecs: null },
+      );
+      req.baseUrl = '/api/work';
+      req.workContext = { isWork: true, workProvider: 'Ollama' };
+
+      await buildEndpointOption(req, createRes(), jest.fn());
+
+      expect(req.body.endpoint).toBe('Ollama');
+      expect(req.body.model).toBe('e2e-work-local-b');
+      expect(mockGetModelsConfig).not.toHaveBeenCalled();
+    });
   });
 
   it('should not enter the enforce branch when modelSpecs.list is empty', async () => {

@@ -4,6 +4,7 @@ export * from './Endpoints';
 export * from './Skills';
 export * from './Files';
 export * from './Langfuse';
+export * from './CyVox';
 export * from './Insights';
 /* Memories */
 export * from './Memories';
@@ -12,6 +13,7 @@ export * from './Misc';
 export * from './Projects';
 /* Scheduled chats */
 export * from './Schedules';
+export * from './Workflows';
 export * from './Subagents';
 export * from './BackgroundTasks';
 export * from './Tools';

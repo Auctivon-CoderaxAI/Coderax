@@ -107,6 +107,11 @@ import {
   createAskUserQuestionTool,
 } from '~/agents/hitl/askUserQuestionTool';
 import {
+  agentHasInlineMemoryTools,
+  DELETE_MEMORY_TOOL_NAME,
+  SET_MEMORY_TOOL_NAME,
+} from '~/agents/memory';
+import {
   createRunFileTools,
   eventOnlyRunFileTools,
   isRunFileSharingSupported,
@@ -118,6 +123,7 @@ import { createAgentToolApprovalSession, bindRunToolApprovalSession } from './hi
 import { resolveConfigHeaders, resolveModelHeaders, mergeHeaders } from '~/utils/headers';
 import { interruptToolHandler, supportsRunInterruption } from '~/agents/steering/tools';
 import { extractDefaultParams, resolveReasoningParams } from '~/endpoints/openai/llm';
+import { createFollowupTools, isSuggestFollowupsAdminDisabled } from './followups';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
 import { createScheduledMCPRunPolicy } from '~/schedules/authorization/run';
 import { CREATE_FILE_TOOL_NAME, EDIT_FILE_TOOL_NAME } from '~/agents/tools';
@@ -125,7 +131,6 @@ import { buildAgentInitialToolSessions } from '~/agents/codeFilesSession';
 import { getDirectDispatcher, getProxyDispatcher } from '~/utils/proxy';
 import { getAzureCredentials, constructAzureURL } from '~/utils/azure';
 import { buildEffectiveToolApprovalPolicy } from '~/agents/hitl/allow';
-import { createFollowupTools, isSuggestFollowupsAdminDisabled } from './followups';
 import { createTodoTools, isWriteTodosAdminDisabled } from './todos';
 import { prepareQueuedCodeFileContext } from '~/files/code/queued';
 import { getBuiltInBaseURL } from '~/endpoints/openai/initialize';
@@ -532,7 +537,9 @@ type LazySubagentAgent = Pick<
   | 'skillAuthoringAvailable'
   | 'includeReasoningHistory'
   | 'mcpToolAliases'
+  | 'tools'
 > & {
+  memoryToolsRegistered?: boolean;
   configId: string;
   /** Per-call machine choices declared on the child's subagent call. */
   subagentHostArgs?: SubagentCodeHostArgSpecs;
@@ -1765,6 +1772,48 @@ export function collectRunMCPToolAliases(
 }
 
 /**
+ * Tool names that must always pause for user review in this run. MCP aliases
+ * represent externally connected actions; inline memory mutations require
+ * explicit user consent before persistent personal data is changed.
+ */
+export function collectMandatoryRunToolApprovalNames(
+  agents: Array<RunAgent | SubagentTreeNode | null | undefined>,
+): string[] {
+  const names = new Set<string>();
+  for (const { name, aliasName } of collectRunMCPToolAliases(agents)) {
+    names.add(name);
+    names.add(aliasName);
+  }
+
+  const visited = new Set<string>();
+  const pending: Array<RunAgent | SubagentTreeNode | null | undefined> = [...agents];
+  for (let index = 0; index < pending.length; index++) {
+    const agent = pending[index];
+    if (agent == null) {
+      continue;
+    }
+    if (agentHasInlineMemoryTools(agent)) {
+      names.add(SET_MEMORY_TOOL_NAME);
+      names.add(DELETE_MEMORY_TOOL_NAME);
+    }
+    // Lazy descriptors intentionally omit their full tool lists. Seed the
+    // approval hook before resolution so a newly loaded MCP or memory tool can
+    // tighten the policy before its first invocation.
+    if ((agent.lazySubagentConfigs?.length ?? 0) > 0) {
+      names.add(SET_MEMORY_TOOL_NAME);
+      names.add(DELETE_MEMORY_TOOL_NAME);
+    }
+    if (visited.has(agent.id)) {
+      enqueueSubagentChildren(agent, pending, visited);
+      continue;
+    }
+    visited.add(agent.id);
+    enqueueSubagentChildren(agent, pending, visited);
+  }
+  return [...names];
+}
+
+/**
  * Recursive any-true check across the agent tree: returns `true` if this
  * agent or any subagent (transitively) has the per-agent codeenv gate
  * enabled.
@@ -2799,10 +2848,6 @@ export async function createRun({
    */
   // Resolve the effective policy through the single seam so BYOM defaults and
   // future persisted per-agent / per-skill sources do not leak into this call site.
-  const toolApprovalPolicy = resolveToolApprovalPolicy({
-    endpoint: agentsEndpointConfig?.toolApproval,
-    attachedCodeEnvironment: attachedCodeEnvironmentAgentIds.size > 0,
-  });
   // Every caller needs the policy hooks, including API-key ingresses. Only
   // AgentClient supports pause/resume; the SDK blocks `ask` without HITL enabled.
   // Keep the checkpointer and humanInTheLoop switch exclusive to those callers.
@@ -2810,6 +2855,12 @@ export async function createRun({
    *  agent, including explicit and graph subagents. Lazy subagents report
    *  theirs through `registerResolvedMCPToolAliases` below. */
   const mcpToolAliases = collectRunMCPToolAliases(agents);
+  const mandatoryToolApprovalNames = new Set(collectMandatoryRunToolApprovalNames(agents));
+  let toolApprovalPolicy = resolveToolApprovalPolicy({
+    endpoint: agentsEndpointConfig?.toolApproval,
+    attachedCodeEnvironment: attachedCodeEnvironmentAgentIds.size > 0,
+    mandatoryAskTools: [...mandatoryToolApprovalNames],
+  });
   const mcpToolAliasKeys = new Set(
     mcpToolAliases.map(({ name, aliasName }) => `${name}\u0000${aliasName}`),
   );
@@ -2919,10 +2970,24 @@ export async function createRun({
         return true;
       },
     );
-    if (discoveredAliases.length === 0) {
-      return;
+    const discoveredApprovalNames = collectMandatoryRunToolApprovalNames([resolvedAgent]);
+    let approvalPolicyChanged = false;
+    for (const name of discoveredApprovalNames) {
+      if (!mandatoryToolApprovalNames.has(name)) {
+        mandatoryToolApprovalNames.add(name);
+        approvalPolicyChanged = true;
+      }
     }
-    mcpToolAliases.push(...discoveredAliases);
+    if (approvalPolicyChanged) {
+      toolApprovalPolicy = resolveToolApprovalPolicy({
+        endpoint: agentsEndpointConfig?.toolApproval,
+        attachedCodeEnvironment: attachedCodeEnvironmentAgentIds.size > 0,
+        mandatoryAskTools: [...mandatoryToolApprovalNames],
+      });
+    }
+    if (discoveredAliases.length > 0) {
+      mcpToolAliases.push(...discoveredAliases);
+    }
     approvalWiring?.addMCPToolAliases(discoveredAliases, effectiveToolApprovalPolicy());
   };
   /**

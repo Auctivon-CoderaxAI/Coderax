@@ -15,6 +15,14 @@ jest.mock(
   { virtual: true },
 );
 
+/** The Redis-backed cases below exercise the atomic GETDEL path in consumeCacheEntry. */
+jest.mock('../cache/cacheConfig', () => ({
+  cacheConfig: {
+    ...jest.requireActual('../cache/cacheConfig').cacheConfig,
+    USE_REDIS: true,
+  },
+}));
+
 import {
   exchangeAdminCode,
   generateAdminExchangeCode,

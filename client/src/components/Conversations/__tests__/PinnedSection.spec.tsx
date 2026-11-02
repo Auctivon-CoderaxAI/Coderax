@@ -17,8 +17,22 @@ let mockOrderFetching = false;
  *  pinned list drains page by page. */
 let mockOrderUpdatedAt = 1000;
 const MEMBERSHIP_FETCHED_AT = 2000;
+const mockNavigate = jest.fn();
+let mockPinnedWorkTasks: Record<string, { id: string; title: string; state: 'completed' | 'unknown' }> = {};
 const mockReorderFavorites = jest.fn();
 const mockUpdatePinnedOrder = jest.fn();
+
+jest.mock('@tanstack/react-query', () => ({
+  useQueries: ({ queries }: { queries: Array<{ queryKey: readonly unknown[] }> }) =>
+    queries.map(({ queryKey }) => ({
+      data: { task: mockPinnedWorkTasks[String(queryKey[1])] },
+    })),
+}));
+
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useNavigate: () => mockNavigate,
+}));
 
 const mockFavoritesData = {
   favorites: [] as Array<Record<string, string>>,
@@ -59,9 +73,21 @@ jest.mock('~/data-provider', () => ({
 jest.mock('@coderax/client', () => ({
   /* The section headers compose through the shared variant recipe. */
   buttonVariants: () => '',
+  Button: ({
+    children,
+    variant: _variant,
+    size: _size,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; size?: string }) => (
+    <button {...props}>{children}</button>
+  ),
   Skeleton: () => <div data-testid="favorite-skeleton" />,
   useMediaQuery: () => true,
   useToastContext: () => ({ showToast: jest.fn() }),
+}));
+
+jest.mock('~/components/ui', () => ({
+  Collapse: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 jest.mock('~/components/Nav/Favorites/useFavoritesData', () => ({
@@ -141,7 +167,7 @@ const renderSection = (conversations: TConversation[]) => render(renderTree(conv
 const itemLabels = () =>
   Array.from(
     screen
-      .getAllByTestId(/pinned-convo|favorite-item|favorite-skeleton/)
+      .getAllByTestId(/pinned-convo|pinned-work-task|favorite-item|favorite-skeleton/)
       .map((el) => el.textContent?.trim()),
   );
 
@@ -152,6 +178,8 @@ describe('PinnedSection unified list', () => {
     mockOrderFetched = true;
     mockOrderFetching = false;
     mockOrderUpdatedAt = 1000;
+    mockPinnedWorkTasks = {};
+    mockNavigate.mockReset();
     mockSetExpanded.mockReset();
     mockReorderFavorites.mockReset();
     mockUpdatePinnedOrder.mockReset();
@@ -174,6 +202,62 @@ describe('PinnedSection unified list', () => {
     mockFavoritesData.favorites = [{ model: 'gpt-4o', endpoint: 'openAI' }];
     renderSection([pinnedConvo('c1', 'Pinned Chat'), pinnedConvo('c2', 'Another Pin')]);
     expect(itemLabels()).toEqual(['gpt-4o', 'Pinned Chat', 'Another Pin']);
+  });
+
+  it('mixes pinned Work tasks with chats and persists Work unpinning', () => {
+    mockPinnedOrder = ['work:task-1', 'convo:c1', 'work:task-2'];
+    mockPinnedWorkTasks = {
+      'task-1': { id: 'task-1', title: 'Plan the launch', state: 'completed' },
+      'task-2': { id: 'task-2', title: 'Review the draft', state: 'unknown' },
+    };
+    renderSection([pinnedConvo('c1', 'Pinned Chat')]);
+
+    /* The stored order is the whole list's order, Work positions included: a
+     * Work pin saved above a chat renders above it. */
+    expect(itemLabels()).toEqual([
+      'Plan the launchcompleted',
+      'Pinned Chat',
+      'Review the draftunknown',
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_unpin Plan the launch' }));
+
+    expect(mockUpdatePinnedOrder).toHaveBeenCalledWith(
+      ['convo:c1', 'work:task-2'],
+      expect.anything(),
+    );
+  });
+
+  it('allows Work tasks and chats to share the stored pinned order', () => {
+    mockPinnedOrder = ['convo:c1', 'work:task-1'];
+    mockPinnedWorkTasks = {
+      'task-1': { id: 'task-1', title: 'Plan the launch', state: 'completed' },
+    };
+    renderSection([pinnedConvo('c1', 'Pinned Chat')]);
+
+    fireEvent.keyDown(screen.getByText('Plan the launch'), { key: 'ArrowUp', altKey: true });
+
+    expect(mockUpdatePinnedOrder).toHaveBeenCalledWith(
+      ['work:task-1', 'convo:c1'],
+      expect.anything(),
+    );
+  });
+
+  /* The merge that keeps hidden keys also has to keep Work rows in the
+   * Chat/Work run. Filed with the favorites, a Work key would be substituted
+   * into the favorites' slots and jump above every chat on the next write. */
+  it('keeps a pinned Work task below the chats when a chat is reordered', () => {
+    mockPinnedOrder = ['convo:c1', 'convo:c2', 'work:task-1'];
+    mockPinnedWorkTasks = {
+      'task-1': { id: 'task-1', title: 'Plan the launch', state: 'completed' },
+    };
+    renderSection([pinnedConvo('c1', 'First'), pinnedConvo('c2', 'Second')]);
+
+    fireEvent.keyDown(screen.getByText('First'), { key: 'ArrowDown', altKey: true });
+
+    expect(mockUpdatePinnedOrder).toHaveBeenCalledWith(
+      ['convo:c2', 'convo:c1', 'work:task-1'],
+      expect.anything(),
+    );
   });
 
   it('forwards endpoint config to pinned models when the config loads', () => {

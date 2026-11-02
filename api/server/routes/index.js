@@ -6,6 +6,7 @@ const adminConfig = require('./admin/config');
 const adminCodeEnvironments = require('./admin/code');
 const codeEnvironments = require('./code-environments');
 const adminLangfuse = require('./admin/langfuse');
+const adminCyVox = require('./admin/cyvox');
 const adminGrants = require('./admin/grants');
 const adminGroups = require('./admin/groups');
 const adminRoles = require('./admin/roles');
@@ -20,6 +21,7 @@ const presets = require('./presets');
 const projects = require('./projects');
 const prompts = require('./prompts');
 const schedules = require('./schedules');
+const workflows = require('./workflows');
 const skills = require('./skills');
 const balance = require('./balance');
 const actions = require('./actions');
@@ -54,6 +56,7 @@ module.exports = {
   adminCodeEnvironments,
   codeEnvironments,
   adminLangfuse,
+  adminCyVox,
   adminGrants,
   adminGroups,
   adminRoles,
@@ -79,6 +82,7 @@ module.exports = {
   prompts,
   projects,
   schedules,
+  workflows,
   skills,
   actions,
   presets,

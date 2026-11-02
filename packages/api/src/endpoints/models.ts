@@ -525,16 +525,117 @@ export async function getAnthropicModels(
   }
 }
 
+interface GoogleModelDiscoveryOptions {
+  /** Configured Google AI Studio API key. Vertex service-account credentials use configured models. */
+  apiKey?: string;
+  /** Trusted reverse-proxy base URL, when configured for Google AI Studio. */
+  baseURL?: string;
+  /** Explicit model inventory; an empty list intentionally disables discovery. */
+  configuredModels?: string[];
+  headers?: Record<string, string> | null;
+  userObject?: Partial<IUser>;
+}
+
 /**
- * Gets Google models from environment or defaults.
- * @returns Array of model IDs
+ * Fetches the Google AI Studio model catalog and keeps models that support the
+ * generateContent operation used by Coderax chat. Model names and supported
+ * operations come from Google's live catalog; no locally guessed model IDs are
+ * added to a successful response.
  */
-export function getGoogleModels(): string[] {
-  let models = defaultModels[EModelEndpoint.google];
-  if (process.env.GOOGLE_MODELS) {
-    models = splitAndTrim(process.env.GOOGLE_MODELS);
+async function fetchGoogleModels({
+  apiKey,
+  baseURL,
+  headers,
+  userObject,
+}: GoogleModelDiscoveryOptions): Promise<string[]> {
+  const catalogBaseURL = (baseURL ?? 'https://generativelanguage.googleapis.com/v1beta').replace(
+    /\/+$/,
+    '',
+  );
+  const resolvedHeaders = resolveHeaders({
+    headers: headers ?? undefined,
+    user: userObject,
+    stripUnresolved: true,
+  });
+  const requestHeaders = { ...resolvedHeaders };
+  if (apiKey) {
+    requestHeaders['x-goog-api-key'] = apiKey;
   }
-  return models;
+
+  const models: string[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const url = new URL(`${catalogBaseURL}/models`);
+    url.searchParams.set('pageSize', '100');
+    if (pageToken) {
+      url.searchParams.set('pageToken', pageToken);
+    }
+    const options: AxiosRequestConfig = {
+      headers: requestHeaders,
+      timeout: 5000,
+      maxRedirects: 0,
+    };
+    applyAxiosProxyConfig(options, url);
+
+    const response = await axios.get<{
+      models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      nextPageToken?: string;
+    }>(url.toString(), options);
+    const pageModels = response.data?.models;
+    if (!Array.isArray(pageModels)) {
+      throw new Error('Google model catalog returned an invalid response');
+    }
+
+    for (const model of pageModels) {
+      if (
+        typeof model.name === 'string' &&
+        Array.isArray(model.supportedGenerationMethods) &&
+        model.supportedGenerationMethods.includes('generateContent')
+      ) {
+        models.push(model.name.replace(/^models\//, ''));
+      }
+    }
+
+    pageToken = response.data.nextPageToken;
+    if (!pageToken) {
+      break;
+    }
+  }
+
+  return [...new Set(models)];
+}
+
+/**
+ * Gets Google's live generateContent catalog when a server API key is
+ * configured. Explicit environment lists take precedence, and unconfigured or
+ * unavailable providers retain the established default catalog.
+ */
+export async function getGoogleModels(opts: GoogleModelDiscoveryOptions = {}): Promise<string[]> {
+  if (opts.configuredModels) {
+    return opts.configuredModels;
+  }
+  if (process.env.GOOGLE_MODELS) {
+    return splitAndTrim(process.env.GOOGLE_MODELS);
+  }
+
+  const models = defaultModels[EModelEndpoint.google];
+  const apiKey = opts.apiKey ?? process.env.GOOGLE_KEY;
+  if (!apiKey || isUserProvided(apiKey)) {
+    return models;
+  }
+
+  try {
+    return await fetchGoogleModels({
+      ...opts,
+      apiKey,
+      baseURL: opts.baseURL ?? process.env.GOOGLE_REVERSE_PROXY,
+    });
+  } catch (error) {
+    logger.warn('[getGoogleModels] Live discovery failed; using the configured default catalog', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
+    return models;
+  }
 }
 
 /**

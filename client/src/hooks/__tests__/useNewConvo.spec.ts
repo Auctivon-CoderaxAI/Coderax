@@ -29,6 +29,7 @@ const mockFiles = new Map<
 >();
 
 jest.mock('react-router-dom', () => ({
+  useLocation: () => ({ pathname: '/c/new' }),
   useNavigate: () => jest.fn(),
   useSearchParams: () => [new URLSearchParams()],
 }));

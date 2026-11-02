@@ -60,11 +60,15 @@ export default function useQueryParams({
   routePending = false,
   onBeforePrompt,
   onPromptSettled,
+  requiresPaidModelConsent = false,
+  onPaidModelConsentRequired,
 }: {
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   routePending?: boolean;
   onBeforePrompt?: () => void;
   onPromptSettled?: (text: string, conversationId: string | null | undefined) => void;
+  requiresPaidModelConsent?: boolean;
+  onPaidModelConsentRequired?: (text: string) => void;
 }) {
   const maxAttempts = 50;
   const attemptsRef = useRef(0);
@@ -83,6 +87,10 @@ export default function useQueryParams({
   routePendingRef.current = routePending;
   const onPromptSettledRef = useRef(onPromptSettled);
   onPromptSettledRef.current = onPromptSettled;
+  const requiresPaidModelConsentRef = useRef(requiresPaidModelConsent);
+  requiresPaidModelConsentRef.current = requiresPaidModelConsent;
+  const onPaidModelConsentRequiredRef = useRef(onPaidModelConsentRequired);
+  onPaidModelConsentRequiredRef.current = onPaidModelConsentRequired;
   const methods = useChatFormContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const setSearchParamsRef = useRef(setSearchParams);
@@ -465,7 +473,14 @@ export default function useQueryParams({
           return;
         }
         setSubmissionStatus('idle');
-        if (data.text?.trim() && submitMessageRef.current(data) !== false) {
+        /** Deep-link submissions follow the same current automatic route as a
+         * typed message. Paid sends are restored to the composer for explicit
+         * one-message consent instead of running in the background. */
+        const text = data.text?.trim() ?? '';
+        if (text && requiresPaidModelConsentRef.current) {
+          onPaidModelConsentRequiredRef.current?.(data.text ?? '');
+          settlePrompt();
+        } else if (text && submitMessageRef.current(data) !== false) {
           logger.log('conversation', 'Message submitted from query params');
         } else {
           settlePrompt();
@@ -529,11 +544,12 @@ export default function useQueryParams({
       }
 
       const currentConversation = conversationRef.current;
+      const routeBase = currentConversation?.isWork === true ? '/work' : '/c';
       if (
         routePendingRef.current ||
         !currentConversation ||
         (currentConversation.conversationId != null &&
-          routeRef.current.pathname !== `/c/${currentConversation.conversationId}`)
+          routeRef.current.pathname !== `${routeBase}/${currentConversation.conversationId}`)
       ) {
         return;
       }

@@ -11,6 +11,7 @@ const {
   createAgentQueuedTurnLifecycle,
   AGENT_QUEUED_TURN_SOURCE,
   GenerationJobManager,
+  isWorkflowStepActive: workflowStepIsActive,
 } = require('@coderax/api');
 const methods = require('~/models');
 
@@ -56,6 +57,7 @@ const eventActorAdapter = createAgentEventContinueResolver({
   getGenerationJob: (conversationId) => GenerationJobManager.getJob(conversationId),
 });
 let service;
+let workflowEventHandler;
 const queuedTurnLifecycle = createAgentQueuedTurnLifecycle({
   methods,
   getGenerationJob: (conversationId) => GenerationJobManager.getJob(conversationId),
@@ -71,6 +73,12 @@ service = createAgentTriggerService({
     GenerationJobManager.getAccountCleanupJobIdsForUser(userId, tenantId),
   ),
   isPrincipalActive: methods.isAgentTriggerPrincipalActive,
+  // A workflow subscribed to this authenticated event starts a durable run of
+  // its own. The workflow service registers this handler, which keeps this
+  // module free of a require cycle back into the workflow service.
+  onAgentEvent: (event) => (workflowEventHandler == null ? undefined : workflowEventHandler(event)),
+  isWorkflowStepActive: async (input) =>
+    workflowStepIsActive(await methods.getWorkflowRun(input.runId, input.userId), input),
   supportsDetachedActionCompletion: () => GenerationJobManager.supportsDetachedAgentEventActions,
   subscribeGenerationSettled: (listener) => GenerationJobManager.onGenerationSettled(listener),
   settleSourceBeforeDeadLetter: queuedTurnLifecycle.settleBeforeDeadLetter,
@@ -95,6 +103,10 @@ const stopAgentTriggerService = async () => {
   await queuedTurnLifecycle.stop();
   await service.stop();
 };
+
+function setWorkflowEventHandler(handler) {
+  workflowEventHandler = handler;
+}
 
 const purgeAgentTriggerDeliveriesForUser = async (userId) => {
   await service.purgeUser(userId);
@@ -124,4 +136,5 @@ module.exports = {
   cancelAgentQueuedTurn: queuedTurnLifecycle.cancel,
   settleAgentQueuedTurnExecutionAdmission: queuedTurnLifecycle.recordExecutionAdmission,
   verifyAgentQueuedTurnExecutionAdmission: queuedTurnLifecycle.verifyExecutionAdmission,
+  setWorkflowEventHandler,
 };

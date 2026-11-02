@@ -53,6 +53,8 @@ jest.mock('@coderax/api', () => ({
   stampPreliminaryPrivateTextMessage: (_req, message) => message,
   getAgentErrorMetadata: (...args) =>
     jest.requireActual('@coderax/api').getAgentErrorMetadata(...args),
+  workflowStepGenerationMetadata: jest.fn(() => ({})),
+  assertWorkflowStepDeliveryActive: jest.fn(async () => undefined),
   applyForcedTemporaryRequest: jest.fn(),
   resolveResumableRetention: jest.requireActual('@coderax/api').resolveResumableRetention,
   markAbortedCompactionContent: (...args) =>

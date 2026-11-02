@@ -28,6 +28,7 @@ import type {
 } from './host';
 import type { AgentTriggerEnqueueOptions, PreparedAgentTriggerDelivery } from './delivery';
 import type { BoundAddress } from '../../app/origin';
+import type { JsonValue } from '../json';
 import { AgentTriggerDeliveryDeferredError, createAgentTriggerDeliveryEngine } from './engine';
 import { BACKGROUND_TOOL_COMPLETION_SOURCE } from '../backgroundCompletionWakeup';
 import { isShutdownInProgress, registerShutdownTask } from '../../app/shutdown';
@@ -76,6 +77,25 @@ export interface AgentTriggerServiceDeps {
   methods?: AgentTriggerDeliveryPersistence;
   deliveryOptions?: AgentTriggerDeliveryEngineOptions;
   isPrincipalActive?: (userId: string) => boolean | Promise<boolean>;
+  /** Fan-out hook for authenticated, non-internal agent events. Errors never fail delivery. */
+  onAgentEvent?: (input: {
+    userId: string;
+    tenantId?: string;
+    eventId: string;
+    eventType: string;
+    sourceId: string;
+    sourceType: string;
+    payload?: JsonValue;
+  }) => void | Promise<void>;
+  /** Durable admission check for workflow-origin deliveries, including cancellation and retries. */
+  isWorkflowStepActive?: (input: {
+    runId: string;
+    stepId: string;
+    attempt: number;
+    workflowId: string;
+    userId: string;
+    tenantId?: string;
+  }) => Promise<boolean>;
   userDrainTimeoutMs?: number;
   userDrainPollMs?: number;
   purgeRecoveryIntervalMs?: number;
@@ -217,7 +237,12 @@ export interface AgentTriggerService {
     deliveryKey: string,
     sourceId: string,
     reason: string,
-    options?: { onlyIfUnclaimed?: boolean; onlyIfDead?: boolean; requireTransition?: boolean },
+    options?: {
+      onlyIfUnclaimed?: boolean;
+      onlyIfDead?: boolean;
+      requireTransition?: boolean;
+      sourceType?: 'workflow';
+    },
   ) => Promise<boolean>;
   renewProducerLease: (deliveryKey: string, sourceId: string, leaseUntil: Date) => Promise<boolean>;
   persistBackgroundToolResult: (input: {
@@ -426,6 +451,53 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
   ): Promise<AgentTriggerExecutionResult> => {
     const parsed = parseAgentTriggerEnvelope(envelope);
     await requireActivePrincipal(parsed.principal.userId);
+    if (
+      parsed.mode === 'fire' &&
+      parsed.event.type === 'workflow.step' &&
+      parsed.event.source.type === 'workflow'
+    ) {
+      const metadata = parsed.run?.metadata;
+      const fields =
+        metadata != null && typeof metadata === 'object' && !Array.isArray(metadata)
+          ? (metadata as Record<string, unknown>)
+          : {};
+      const runId = fields.workflowRunId;
+      const stepId = fields.workflowStepId;
+      const prefix = `wf:${String(runId)}:${String(stepId)}:`;
+      const attemptText = parsed.deliveryId.startsWith(prefix)
+        ? parsed.deliveryId.slice(prefix.length)
+        : '';
+      const attempt = Number(attemptText);
+      const check = deps.isWorkflowStepActive;
+      if (
+        typeof runId !== 'string' ||
+        typeof stepId !== 'string' ||
+        !/^[1-9]\d*$/.test(attemptText) ||
+        !Number.isSafeInteger(attempt) ||
+        check == null
+      ) {
+        throw new AgentTriggerServiceUnavailableError('Workflow step delivery is no longer active');
+      }
+      const assertActive = async (): Promise<void> => {
+        const active = await runAsSystem(async () =>
+          check({
+            runId,
+            stepId,
+            attempt,
+            workflowId: parsed.event.source.id,
+            userId: parsed.principal.userId,
+            ...(parsed.principal.tenantId == null ? {} : { tenantId: parsed.principal.tenantId }),
+          }),
+        );
+        if (!active) {
+          throw new AgentTriggerServiceUnavailableError(
+            'Workflow step delivery is no longer active',
+          );
+        }
+      };
+      await assertActive();
+      return host.dispatch(parsed, { ...options, beforeDispatch: assertActive });
+    }
     return host.dispatch(parsed, options);
   };
 
@@ -724,6 +796,31 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
         await drainUser(String(prepared.user));
         throw error;
       }
+      const accepted = prepared.envelope;
+      const onAgentEvent = deps.onAgentEvent;
+      if (
+        onAgentEvent != null &&
+        accepted.event.source.type !== 'internal' &&
+        accepted.event.source.type !== 'workflow'
+      ) {
+        try {
+          await runAsSystem(async () =>
+            onAgentEvent({
+              userId: prepared.user,
+              ...(prepared.tenantId == null ? {} : { tenantId: prepared.tenantId }),
+              eventId: accepted.event.id,
+              eventType: accepted.event.type,
+              sourceId: accepted.event.source.id,
+              sourceType: accepted.event.source.type,
+              ...(accepted.event.payload === undefined ? {} : { payload: accepted.event.payload }),
+            }),
+          );
+        } catch (error) {
+          // The agent delivery is already durable; a workflow subscription that
+          // cannot start is logged and retried by its next matching event.
+          logger.warn('[agent-triggers] workflow event fan-out failed:', error);
+        }
+      }
       const eligibleAt = queued.delivery.availableAt;
       if (eligibleAt instanceof Date && eligibleAt.getTime() > Date.now()) {
         deliveryEngine?.noteEligibleAt(eligibleAt);
@@ -785,6 +882,7 @@ export function createAgentTriggerService(deps: AgentTriggerServiceDeps = {}): A
                 reason,
                 settledAt: new Date(),
                 ...(options?.onlyIfUnclaimed === true ? { onlyIfUnclaimed: true } : {}),
+                ...(options?.sourceType === 'workflow' ? { sourceType: 'workflow' as const } : {}),
                 ...(options?.onlyIfDead === true ? { onlyIfDead: true } : {}),
                 ...(options?.requireTransition === true ? { requireTransition: true } : {}),
               },
