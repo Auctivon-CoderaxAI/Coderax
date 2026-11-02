@@ -60,6 +60,7 @@ describe('CyVox add-on target', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('keeps the loopback development connection available to an ADMIN', async () => {
   it('keeps an administrative loopback development connection available', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
@@ -76,6 +77,57 @@ describe('CyVox add-on target', () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    ['anonymous activity', undefined, '/activity'],
+    ['non-admin activity', 'USER', '/activity'],
+    ['anonymous approvals', undefined, '/tasks/task123/approvals'],
+    ['non-admin approvals', 'USER', '/tasks/task123/approvals'],
+  ])('denies loopback %s without forwarding', async (_case, role, path) => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const app = express()
+      .use((req, _res, next) => {
+        if (role) Object.assign(req, { user: { role } });
+        next();
+      })
+      .use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+
+    const response = await request(app).get(path);
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('denies loopback writes without ADMIN even with explicit confirmation', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch');
+    const app = express().use(express.json()).use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+
+    const response = await request(app).post('/actions/robotStop').set('X-CyVox-Confirm', 'yes');
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ code: 'CYVOX_FORBIDDEN' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'rejects inherited resource key %s before upstream forwarding',
+    async (resource) => {
+      const fetchMock = jest.spyOn(global, 'fetch');
+      const app = express()
+        .use((req, _res, next) => {
+          Object.assign(req, { user: { role: 'ADMIN' } });
+          next();
+        })
+        .use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+
+      const response = await request(app).get(`/${resource}`);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('CyVox loopback authorization', () => {
