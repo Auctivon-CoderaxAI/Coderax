@@ -592,7 +592,8 @@ export default function useChatFunctions({
       conversationId = null;
       const projectSearch = chatProjectId ? `?projectId=${encodeURIComponent(chatProjectId)}` : '';
       requestChatFocus();
-      navigate(`/c/new${projectSearch}`);
+      const routeBase = immutableConversation?.isWork === true ? '/work' : '/c';
+      navigate(`${routeBase}/new${projectSearch}`);
     }
 
     const targetParentMessageId = regenerateShaped ? messageId : latestMessage?.parentMessageId;

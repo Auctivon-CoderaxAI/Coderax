@@ -6,7 +6,7 @@ if (process.env.E2E_MCP_APPS !== 'true') {
 }
 
 const phase = process.env.E2E_MCP_APPS_PHASE ?? 'standalone';
-if (!['standalone', 'true', 'false', 'omitted', 'quota'].includes(phase)) {
+if (!['standalone', 'true', 'phase-labels', 'false', 'omitted', 'quota'].includes(phase)) {
   throw new Error(`Unsupported E2E_MCP_APPS_PHASE: ${phase}`);
 }
 

@@ -265,6 +265,9 @@ export interface IConversation extends Document {
   user?: string;
   messages?: Types.ObjectId[];
   isTemporary?: boolean;
+  isWork?: boolean;
+  workModel?: string;
+  workState?: string;
   // Fields provided by conversationPreset (adjust types as needed)
   endpoint?: string;
   endpointType?: string;

@@ -704,8 +704,9 @@ describe('GET /api/config', () => {
 
       expect(response.body.langfuseFanoutEnabled).toBe(true);
       expect(response.body.langfuseConnectionAccess).toBe(false);
-      expect(mockHasCapability).not.toHaveBeenCalled();
-      expect(mockHasConfigCapability).not.toHaveBeenCalled();
+      expect(mockHasCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledWith(expect.anything(), 'cyvox');
     });
 
     it('advertises Langfuse connection access from capabilities rather than the user role', async () => {
@@ -762,8 +763,9 @@ describe('GET /api/config', () => {
       const response = await request(app).get('/api/config');
 
       expect(response.body.langfuseConnectionAccess).toBe(false);
-      expect(mockHasCapability).not.toHaveBeenCalled();
-      expect(mockHasConfigCapability).not.toHaveBeenCalled();
+      expect(mockHasCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledWith(expect.anything(), 'cyvox');
     });
 
     it.each([
@@ -779,7 +781,9 @@ describe('GET /api/config', () => {
       const response = await request(app).get('/api/config');
 
       expect(response.body.langfuseConnectionAccess).toBe(false);
-      expect(mockHasCapability).not.toHaveBeenCalled();
+      expect(mockHasCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).toHaveBeenCalledWith(expect.anything(), 'cyvox');
     });
 
     it('should include post-login informational fields', async () => {
@@ -909,15 +913,17 @@ describe('GET /api/config', () => {
       expect(mockHasCapability).toHaveBeenCalled();
     });
 
-    it('should not call hasCapability when allowAccountDeletion is already true', async () => {
+    it('checks CyVox access without an extra account-deletion capability check', async () => {
       mockGetAppConfig.mockResolvedValue(baseAppConfig);
+      mockHasCapability.mockResolvedValue(false);
       process.env.LANGFUSE_TRACING_ENABLED = 'false';
       const app = createApp(mockUser);
 
       const response = await request(app).get('/api/config');
 
       expect(response.body.allowAccountDeletion).toBe(true);
-      expect(mockHasCapability).not.toHaveBeenCalled();
+      expect(mockHasCapability).toHaveBeenCalledTimes(1);
+      expect(mockHasConfigCapability).not.toHaveBeenCalled();
     });
 
     it('should include adminPanelURL for users with ACCESS_ADMIN capability', async () => {

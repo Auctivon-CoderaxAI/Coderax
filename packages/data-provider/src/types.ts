@@ -35,6 +35,7 @@ export * from './schemas';
 export * from './types/subagents';
 export * from './types/background';
 export * from './types/pullRequest';
+export * from './types/work';
 
 export type TMessages = TMessage[];
 
@@ -1355,6 +1356,75 @@ export type TLangfuseConnectionTestErrorCode =
 export type TLangfuseConnectionTestResponse =
   | { success: true }
   | { success: false; errorCode: TLangfuseConnectionTestErrorCode };
+
+export type TCyVoxConnectionSource = 'settings' | 'environment' | 'none';
+
+export type TCyVoxConnectionStatus = {
+  /** A usable origin and token exist, either stored here or supplied by the deployment. */
+  configured: boolean;
+  enabled: boolean;
+  /** Where the effective connection comes from; settings win over environment variables. */
+  source: TCyVoxConnectionSource;
+  baseUrl?: string;
+  tokenConfigured: boolean;
+  tokenPreview?: string;
+  updatedAt?: string;
+  /** Result of the last administrator-initiated check of the saved connection. */
+  lastProbe?: TCyVoxProbeRecord;
+};
+
+/**
+ * Outcome of one connection check, kept for the settings screen. It records what
+ * the service answered, never the credential used to ask.
+ */
+export type TCyVoxProbeRecord = {
+  checkedAt: string;
+  success: boolean;
+  errorCode?: TCyVoxConnectionTestErrorCode;
+  capabilities?: string[];
+  apiVersion?: string;
+};
+
+export type TUpdateCyVoxConnectionRequest = {
+  enabled: boolean;
+  baseUrl: string;
+  /** Omit to keep the stored token. */
+  authToken?: string;
+};
+
+export type TCyVoxConnectionTestRequest = {
+  baseUrl?: string;
+  authToken?: string;
+};
+
+export type TCyVoxConnectionTestErrorCode =
+  | 'invalid_credentials'
+  | 'access_denied'
+  | 'invalid_endpoint'
+  | 'rate_limited'
+  | 'server_error'
+  | 'timeout'
+  | 'unreachable'
+  | 'missing_configuration'
+  | 'stored_secret_unavailable'
+  | 'unexpected_response';
+
+export type TCyVoxConnectionTestResponse =
+  | {
+      success: true;
+      summary?: string;
+      /** Names reported by the service's capability endpoint, when it has one. */
+      capabilities?: string[];
+      apiVersion?: string;
+      latencyMs?: number;
+      checkedAt?: string;
+    }
+  | {
+      success: false;
+      errorCode: TCyVoxConnectionTestErrorCode;
+      latencyMs?: number;
+      checkedAt?: string;
+    };
 
 export type TLangfuseSessionLinkResponse = {
   url: string | null;

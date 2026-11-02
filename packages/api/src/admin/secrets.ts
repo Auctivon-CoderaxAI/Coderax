@@ -29,6 +29,7 @@ interface ConfigSecretField extends ConfigSecretFieldInput {
 const CONFIG_SECRET_FIELDS: readonly ConfigSecretField[] = (
   [
     { path: 'langfuse.secretKey' },
+    { path: 'cyvox.authToken' },
     { path: 'ocr.apiKey', allowEnvPlaceholder: true },
     { path: 'speech.tts.openai.apiKey', allowEnvPlaceholder: true },
     { path: 'speech.tts.azureOpenAI.apiKey', allowEnvPlaceholder: true },

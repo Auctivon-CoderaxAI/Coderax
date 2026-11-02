@@ -1,0 +1,19 @@
+{
+  "name": "@coderax/product-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical five-product registry shared by Coderax Web, Desktop and CLI",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "ISC"
+}

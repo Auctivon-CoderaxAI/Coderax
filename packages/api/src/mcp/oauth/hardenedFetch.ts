@@ -3,6 +3,8 @@ import { isIP } from 'node:net';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport';
 import type { Dispatcher } from 'undici';
 import { createSSRFSafeUndiciConnect, isOAuthUrlAllowed, isSSRFTarget } from '~/auth';
+import { OAUTH_MAX_RESPONSE_BYTES } from './response';
+import { capResponseBytes } from '~/utils/http';
 import { getOAuthUrlPort } from './url';
 
 type FetchInitWithDispatcher = RequestInit & {
@@ -87,7 +89,8 @@ export function createHardenedOAuthFetch({
       dispatcher != null
         ? { ...init, dispatcher, redirect: 'error' }
         : { ...init, redirect: 'error' };
-    return fetch(url, fetchInit);
+    /** SDK callers parse these responses directly, so the bound lives at the transport. */
+    return capResponseBytes(await fetch(url, fetchInit), OAUTH_MAX_RESPONSE_BYTES);
   };
 }
 

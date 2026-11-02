@@ -15,10 +15,20 @@ const mockLocalizedText: Record<string, string> = {
   com_cyvox_autonomous_run: 'Autonomous',
   com_cyvox_ai_team: 'AI team',
   com_cyvox_auto_model: 'Auto',
+  com_cyvox_thinking_effort: 'Thinking effort',
+  com_cyvox_effort_auto: 'Default',
+  com_cyvox_effort_instant: 'Instant',
+  com_cyvox_effort_medium: 'Medium',
+  com_cyvox_effort_high: 'High',
+  com_cyvox_effort_extra_high: 'Extra high',
+  com_cyvox_task_selection_note: 'Model and thinking effort apply to this task only.',
+  com_cyvox_team_selection_scope:
+    'Team mode: all three agents inherit this selection on CyVox deployments that support per-task models; older deployments keep the deployment model.',
   com_cyvox_work_description_label: 'Describe what you want to get done',
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
-  com_cyvox_work_welcome_description: 'Describe the outcome you want. I’ll work through it and show progress here.',
+  com_cyvox_work_welcome_description:
+    'Describe the outcome you want. I’ll work through it and show progress here.',
   com_cyvox_work_recent_heading: 'Recent tasks',
   com_cyvox_work_task_status: 'Task status',
   com_cyvox_work_progress_note: 'Task updates and approval requests appear here.',
@@ -191,7 +201,9 @@ describe('Coderax Work route', () => {
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true });
     expect(confirm).not.toHaveBeenCalled();
     expect(
-      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+      (global.fetch as unknown as jest.Mock).mock.calls.filter(
+        ([, init]) => init?.method === 'POST',
+      ),
     ).toHaveLength(0);
     expect(input).toHaveValue('Draft with IME');
     queryClient.clear();
@@ -200,23 +212,30 @@ describe('Coderax Work route', () => {
   it('uses the creation response ID rather than a concurrent task-list addition', async () => {
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     let taskListReads = 0;
+    /** The first task-list read runs before creation, so it must not contain the new task. */
+    const responseFor = (url: string) => {
+      if (url.endsWith('/models')) {
+        return { models: [] };
+      }
+      if (url.endsWith('/actions/startTask')) {
+        return { id: 'our-task' };
+      }
+      if (!url.endsWith('/tasks')) {
+        return { approvals: [] };
+      }
+      taskListReads += 1;
+      return {
+        tasks:
+          taskListReads === 1
+            ? []
+            : [
+                { id: 'other-task', task: 'Unrelated task', state: 'running' },
+                { id: 'our-task', task: 'My task', state: 'running' },
+              ],
+      };
+    };
     global.fetch = jest.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      const data = url.endsWith('/models')
-        ? { models: [] }
-        : url.endsWith('/actions/startTask')
-          ? { id: 'our-task' }
-          : url.endsWith('/tasks')
-            ? {
-                tasks:
-                  ++taskListReads === 1
-                    ? []
-                    : [
-                        { id: 'other-task', task: 'Unrelated task', state: 'running' },
-                        { id: 'our-task', task: 'My task', state: 'running' },
-                      ],
-              }
-            : { approvals: [] };
+      const data = responseFor(String(input));
       return { ok: true, json: async () => data };
     }) as unknown as typeof fetch;
     const { queryClient } = renderWorkRoute('/work');
@@ -295,11 +314,186 @@ describe('Coderax Work route', () => {
 
     await waitFor(() => expect(input).toHaveValue(''));
     expect(
-      (global.fetch as jest.Mock).mock.calls.filter(([, init]) => init?.method === 'POST'),
+      (global.fetch as unknown as jest.Mock).mock.calls.filter(
+        ([, init]) => init?.method === 'POST',
+      ),
     ).toHaveLength(1);
     expect(
       screen.queryByRole('heading', { name: 'Task without JSON metadata' }),
     ).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  function mockWorkWithModel() {
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/models')) {
+        return {
+          ok: true,
+          json: async () => ({ models: [{ name: 'ollama:llama3:latest', compatible_now: true }] }),
+        };
+      }
+      if (url.endsWith('/tasks')) return { ok: true, json: async () => ({ tasks: [] }) };
+      return { ok: true, json: async () => ({ id: 'task-1' }) };
+    }) as unknown as typeof fetch;
+  }
+
+  const startTaskCalls = () =>
+    (global.fetch as unknown as jest.Mock).mock.calls.filter(
+      ([input, init]) =>
+        init?.method === 'POST' && String(input).endsWith('/api/cyvox/actions/startTask'),
+    );
+
+  it('submits the selected model and thinking effort without a start confirmation', async () => {
+    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'ollama:llama3:latest' },
+    });
+    fireEvent.change(screen.getByLabelText('Thinking effort'), { target: { value: 'high' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Prepare a launch plan' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Prepare a launch plan',
+      mode: 'Autonomous Run',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'high',
+    });
+    queryClient.clear();
+  });
+
+  it('omits model and effort for the default selection', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Prepare a launch plan' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Prepare a launch plan',
+      mode: 'Autonomous Run',
+    });
+    queryClient.clear();
+  });
+
+  it('says team agents inherit the selection when the deployment supports it', async () => {
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    expect(screen.queryByText(/all three agents inherit/i)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Work style'), {
+      target: { value: 'Coding Team' },
+    });
+
+    expect(screen.getByText(/all three agents inherit/i)).toBeInTheDocument();
+    expect(screen.getByText(/older deployments keep the deployment model/i)).toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('still sends the lead-task selection in team mode', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    fireEvent.change(screen.getByLabelText('Work style'), {
+      target: { value: 'Coding Team' },
+    });
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'ollama:llama3:latest' },
+    });
+    fireEvent.change(screen.getByLabelText('Thinking effort'), {
+      target: { value: 'extra_high' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Ship the release' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Ship the release',
+      mode: 'Coding Team',
+      model: 'ollama:llama3:latest',
+      thinking_effort: 'extra_high',
+    });
+    queryClient.clear();
+  });
+
+  it('offers raw inventory Ollama models while keeping paid gateway models out', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    global.fetch = jest.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/models')) {
+        return {
+          ok: true,
+          json: async () => ({
+            models: [
+              { name: 'llama3:latest', location: 'OLLAMA', compatible_now: true },
+              { name: 'openai:gpt-4o', location: 'MODELGATEWAY', compatible_now: true },
+            ],
+          }),
+        };
+      }
+      if (url.endsWith('/tasks')) return { ok: true, json: async () => ({ tasks: [] }) };
+      return { ok: true, json: async () => ({ id: 'task-1' }) };
+    }) as unknown as typeof fetch;
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'llama3:latest' });
+    expect(screen.queryByRole('option', { name: 'openai:gpt-4o' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'llama3:latest' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Prepare a launch plan' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(JSON.parse(String((startTaskCalls()[0][1] as RequestInit).body))).toEqual({
+      task: 'Prepare a launch plan',
+      mode: 'Autonomous Run',
+      model: 'llama3:latest',
+    });
+    queryClient.clear();
+  });
+
+  it('never calls the deployment-global model action from Work', async () => {
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    mockWorkWithModel();
+    const { queryClient } = renderWorkRoute('/work');
+
+    await screen.findByRole('option', { name: 'ollama:llama3:latest' });
+    fireEvent.change(screen.getByLabelText('Model'), {
+      target: { value: 'ollama:llama3:latest' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Prepare a launch plan' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+
+    await waitFor(() => expect(startTaskCalls()).toHaveLength(1));
+    expect(
+      (global.fetch as unknown as jest.Mock).mock.calls.map(([input]) => String(input)),
+    ).not.toEqual(expect.arrayContaining([expect.stringContaining('selectModel')]));
+    expect(screen.queryByRole('button', { name: 'Apply model' })).not.toBeInTheDocument();
     queryClient.clear();
   });
 });

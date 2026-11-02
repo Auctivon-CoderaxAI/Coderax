@@ -1,0 +1,35 @@
+Coderax
+Copyright (c) 2026 Coderax
+
+This product includes software developed by the LibreChat project
+(https://github.com/danny-avila/LibreChat), which is licensed under the MIT
+License. The LibreChat copyright notice is retained in the LICENSE file
+alongside the Coderax notice, as the MIT License requires.
+
+Upstream project : LibreChat
+Upstream source  : https://github.com/danny-avila/LibreChat
+Upstream license : MIT
+
+What comes from upstream
+------------------------
+The application framework Coderax is built on originates in LibreChat,
+including the API/client workspace layout, the conversation and message data
+model, the prompt and agent infrastructure, and the localisation tooling.
+Coderax adds product-layer work on top of that framework.
+
+Runtime dependencies
+--------------------
+Coderax depends on packages published by the LibreChat project, including
+@librechat/agents, installed from the npm registry under their own license
+terms. Those packages are not vendored into this repository.
+
+Maintaining upstream parity
+---------------------------
+The exact upstream commit this fork descends from is not recorded in this
+repository. Recording that commit and its date here is recommended, so that
+upstream security fixes can be rebased deliberately rather than by guesswork.
+
+Reporting
+---------
+Security issues in upstream components should be reported to the LibreChat
+project as well as to Coderax, where the issue is not specific to Coderax.

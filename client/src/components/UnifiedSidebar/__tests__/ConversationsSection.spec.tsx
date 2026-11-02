@@ -27,6 +27,7 @@ const mockUseFavorites = jest.fn(() => ({
 }));
 const mockUseGetConversationTags = jest.fn(() => ({ data: [] as unknown[] }));
 const mockConversationsRender = jest.fn();
+const mockPinnedConversationsRender = jest.fn();
 /** The projects the section reads to word an empty Chats list; none, loaded, by default. */
 type ProjectsResult = {
   data?: { pages: { projects: unknown[]; nextCursor: null }[]; pageParams: undefined[] };
@@ -163,13 +164,21 @@ jest.mock('~/components/Conversations/PinnedSection', () => {
   /** Mirrors the real merged section closely enough for the streaming test:
    *  memoized like it, and its first act is the same `useFavorites` call
    *  through the ~/hooks mock, so that hook's call count tracks its renders. */
-  const PinnedSectionStub = memo(function PinnedSectionStub() {
+  const PinnedSectionStub = memo(function PinnedSectionStub(props: {
+    conversations: Array<{ conversationId?: string; title?: string; isWork?: boolean }>;
+  }) {
+    mockPinnedConversationsRender(props);
     mockUseFavorites();
     return <div data-testid="pinned-stub" />;
   });
   PinnedSectionStub.displayName = 'PinnedSectionStub';
   return { __esModule: true, default: PinnedSectionStub };
 });
+
+jest.mock('~/components/Conversations/WorkTasksSection', () => ({
+  __esModule: true,
+  default: () => <div data-testid="work-tasks-stub" />,
+}));
 
 jest.mock('~/components/Nav/SearchBar', () => ({
   __esModule: true,
@@ -257,6 +266,44 @@ describe('ConversationsSection section order', () => {
       projects.compareDocumentPosition(pinned) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(pinned.compareDocumentPosition(chats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps Work conversations out of Chat recents and pinned Chat rows', async () => {
+    const previousChats = mockConversationsResult.data;
+    const previousPins = mockPinnedResult.data;
+    mockConversationsResult.data = {
+      pages: [
+        {
+          conversations: [
+            { conversationId: 'chat-1', title: 'Chat recent' },
+            { conversationId: 'work-1', title: 'Work recent', isWork: true },
+          ],
+          nextCursor: null,
+        },
+      ],
+    };
+    mockPinnedResult.data = {
+      conversations: [{ conversationId: 'work-2', title: 'Pinned Work', isWork: true }],
+      nextCursor: null,
+    };
+
+    try {
+      renderSection();
+      await settleRenders();
+
+      expect(
+        (mockConversationsRender.mock.calls.at(-1)?.[0] as { conversations: unknown[] })
+          .conversations,
+      ).toEqual([{ conversationId: 'chat-1', title: 'Chat recent' }]);
+      expect(
+        (mockPinnedConversationsRender.mock.calls.at(-1)?.[0] as {
+          conversations: Array<{ isWork?: boolean }>;
+        }).conversations,
+      ).toEqual([]);
+    } finally {
+      mockConversationsResult.data = previousChats;
+      mockPinnedResult.data = previousPins;
+    }
   });
 });
 

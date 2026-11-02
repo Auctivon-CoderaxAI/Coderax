@@ -372,7 +372,7 @@ const initializeClientWithProvider = async ({
     }),
   );
   const primaryAgentPromise = endpointOption.agent;
-  const modelsConfigPromise = getModelsConfig(req);
+  const modelsConfigPromise = req.automaticChatModelsPromise ?? getModelsConfig(req);
   const validatedPrimaryAgentPromise = Promise.all([primaryAgentPromise, modelsConfigPromise]).then(
     async ([primaryAgent, modelsConfig]) => {
       if (!primaryAgent) {

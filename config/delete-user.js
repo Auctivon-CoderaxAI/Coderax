@@ -229,6 +229,7 @@ async function gracefulExit(code = 0) {
     }
 
     await Promise.all(tasks);
+    await runAsSystem(() => methods.deleteWorkflowsByUser(uid));
     await runAsSystem(() => methods.deleteSchedulesByUser(uid));
 
     // 6) Remove user from all groups

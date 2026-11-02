@@ -164,10 +164,11 @@ export function buildHITLRunWiring(
         registeredAliases.add(key);
         return true;
       });
-      if (newAliases.length === 0) {
-        return;
+      if (newAliases.length > 0) {
+        aliases.push(...newAliases);
       }
-      aliases.push(...newAliases);
+      // A lazy agent may add mandatory memory-tool asks even when it adds no
+      // MCP spelling aliases, so policy refresh is independent of alias growth.
       activePolicy = updatedPolicy;
     },
   };

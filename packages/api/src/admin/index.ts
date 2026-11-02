@@ -1,5 +1,6 @@
 export { createAdminConfigHandlers } from './config';
 export { createAdminLangfuseHandlers } from './langfuse';
+export { createAdminCyVoxHandlers } from './cyvox';
 export { createAdminGrantsHandlers } from './grants';
 export { createAdminGroupsHandlers } from './groups';
 export { createAdminRolesHandlers } from './roles';
@@ -11,6 +12,7 @@ export { buildAuditContext } from './context';
 export { resolveConfigSecret, redactConfigSecretMaps } from './secrets';
 export type { AdminConfigDeps } from './config';
 export type { AdminLangfuseDeps } from './langfuse';
+export type { AdminCyVoxDeps } from './cyvox';
 export type { AdminGrantsDeps, GrantPrincipalType } from './grants';
 export type { AdminGroupsDeps } from './groups';
 export type { AdminRolesDeps } from './roles';

@@ -1,5 +1,6 @@
 export * from './app';
 export * from './cyvox/addon';
+export * from './cyvox/settings';
 export * from './acl/accessControlService';
 export * from './acl/insightsPermissions';
 export * from './acl/middleware';
@@ -87,11 +88,17 @@ export * from './prompts';
 export * from './projects';
 /* Conversations */
 export * from './conversations';
+/* Work */
+export * from './work/models';
+export * from './work/task';
+export * from './work/router';
+export * from './work/state';
 /* Messages */
 export * from './messages';
 /* Skills */
 export * from './schedules';
 export * from './schedules/service';
+export * from './workflows';
 export * from './skills';
 export * from './favorites';
 /* User */

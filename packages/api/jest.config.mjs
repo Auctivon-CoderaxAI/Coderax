@@ -1,6 +1,7 @@
 import { maxWorkers } from '../../config/jest.workers.cjs';
 
 const esModules = [
+  '@langchain/core',
   '@langchain/langgraph',
   '@langchain/langgraph-checkpoint',
   '@langchain/langgraph-sdk',
@@ -27,6 +28,8 @@ export default {
     '\\.helper\\.d\\.ts$',
     '/__tests__/helpers/',
     '\\.manual\\.spec\\.[jt]sx?$',
+    /** `node --test` owns the ESM suites (see .github/workflows/backend-review.yml). */
+    '\\.test\\.mjs$',
   ],
   coverageReporters: ['text', 'cobertura'],
   testResultsProcessor: 'jest-junit',

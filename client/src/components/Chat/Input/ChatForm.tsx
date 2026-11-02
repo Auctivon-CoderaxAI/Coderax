@@ -53,6 +53,7 @@ import {
   PendingToolApprovalButton,
   PendingToolApprovalPanel,
 } from '~/components/Chat/approval/Review';
+import { useChatModelRouting } from '~/Providers/ChatModelRoutingContext';
 import useComposerRestore from '~/hooks/Input/useComposerRestore';
 import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import usePastedTextEdit from '~/hooks/Files/usePastedTextEdit';
@@ -69,6 +70,7 @@ import useDictation from '~/hooks/Input/useDictation';
 import { useGetStartupConfig } from '~/data-provider';
 import CodeWorkspaceMenu from './CodeWorkspaceMenu';
 import useSteering from '~/hooks/Chat/useSteering';
+import PaidModelConsent from './PaidModelConsent';
 import CodeApprovalMenu from './CodeApprovalMenu';
 import TextareaHeader from './TextareaHeader';
 import PromptsCommand from './PromptsCommand';
@@ -85,7 +87,6 @@ import SendButton from './SendButton';
 import Queue from './Composer/Queue';
 import Tray from './Composer/Tray';
 import Bar from './Composer/Bar';
-import Mention from './Mention';
 import store from '~/store';
 
 export function toRestoredComposerFile(
@@ -114,6 +115,8 @@ interface ChatFormProps {
   project?: TChatProject;
   /** The host is reconciling the requested route with its conversation record. */
   routePending: boolean;
+  /** Work exposes an agent selector; Chat resolves its model automatically. */
+  workMode?: boolean;
   /** Owned by ChatView: which layout the composer sits in — the welcome screen
    *  floats or bottoms it out, a conversation ends the page with it. */
   isLandingPage: boolean;
@@ -164,12 +167,15 @@ const focusOwningTargetSelector = [
 ].join(', ');
 /** Matches the composer's one-line height; scaled so it tracks its rem padding. */
 const INITIAL_TEXTAREA_HEIGHT = 44;
+const formatModelRate = (rate: number) =>
+  new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(rate);
 
 const ChatForm = memo(function ChatForm({
   index,
   placeholder,
   project,
   routePending,
+  workMode = false,
   isLandingPage,
   enterToSend,
   autoSendText,
@@ -196,6 +202,15 @@ const ChatForm = memo(function ChatForm({
   const remScale = useRemScale();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+  /** A paid Chat send is held until the user approves that request. */
+  const [heldPaidSubmission, setHeldPaidSubmission] = useState<string | null>(null);
+  const paidConsentGrantedRef = useRef(false);
+  const chatModelRouting = useChatModelRouting();
+  const paidModel = !workMode ? (chatModelRouting?.consentModel ?? null) : null;
+  const paidModelConsentRequired = paidModel != null;
+  const modelUnavailable = !workMode && chatModelRouting?.unavailable === true;
+  const requestPaidConsent = useCallback((text: string) => setHeldPaidSubmission(text), []);
+  useEffect(() => () => chatModelRouting?.clearPaidApproval(), [chatModelRouting]);
   const [, setIsScrollable] = useState(false);
   const [visualRowCount, setVisualRowCount] = useState(1);
   const [isTextAreaFocused, setIsTextAreaFocused] = useState(false);
@@ -211,8 +226,6 @@ const ChatForm = memo(function ChatForm({
   const { isTemporary } = useChatSettings();
 
   const [showStopButton, setShowStopButton] = useRecoilState(store.showStopButtonByIndex(index));
-  const plusPopoverAtom = useMemo(() => store.showPlusPopoverFamily(index), [index]);
-  const mentionPopoverAtom = useMemo(() => store.showMentionPopoverFamily(index), [index]);
 
   const { requiresKey } = useRequiresKey();
   const methods = useChatFormContext();
@@ -268,8 +281,8 @@ const ChatForm = memo(function ChatForm({
     [conversation?.assistant_id, endpoint, assistantMap],
   );
   const disableInputs = useMemo(
-    () => requiresKey || invalidAssistant,
-    [requiresKey, invalidAssistant],
+    () => requiresKey || invalidAssistant || modelUnavailable,
+    [requiresKey, invalidAssistant, modelUnavailable],
   );
 
   /** Skipped on touchscreens so a tap does not raise the keyboard. */
@@ -348,6 +361,8 @@ const ChatForm = memo(function ChatForm({
   } = useQueryParams({
     textAreaRef,
     routePending,
+    requiresPaidModelConsent: paidModelConsentRequired,
+    onPaidModelConsentRequired: requestPaidConsent,
     onBeforePrompt: preserveText,
     onPromptSettled: settleText,
   });
@@ -403,8 +418,11 @@ const ChatForm = memo(function ChatForm({
   /** A queued message becomes the first message of a fresh chat through the same
    *  `prompt` + `submit` query contract that deep links already use. */
   const startQueuedInNewChat = useCallback(
-    (text: string) => navigate(`/c/new?${new URLSearchParams({ prompt: text, submit: 'true' })}`),
-    [navigate],
+    (text: string) => {
+      const routeBase = conversation?.isWork === true ? '/work' : '/c';
+      navigate(`${routeBase}/new?${new URLSearchParams({ prompt: text, submit: 'true' })}`);
+    },
+    [conversation?.isWork, navigate],
   );
   const { restoreReclaimedSteer, canRestoreToComposer } = useComposerRestore({
     index,
@@ -542,14 +560,13 @@ const ChatForm = memo(function ChatForm({
     permission: Permissions.USE,
   });
   const slashCommandEnabled = useRecoilValue(store.slashCommand);
-  const atCommandEnabled = useRecoilValue(store.atCommand);
   const idleActions = useMemo(
     () => ({
       prompts: hasPromptsAccess && slashCommandEnabled,
-      mentions: atCommandEnabled,
+      mentions: false,
       attach: attachTarget.canAttach,
     }),
-    [hasPromptsAccess, slashCommandEnabled, atCommandEnabled, attachTarget.canAttach],
+    [hasPromptsAccess, slashCommandEnabled, attachTarget.canAttach],
   );
   const { submitText: submitAnswerText } = answerMode;
   const dictationAnswerModeActive = answerMode.composerAnswers;
@@ -567,9 +584,20 @@ const ChatForm = memo(function ChatForm({
       if (dictationAnswerModeActive && submitAnswerText(props.text)) {
         return;
       }
+      if (paidModelConsentRequired && !steering.duringRunActive && !paidConsentGrantedRef.current) {
+        setHeldPaidSubmission(props.text);
+        return false;
+      }
+      paidConsentGrantedRef.current = false;
       return submitMessage({ text: props.text });
     },
-    [dictationAnswerModeActive, submitAnswerText, submitMessage],
+    [
+      dictationAnswerModeActive,
+      paidModelConsentRequired,
+      steering.duringRunActive,
+      submitAnswerText,
+      submitMessage,
+    ],
   );
   const dictation = useDictation({
     ask: dictationAsk,
@@ -731,8 +759,20 @@ const ChatForm = memo(function ChatForm({
    *  queued follow-up about to start), then an ordinary send: the same route
    *  for typed, dictated, and shortcut-bound submissions. */
   const submitComposerText = useCallback(
-    (data: { text: string }): false | void =>
-      submitFromComposer(
+    (data: { text: string }): false | void => {
+      /** Hold the message, not the composer: consent names the exact paid model
+       * that will be used, and cancelling leaves the draft editable. */
+      if (
+        paidModelConsentRequired &&
+        !answerMode.active &&
+        !steering.duringRunActive &&
+        !paidConsentGrantedRef.current
+      ) {
+        setHeldPaidSubmission(data.text);
+        return false;
+      }
+      paidConsentGrantedRef.current = false;
+      return submitFromComposer(
         {
           answerMode,
           steering,
@@ -746,9 +786,27 @@ const ChatForm = memo(function ChatForm({
           reset: () => methods.reset(),
         },
         data,
-      ),
-    [answerMode, steering, submitMessage, methods, index],
+      );
+    },
+    [answerMode, steering, submitMessage, methods, index, paidModelConsentRequired],
   );
+
+  const confirmPaidSubmission = useCallback(() => {
+    if (heldPaidSubmission == null) {
+      return;
+    }
+    const text = heldPaidSubmission;
+    setHeldPaidSubmission(null);
+    paidConsentGrantedRef.current = true;
+    chatModelRouting?.approvePaidRequest();
+    const result = submitComposerText({ text });
+    if (result === false) {
+      paidConsentGrantedRef.current = false;
+      chatModelRouting?.clearPaidApproval();
+    }
+  }, [heldPaidSubmission, submitComposerText, chatModelRouting]);
+
+  const cancelPaidSubmission = useCallback(() => setHeldPaidSubmission(null), []);
 
   return (
     <form
@@ -810,21 +868,6 @@ const ChatForm = memo(function ChatForm({
             </div>
           )}
           <div className={cn('flex w-full items-center', isRTL && 'flex-row-reverse')}>
-            <Mention
-              index={index}
-              popoverAtom={plusPopoverAtom}
-              newConversation={generateConversation}
-              textAreaRef={textAreaRef}
-              commandChar="+"
-              placeholder="com_ui_add_model_preset"
-              includeAssistants={false}
-            />
-            <Mention
-              index={index}
-              popoverAtom={mentionPopoverAtom}
-              newConversation={newConversation}
-              textAreaRef={textAreaRef}
-            />
             <PromptsCommand index={index} textAreaRef={textAreaRef} submitPrompt={submitPrompt} />
             {index === 0 && (
               <AskUserQuestionPopover conversationId={conversationId} textAreaRef={textAreaRef} />
@@ -974,6 +1017,11 @@ const ChatForm = memo(function ChatForm({
                   </div>
                 </div>
               )}
+              {modelUnavailable && (
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
+                  {localize('com_chat_no_available_models')}
+                </p>
+              )}
               {(isPreparingFromUrl || urlSettingsError) && (
                 <p role="status" className="text-text-secondary px-5 pb-2 text-sm">
                   {localize(urlSettingsError ? 'com_ui_url_settings_failed' : 'com_ui_sending')}
@@ -1024,6 +1072,7 @@ const ChatForm = memo(function ChatForm({
                   showSpeech={SpeechToText}
                   speechDisabled={speechDisabled}
                   dictation={dictation}
+                  showWorkAgentSelector={workMode}
                   approvalSlot={
                     <div className={cn('flex items-center gap-1.5', isRTL && 'flex-row-reverse')}>
                       <CodeApprovalMenu
@@ -1065,6 +1114,20 @@ const ChatForm = memo(function ChatForm({
           />
         </div>
       </div>
+      <PaidModelConsent
+        open={heldPaidSubmission != null}
+        model={paidModel?.label ?? paidModel?.id ?? ''}
+        pricing={
+          paidModel?.promptCost != null && paidModel.completionCost != null
+            ? {
+                prompt: formatModelRate(paidModel.promptCost),
+                completion: formatModelRate(paidModel.completionCost),
+              }
+            : null
+        }
+        onCancel={cancelPaidSubmission}
+        onConfirm={confirmPaidSubmission}
+      />
     </form>
   );
 });
@@ -1080,6 +1143,7 @@ function ChatFormWrapper({
   placeholder,
   project,
   routePending = false,
+  workMode = false,
   isLandingPage,
   /** Defaults to the atom's own default (`atomWithLocalStorage('enterToSend',
    *  true)`) so call sites that predate this prop, mainly tests, keep their
@@ -1096,6 +1160,7 @@ function ChatFormWrapper({
   placeholder?: string;
   project?: TChatProject;
   routePending?: boolean;
+  workMode?: boolean;
   enterToSend?: boolean;
   autoSendText?: number;
   speechSettingsInitialized?: boolean;
@@ -1181,6 +1246,7 @@ function ChatFormWrapper({
       placeholder={placeholder}
       project={project}
       routePending={routePending}
+      workMode={workMode}
       isLandingPage={isLandingPage}
       footerBelow={footerBelow}
       centerFormOnLanding={centerFormOnLanding}

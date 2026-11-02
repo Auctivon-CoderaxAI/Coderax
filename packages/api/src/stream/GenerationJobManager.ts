@@ -1147,6 +1147,11 @@ class GenerationJobManagerClass {
     this.terminalHostActionHandler = handler;
   }
 
+  /** Arms a host action before a workflow turn can reach a terminal state. */
+  async armTerminalHostAction(streamId: string, expectedCreatedAt: number): Promise<void> {
+    await this.jobStore.updateJob(streamId, { terminalHostActionPending: true }, expectedCreatedAt);
+  }
+
   /**
    * Event-driven retry for a durable terminal host action whose external
    * evidence arrived after the generation itself became terminal. The exact
@@ -9123,8 +9128,8 @@ class GenerationJobManagerClass {
   ): Promise<void> {
     try {
       await this.approvalExpiredHandler?.(streamId, job);
-      if (job.agentEventDeliveryKey != null) {
-        await this.terminalHostActionHandler?.(
+      if (this.terminalHostActionHandler != null) {
+        await this.terminalHostActionHandler(
           streamId,
           job,
           await this.getTerminalRunSteps(streamId, job),
@@ -9149,8 +9154,8 @@ class GenerationJobManagerClass {
     job: SerializableJobData,
   ): Promise<boolean> {
     try {
-      if (job.agentEventDeliveryKey != null) {
-        await this.terminalHostActionHandler?.(
+      if (this.terminalHostActionHandler != null) {
+        await this.terminalHostActionHandler(
           streamId,
           job,
           await this.getTerminalRunSteps(streamId, job),

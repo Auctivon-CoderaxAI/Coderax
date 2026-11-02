@@ -1,6 +1,9 @@
 import express from 'express';
-import { isCyvoxFreeOrLocalModel, SystemRoles } from 'coderax-data-provider';
-import type { Request, Response, Router } from 'express';
+import { isCyvoxFreeOrLocalModel, isCyvoxThinkingEffort, SystemRoles } from 'coderax-data-provider';
+import type { NextFunction, Request, Response, Router } from 'express';
+import type { CyvoxTarget } from './settings';
+import { resolveCyvoxTarget } from './settings';
+import { readBoundedBody } from './response';
 
 const resources = {
   readiness: '/api/readiness',
@@ -18,6 +21,11 @@ const resources = {
 
 type Resource = keyof typeof resources;
 
+/** Own-property check: `in` would accept inherited names such as `constructor`. */
+function isResource(value: string): value is Resource {
+  return Object.prototype.hasOwnProperty.call(resources, value);
+}
+
 function isSafeId(value: string): boolean {
   return /^[A-Za-z0-9_-]{1,120}$/.test(value);
 }
@@ -28,41 +36,76 @@ function isSafeId(value: string): boolean {
  * Write actions have an explicit allowlist and require a per-action confirmation.
  * CyVox still enforces its own tool, device and approval policies.
  */
+export type CyvoxSettingsResolver = () => Promise<CyvoxTarget | null>;
+
+function getTarget(res: Response): CyvoxTarget | null {
+  return (res.locals.cyvoxTarget as CyvoxTarget | null | undefined) ?? null;
+}
+
+/**
+ * CyVox reports an installed Ollama model by its raw tag (for example
+ * `llama3:latest`), not with an `ollama:` prefix. Only the inventory can
+ * prove that a raw name is local, so read it with the same server-side token
+ * and accept the exact entry only when CyVox marks it `OLLAMA`.
+ */
+async function isInstalledOllamaModel(target: CyvoxTarget, model: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL('/api/models', target.url), {
+      method: 'GET',
+      signal: AbortSignal.timeout(10000),
+      redirect: 'error',
+      headers: {
+        Accept: 'application/json',
+        ...(target.authToken ? { Authorization: `Bearer ${target.authToken}` } : {}),
+      },
+    });
+    if (!response.ok) return false;
+    if (!(response.headers.get('Content-Type') ?? '').includes('application/json')) return false;
+    const bounded = await readBoundedBody(response);
+    if (!bounded.ok) return false;
+    const body: unknown = JSON.parse(bounded.body);
+    if (!body || typeof body !== 'object') return false;
+    const models = (body as { models?: unknown }).models;
+    if (!Array.isArray(models)) return false;
+    return models.some((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const entry = item as Record<string, unknown>;
+      return entry.name === model && entry.location === 'OLLAMA' && entry.compatible_now !== false;
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function createCyvoxAddonRouter(
   baseUrl: string | undefined,
   enabled: boolean,
   authToken?: string,
+  resolveSettings?: CyvoxSettingsResolver,
 ): Router {
   const router = express.Router();
-  const target = (() => {
-    if (!enabled || !baseUrl) return null;
+  const staticTarget = resolveCyvoxTarget({ environment: { enabled, baseUrl, authToken } });
+  const resolveTarget = resolveSettings ?? (async () => staticTarget);
+
+  /** Resolve once per request so a connection saved in Settings applies without a restart. */
+  router.use(async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const url = new URL(baseUrl);
-      const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-      if (
-        (loopback ? url.protocol !== 'http:' : url.protocol !== 'https:' || !authToken) ||
-        url.username ||
-        url.password ||
-        url.pathname !== '/' ||
-        url.search ||
-        url.hash
-      )
-        return null;
-      return url;
+      res.locals.cyvoxTarget = await resolveTarget();
     } catch {
-      return null;
+      res.locals.cyvoxTarget = null;
     }
-  })();
+    next();
+  });
 
   function allowed(req: Request, res: Response, write = false): boolean {
+    const target = getTarget(res);
     if (!target) {
       res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
       return false;
     }
-    if (
-      (write || target.protocol === 'https:') &&
-      (!req.user || !('role' in req.user) || req.user.role !== SystemRoles.ADMIN)
-    ) {
+    // The ADMIN boundary is transport-independent: loopback deployments serve the
+    // same audit, task and deployment data as remote ones.
+    if (!req.user || !('role' in req.user) || req.user.role !== SystemRoles.ADMIN) {
       res.status(403).json({ code: 'CYVOX_FORBIDDEN' });
       return false;
     }
@@ -79,14 +122,19 @@ export function createCyvoxAddonRouter(
     method = 'GET',
     payload?: object,
   ): Promise<void> {
+    const target = getTarget(res);
+    if (!target) {
+      res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
+      return;
+    }
     try {
-      const response = await fetch(new URL(path, target!), {
+      const response = await fetch(new URL(path, target.url), {
         method,
         signal: AbortSignal.timeout(10000),
         redirect: 'error',
         headers: {
           Accept: 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          ...(target.authToken ? { Authorization: `Bearer ${target.authToken}` } : {}),
           ...(payload ? { 'Content-Type': 'application/json' } : {}),
         },
         ...(payload ? { body: JSON.stringify(payload) } : {}),
@@ -99,22 +147,23 @@ export function createCyvoxAddonRouter(
         res.status(502).json({ code: 'CYVOX_INVALID_RESPONSE' });
         return;
       }
-      const body = await response.text();
-      if (body.length > 1024 * 1024) {
+      const bounded = await readBoundedBody(response);
+      if (!bounded.ok) {
         res.status(502).json({ code: 'CYVOX_RESPONSE_TOO_LARGE' });
         return;
       }
-      JSON.parse(body); // Do not forward HTML/error pages as if they were JSON.
+      JSON.parse(bounded.body); // Do not forward HTML/error pages as if they were JSON.
       res.setHeader('Cache-Control', 'no-store');
-      res.type('json').send(body);
+      res.type('json').send(bounded.body);
     } catch {
       res.status(503).json({ code: 'CYVOX_UNAVAILABLE' });
     }
   }
 
   router.get('/:resource', async (req: Request, res: Response) => {
-    const resource = req.params.resource as Resource;
-    if (!(resource in resources)) {
+    const { resource } = req.params;
+    const resource = req.params.resource;
+    if (!isResource(resource)) {
       res.status(404).json({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
       return;
     }
@@ -145,11 +194,47 @@ export function createCyvoxAddonRouter(
         return;
       }
       const mode = body.mode === 'Coding Team' ? 'Coding Team' : 'Autonomous Run';
+      // Per-task selection travels with the task. It must not call
+      // /api/models/select: that writes deployment-global models.json and would
+      // change the model for every other tenant sharing this CyVox deployment.
+      const selection: { model?: string; thinking_effort?: string } = {};
+      if (body.model !== undefined && body.model !== null && body.model !== '') {
+        if (typeof body.model !== 'string' || body.model.length > 150) {
+          res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+          return;
+        }
+        const target = getTarget(res);
+        // Prefix-checked free/local IDs need no lookup; a raw name is accepted
+        // only when the authenticated inventory reports it as installed Ollama.
+        const accepted =
+          isCyvoxFreeOrLocalModel(body.model) ||
+          (target !== null && (await isInstalledOllamaModel(target, body.model)));
+        if (!accepted) {
+          res.status(400).json({ code: 'CYVOX_NONFREE_MODEL_REJECTED' });
+          return;
+        }
+        selection.model = body.model;
+      }
+      if (
+        body.thinking_effort !== undefined &&
+        body.thinking_effort !== null &&
+        body.thinking_effort !== ''
+      ) {
+        if (
+          typeof body.thinking_effort !== 'string' ||
+          !isCyvoxThinkingEffort(body.thinking_effort)
+        ) {
+          res.status(400).json({ code: 'CYVOX_INVALID_THINKING_EFFORT' });
+          return;
+        }
+        selection.thinking_effort = body.thinking_effort;
+      }
       await forward(res, '/api/tasks', 'POST', {
         task: body.task.trim(),
         mode,
         max_steps: 15,
         routing_mode: 'FAST',
+        ...selection,
       });
     } else if (action === 'startComputerTask') {
       if (typeof body.goal !== 'string' || !body.goal.trim() || body.goal.length > 4000) {

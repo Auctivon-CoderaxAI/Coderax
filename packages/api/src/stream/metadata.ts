@@ -1,7 +1,4 @@
-import {
-  scheduleMCPOutcomeSchema,
-  isScheduleMCPAuthorizationFailure,
-} from 'coderax-data-provider';
+import { scheduleMCPOutcomeSchema, isScheduleMCPAuthorizationFailure } from 'coderax-data-provider';
 import type { JobMetadataPatch } from './interfaces/IJobStore';
 import type { GenerationJobMetadata } from '~/types';
 import { parseScheduleMCPCompletion } from '~/schedules/authorization/continuation';
@@ -40,6 +37,15 @@ export function sanitizeJobMetadata(metadata: Partial<GenerationJobMetadata>): J
   }
   if (metadata.agent_id) {
     patch.agent_id = metadata.agent_id;
+  }
+  if (metadata.workflowRunId) {
+    patch.workflowRunId = metadata.workflowRunId;
+  }
+  if (metadata.workflowStepId) {
+    patch.workflowStepId = metadata.workflowStepId;
+  }
+  if (metadata.workflowStepAttempt !== undefined) {
+    patch.workflowStepAttempt = metadata.workflowStepAttempt;
   }
   if (metadata.isTemporary !== undefined) {
     patch.isTemporary = metadata.isTemporary;

@@ -283,6 +283,7 @@ describe('Langfuse config secrets', () => {
 describe('Config secret registry fields', () => {
   it('exposes the registered top-level sections', () => {
     expect([...getConfigSecretSections()].sort()).toEqual([
+      'cyvox',
       'endpoints',
       'langfuse',
       'ocr',

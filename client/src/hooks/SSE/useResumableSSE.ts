@@ -507,14 +507,15 @@ const getStepEventId = (event: unknown): string | undefined => {
 };
 
 const replaceNewConversationUrl = (conversationId: string) => {
-  if (window.location.pathname !== `/c/${Constants.NEW_CONVO}`) {
+  const match = window.location.pathname.match(/^\/(c|work)\/new$/);
+  if (!match) {
     return;
   }
 
   window.history.replaceState(
     window.history.state,
     '',
-    `/c/${conversationId}${window.location.search}`,
+    `/${match[1]}/${conversationId}${window.location.search}`,
   );
 };
 

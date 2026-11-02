@@ -113,6 +113,30 @@ describe('buildHITLRunWiring', () => {
     expect(wiring?.hooks.getMatchers('PreToolUse')).toHaveLength(1);
   });
 
+  test('updates a mandatory approval policy when lazy tools resolve without new aliases', async () => {
+    const wiring = buildHITLRunWiring({ enabled: true, mode: 'bypass' });
+    const policyHook = wiring?.hooks.getMatchers('PreToolUse')[0].hooks[0];
+    const input = {
+      hook_event_name: 'PreToolUse',
+      runId: 'lazy-mandatory-policy',
+      toolName: 'set_memory',
+      toolInput: {},
+      toolUseId: 'set-memory',
+    } as never;
+
+    expect(await policyHook?.(input, new AbortController().signal)).toEqual({
+      decision: 'allow',
+    });
+    wiring?.addMCPToolAliases([], {
+      enabled: true,
+      mode: 'bypass',
+      ask: ['set_memory'],
+    });
+    expect(await policyHook?.(input, new AbortController().signal)).toEqual({
+      decision: 'ask',
+    });
+  });
+
   test.each([
     ['default', 'ask'],
     ['dontAsk', 'deny'],

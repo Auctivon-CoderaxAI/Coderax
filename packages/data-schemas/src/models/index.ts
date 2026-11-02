@@ -1,6 +1,7 @@
 import { createAgentQueuedTurnModel, createAgentQueuedTurnSequenceModel } from './queuedTurn';
 import { createAgentTriggerLaneSequenceModel } from './triggerLaneSequence';
 import { createScheduleModel, createScheduleRunModel } from './schedule';
+import { createWorkflowModel, createWorkflowRunModel } from './workflow';
 import { getTenantIndexMigrationHint } from '~/migrations/tenantIndexes';
 import { createSkillSyncCredentialModel } from './skillSyncCredential';
 import { createOpenIDRefreshFlightModel } from './openidRefreshFlight';
@@ -99,6 +100,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
   AgentQueuedTurnSequence: ReturnType<typeof createAgentQueuedTurnSequenceModel>;
   Schedule: ReturnType<typeof createScheduleModel>;
   ScheduleRun: ReturnType<typeof createScheduleRunModel>;
+  Workflow: ReturnType<typeof createWorkflowModel>;
+  WorkflowRun: ReturnType<typeof createWorkflowRunModel>;
   RefreshTokenBridge: ReturnType<typeof createRefreshTokenBridgeModel>;
   OpenIDRefreshFlight: ReturnType<typeof createOpenIDRefreshFlightModel>;
 } {
@@ -150,6 +153,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
     AgentQueuedTurnSequence: createAgentQueuedTurnSequenceModel(mongoose),
     Schedule: createScheduleModel(mongoose),
     ScheduleRun: createScheduleRunModel(mongoose),
+    Workflow: createWorkflowModel(mongoose),
+    WorkflowRun: createWorkflowRunModel(mongoose),
     RefreshTokenBridge: createRefreshTokenBridgeModel(mongoose),
     OpenIDRefreshFlight: createOpenIDRefreshFlightModel(mongoose),
   };

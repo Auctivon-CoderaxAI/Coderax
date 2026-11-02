@@ -2,15 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { encodeEphemeralAgentId } from 'coderax-data-provider';
 import type { FrameLocator, Page, Response, Route } from '@playwright/test';
 import {
-  MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
   getAccessToken,
   messagesView,
   requestJson,
-  selectMockEndpoint,
   sendMessage,
   sendMessageAndWaitForCompletion,
 } from './helpers';
@@ -21,12 +18,6 @@ const CHAT_ORIGIN = new URL(process.env.E2E_BASE_URL || 'http://127.0.0.1:3080')
 const MCP_APP_ORIGIN = `http://127.0.0.1:${process.env.E2E_MCP_APP_PORT || '8768'}`;
 const MCP_APP_LINK_ORIGIN = `http://localhost:${process.env.E2E_MCP_APP_PORT || '8768'}`;
 const LABEL_SERVER = `http://127.0.0.1:${process.env.E2E_LABEL_PORT || '8889'}`;
-const MCP_APP_PHASE_ENDPOINT = { label: 'Mock Provider F', model: 'mock-model-f' };
-const MCP_APP_PHASE_AGENT_ID = encodeEphemeralAgentId({
-  endpoint: MCP_APP_PHASE_ENDPOINT.label,
-  model: MCP_APP_PHASE_ENDPOINT.model,
-  sender: MCP_APP_PHASE_ENDPOINT.label,
-});
 const MCP_APP_PHASE_PARENT_LABEL = 'Rendered two MCP Apps in one activity phase';
 const APP_ROUTE_PATHS = new Set([
   '/api/mcp/app/validate',
@@ -400,6 +391,7 @@ async function createShare(page: Page, conversationId: string): Promise<SharePay
 }
 
 test.describe('MCP Apps full integration', () => {
+  // Chat selects its configured free/local model automatically; it has no model picker.
   test.skip(process.env.E2E_MCP_APPS !== 'true', 'requires the dedicated MCP Apps fixture profile');
 
   test('runs an official SDK View, reloads its snapshot, and omits UI from a public share', async ({
@@ -425,7 +417,6 @@ test.describe('MCP Apps full integration', () => {
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
       maxAdmissionRequestsPerMinute: 240,
     });
-    await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
     await selectMcpAppServer(page);
 
     const sandboxResponse = page.waitForResponse(
@@ -794,7 +785,10 @@ test.describe('MCP Apps full integration', () => {
   test('keeps two labeled phase App results visible and correlated while panels stay closed', async ({
     page,
   }, testInfo) => {
-    test.skip(!['standalone', 'true'].includes(PHASE));
+    test.skip(
+      !['standalone', 'phase-labels'].includes(PHASE) ||
+        process.env.E2E_MCP_APP_PHASE_LABELS !== 'true',
+    );
     test.setTimeout(180_000);
     const label = randomLabel();
     const alphaLabel = `phase alpha ${label}`;
@@ -811,7 +805,6 @@ test.describe('MCP Apps full integration', () => {
       legacyHtmlEnabled: true,
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
     });
-    await selectMockEndpoint(page, MCP_APP_PHASE_ENDPOINT);
     await selectMcpAppServer(page);
 
     const generation = await sendMessageAndWaitForCompletion(page, `E2E_MCP_APP_PHASE:${label}`, {
@@ -851,6 +844,8 @@ test.describe('MCP Apps full integration', () => {
       (attachment) => attachment.type === 'ui_resources',
     );
     expect(attachments).toHaveLength(2);
+    const phaseAgentId = attachments[0]?.agentId;
+    expect(phaseAgentId).toEqual(expect.any(String));
 
     for (const expected of [
       { id: alphaToolCallId, label: alphaLabel, otherLabel: betaLabel },
@@ -865,7 +860,7 @@ test.describe('MCP Apps full integration', () => {
       expect(attachment, `persisted App attachment ${expected.id}`).toBeDefined();
       expect(attachment).toMatchObject({
         toolCallId: expected.id,
-        agentId: MCP_APP_PHASE_AGENT_ID,
+        agentId: phaseAgentId,
         stepId,
       });
       expect(attachment?.ui_resources).toHaveLength(1);
@@ -992,7 +987,6 @@ test.describe('MCP Apps full integration', () => {
       legacyHtmlEnabled: true,
       sandboxUrl: process.env.E2E_MCP_SANDBOX_URL,
     });
-    await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
     await selectMcpAppServer(page);
 
     const appGeneration = await sendMessageAndWaitForCompletion(page, `E2E_MCP_APP:${label}`);

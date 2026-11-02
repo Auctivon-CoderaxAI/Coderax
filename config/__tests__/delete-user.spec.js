@@ -18,6 +18,7 @@ const mockMethods = {
   restoreUserSchedulesFromDeletion: jest.fn(),
   countActiveAgentTriggerDeliveriesByUser: jest.fn(),
   deleteSchedulesByUser: jest.fn(),
+  deleteWorkflowsByUser: jest.fn(),
   deleteUserCodeEnvironments: jest.fn(),
   deleteUserById: jest.fn(),
   deleteAgentTriggerDeliveriesByUser: jest.fn(),
