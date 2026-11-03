@@ -6,7 +6,7 @@
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { buildRegistry, parseOwnerAllowlist, readRegistry, agentCreatePayload, parseLimit, buildReviewWorkflow } from './registry.mjs';
+import { buildRegistry, parseOwnerAllowlist, readRegistry, agentCreatePayload, parseLimit, buildReviewWorkflow, stewardDescription } from './registry.mjs';
 
 const args = process.argv.slice(2);
 const has = (name) => args.includes(name);
@@ -45,7 +45,7 @@ async function fetchGithubRepos(token) {
 }
 
 async function listCoderaxAgents(base, token) {
-  const found = new Map();
+  const found = [];
   let cursor;
   for (let page = 0; page < 100; page++) {
     const url = new URL('/api/agents/v1/agents', base);
@@ -55,7 +55,8 @@ async function listCoderaxAgents(base, token) {
     const data = await jsonResponse(response);
     const agents = data?.data;
     if (!Array.isArray(agents)) fail('Invalid Coderax agent listing');
-    for (const agent of agents) if (typeof agent.name === 'string') found.set(agent.name, agent);
+    // Agent names are not unique; preserve all server-issued IDs.
+    for (const agent of agents) if (agent && typeof agent.name === 'string' && typeof agent.id === 'string') found.push(agent);
     if (!data.has_more) return found;
     if (!data.after || cursor === data.after) fail('Invalid Coderax agent pagination cursor');
     cursor = data.after;
@@ -74,10 +75,12 @@ async function applyAgents(registry, options) {
   const created = [];
   let writes = 0;
   for (const agent of registry.agents) {
-    if (current.has(agent.name)) {
-      const matching = current.get(agent.name);
+    const namesakes = current.filter((candidate) => candidate.name === agent.name);
+    if (namesakes.length > 1) fail(`Ambiguous agent name for ${agent.repository}; resolve duplicates manually`);
+    if (namesakes.length === 1) {
+      const matching = namesakes[0];
       // Ownership by name alone is insufficient for an existing unmanaged agent.
-      if (matching.description !== `Read-only repository steward for ${agent.repository}. Coordinated by Coderax; deployments are handled separately by DeploymentPlatform.`) {
+      if (matching.description !== stewardDescription(agent.repository)) {
         throw new Error(`Agent name collision for ${agent.repository}; resolve manually before sync`);
       }
       agent.status = 'bound';
@@ -93,7 +96,7 @@ async function applyAgents(registry, options) {
     const record = await jsonResponse(response);
     if (record?.name !== agent.name || typeof record.id !== 'string') fail('Coderax create response did not confirm the agent identity');
     created.push({ repository: agent.repository, id: record.id });
-    current.set(agent.name, record);
+    current.push(record);
     agent.status = 'bound';
     agent.coderaxAgentId = record.id;
     writes++;
@@ -102,7 +105,10 @@ async function applyAgents(registry, options) {
   const verified = await listCoderaxAgents(base, token);
   for (const entry of created) {
     const expected = registry.agents.find((agent) => agent.repository === entry.repository);
-    if (verified.get(expected.name)?.id !== entry.id) fail(`Agent readback mismatch: ${entry.repository}`);
+    const readback = verified.find((candidate) => candidate.id === entry.id);
+    if (!readback || readback.name !== expected.name || readback.description !== stewardDescription(entry.repository)) {
+      fail(`Agent readback mismatch: ${entry.repository}`);
+    }
   }
   registry.counts.bound = registry.agents.filter((agent) => agent.status === 'bound').length;
   return { created: created.length, bound: registry.counts.bound, remaining: registry.agents.length - registry.counts.bound };
@@ -112,6 +118,18 @@ async function applyWorkflows(registry, maxWrites) {
   const base = approvedBaseURL(process.env.CODERAX_API_BASE_URL ?? '', 'Coderax');
   const token = process.env.CODERAX_WORKFLOW_ACCESS_TOKEN;
   if (!token) fail('Applying workflows requires CODERAX_WORKFLOW_ACCESS_TOKEN (a scoped Coderax session token)');
+  // A saved catalog is editable: attest to every live binding before any workflow write.
+  const boundAgents = registry.agents.filter((agent) => agent.status === 'bound');
+  if (boundAgents.length) {
+    const liveAgents = await listCoderaxAgents(base, process.env.CODERAX_AGENT_ACCESS_TOKEN || token);
+    const liveById = new Map(liveAgents.map((agent) => [agent.id, agent]));
+    for (const agent of boundAgents) {
+      const live = liveById.get(agent.coderaxAgentId);
+      if (!live || live.name !== agent.name || live.description !== stewardDescription(agent.repository)) {
+        fail(`Unverified or changed agent binding for ${agent.repository}; refresh it through --apply-agents`);
+      }
+    }
+  }
   const headers = { authorization: `Bearer ${token}`, accept: 'application/json' };
   const listings = await jsonResponse(await fetch(new URL('/api/workflows', base), { headers, signal: AbortSignal.timeout(20000) }));
   if (!Array.isArray(listings.workflows)) fail('Invalid Coderax workflows listing');
