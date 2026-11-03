@@ -58,7 +58,7 @@ jobs:
           "$hash  $($installer.Name)" | Set-Content desktop\release\SHA256SUMS.txt
 
       - name: Upload tested installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coderax-desktop-windows-x64
           path: |
