@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -43,8 +43,8 @@ const liveAgent = (id, repository, description = stewardDescription(repository))
   description,
 });
 
-async function startMockAgentApi({ agents = [], agentListStatus = 200 } = {}) {
-  const state = { agentReads: [], workflowReads: [], workflowPosts: [] };
+async function startMockAgentApi({ agents = [], agentListStatus = 200, injectNamesakeOnCreate = false } = {}) {
+  const state = { agentReads: [], agentPosts: [], workflowReads: [], workflowPosts: [] };
   const server = createServer(async (request, response) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(chunk);
@@ -54,6 +54,13 @@ async function startMockAgentApi({ agents = [], agentListStatus = 200 } = {}) {
       response.writeHead(status, { 'content-type': 'application/json' });
       response.end(JSON.stringify(payload));
     };
+    if (pathname === '/api/agents/v1/agents' && request.method === 'POST') {
+      const created = { id: `agent-created-${state.agentPosts.length + 1}`, name: body.name, description: body.description };
+      state.agentPosts.push(created);
+      if (injectNamesakeOnCreate) agents.push({ ...created, id: 'concurrent-namesake' });
+      agents.push(created);
+      return send(201, created);
+    }
     if (pathname === '/api/agents/v1/agents') {
       state.agentReads.push(request.headers.authorization);
       if (agentListStatus !== 200) return send(agentListStatus, { error: 'unavailable' });
@@ -237,5 +244,61 @@ test('falls back to the workflow token when no separate agent token is configure
     assert.equal(api.state.workflowPosts.length, 1);
   } finally {
     await api.close();
+  }
+});
+
+
+test('agent creation readback verifies server ID even when another agent has the same name', async () => {
+  const catalog = buildRegistry([githubRepo('CoderaxAI', 'alpha')], owners);
+  const api = await startMockAgentApi({ injectNamesakeOnCreate: true });
+  const dir = await mkdtemp(join(tmpdir(), 'coderax-portfolio-'));
+  try {
+    const input = join(dir, 'in.json');
+    const out = join(dir, 'out.json');
+    await writeFile(input, JSON.stringify(catalog));
+    const result = await runSync(['--input', input, '--apply-agents', '--out', out], {
+      CODERAX_PORTFOLIO_ALLOW_OWNERS: 'CoderaxAI',
+      CODERAX_API_BASE_URL: api.base,
+      CODERAX_AGENT_ACCESS_TOKEN: 'agent-token',
+      CODERAX_SHARED_MODEL_PROVIDER: 'test-provider',
+      CODERAX_SHARED_MODEL_ID: 'test-model',
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(api.state.agentPosts.length, 1);
+    const saved = JSON.parse(await readFile(out, 'utf8'));
+    assert.equal(saved.agents[0].coderaxAgentId, 'agent-created-1');
+    assert.equal(saved.counts.bound, 1);
+  } finally {
+    await api.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('owner-scoped import recomputes enrolled and bound counts in saved catalog', async () => {
+  const catalog = buildRegistry([
+    githubRepo('CoderaxAI', 'alpha'), githubRepo('Auctivon-Finance', 'beta'),
+  ], parseOwnerAllowlist('CoderaxAI,Auctivon-Finance'));
+  for (const agent of catalog.agents) {
+    agent.status = 'bound';
+    agent.coderaxAgentId = `id-${agent.repository.split('/')[1]}`;
+  }
+  catalog.counts.bound = 2;
+  const dir = await mkdtemp(join(tmpdir(), 'coderax-portfolio-'));
+  try {
+    const input = join(dir, 'in.json');
+    const out = join(dir, 'out.json');
+    await writeFile(input, JSON.stringify(catalog));
+    const result = await runSync(['--input', input, '--out', out], {
+      CODERAX_PORTFOLIO_ALLOW_OWNERS: 'CoderaxAI',
+    });
+    assert.equal(result.code, 0, result.stderr);
+    const summary = JSON.parse(result.stdout);
+    const saved = JSON.parse(await readFile(out, 'utf8'));
+    assert.equal(summary.enrolled, 1);
+    assert.equal(summary.bound, 1);
+    assert.equal(saved.counts.enrolled, 1);
+    assert.equal(saved.counts.bound, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });
