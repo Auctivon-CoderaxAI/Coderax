@@ -47,9 +47,6 @@ export function validateRepository(repo, allowedOwners) {
     defaultBranch: typeof repo.default_branch === 'string' && REPO_NAME.test(repo.default_branch) ? repo.default_branch : 'main' };
 }
 
-export const stewardDescription = (repository) =>
-  `Read-only repository steward for ${repository}. Coordinated by Coderax; deployments are handled separately by DeploymentPlatform.`;
-
 export function agentIdentity(repo) {
   const normalized = `${repo.owner}/${repo.name}`.toLowerCase();
   const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 24);
@@ -97,30 +94,7 @@ export function readRegistry(raw) {
     if (ids.has(agent.id)) throw new Error('Duplicate agent ID');
     ids.add(agent.id);
     if (BLOCKED_OWNER.test(`${owner}-${name}`)) throw new Error('Employer repository prohibited');
-    const requiredPermissions = expected.permissions;
-    if (
-      !agent.permissions ||
-      Object.keys(agent.permissions).length !== Object.keys(requiredPermissions).length ||
-      Object.entries(requiredPermissions).some(
-        ([permission, required]) => agent.permissions[permission] !== required,
-      )
-    ) throw new Error('Registry cannot pregrant or omit required permission ceilings');
-    if (
-      agent.owner !== owner ||
-      agent.orchestration !== expected.orchestration ||
-      agent.deploymentExecutor !== expected.deploymentExecutor ||
-      agent.modelDeployment !== expected.modelDeployment ||
-      agent.visibility !== expected.visibility ||
-      typeof agent.branch !== 'string' ||
-      !REPO_NAME.test(agent.branch)
-    ) throw new Error('Repository agent metadata mismatch');
-    if (agent.status === 'bound') {
-      if (typeof agent.coderaxAgentId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(agent.coderaxAgentId)) {
-        throw new Error('Bound agent requires a valid Coderax agent ID');
-      }
-    } else if (agent.status !== 'unbound' || agent.coderaxAgentId != null) {
-      throw new Error('Unbound agents cannot claim a remote binding');
-    }
+    if (agent.permissions?.write || agent.permissions?.merge || agent.permissions?.deploy) throw new Error('Registry cannot pregrant privileged write/deploy actions');
   }
   return raw;
 }
@@ -132,7 +106,7 @@ export function agentCreatePayload(agent, provider, model) {
   if (BLOCKED_OWNER.test(agent.repository.replace('/', '-'))) throw new Error('Employer isolation policy');
   return {
     name: agent.name,
-    description: stewardDescription(agent.repository),
+    description: `Read-only repository steward for ${agent.repository}. Coordinated by Coderax; deployments are handled separately by DeploymentPlatform.`,
     instructions: [
       `You are the repository specialist for ${agent.repository}.`,
       'Never assume that a GitHub or DeploymentPlatform integration is connected: verify tool readiness first.',

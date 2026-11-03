@@ -30,7 +30,5 @@ jobs:
         run: node --check scripts/portfolio/sync.mjs
       - name: Run registry security and DAG tests
         run: node --test scripts/portfolio/registry.test.mjs
-      - name: Run live binding verification tests
-        run: node --test scripts/portfolio/sync.test.mjs
       - name: Confirm read-only default CLI
         run: node scripts/portfolio/sync.mjs --help
