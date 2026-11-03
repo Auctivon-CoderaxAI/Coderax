@@ -836,3 +836,63 @@ test('Work model reads skip chat-only model resolution', async () => {
     server.close();
   }
 });
+
+test('/api/work continues to route natively when optional CyVox points at an unreachable origin', async () => {
+  const admitted = [];
+  const app = express();
+  app.use(express.json());
+  app.use('/api/work', (req, _res, next) => {
+    req.user = { id: 'owner-1' };
+    // A configured but unavailable optional integration must not become a
+    // dependency of the native Work model or task routes.
+    req.config = { cyvox: { enabled: true, origin: 'http://127.0.0.1:1' } };
+    next();
+  });
+
+  const readRouter = express.Router();
+  readRouter.get('/models', (_req, res) => res.status(200).json({ models: [LOCAL] }));
+  app.use(
+    '/api/work',
+    createWorkApiRouter({
+      chatRouter: createWorkChatRouter({
+        loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+        configuredDefaultModel: () => 'llama3:latest',
+        seedConversation: async () => ({ seeded: true }),
+        agentsRouter: (req, res) => {
+          admitted.push({
+            url: req.url,
+            endpoint: req.body.endpoint,
+            model: req.body.model,
+            workModel: req.workContext.workModel,
+          });
+          res.status(200).json({ accepted: true });
+        },
+      }),
+      createReadRouterForRequest: () => readRouter,
+    }),
+  );
+
+  const { server, port } = await serve(app);
+  const base = 'http://127.0.0.1:' + port + '/api/work';
+  try {
+    const inventory = await fetch(base + '/models');
+    assert.equal(inventory.status, 200);
+    assert.deepEqual(await inventory.json(), { models: [LOCAL] });
+
+    const started = await fetch(base + '/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'plan', model: 'auto' }),
+    });
+    assert.equal(started.status, 200);
+    assert.deepEqual(await started.json(), { accepted: true });
+    assert.deepEqual(admitted, [{
+      url: '/chat',
+      endpoint: 'ollama',
+      model: 'llama3:latest',
+      workModel: 'llama3:latest',
+    }]);
+  } finally {
+    server.close();
+  }
+});
