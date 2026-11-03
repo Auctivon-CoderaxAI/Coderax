@@ -45,7 +45,7 @@ async function fetchGithubRepos(token) {
 }
 
 async function listCoderaxAgents(base, token) {
-  const found = new Map();
+  const found = [];
   let cursor;
   for (let page = 0; page < 100; page++) {
     const url = new URL('/api/agents/v1/agents', base);
@@ -55,7 +55,9 @@ async function listCoderaxAgents(base, token) {
     const data = await jsonResponse(response);
     const agents = data?.data;
     if (!Array.isArray(agents)) fail('Invalid Coderax agent listing');
-    for (const agent of agents) if (typeof agent.name === 'string') found.set(agent.name, agent);
+    // Agent Management allows duplicate names, so keep every record; callers
+    // that trust a saved binding must match on the server-issued agent ID.
+    for (const agent of agents) if (agent && typeof agent.name === 'string') found.push(agent);
     if (!data.has_more) return found;
     if (!data.after || cursor === data.after) fail('Invalid Coderax agent pagination cursor');
     cursor = data.after;
@@ -74,8 +76,8 @@ async function applyAgents(registry, options) {
   const created = [];
   let writes = 0;
   for (const agent of registry.agents) {
-    if (current.has(agent.name)) {
-      const matching = current.get(agent.name);
+    const matching = current.find((candidate) => candidate.name === agent.name);
+    if (matching) {
       // Ownership by name alone is insufficient for an existing unmanaged agent.
       if (matching.description !== stewardDescription(agent.repository)) {
         throw new Error(`Agent name collision for ${agent.repository}; resolve manually before sync`);
@@ -93,7 +95,7 @@ async function applyAgents(registry, options) {
     const record = await jsonResponse(response);
     if (record?.name !== agent.name || typeof record.id !== 'string') fail('Coderax create response did not confirm the agent identity');
     created.push({ repository: agent.repository, id: record.id });
-    current.set(agent.name, record);
+    current.push(record);
     agent.status = 'bound';
     agent.coderaxAgentId = record.id;
     writes++;
@@ -102,7 +104,8 @@ async function applyAgents(registry, options) {
   const verified = await listCoderaxAgents(base, token);
   for (const entry of created) {
     const expected = registry.agents.find((agent) => agent.repository === entry.repository);
-    if (verified.get(expected.name)?.id !== entry.id) fail(`Agent readback mismatch: ${entry.repository}`);
+    const readback = verified.find((agent) => agent.id === entry.id);
+    if (!readback || readback.name !== expected.name) fail(`Agent readback mismatch: ${entry.repository}`);
   }
   registry.counts.bound = registry.agents.filter((agent) => agent.status === 'bound').length;
   return { created: created.length, bound: registry.counts.bound, remaining: registry.agents.length - registry.counts.bound };
@@ -123,11 +126,14 @@ async function applyWorkflows(registry, maxWrites) {
       base,
       process.env.CODERAX_AGENT_ACCESS_TOKEN || token,
     );
+    // Match the saved server ID first, then confirm its name and description.
+    // Duplicate agent names must never shadow the identity recorded at bind time.
+    const liveById = new Map(verifiedAgents.map((agent) => [agent.id, agent]));
     for (const agent of boundAgents) {
-      const live = verifiedAgents.get(agent.name);
+      const live = liveById.get(agent.coderaxAgentId);
       if (
         !live ||
-        live.id !== agent.coderaxAgentId ||
+        live.name !== agent.name ||
         live.description !== stewardDescription(agent.repository)
       ) {
         fail(`Unverified or changed agent binding for ${agent.repository}; refresh it through --apply-agents`);
