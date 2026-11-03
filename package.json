@@ -193,7 +193,7 @@
   },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",
-    "@axe-core/playwright": "^4.10.1",
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/compat": "^1.2.6",
     "@eslint/eslintrc": "^3.3.4",
     "@eslint/js": "^9.20.0",
