@@ -39,7 +39,7 @@ node scripts/portfolio/sync.mjs --input ./portfolio-registry.local.json \
 
 ## 3. Bind read-only collaboration workflows
 
-Once agent IDs are verified, use Coderax's existing authenticated Workflows API (requires an authorized Coderax session):
+Once agent IDs are verified, use Coderax's existing authenticated Workflows API (requires an authorized Coderax session). **Before creating workflows, the CLI independently reads Agent Management and confirms each bound ID and description.** An edited or stale local catalog is insufficient. The workflow session must have Agent Management read access, or set `CODERAX_AGENT_ACCESS_TOKEN` separately to a narrowly scoped authorized read token. Inability to read or match the agent stops the workflow provisioning before any writes:
 
 ```sh
 export CODERAX_WORKFLOW_ACCESS_TOKEN='AUTHORIZED_WORKFLOW_SESSION_TOKEN'
