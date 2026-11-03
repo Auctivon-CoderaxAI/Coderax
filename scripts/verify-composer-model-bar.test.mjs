@@ -1,8 +1,8 @@
-import assert from 'node:assert/strict';
+import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import test from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const composerDir = 'client/src/components/Chat/Input/Composer';
