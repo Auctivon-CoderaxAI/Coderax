@@ -82,7 +82,7 @@ jobs:
       # Run Helm OCI Charts Releaser
       # This is for the coderax chart
       - name: Release Helm OCI Charts for coderax
-        uses: appany/helm-oci-chart-releaser@v0.4.2
+        uses: appany/helm-oci-chart-releaser@v0.5.0
         with:
           name: coderax
           repository: ${{ steps.chart-version.outputs.CHART_REPOSITORY }}
@@ -94,7 +94,7 @@ jobs:
       
       # this is for the coderax-rag-api chart
       - name: Release Helm OCI Charts for coderax-rag-api
-        uses: appany/helm-oci-chart-releaser@v0.4.2
+        uses: appany/helm-oci-chart-releaser@v0.5.0
         with:
           name: coderax-rag-api
           repository: ${{ steps.chart-version.outputs.CHART_REPOSITORY }}
