@@ -2,9 +2,9 @@
 
 ## Review status
 
-No Freebuff MCP or A2A reviewer is connected to this Codex session. The installed Freebuff CLI is version 0.2.35; its help exposes an interactive client and `login`, but no non-interactive repository review command. No Freebuff review was requested or completed, and no result should be inferred from the existing `freebuff/*` Git branch.
+No external MCP or A2A reviewer is connected to this Codex session. The installed CLI exposes an interactive client and `login`, but no non-interactive repository review command. No external review was requested or completed, and no result should be inferred from an existing agent branch.
 
-The review below is a handoff checklist for a Freebuff reviewer with authorized, read-only access to the exact commit. Run tests against that commit and report findings with file paths and evidence. Do not connect live MCP servers or execute external actions during review.
+The review below is a handoff checklist for an external reviewer with authorized, read-only access to the exact commit. Run tests against that commit and report findings with file paths and evidence. Do not connect live MCP servers or execute external actions during review.
 
 ## Required checks
 
@@ -52,8 +52,8 @@ The review below is a handoff checklist for a Freebuff reviewer with authorized,
 ## Coderax implementation status
 
 - Existing project/workspace assignment, conversation search, file retrieval, memory controls, and MCP registration are present in the repository. This branch adds run-level action review for every registered MCP spelling and for inline `set_memory` / `delete_memory`, including tool names discovered after a lazy agent resolves. Administrator denies remain higher priority; unrelated tools retain the configured endpoint behavior.
-- The supported Freebuff A2A/MCP bridge is unavailable in this environment. The installed CLI was reported as 0.2.35 and exposes an interactive client/login, but no non-interactive repository review command. No connection was made and no independent Freebuff result is claimed.
+- The supported A2A/MCP bridge is unavailable in this environment. The installed CLI exposes an interactive client/login, but no non-interactive repository review command. No connection was made and no independent external result is claimed.
 - Focused tests for the new approval policy, runtime policy refresh, and run tool-name collection: 3 suites passed; 5 selected tests passed (154 unrelated tests skipped by the name filter). `npx tsc --noEmit --pretty false` passed in `packages/api`.
 - Database-backed project tests could not run: `mongodb-memory-server` failed to start within its 10-second startup window, before application assertions. No conclusion is drawn from those failures.
 - The existing admin append-only audit log is not yet wired to MCP approval decisions or execution outcomes. The audit check above remains a release follow-up; approvals and tool execution were not independently verified on a live MCP server.
-- Production persistence, tenant-isolation, Freebuff integration, and live MCP behavior have not been verified by this local run.
+- Production persistence, tenant-isolation, external integration, and live MCP behavior have not been verified by this local run.
