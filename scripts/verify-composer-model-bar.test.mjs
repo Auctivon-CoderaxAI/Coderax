@@ -13,9 +13,23 @@ function count(source, fragment) {
   return source.split(fragment).length - 1;
 }
 
+function countClassToken(source, token) {
+  const styles = source.match(/className=\{cn\(([\s\S]*?)\)\}/)?.[1];
+  assert.ok(styles, 'model bar must have a className={cn(...)} style definition');
+  return [...styles.matchAll(/'([^']*)'/g)]
+    .flatMap(([, classList]) => classList.split(/\s+/))
+    .filter((candidate) => candidate === token).length;
+}
+
 function validateModelBar(source) {
   assert.equal(count(source, '{conversation.model}</span>'), 1, 'active model must render exactly once');
-  assert.equal(count(source, 'text-xs text-text-secondary'), 1, 'model bar must have one style definition');
+  for (const token of ['text-xs', 'text-text-secondary']) {
+    assert.equal(
+      countClassToken(source, token),
+      1,
+      `model bar must have exactly one ${token} class token`,
+    );
+  }
 }
 
 function validateTray(source) {
@@ -39,4 +53,13 @@ test('duplicate model label is rejected (negative regression)', () => {
 
 test('duplicate import is rejected (negative regression)', () => {
   assert.throws(() => validateTray(tray + "\nimport ModelBar from './ModelBar';\n"), /ModelBar import must be unique/);
+});
+
+test('restored reordered duplicate styles are rejected (negative regression)', () => {
+  const restored = modelBar.replace(
+    '        className,',
+    "        'text-text-secondary flex min-w-0 items-center gap-2 px-2 pt-2 text-xs',\n        className,",
+  );
+  assert.notEqual(restored, modelBar, 'regression fixture must modify model bar styles');
+  assert.throws(() => validateModelBar(restored), /exactly one text-xs class token/);
 });
