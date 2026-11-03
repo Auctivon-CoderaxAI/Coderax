@@ -162,7 +162,6 @@ export function createCyvoxAddonRouter(
 
   router.get('/:resource', async (req: Request, res: Response) => {
     const { resource } = req.params;
-    const resource = req.params.resource;
     if (!isResource(resource)) {
       res.status(404).json({ code: 'CYVOX_RESOURCE_NOT_FOUND' });
       return;

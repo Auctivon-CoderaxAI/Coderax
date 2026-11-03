@@ -1,0 +1,65 @@
+import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const composerDir = 'client/src/components/Chat/Input/Composer';
+const modelBar = readFileSync(resolve(root, composerDir, 'ModelBar.tsx'), 'utf8');
+const tray = readFileSync(resolve(root, composerDir, 'Tray.tsx'), 'utf8');
+
+function count(source, fragment) {
+  return source.split(fragment).length - 1;
+}
+
+function countClassToken(source, token) {
+  const styles = source.match(/className=\{cn\(([\s\S]*?)\)\}/)?.[1];
+  assert.ok(styles, 'model bar must have a className={cn(...)} style definition');
+  return [...styles.matchAll(/'([^']*)'/g)]
+    .flatMap(([, classList]) => classList.split(/\s+/))
+    .filter((candidate) => candidate === token).length;
+}
+
+function validateModelBar(source) {
+  assert.equal(count(source, '{conversation.model}</span>'), 1, 'active model must render exactly once');
+  for (const token of ['text-xs', 'text-text-secondary']) {
+    assert.equal(
+      countClassToken(source, token),
+      1,
+      `model bar must have exactly one ${token} class token`,
+    );
+  }
+}
+
+function validateTray(source) {
+  assert.equal(count(source, "import ModelBar from './ModelBar';"), 1, 'ModelBar import must be unique');
+}
+
+test('composer model bar renders one active model and one style definition', () => {
+  validateModelBar(modelBar);
+});
+
+test('composer tray imports ModelBar exactly once', () => {
+  validateTray(tray);
+});
+
+test('duplicate model label is rejected (negative regression)', () => {
+  assert.throws(() => validateModelBar(modelBar.replace(
+    '{conversation.model}</span>',
+    '{conversation.model}</span>{conversation.model}</span>',
+  )), /active model must render exactly once/);
+});
+
+test('duplicate import is rejected (negative regression)', () => {
+  assert.throws(() => validateTray(tray + "\nimport ModelBar from './ModelBar';\n"), /ModelBar import must be unique/);
+});
+
+test('restored reordered duplicate styles are rejected (negative regression)', () => {
+  const restored = modelBar.replace(
+    '        className,',
+    "        'text-text-secondary flex min-w-0 items-center gap-2 px-2 pt-2 text-xs',\n        className,",
+  );
+  assert.notEqual(restored, modelBar, 'regression fixture must modify model bar styles');
+  assert.throws(() => validateModelBar(restored), /exactly one text-xs class token/);
+});
