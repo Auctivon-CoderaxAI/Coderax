@@ -163,6 +163,7 @@ async function main() {
       return owner.endsWith('*') ? repoOwner.startsWith(owner.slice(0, -1)) : repoOwner === owner;
     }));
     registry.counts.enrolled = registry.agents.length;
+    registry.counts.bound = registry.agents.filter((agent) => agent.status === 'bound').length;
   } else {
     const tokens = [process.env.CODERAX_GITHUB_TOKEN, process.env.CODERAX_GITHUB_TOKEN_SECONDARY].filter(Boolean);
     if (!tokens.length) fail('Set CODERAX_GITHUB_TOKEN (and optionally CODERAX_GITHUB_TOKEN_SECONDARY) for authorized read-only discovery');
