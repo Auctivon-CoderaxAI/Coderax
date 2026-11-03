@@ -47,6 +47,9 @@ export function validateRepository(repo, allowedOwners) {
     defaultBranch: typeof repo.default_branch === 'string' && REPO_NAME.test(repo.default_branch) ? repo.default_branch : 'main' };
 }
 
+export const stewardDescription = (repository) =>
+  `Read-only repository steward for ${repository}. Coordinated by Coderax; deployments are handled separately by DeploymentPlatform.`;
+
 export function agentIdentity(repo) {
   const normalized = `${repo.owner}/${repo.name}`.toLowerCase();
   const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 24);
@@ -106,7 +109,7 @@ export function agentCreatePayload(agent, provider, model) {
   if (BLOCKED_OWNER.test(agent.repository.replace('/', '-'))) throw new Error('Employer isolation policy');
   return {
     name: agent.name,
-    description: `Read-only repository steward for ${agent.repository}. Coordinated by Coderax; deployments are handled separately by DeploymentPlatform.`,
+    description: stewardDescription(agent.repository),
     instructions: [
       `You are the repository specialist for ${agent.repository}.`,
       'Never assume that a GitHub or DeploymentPlatform integration is connected: verify tool readiness first.',
