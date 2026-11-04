@@ -7,7 +7,6 @@ const {
   onlyWorkRows,
   isLocalEndpoint,
 } = require('../workModels');
-const { createConfiguredDefaultResolver } = require('@coderax/api');
 
 test('tags locally served endpoints as local and keeps them', () => {
   const models = flattenModelConfig({

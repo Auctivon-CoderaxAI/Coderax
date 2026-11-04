@@ -8,21 +8,21 @@
  * turns that into an actionable Work error, and an explicit model choice must
  * still be able to run.
  */
-export type ConfiguredDefaultRequest = {
-  config?: unknown;
+export type ConfiguredDefaultRequest<TConfig> = {
+  config?: TConfig | null;
   [key: string]: unknown;
 };
 
 export function createConfiguredDefaultResolver<TConfig, TDefault>(
-  loadAppConfig: (req: unknown) => Promise<TConfig | null | undefined>,
+  loadAppConfig: (req: ConfiguredDefaultRequest<TConfig>) => Promise<TConfig | null | undefined>,
   resolveDefault: (config: TConfig | null | undefined) => TDefault,
-): (req: ConfiguredDefaultRequest) => Promise<TDefault | null> {
+): (req: ConfiguredDefaultRequest<TConfig>) => Promise<TDefault | null> {
   if (typeof loadAppConfig !== 'function' || typeof resolveDefault !== 'function') {
     throw new TypeError('createConfiguredDefaultResolver requires load and resolve functions');
   }
 
   return async function resolveConfiguredDefault(req) {
-    let config = req?.config as TConfig | null | undefined;
+    let config = req?.config;
     if (config == null) {
       try {
         config = await loadAppConfig(req);
