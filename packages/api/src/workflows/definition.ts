@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { scheduleCadenceSchema } from 'coderax-data-provider';
 import {
   WORKFLOW_CONDITIONS_MAX,
