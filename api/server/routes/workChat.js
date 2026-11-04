@@ -7,7 +7,7 @@ const {
   resolveWorkSelection,
   WORK_AUTO_MODEL_ID,
 } = require('@coderax/api');
-const { flattenModelConfig } = require('./workModels');
+const { createConfiguredDefaultResolver, flattenModelConfig } = require('./workModels');
 
 /**
  * The deployment's default model, read from the app config Coderax already
@@ -31,7 +31,14 @@ function resolveConfiguredDefaultModel(config) {
   return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
 }
 
-const configuredDefaultFromRequest = (req) => resolveConfiguredDefaultModel(req?.config);
+const configuredDefaultFromRequest = createConfiguredDefaultResolver(
+  async (req) => {
+    const { getAppConfigOptionsFromUser } = require('@coderax/api');
+    const { getAppConfig } = require('~/server/services/Config');
+    return getAppConfig(getAppConfigOptionsFromUser(req?.user));
+  },
+  resolveConfiguredDefaultModel,
+);
 
 function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
