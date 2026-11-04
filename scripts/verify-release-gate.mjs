@@ -67,11 +67,12 @@ function checkRunKey(check) {
   const runId = /\/actions\/runs\/(\d+)/.exec(check.details_url ?? '')?.[1];
   // Workflow ID is stable across push/dispatch/reruns. An unknown workflow
   // stays isolated by run ID rather than silently hiding a failed check.
-  const workflow = check.workflow_id
-    ? `workflow:${check.workflow_id}`
-    : runId
-      ? `run:${runId}`
-      : `check:${check.id}`;
+  let workflow = `check:${check.id}`;
+  if (check.workflow_id) {
+    workflow = `workflow:${check.workflow_id}`;
+  } else if (runId) {
+    workflow = `run:${runId}`;
+  }
   return `${check.name}\0${workflow}`;
 }
 
