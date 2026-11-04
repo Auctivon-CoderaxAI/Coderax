@@ -1,7 +1,7 @@
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { dataService, EModelEndpoint, PermissionBits, QueryKeys } from 'coderax-data-provider';
 import type { Agent, TWorkModelsResponse, TWorkTasksResponse } from 'coderax-data-provider';
 import NativeWorkHome from '../NativeWorkHome';
@@ -173,18 +173,31 @@ describe('native Work home', () => {
     queryClient.clear();
   });
 
-  it('surfaces an actionable model error and keeps task start disabled', async () => {
-    const { queryClient } = renderHome(
-      { models: [] },
+  it('disables task start after a model refresh failure with valid cached models', async () => {
+    const { getModels, queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
       { tasks: [] },
-      [],
-      { getModels: () => Promise.reject(new Error('catalog offline')) },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
     );
 
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Plan the release' },
+    });
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeEnabled();
+
+    getModels.mockRejectedValueOnce(new Error('catalog offline'));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: [QueryKeys.workModels] });
+    });
+
+    expect(await screen.findByText('Work models are unavailable.')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Planner' })).toBeInTheDocument();
     expect(
-      await screen.findByText('Work models are unavailable.'),
-    ).toBeInTheDocument();
+      screen.getByRole('textbox', { name: 'Describe what you want to get done' }),
+    ).toHaveValue('Plan the release');
     expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
+    expect(getModels).toHaveBeenCalledTimes(2);
     queryClient.clear();
   });
 
@@ -242,8 +255,8 @@ describe('native Work home', () => {
 
   it('loads native models, agents, and history without calling the optional CyVox addon', async () => {
     const originalFetch = global.fetch;
-    const fetchSpy = jest.fn();
-    global.fetch = fetchSpy as unknown as typeof fetch;
+    const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
+    global.fetch = fetchSpy;
     try {
       const { queryClient } = renderHome(
         { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
