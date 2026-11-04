@@ -345,25 +345,33 @@ test('does not persist the new-chat route sentinel as a Work conversation', asyn
   assert.equal(db.saves.length, 0);
 });
 
-test('a seed failure does not block the Work turn', async () => {
-  const middleware = workContextMiddleware(
-    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
-    () => 'llama3:latest',
-    async () => {
-      throw new Error('store unavailable');
-    },
-  );
-  const req = { body: { text: 'plan', model: 'auto', conversationId: 'c-1' }, user: { id: 'u' } };
-  const res = response();
-  let continued = false;
-  await middleware(req, res, () => {
-    continued = true;
-  });
+test('storage failure during Work tenant verification fails closed before agent execution', async () => {
+  for (const failingMethod of ['getConvo', 'saveConvo']) {
+    const db = fakeDb();
+    db[failingMethod] = async () => {
+      throw new Error('private storage failure');
+    };
+    const middleware = workContextMiddleware(
+      async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+      () => 'llama3:latest',
+      (req, context) => seedWorkConversation(req, context, db),
+    );
+    const req = {
+      body: { text: 'plan', model: 'auto', conversationId: 'c-1' },
+      user: { id: 'user-1', tenantId: 'tenant-a' },
+    };
+    const res = response();
+    let delegated = false;
+    await middleware(req, res, () => {
+      delegated = true;
+    });
 
-  assert.equal(continued, true);
-  assert.equal(res.statusCode, 0);
-  assert.equal(req.workContext.workModel, 'llama3:latest');
-  assert.equal(req.body.model, 'llama3:latest');
+    assert.equal(delegated, false, failingMethod);
+    assert.equal(res.statusCode, 503, failingMethod);
+    assert.equal(res.payload.error, 'WORK_CONVERSATION_UNAVAILABLE', failingMethod);
+    assert.doesNotMatch(JSON.stringify(res.payload), /private storage failure/);
+    assert.equal(db.saves.length, 0, failingMethod);
+  }
 });
 
 test('rejects a normal conversation before it reaches the Work agent router', async () => {
