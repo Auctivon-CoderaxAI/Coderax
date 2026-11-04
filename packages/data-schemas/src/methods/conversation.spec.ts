@@ -5448,6 +5448,30 @@ describe('Conversation Operations', () => {
       expect(result?.conversations).toHaveLength(25);
       expect(result?.nextCursor).toBeNull(); // No next page
     });
+
+    it('returns persisted Work markers through the cursor projection', async () => {
+      const conversationId = uuidv4();
+      await Conversation.create({
+        conversationId,
+        user: 'user123',
+        title: 'Work task',
+        endpoint: EModelEndpoint.openAI,
+        isWork: true,
+        workModel: 'qwen3.5:4b',
+        workState: 'completed',
+      });
+
+      const result = await getConvosByCursor('user123');
+      const work = result.conversations.find((convo) => convo.conversationId === conversationId);
+
+      expect(work).toEqual(
+        expect.objectContaining({
+          isWork: true,
+          workModel: 'qwen3.5:4b',
+          workState: 'completed',
+        }),
+      );
+    });
   });
 
   describe('getConvosByCursor archivedAt sorting', () => {
