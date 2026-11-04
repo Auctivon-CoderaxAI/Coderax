@@ -79,16 +79,13 @@ export interface SwarmCoordinatorOptions {
 }
 
 const MAX_IDENTITY_CHARS = 256;
+/** Explicit coordinator defaults; a runtime injects its own limits instead of reading global config. */
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_RESULT_CHARS = 100_000;
 
 function isIdentity(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    value.trim().length > 0 &&
-    value.length <= MAX_IDENTITY_CHARS
-  );
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_IDENTITY_CHARS;
 }
 
 /**
@@ -148,9 +145,7 @@ export class SwarmCoordinator {
 
     const peerTools = new Set(peer.tools ?? []);
     if (
-      (task.requiredTools ?? []).some(
-        (tool) => !this.ceiling.has(tool) || !peerTools.has(tool),
-      )
+      (task.requiredTools ?? []).some((tool) => !this.ceiling.has(tool) || !peerTools.has(tool))
     ) {
       return { ok: false, reason: 'tool_denied' };
     }
@@ -177,9 +172,7 @@ export class SwarmCoordinator {
       expiresAt: now + this.leaseMs,
       state: 'claimed',
     };
-    const expected = current
-      ? { leaseId: current.leaseId, state: current.state }
-      : null;
+    const expected = current ? { leaseId: current.leaseId, state: current.state } : null;
     if (!(await this.store.compareAndSwap(task.id, expected, lease))) {
       return { ok: false, reason: 'claim_conflict' };
     }
@@ -233,11 +226,7 @@ export class SwarmCoordinator {
       : { ok: false, reason: 'lease_lost' };
   }
 
-  async release(
-    peer: SwarmPeer,
-    taskId: string,
-    leaseId: string,
-  ): Promise<SwarmReleaseResult> {
+  async release(peer: SwarmPeer, taskId: string, leaseId: string): Promise<SwarmReleaseResult> {
     if (!isIdentity(peer?.id)) {
       return { ok: false, reason: 'invalid_peer' };
     }
@@ -275,9 +264,7 @@ export class SwarmCoordinator {
  * supplies the same interface from its database with an atomic conditional
  * write; this implementation is not a cross-replica coordinator.
  */
-export function createMemorySwarmStore(
-  initial: readonly SwarmLease[] = [],
-): SwarmLeaseStore {
+export function createMemorySwarmStore(initial: readonly SwarmLease[] = []): SwarmLeaseStore {
   const leases = new Map(initial.map((lease) => [lease.taskId, { ...lease }]));
   return {
     get(taskId) {

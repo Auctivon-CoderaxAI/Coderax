@@ -60,7 +60,6 @@ describe('CyVox add-on target', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('keeps the loopback development connection available to an ADMIN', async () => {
   it('keeps an administrative loopback development connection available', async () => {
     const fetchMock = jest
       .spyOn(global, 'fetch')
@@ -101,7 +100,9 @@ describe('CyVox add-on target', () => {
 
   it('denies loopback writes without ADMIN even with explicit confirmation', async () => {
     const fetchMock = jest.spyOn(global, 'fetch');
-    const app = express().use(express.json()).use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
+    const app = express()
+      .use(express.json())
+      .use(createCyvoxAddonRouter('http://127.0.0.1:18000', true));
 
     const response = await request(app).post('/actions/robotStop').set('X-CyVox-Confirm', 'yes');
 
