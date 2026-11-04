@@ -29,15 +29,16 @@ export interface SwarmPeer {
 /**
  * Minimal compare-and-swap surface a durable store must implement.
  *
- * `expectedLeaseId` is `null` when the caller observed no lease. `next` is
- * `null` to delete it. The store must apply the comparison and the write
- * atomically, otherwise two peers can both win the same offered task.
+ * `expected` is `null` when the caller observed no lease, or contains the
+ * observed lease ID and state. `next` is `null` to delete it. The store must
+ * compare both fields and write atomically so terminal transitions cannot
+ * overwrite one another or allow duplicate claims.
  */
 export interface SwarmLeaseStore {
   get(taskId: string): SwarmLease | null | Promise<SwarmLease | null>;
   compareAndSwap(
     taskId: string,
-    expectedLeaseId: string | null,
+    expected: Pick<SwarmLease, 'leaseId' | 'state'> | null,
     next: SwarmLease | null,
   ): boolean | Promise<boolean>;
 }
@@ -176,11 +177,10 @@ export class SwarmCoordinator {
       expiresAt: now + this.leaseMs,
       state: 'claimed',
     };
-    const expectedLeaseId =
-      current?.state === 'claimed' || current?.state === 'released'
-        ? current.leaseId
-        : null;
-    if (!(await this.store.compareAndSwap(task.id, expectedLeaseId, lease))) {
+    const expected = current
+      ? { leaseId: current.leaseId, state: current.state }
+      : null;
+    if (!(await this.store.compareAndSwap(task.id, expected, lease))) {
       return { ok: false, reason: 'claim_conflict' };
     }
 
@@ -194,6 +194,7 @@ export class SwarmCoordinator {
   async complete(
     peer: SwarmPeer,
     taskId: string,
+    leaseId: string,
     result: string,
   ): Promise<SwarmCompletionResult> {
     if (!isIdentity(peer?.id)) {
@@ -208,7 +209,7 @@ export class SwarmCoordinator {
 
     const current = await this.store.get(taskId);
     if (current?.state === 'completed') {
-      return current.peerId === peer.id
+      return current.peerId === peer.id && current.leaseId === leaseId
         ? { ok: true, status: 'already_completed' }
         : { ok: false, reason: 'lease_lost' };
     }
@@ -216,6 +217,7 @@ export class SwarmCoordinator {
       !current ||
       current.state !== 'claimed' ||
       current.peerId !== peer.id ||
+      current.leaseId !== leaseId ||
       current.expiresAt <= this.now()
     ) {
       return { ok: false, reason: 'lease_lost' };
@@ -226,12 +228,16 @@ export class SwarmCoordinator {
       state: 'completed',
       result,
     };
-    return (await this.store.compareAndSwap(taskId, current.leaseId, completed))
+    return (await this.store.compareAndSwap(taskId, { leaseId, state: 'claimed' }, completed))
       ? { ok: true, status: 'completed' }
       : { ok: false, reason: 'lease_lost' };
   }
 
-  async release(peer: SwarmPeer, taskId: string): Promise<SwarmReleaseResult> {
+  async release(
+    peer: SwarmPeer,
+    taskId: string,
+    leaseId: string,
+  ): Promise<SwarmReleaseResult> {
     if (!isIdentity(peer?.id)) {
       return { ok: false, reason: 'invalid_peer' };
     }
@@ -244,6 +250,7 @@ export class SwarmCoordinator {
       !current ||
       current.state !== 'claimed' ||
       current.peerId !== peer.id ||
+      current.leaseId !== leaseId ||
       current.expiresAt <= this.now()
     ) {
       return { ok: false, reason: 'lease_lost' };
@@ -257,7 +264,7 @@ export class SwarmCoordinator {
       expiresAt: current.expiresAt,
       state: 'released',
     };
-    return (await this.store.compareAndSwap(taskId, current.leaseId, released))
+    return (await this.store.compareAndSwap(taskId, { leaseId, state: 'claimed' }, released))
       ? { ok: true, status: 'released' }
       : { ok: false, reason: 'lease_lost' };
   }
@@ -277,9 +284,12 @@ export function createMemorySwarmStore(
       const lease = leases.get(taskId);
       return lease ? { ...lease } : null;
     },
-    compareAndSwap(taskId, expectedLeaseId, next) {
+    compareAndSwap(taskId, expected, next) {
       const current = leases.get(taskId) ?? null;
-      if ((current?.leaseId ?? null) !== expectedLeaseId) {
+      if (
+        (current?.leaseId ?? null) !== (expected?.leaseId ?? null) ||
+        (current?.state ?? null) !== (expected?.state ?? null)
+      ) {
         return false;
       }
       if (next == null) {
