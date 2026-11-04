@@ -16,7 +16,7 @@ This is an **evidence ledger and executable acceptance plan**, not a claim that 
 | 3. Multi-agent collaboration | Portfolio review workflow defines two independent read-only checks and dependent synthesis in `scripts/portfolio/registry.mjs`; real agent artifact passing not proven | `scripts/portfolio/registry.test.mjs` tests DAG shape; `e2e/specs/mock/agent-collaboration-tools.spec.ts` exists | Unverified | Unverified | Unverified | **INCOMPLETE** |
 | 4. Orchestration | Durable workflow engine/handlers/store under `packages/api/src/workflows/` | `packages/api/src/workflows/engine.spec.ts`, `integration.spec.ts` and other tests exist; no current executed results recorded | Unverified | Unverified | Unverified | **INCOMPLETE** |
 | 5. Delegation | Automatic delegation and subagent source exists, with handoff UI | `packages/api/src/agents/autoDelegation.spec.ts`, `e2e/specs/mock/agent-handoffs.spec.ts` exist; permission ceiling and real separate child runs not certified | Unverified | Unverified | Unverified | **INCOMPLETE** |
-| 6. Decentralized swarm | `packages/api/src/agents/swarm.ts` adds a CAS lease coordinator: peer claiming, duplicate prevention, expiry/reassignment, attempt caps, stale-owner fencing and tool ceilings. It is not wired into Chat/Work and must be explicitly constructed; no runtime feature flag exists yet | `packages/api/src/agents/swarm.spec.ts` — 17/17 local tests pass (2026-11-04); config schema covers lease defaults/bounds. Runtime wiring, multi-replica CAS, staging and production peer tests **not established** | Unverified | Unverified | Unverified | **INCOMPLETE** |
+| 6. Decentralized swarm | `packages/api/src/agents/swarm.ts` adds a CAS lease coordinator: peer claiming, duplicate prevention, expiry/reassignment, attempt caps, stale-owner fencing and tool ceilings. It is not wired into Chat/Work and must be explicitly constructed; no runtime feature flag exists yet | `packages/api/src/agents/swarm.spec.ts` — 17/17 local tests **reported** (2026-11-04), but the tested SHA, exit status, duration and saved output are unavailable; local result **UNVERIFIED**. Config schema covers lease defaults/bounds. Runtime wiring, multi-replica CAS, staging and production peer tests **not established** | Unverified | Unverified | Unverified | **INCOMPLETE** |
 | 7. Bidirectional/multi-hop agent communication | Existing handoffs do not by themselves establish B→A follow-up plus B→C→A routed control with loop guards | Dedicated multi-hop idempotency, authorization and provenance test **not established** | Unverified | Unverified | Unverified | **BLOCKED** |
 
 **Meaning of the columns:** "Source exists" documents an entry point to investigate. "Unverified" means no current run-ID / exact-SHA / command output / real exchange was collected for that cell. No row is certified while staging or production is unverified. The release-gate incident is tracked in [#52](https://github.com/CoderaxAI/Coderax/issues/52); native Work's CyVox independence is tracked in [#92](https://github.com/CoderaxAI/Coderax/issues/92).
@@ -45,16 +45,26 @@ npm run test:api
 npm run e2e:mock
 ```
 
-### Executed local evidence — 2026-11-04
+### Reported local test result — 2026-11-04 (receipt missing)
 
-The only capability with a recorded local run is swarm:
+PR #142 reports a local swarm test run, but does not provide the complete execution receipt required by this ledger. The following command is **reported, not independently rerun or verified here**:
 
 ```sh
 cd packages/api
 node ../../node_modules/jest/bin/jest.js --config jest.config.mjs src/agents/swarm.spec.ts --runInBand
 ```
 
-Result: **1 suite passed, 17/17 tests, 0 failed**. This certifies the in-process CAS lease contract only. It does **not** establish runtime wiring, multi-replica CAS, CI, staging, production, or the other six capabilities.
+| Evidence field | Recorded value |
+| --- | --- |
+| Reported outcome | 1 suite passed, 17/17 tests, 0 failed (PR #142 description; **unverified**) |
+| Inspected source baseline | `main@bb6227f` — **not** proof of the tested checkout |
+| Exact tested commit SHA | **NOT RECORDED** |
+| Process exit status | **NOT RECORDED** (do not infer from the reported assertion count) |
+| Duration | **NOT RECORDED** |
+| Saved stdout/stderr or artifact URL | **NOT PROVIDED** |
+| Independently verifiable local test result | **UNVERIFIED** until a complete receipt is attached |
+
+**Next evidence action:** execute the command on the exact PR head (or record the exact tested commit), save the full output with process exit status and elapsed duration, and link a retained artifact or GitHub check run. Do not promote this reported result to a verified local PASS without that receipt. Even a verified local pass would certify only the in-process CAS lease contract, not runtime wiring, multi-replica CAS, CI, staging, production, or the other six capabilities.
 
 Then execute the targeted integration suites in `packages/api/src/workflows/`, real agent handoff E2E, tenant-authorization negative tests, and a provider-backed staged test using approved staging credentials. Add runnable CI jobs with correct branch/path filters for new tests, without disabling existing required checks.
 
