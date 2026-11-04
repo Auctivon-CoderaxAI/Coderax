@@ -23,8 +23,10 @@ export type WorkDepsStore = {
 };
 
 export type WorkDepsJob = {
-  userId?: string;
-  tenantId?: string;
+  metadata?: {
+    userId?: string;
+    tenantId?: string;
+  };
   createdAt?: unknown;
 };
 
@@ -107,8 +109,23 @@ export function createWorkDepsFactory({
         userId: string;
         conversationId: string;
       }) => projections.toWorkConversation(await db.getConvo(userId, conversationId)),
-      getRunState: async ({ conversationId }: { conversationId: string }) =>
-        workStateForJobStatus(await jobs.getJobStatus(conversationId)),
+      getRunState: async ({
+        userId,
+        conversationId,
+      }: {
+        userId: string;
+        conversationId: string;
+      }) => {
+        const job = await jobs.getJob(conversationId);
+        if (!job || job.metadata?.userId !== userId) {
+          return null;
+        }
+        const tenantId = req.user?.tenantId ?? req.tenantId;
+        if (tenantId && job.metadata?.tenantId !== tenantId) {
+          return null;
+        }
+        return workStateForJobStatus(await jobs.getJobStatus(conversationId));
+      },
       cancelRun: async ({ userId, conversationId }: { userId: string; conversationId: string }) => {
         const job = await jobs.getJob(conversationId);
         if (!job) {
@@ -119,12 +136,12 @@ export function createWorkDepsFactory({
          * check uses the job's own owner so a stale or foreign job can never be
          * aborted through a Work request.
          */
-        if (job.userId !== userId) {
+        if (job.metadata?.userId !== userId) {
           logger?.warn?.(`[Work] Refusing to abort another user's generation: ${conversationId}`);
           return false;
         }
         const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (job.tenantId !== tenantId) {
+        if (job.metadata?.tenantId !== tenantId) {
           logger?.warn?.(`[Work] Refusing to abort another tenant's generation: ${conversationId}`);
           return false;
         }
