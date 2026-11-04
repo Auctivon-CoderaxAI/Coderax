@@ -77,6 +77,7 @@ describe('createWorkDepsFactory', () => {
         options: {
           limit: 50,
           isArchived: false,
+          isWork: true,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         },
