@@ -113,6 +113,9 @@ export default defineConfig(({ command }) => ({
           'assets/rum.*.js',
           'assets/locale-*.js',
           'assets/query-devtools*.js',
+          /** Mermaid is lazy and currently ~5 MB, above the precache limit. Cache it
+           * on first use instead of making every PWA install download it up front. */
+          'assets/mermaid.*.js',
         ],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         /**
@@ -140,6 +143,20 @@ export default defineConfig(({ command }) => ({
               },
               expiration: {
                 maxEntries: 80,
+                maxAgeSeconds: 30 * 24 * 60 * 60,
+              },
+            },
+          },
+          {
+            urlPattern: ({ url }) => /\/assets\/mermaid\.[^/]+\.js$/.test(url.pathname),
+            handler: 'StaleWhileRevalidate',
+            options: {
+              cacheName: 'mermaid-chunk',
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 1,
                 maxAgeSeconds: 30 * 24 * 60 * 60,
               },
             },
