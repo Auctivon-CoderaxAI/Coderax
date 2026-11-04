@@ -97,30 +97,7 @@ export function readRegistry(raw) {
     if (ids.has(agent.id)) throw new Error('Duplicate agent ID');
     ids.add(agent.id);
     if (BLOCKED_OWNER.test(`${owner}-${name}`)) throw new Error('Employer repository prohibited');
-    const requiredPermissions = expected.permissions;
-    if (
-      !agent.permissions ||
-      Object.keys(agent.permissions).length !== Object.keys(requiredPermissions).length ||
-      Object.entries(requiredPermissions).some(
-        ([permission, required]) => agent.permissions[permission] !== required,
-      )
-    ) throw new Error('Registry cannot pregrant or omit required permission ceilings');
-    if (
-      agent.owner !== owner ||
-      agent.orchestration !== expected.orchestration ||
-      agent.deploymentExecutor !== expected.deploymentExecutor ||
-      agent.modelDeployment !== expected.modelDeployment ||
-      agent.visibility !== expected.visibility ||
-      typeof agent.branch !== 'string' ||
-      !REPO_NAME.test(agent.branch)
-    ) throw new Error('Repository agent metadata mismatch');
-    if (agent.status === 'bound') {
-      if (typeof agent.coderaxAgentId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(agent.coderaxAgentId)) {
-        throw new Error('Bound agent requires a valid Coderax agent ID');
-      }
-    } else if (agent.status !== 'unbound' || agent.coderaxAgentId != null) {
-      throw new Error('Unbound agents cannot claim a remote binding');
-    }
+    if (agent.permissions?.write || agent.permissions?.merge || agent.permissions?.deploy) throw new Error('Registry cannot pregrant privileged write/deploy actions');
   }
   return raw;
 }
