@@ -49,8 +49,8 @@ export type WorkDepsLogger = {
 export type WorkDepsProjections = {
   flattenModelConfig: (config: unknown) => WorkModelSource[];
   toWorkConversation: (row: unknown) => WorkConversation | null;
-  rowsFromCursor: (result: unknown) => WorkConversation[];
-  onlyWorkRows: (rows: readonly unknown[]) => WorkConversation[];
+  rowsFromCursor: (result: unknown) => unknown[];
+  onlyWorkRows: (rows: readonly (WorkConversation | null)[]) => WorkConversation[];
 };
 
 export interface WorkDepsFactoryOptions {
