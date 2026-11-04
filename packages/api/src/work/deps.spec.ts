@@ -132,6 +132,41 @@ describe('createWorkDepsFactory', () => {
     );
   });
 
+  it('never reads live state from a missing, foreign or tenant-unscoped job', async () => {
+    for (const job of [
+      null,
+      { userId: 'user-2', tenantId: 'tenant-a' },
+      { userId: 'user-1', tenantId: 'tenant-b' },
+      { userId: 'user-1' },
+    ]) {
+      const getJobStatus = jest.fn(async () => 'complete');
+      const { depsFor } = makeDeps({
+        jobs: { getJob: async () => job, getJobStatus },
+      });
+      const getRunState = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getRunState;
+      if (!getRunState) {
+        throw new Error('getRunState missing');
+      }
+      await expect(
+        getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+      ).resolves.toBeNull();
+      expect(getJobStatus).not.toHaveBeenCalled();
+    }
+  });
+
+  it('reads live state only for the matching owner and tenant', async () => {
+    const getJobStatus = jest.fn(async () => 'complete');
+    const { depsFor } = makeDeps({ jobs: { getJobStatus } });
+    const getRunState = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+    await expect(
+      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+    ).resolves.toBe('completed');
+    expect(getJobStatus).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses another user or tenant before aborting', async () => {
     for (const [job, req] of [
       [
@@ -145,6 +180,10 @@ describe('createWorkDepsFactory', () => {
       [
         { userId: 'user-1', tenantId: 'tenant-b', createdAt: 7 },
         { user: { id: 'user-1' }, tenantId: 'tenant-a' },
+      ],
+      [
+        { userId: 'user-1', createdAt: 7 },
+        { user: { id: 'user-1', tenantId: 'tenant-a' } },
       ],
     ] as const) {
       const { depsFor, calls } = makeDeps({ jobs: { getJob: async () => job } });
