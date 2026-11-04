@@ -107,8 +107,23 @@ export function createWorkDepsFactory({
         userId: string;
         conversationId: string;
       }) => projections.toWorkConversation(await db.getConvo(userId, conversationId)),
-      getRunState: async ({ conversationId }: { conversationId: string }) =>
-        workStateForJobStatus(await jobs.getJobStatus(conversationId)),
+      getRunState: async ({
+        userId,
+        conversationId,
+      }: {
+        userId: string;
+        conversationId: string;
+      }) => {
+        const job = await jobs.getJob(conversationId);
+        if (!job || job.userId !== userId) {
+          return null;
+        }
+        const tenantId = req.user?.tenantId ?? req.tenantId;
+        if (tenantId && job.tenantId !== tenantId) {
+          return null;
+        }
+        return workStateForJobStatus(await jobs.getJobStatus(conversationId));
+      },
       cancelRun: async ({ userId, conversationId }: { userId: string; conversationId: string }) => {
         const job = await jobs.getJob(conversationId);
         if (!job) {
@@ -124,7 +139,7 @@ export function createWorkDepsFactory({
           return false;
         }
         const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (tenantId && job.tenantId && job.tenantId !== tenantId) {
+        if (tenantId && job.tenantId !== tenantId) {
           logger?.warn?.(`[Work] Refusing to abort another tenant's generation: ${conversationId}`);
           return false;
         }
