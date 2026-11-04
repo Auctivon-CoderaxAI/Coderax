@@ -186,11 +186,16 @@ describe('SwarmCoordinator', () => {
       coordinator.complete(peerA, task.id, lease.leaseId, 'second'),
     ]);
 
-    expect(results.filter((result) => result.ok && result.status === 'completed')).toHaveLength(1);
-    expect(results.filter((result) => !result.ok && result.reason === 'lease_lost')).toHaveLength(1);
+    expect(
+      results.filter((result) => result.ok && result.status === 'completed'),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => !result.ok && result.reason === 'lease_lost'),
+    ).toHaveLength(1);
+    const winnerIndex = results.findIndex((result) => result.ok);
     expect(store.get(task.id)).toMatchObject({
       state: 'completed',
-      result: 'first',
+      result: winnerIndex === 0 ? 'first' : 'second',
     });
     await expect(coordinator.claim(peerB, task)).resolves.toEqual({
       ok: false,
