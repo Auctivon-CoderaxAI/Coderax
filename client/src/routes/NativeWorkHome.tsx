@@ -6,7 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, composerSurfaceClasses, composerSurfaceShadow } from '@coderax/client';
 import { dataService, EModelEndpoint, MutationKeys, QueryKeys } from 'coderax-data-provider';
 import type { TWorkTask } from 'coderax-data-provider';
-import { WorkAgentSelect, useWorkAgentOptions } from '~/components/Chat/Input/WorkAgentSelector';
+import {
+  getWorkModelKey,
+  WorkAgentSelect,
+  WorkModelSelect,
+  useWorkAgentOptions,
+} from '~/components/Chat/Input/WorkAgentSelector';
 import useSpeechToText from '~/hooks/Input/useSpeechToText';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -114,10 +119,14 @@ export default function NativeWorkHome() {
     },
     onError: () => setCancelError(true),
   });
-  const hasModels = (workAgents.modelsQuery.data?.models ?? []).some(
+  const hasCatalogModels = (workAgents.modelsQuery.data?.models ?? []).some(
     (model) => model.auto !== true,
   );
+  const hasModels = workAgents.models.length > 0;
   const selectedAgent = workAgents.agents.find((agent) => agent.id === selectedAgentId);
+  const selectedModel = workAgents.models.find(
+    (model) => model.id === selectedAgent?.model && model.provider === selectedAgent.provider,
+  );
   useEffect(() => {
     if (workAgents.agents.length > 0 && !selectedAgent) {
       setSelectedAgentId(workAgents.agents[0]!.id);
@@ -132,7 +141,8 @@ export default function NativeWorkHome() {
       workAgents.isLoading ||
       workAgents.isError ||
       !hasModels ||
-      !selectedAgent
+      !selectedAgent ||
+      !selectedModel
     ) {
       return;
     }
@@ -141,7 +151,7 @@ export default function NativeWorkHome() {
       submit: 'true',
       endpoint: EModelEndpoint.agents,
       agent_id: selectedAgent.id,
-      model: selectedAgent.model ?? '',
+      model: selectedModel.id,
     });
     navigate(`/work/new?${search.toString()}`);
   };
@@ -204,6 +214,19 @@ export default function NativeWorkHome() {
             />
             <div className="flex items-center justify-between gap-2 px-1 pt-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <WorkModelSelect
+                  models={workAgents.models}
+                  value={selectedModel ? getWorkModelKey(selectedModel) : ''}
+                  onChange={(model) => {
+                    const agent = workAgents.agents.find(
+                      (option) => option.model === model.id && option.provider === model.provider,
+                    );
+                    if (agent) {
+                      setSelectedAgentId(agent.id);
+                    }
+                  }}
+                  disabled={workAgents.isLoading || workAgents.isError}
+                />
                 <WorkAgentSelect
                   agents={workAgents.agents}
                   value={selectedAgent?.id ?? ''}
@@ -225,6 +248,7 @@ export default function NativeWorkHome() {
                     workAgents.isError ||
                     !hasModels ||
                     !selectedAgent ||
+                    !selectedModel ||
                     !task.trim()
                   }
                 >
@@ -256,14 +280,14 @@ export default function NativeWorkHome() {
             )}
             {!workAgents.modelsQuery.isLoading &&
               workAgents.modelsQuery.data != null &&
-              !hasModels && (
+              !hasCatalogModels && (
                 <p role="alert" className="text-text-muted text-center text-xs">
                   {localize('com_work_no_models')}
                 </p>
               )}
             {!workAgents.isLoading &&
               !workAgents.isError &&
-              hasModels &&
+              hasCatalogModels &&
               workAgents.agents.length === 0 && (
                 <p role="alert" className="text-text-muted text-center text-xs">
                   {localize('com_work_no_agents')}
