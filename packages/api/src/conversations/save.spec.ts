@@ -187,6 +187,44 @@ describe('seedTurnConversation', () => {
   });
 });
 
+describe('persisted tenant scope across turn saves', () => {
+  it('does not unset the tenant of a seeded Work or ordinary Chat conversation', async () => {
+    for (const isWork of [false, true]) {
+      const userId = new mongoose.Types.ObjectId().toString();
+      const conversationId = randomUUID();
+      await store.saveConvo(
+        { userId },
+        {
+          conversationId,
+          endpoint: 'agents',
+          model: 'claude-sonnet',
+          tenantId: 'tenant-a',
+          ...(isWork ? { isWork: true, workModel: 'llama3:latest' } : {}),
+        },
+      );
+
+      const req = Object.assign(
+        createRequest(userId),
+        isWork ? { workContext: { isWork: true, workModel: 'llama3:latest' } } : {},
+      );
+      req.resolvedConversation = await store.getConvo(userId, conversationId);
+      expect(req.resolvedConversation?.tenantId).toBe('tenant-a');
+
+      await saveTurnConversation(store, {
+        ...seedFields(req, conversationId),
+        ctx: getConversationWriteContext(req),
+        context: 'save.spec preserve tenant scope',
+      });
+
+      const persisted = await store.getConvo(userId, conversationId);
+      expect(persisted?.tenantId).toBe('tenant-a');
+      if (isWork) {
+        expect(persisted).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
+      }
+    }
+  });
+});
+
 describe('code approval mode across workspace choices', () => {
   const permissive: AttachedCodeEnvironmentPolicySettings = {
     configSchema: {
