@@ -1,6 +1,6 @@
 import type { WorkModelSource } from './models';
-import type { WorkConversation } from './task';
 import type { WorkDeps } from './router';
+import type { WorkConversation } from './task';
 
 /**
  * Request-scoped dependencies for the native Work read/cancel router.
