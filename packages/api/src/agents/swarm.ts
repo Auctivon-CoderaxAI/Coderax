@@ -67,11 +67,20 @@ export type SwarmReleaseResult =
   | { ok: true; status: 'released' }
   | { ok: false; reason: 'invalid_peer' | 'invalid_task' | 'lease_lost' };
 
+export interface SwarmLimitsConfig {
+  leaseMs?: number;
+  maxAttempts?: number;
+  maxResultChars?: number;
+}
+
 export interface SwarmCoordinatorOptions {
   store: SwarmLeaseStore;
   /** Hard ceiling for every claim, independent of a peer's advertised tools. */
   allowedTools: readonly string[];
+  /** Parsed app config; `configSchema.interface.swarm` carries the limits. */
+  config?: { interface?: { swarm?: SwarmLimitsConfig } };
   now?: () => number;
+  /** Explicit values take precedence over `config`; tests and embedders use these. */
   leaseMs?: number;
   maxAttempts?: number;
   maxResultChars?: number;
@@ -79,7 +88,7 @@ export interface SwarmCoordinatorOptions {
 }
 
 const MAX_IDENTITY_CHARS = 256;
-/** Explicit coordinator defaults; a runtime injects its own limits instead of reading global config. */
+/** Defaults when neither app config nor an explicit option sets a limit. */
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_MAX_RESULT_CHARS = 100_000;
@@ -110,9 +119,11 @@ export class SwarmCoordinator {
     if (!options || !options.store) {
       throw new Error('SwarmCoordinator requires a lease store');
     }
-    const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
-    const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    const maxResultChars = options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
+    const configured = options.config?.interface?.swarm ?? {};
+    const leaseMs = options.leaseMs ?? configured.leaseMs ?? DEFAULT_LEASE_MS;
+    const maxAttempts = options.maxAttempts ?? configured.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const maxResultChars =
+      options.maxResultChars ?? configured.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
     if (!Number.isSafeInteger(leaseMs) || leaseMs < 1) {
       throw new Error('SwarmCoordinator leaseMs must be a positive integer');
     }

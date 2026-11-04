@@ -44,9 +44,7 @@ describe('SwarmCoordinator', () => {
 
     expect(results.filter((result) => result.ok)).toHaveLength(1);
     const loser = results.find((result) => !result.ok);
-    expect(loser && !loser.ok ? loser.reason : null).toMatch(
-      /^(claim_conflict|unavailable)$/,
-    );
+    expect(loser && !loser.ok ? loser.reason : null).toMatch(/^(claim_conflict|unavailable)$/);
   });
 
   it('rejects a duplicate claim while the lease is live', async () => {
@@ -125,9 +123,10 @@ describe('SwarmCoordinator', () => {
     const second = claimed(await coordinator.claim(peerA, task));
 
     expect(second.leaseId).not.toBe(first.leaseId);
-    await expect(
-      coordinator.complete(peerA, task.id, first.leaseId, 'stale'),
-    ).resolves.toEqual({ ok: false, reason: 'lease_lost' });
+    await expect(coordinator.complete(peerA, task.id, first.leaseId, 'stale')).resolves.toEqual({
+      ok: false,
+      reason: 'lease_lost',
+    });
     await expect(coordinator.release(peerA, task.id, first.leaseId)).resolves.toEqual({
       ok: false,
       reason: 'lease_lost',
@@ -136,12 +135,14 @@ describe('SwarmCoordinator', () => {
       leaseId: second.leaseId,
       state: 'claimed',
     });
-    await expect(
-      coordinator.complete(peerA, task.id, second.leaseId, 'fresh'),
-    ).resolves.toEqual({ ok: true, status: 'completed' });
-    await expect(
-      coordinator.complete(peerA, task.id, first.leaseId, 'stale'),
-    ).resolves.toEqual({ ok: false, reason: 'lease_lost' });
+    await expect(coordinator.complete(peerA, task.id, second.leaseId, 'fresh')).resolves.toEqual({
+      ok: true,
+      status: 'completed',
+    });
+    await expect(coordinator.complete(peerA, task.id, first.leaseId, 'stale')).resolves.toEqual({
+      ok: false,
+      reason: 'lease_lost',
+    });
     expect(store.get(task.id)).toMatchObject({
       leaseId: second.leaseId,
       state: 'completed',
@@ -186,12 +187,10 @@ describe('SwarmCoordinator', () => {
       coordinator.complete(peerA, task.id, lease.leaseId, 'second'),
     ]);
 
-    expect(
-      results.filter((result) => result.ok && result.status === 'completed'),
-    ).toHaveLength(1);
-    expect(
-      results.filter((result) => !result.ok && result.reason === 'lease_lost'),
-    ).toHaveLength(1);
+    expect(results.filter((result) => result.ok && result.status === 'completed')).toHaveLength(1);
+    expect(results.filter((result) => !result.ok && result.reason === 'lease_lost')).toHaveLength(
+      1,
+    );
     const winnerIndex = results.findIndex((result) => result.ok);
     expect(store.get(task.id)).toMatchObject({
       state: 'completed',
@@ -265,7 +264,7 @@ describe('SwarmCoordinator', () => {
   });
 
   it('rejects an oversized result without consuming the lease', async () => {
-    let now = 1_000;
+    const now = 1_000;
     const coordinator = new SwarmCoordinator({
       store: createMemorySwarmStore(),
       allowedTools: ['read'],
@@ -275,8 +274,12 @@ describe('SwarmCoordinator', () => {
       createLeaseId: () => 'lease-1',
     });
 
-    const lease = claimed(await coordinator.claim(peerA, { id: 'task-small', requiredTools: ['read'] }));
-    await expect(coordinator.complete(peerA, 'task-small', lease.leaseId, 'too large')).resolves.toEqual({
+    const lease = claimed(
+      await coordinator.claim(peerA, { id: 'task-small', requiredTools: ['read'] }),
+    );
+    await expect(
+      coordinator.complete(peerA, 'task-small', lease.leaseId, 'too large'),
+    ).resolves.toEqual({
       ok: false,
       reason: 'result_too_large',
     });
@@ -303,5 +306,27 @@ describe('SwarmCoordinator', () => {
       peerId: 'peer-b',
       result: 'winner',
     });
+  });
+
+  it('reads every bound from app config and lets explicit options override them', async () => {
+    let now = 1_000;
+    const coordinator = new SwarmCoordinator({
+      store: createMemorySwarmStore(),
+      allowedTools: ['read'],
+      now: () => now,
+      config: { interface: { swarm: { leaseMs: 1_000, maxAttempts: 1, maxResultChars: 4 } } },
+      createLeaseId: () => 'lease-config',
+    });
+
+    const lease = claimed(
+      await coordinator.claim(peerA, { id: 'task-config', requiredTools: ['read'] }),
+    );
+    await expect(
+      coordinator.complete(peerA, 'task-config', lease.leaseId, 'too large'),
+    ).resolves.toEqual({ ok: false, reason: 'result_too_large' });
+    now += 1_001;
+    await expect(
+      coordinator.claim(peerB, { id: 'task-config', requiredTools: ['read'] }),
+    ).resolves.toEqual({ ok: false, reason: 'attempts_exhausted' });
   });
 });
