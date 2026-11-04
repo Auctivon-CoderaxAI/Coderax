@@ -591,7 +591,7 @@ type SchemaShape<T> = T extends z.ZodObject<infer U> ? U : never;
 
 // Helper type to determine the default value or undefined based on whether the field has a default
 type DefaultValue<T> =
-  T extends z.ZodDefault<z.ZodTypeAny> ? ReturnType<T['_def']['defaultValue']> : undefined;
+  T extends z.ZodDefault<infer Inner> ? z.output<Inner> : undefined;
 
 // Extract default values or undefined from the schema shape
 type ExtractDefaults<T> = {
@@ -602,14 +602,14 @@ export type SchemaDefaults<T> = ExtractDefaults<SchemaShape<T>>;
 
 export type TConfigDefaults = SchemaDefaults<typeof configSchema>;
 
-export function getSchemaDefaults<Schema extends z.AnyZodObject>(
+export function getSchemaDefaults<Schema extends z.ZodObject>(
   schema: Schema,
 ): ExtractDefaults<SchemaShape<Schema>> {
   const shape = schema.shape;
   const entries = Object.entries(shape).map(([key, value]) => {
     if (value instanceof z.ZodDefault) {
       // Extract default value if it exists
-      return [key, value._def.defaultValue()];
+      return [key, value.parse(undefined)];
     }
     return [key, undefined];
   });
@@ -1571,7 +1571,7 @@ export const agentsEndpointSchema = baseEndpointSchema
                 .default(DEFAULT_CACHE_CLEAR_TIMEOUT_MS),
             })
             .optional()
-            .default({}),
+            .prefault({}),
         })
         .optional(),
       maxRecursionLimit: z.number().optional(),
@@ -1957,7 +1957,7 @@ export const agentsEndpointSchema = baseEndpointSchema
       checkpointer: checkpointerSchema,
     }),
   )
-  .default({
+  .prefault({
     disableBuilder: false,
     capabilities: defaultAgentCapabilities,
     maxCitations: 30,
@@ -2069,6 +2069,7 @@ export const endpointSchema = baseEndpointSchema.merge(
     /** Static per-model token config: context window and per-million-token rates */
     tokenConfig: z
       .record(
+        z.string(),
         z.object({
           prompt: z.number(),
           completion: z.number(),
@@ -2359,7 +2360,7 @@ export const mcpAppRateLimitSchema = z
     resourcesPerMinute: z.number().int().positive().default(120),
     toolCallsPerMinute: z.number().int().positive().default(60),
   })
-  .default({});
+  .prefault({});
 
 export type TMCPAppRateLimits = z.infer<typeof mcpAppRateLimitSchema>;
 
