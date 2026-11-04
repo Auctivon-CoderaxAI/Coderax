@@ -61,6 +61,27 @@ npm run test:api
 npm run e2e:mock
 ```
 
+### Reported local test result — 2026-11-04 (receipt missing)
+
+PR #142 reports a local swarm test run, but does not provide the complete execution receipt required by this ledger. The following command is **reported, not independently rerun or verified here**:
+
+```sh
+cd packages/api
+node ../../node_modules/jest/bin/jest.js --config jest.config.mjs src/agents/swarm.spec.ts --runInBand
+```
+
+| Evidence field | Recorded value |
+| --- | --- |
+| Reported outcome | 1 suite passed, 17/17 tests, 0 failed (PR #142 description; **unverified**) |
+| Inspected source baseline | `main@bb6227f` — **not** proof of the tested checkout |
+| Exact tested commit SHA | **NOT RECORDED** |
+| Process exit status | **NOT RECORDED** (do not infer from the reported assertion count) |
+| Duration | **NOT RECORDED** |
+| Saved stdout/stderr or artifact URL | **NOT PROVIDED** |
+| Independently verifiable local test result | **UNVERIFIED** until a complete receipt is attached |
+
+**Next evidence action:** execute the command on the exact PR head (or record the exact tested commit), save the full output with process exit status and elapsed duration, and link a retained artifact or GitHub check run. Do not promote this reported result to a verified local PASS without that receipt. Even a verified local pass would certify only the in-process CAS lease contract, not runtime wiring, multi-replica CAS, CI, staging, production, or the other six capabilities.
+
 Then execute the targeted integration suites in `packages/api/src/workflows/`, real agent handoff E2E, tenant-authorization negative tests, and a provider-backed staged test using approved staging credentials. Add runnable CI jobs with correct branch/path filters for new tests, without disabling existing required checks.
 
 For **each capability and environment** capture an evidence record:
