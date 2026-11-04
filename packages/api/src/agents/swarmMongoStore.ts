@@ -28,11 +28,13 @@ function checkScope(scope: MongoSwarmScope): void {
   if (
     !scope ||
     typeof scope.userId !== 'string' ||
-    scope.userId.trim().length === 0 ||
+    (scope.userId.trim().length === 0 || scope.userId.length > 120) ||
     typeof scope.runId !== 'string' ||
-    scope.runId.trim().length === 0 ||
+    (scope.runId.trim().length === 0 || scope.runId.length > 120) ||
     (scope.tenantId !== null &&
-      (typeof scope.tenantId !== 'string' || scope.tenantId.trim().length === 0))
+      (typeof scope.tenantId !== 'string' ||
+        scope.tenantId.trim().length === 0 ||
+        scope.tenantId.length > 120))
   ) {
     throw new TypeError('Mongo swarm store requires an authenticated owner, run and tenant scope');
   }
