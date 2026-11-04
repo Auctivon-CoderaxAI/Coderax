@@ -1,7 +1,7 @@
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { dataService, EModelEndpoint, PermissionBits, QueryKeys } from 'coderax-data-provider';
 import type { Agent, TWorkModelsResponse, TWorkTasksResponse } from 'coderax-data-provider';
 import NativeWorkHome from '../NativeWorkHome';
@@ -55,9 +55,23 @@ function LocationDisplay() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function renderHome(models: TWorkModelsResponse, tasks: TWorkTasksResponse, agents: Agent[]) {
-  const getModels = jest.spyOn(dataService, 'getWorkModels').mockResolvedValue(models);
-  const getTasks = jest.spyOn(dataService, 'getWorkTasks').mockResolvedValue(tasks);
+type RenderOverrides = {
+  getModels?: () => Promise<TWorkModelsResponse>;
+  getTasks?: () => Promise<TWorkTasksResponse>;
+};
+
+function renderHome(
+  models: TWorkModelsResponse,
+  tasks: TWorkTasksResponse,
+  agents: Agent[],
+  overrides: RenderOverrides = {},
+) {
+  const getModels = jest
+    .spyOn(dataService, 'getWorkModels')
+    .mockImplementation(overrides.getModels ?? (() => Promise.resolve(models)));
+  const getTasks = jest
+    .spyOn(dataService, 'getWorkTasks')
+    .mockImplementation(overrides.getTasks ?? (() => Promise.resolve(tasks)));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData([QueryKeys.endpoints], { [EModelEndpoint.agents]: {} });
   queryClient.setQueryData([QueryKeys.agents, { requiredPermission: PermissionBits.VIEW }], {
@@ -157,5 +171,108 @@ describe('native Work home', () => {
 
     await waitFor(() => expect(cancel).toHaveBeenCalledWith('task-1'));
     queryClient.clear();
+  });
+
+  it('disables task start after a model refresh failure with valid cached models', async () => {
+    const { getModels, queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+    );
+
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Plan the release' },
+    });
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeEnabled();
+
+    getModels.mockRejectedValueOnce(new Error('catalog offline'));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: [QueryKeys.workModels] });
+    });
+
+    expect(await screen.findByText('Work models are unavailable.')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Planner' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: 'Describe what you want to get done' }),
+    ).toHaveValue('Plan the release');
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
+    expect(getModels).toHaveBeenCalledTimes(2);
+    queryClient.clear();
+  });
+
+  it('keeps native task start available when only task history fails', async () => {
+    const { queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+      { getTasks: () => Promise.reject(new Error('history offline')) },
+    );
+
+    expect(
+      await screen.findByText('Unable to load recent work right now.'),
+    ).toBeInTheDocument();
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
+      target: { value: 'Plan the release' },
+    });
+    expect(screen.getByRole('button', { name: 'Start task' })).toBeEnabled();
+    queryClient.clear();
+  });
+
+  it('surfaces a failed cancel without dropping the task row', async () => {
+    const { queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [{ id: 'task-1', title: 'Refresh the report', state: 'running' }] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+    );
+    jest.spyOn(dataService, 'cancelWorkTask').mockRejectedValue(new Error('cancel failed'));
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await screen.findByRole('button', { name: 'Cancel Refresh the report' });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Refresh the report' }));
+
+    expect(
+      await screen.findByText('Work could not cancel this task.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel Refresh the report' })).toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('does not offer cancel for an already-terminal task', async () => {
+    const { queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [{ id: 'task-2', title: 'Finished report', state: 'completed' }] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+    );
+
+    await screen.findByText('Finished report');
+    expect(
+      screen.queryByRole('button', { name: 'Cancel Finished report' }),
+    ).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('loads native models, agents, and history without calling the optional CyVox addon', async () => {
+    const originalFetch = global.fetch;
+    const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
+    global.fetch = fetchSpy;
+    try {
+      const { queryClient } = renderHome(
+        { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+        { tasks: [] },
+        [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+      );
+
+      await screen.findByRole('option', { name: 'Planner' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      queryClient.clear();
+    } finally {
+      if (originalFetch) {
+        global.fetch = originalFetch;
+      } else {
+        delete (global as typeof globalThis & { fetch?: typeof fetch }).fetch;
+      }
+    }
   });
 });

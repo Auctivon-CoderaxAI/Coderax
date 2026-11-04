@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import type { TEndpointsConfig } from './types';
 import {
   allowedAddressesSchema,
@@ -24,6 +26,8 @@ import {
   resolveMCPAppRateLimits,
   resolveMCPAppsPolicy,
   endpointSchema,
+  getConfigDefaults,
+  getSchemaDefaults,
   isTwoFactorPolicyProvider,
   resolveEndpointType,
   webSearchSchema,
@@ -32,6 +36,34 @@ import { EModelEndpoint, isDocumentSupportedProvider } from './schemas';
 import { getEndpointFileConfig, mergeFileConfig } from './file-config';
 import { DEFAULT_MCP_APP_CSP_LIMITS } from './mcp/csp';
 import { modelSpecSubagentsSchema } from './models';
+
+describe('config schema defaults', () => {
+  it('includes prefault sections and their nested defaults', () => {
+    const defaults = getConfigDefaults();
+
+    expect(defaults.interface).toBeDefined();
+    expect(defaults.interface?.modelSelect).toBe(true);
+    expect(defaults.interface?.runningChatRename).toBe(true);
+  });
+
+  it('parses prefault defaults rather than returning undefined', () => {
+    const schema = z.object({
+      section: z
+        .object({
+          enabled: z.boolean().default(true),
+          nested: z
+            .object({ count: z.number().default(2) })
+            .optional()
+            .prefault({}),
+        })
+        .prefault({}),
+    });
+
+    expect(getSchemaDefaults(schema)).toEqual({
+      section: { enabled: true, nested: { count: 2 } },
+    });
+  });
+});
 
 const endpointsConfig: TEndpointsConfig = {
   [EModelEndpoint.openAI]: { userProvide: false, order: 0 },
@@ -2775,6 +2807,42 @@ describe('GitHub comparison configuration', () => {
         version: '1.0',
         githubCompare: { enabled: true, baseURL: 'https://other.test' },
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('swarm lease config', () => {
+  it('applies the coordinator defaults inside an empty swarm section', () => {
+    expect(
+      configSchema.parse({ version: '1.0', interface: { swarm: {} } }).interface?.swarm,
+    ).toEqual({
+      leaseMs: 30_000,
+      maxAttempts: 3,
+      maxResultChars: 100_000,
+    });
+  });
+
+  it('accepts bounded deployment overrides', () => {
+    expect(
+      configSchema.parse({
+        version: '1.0',
+        interface: { swarm: { leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 } },
+      }).interface?.swarm,
+    ).toEqual({ leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 });
+  });
+
+  it.each([
+    ['leaseMs', 0],
+    ['leaseMs', 999],
+    ['leaseMs', 600_001],
+    ['maxAttempts', 0],
+    ['maxAttempts', 101],
+    ['maxAttempts', 1.5],
+    ['maxResultChars', 0],
+    ['maxResultChars', 1_000_001],
+  ])('rejects an invalid %s value', (key, value) => {
+    expect(
+      configSchema.safeParse({ version: '1.0', interface: { swarm: { [key]: value } } }).success,
     ).toBe(false);
   });
 });
