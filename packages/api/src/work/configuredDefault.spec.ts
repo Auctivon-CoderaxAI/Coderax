@@ -37,7 +37,7 @@ describe('createConfiguredDefaultResolver', () => {
 
   it('does not load a config that is already attached', async () => {
     let loads = 0;
-    const resolver = createConfiguredDefaultResolver(
+    const resolver = createConfiguredDefaultResolver<Record<string, unknown>, string>(
       async () => {
         loads += 1;
         return null;
