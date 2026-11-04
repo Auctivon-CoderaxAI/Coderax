@@ -1,6 +1,6 @@
 import type { WorkModelSource } from './models';
-import type { WorkDeps } from './router';
 import type { WorkConversation } from './task';
+import type { WorkDeps } from './router';
 
 /**
  * Request-scoped dependencies for the native Work read/cancel router.
@@ -49,8 +49,8 @@ export type WorkDepsLogger = {
 export type WorkDepsProjections = {
   flattenModelConfig: (config: unknown) => WorkModelSource[];
   toWorkConversation: (row: unknown) => WorkConversation | null;
-  rowsFromCursor: (result: unknown) => WorkConversation[];
-  onlyWorkRows: (rows: readonly unknown[]) => WorkConversation[];
+  rowsFromCursor: (result: unknown) => unknown[];
+  onlyWorkRows: (rows: readonly (WorkConversation | null)[]) => WorkConversation[];
 };
 
 export interface WorkDepsFactoryOptions {

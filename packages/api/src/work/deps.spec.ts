@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type { WorkDepsJobs, WorkDepsProjections, WorkDepsStore } from './deps';
-import { createWorkDepsFactory } from './deps';
 import { workStateForJobStatus } from './state';
+import { createWorkDepsFactory } from './deps';
 
 const workModels = createRequire(__filename)(
   '../../../../api/server/routes/workModels.js',
@@ -85,6 +85,21 @@ describe('createWorkDepsFactory', () => {
     expect((rows[0] as { conversationId: string }).conversationId).toBe('c-1');
   });
 
+  it('projects raw cursor rows before filtering Work history', async () => {
+    const rawRows = [WORK_ROW, null, CHAT_ROW];
+    const { depsFor } = makeDeps({
+      db: { getConvosByCursor: async () => ({ conversations: rawRows, nextCursor: null }) },
+    });
+
+    expect(projections.rowsFromCursor({ conversations: rawRows })).toEqual(rawRows);
+    await expect(
+      depsFor({ user: { id: 'user-1' } }).listConversations({
+        userId: 'user-1',
+        limit: 3,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ conversationId: 'c-1', isWork: true })]);
+  });
+
   it('reads one conversation through the owner-scoped store', async () => {
     let read: unknown;
     const { depsFor } = makeDeps({
@@ -108,9 +123,13 @@ describe('createWorkDepsFactory', () => {
   it('takes run state from the native job status', async () => {
     const { depsFor } = makeDeps({ jobs: { getJobStatus: async () => 'complete' } });
 
-    await expect(
-      depsFor({ user: { id: 'user-1' } }).getRunState({ conversationId: 'c-1' }),
-    ).resolves.toBe('completed');
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+    await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBe(
+      'completed',
+    );
   });
 
   it('refuses another user or tenant before aborting', async () => {
