@@ -591,7 +591,11 @@ type SchemaShape<T> = T extends z.ZodObject<infer U> ? U : never;
 
 // Helper type to determine the default value or undefined based on whether the field has a default
 type DefaultValue<T> =
-  T extends z.ZodDefault<z.ZodTypeAny> ? ReturnType<T['_def']['defaultValue']> : undefined;
+  T extends z.ZodDefault<infer Inner>
+    ? z.output<Inner>
+    : T extends z.ZodPrefault<infer Inner>
+      ? z.output<Inner>
+      : undefined;
 
 // Extract default values or undefined from the schema shape
 type ExtractDefaults<T> = {
@@ -602,14 +606,14 @@ export type SchemaDefaults<T> = ExtractDefaults<SchemaShape<T>>;
 
 export type TConfigDefaults = SchemaDefaults<typeof configSchema>;
 
-export function getSchemaDefaults<Schema extends z.AnyZodObject>(
+export function getSchemaDefaults<Schema extends z.ZodObject>(
   schema: Schema,
 ): ExtractDefaults<SchemaShape<Schema>> {
   const shape = schema.shape;
   const entries = Object.entries(shape).map(([key, value]) => {
-    if (value instanceof z.ZodDefault) {
-      // Extract default value if it exists
-      return [key, value._def.defaultValue()];
+    if (value instanceof z.ZodDefault || value instanceof z.ZodPrefault) {
+      // Extract the parsed default, including nested defaults applied by a prefault.
+      return [key, value.parse(undefined)];
     }
     return [key, undefined];
   });
@@ -664,7 +668,7 @@ export const azureBaseSchema = z.object({
   dropParams: z.array(z.string()).optional(),
   version: z.string().optional(),
   baseURL: z.string().optional(),
-  additionalHeaders: z.record(z.string()).optional(),
+  additionalHeaders: z.record(z.string(), z.string()).optional(),
 });
 
 export type TAzureBaseSchema = z.infer<typeof azureBaseSchema>;
@@ -760,7 +764,7 @@ export const baseEndpointSchema = z.object({
    * providers through an AI gateway / reverse proxy that consumes metadata
    * headers (provider-native request shaping is preserved).
    */
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   titlePrompt: z.string().optional(),
   titleModel: z.string().optional(),
   titleConvo: z.boolean().optional(),
@@ -888,7 +892,7 @@ export const assistantEndpointSchema = baseEndpointSchema.merge(
         userIdQuery: z.boolean().optional(),
       })
       .optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
   }),
 );
 
@@ -1112,7 +1116,7 @@ export const toolApprovalHookConfigSchema = z.object({
   /** Optional regex matched against the tool name; omit to run for every tool. */
   matcher: z.string().optional(),
   /** Static options forwarded to the module's builder; the hook's own per-call config. */
-  options: z.record(z.unknown()).optional(),
+  options: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type TToolApprovalHookConfig = z.infer<typeof toolApprovalHookConfigSchema>;
@@ -1571,7 +1575,7 @@ export const agentsEndpointSchema = baseEndpointSchema
                 .default(DEFAULT_CACHE_CLEAR_TIMEOUT_MS),
             })
             .optional()
-            .default({}),
+            .prefault({}),
         })
         .optional(),
       maxRecursionLimit: z.number().optional(),
@@ -1583,7 +1587,7 @@ export const agentsEndpointSchema = baseEndpointSchema
       /** Per-tool overrides of `maxToolCallArgBytes`, keyed by model-facing tool name; `0`
        * disables the guard for that tool only. Merged over Coderax's shipped default of
        * `{ create_file: 131072 }`. */
-      maxToolCallArgBytesByTool: z.record(z.number()).optional(),
+      maxToolCallArgBytesByTool: z.record(z.string(), z.number()).optional(),
       /** Characters of retained tool output the save path may tokenize exactly for the
        * context gauge when a turn stops at the tool-call limit (see
        * `retainedToolTokens`). Tokenizing costs ~60 ms/MB and runs once per stopped
@@ -1957,7 +1961,7 @@ export const agentsEndpointSchema = baseEndpointSchema
       checkpointer: checkpointerSchema,
     }),
   )
-  .default({
+  .prefault({
     disableBuilder: false,
     capabilities: defaultAgentCapabilities,
     maxCitations: 30,
@@ -1991,7 +1995,7 @@ export const paramDefinitionSchema = z.object({
       path: ['positiveMin'],
     })
     .optional(),
-  enumMappings: z.record(z.union([z.number(), z.boolean(), z.string()])).optional(),
+  enumMappings: z.record(z.string(), z.union([z.number(), z.boolean(), z.string()])).optional(),
   component: z.nativeEnum(ComponentTypes).optional(),
   optionType: z.nativeEnum(OptionTypes).optional(),
   columnSpan: z.number().int().nonnegative().optional(),
@@ -2048,7 +2052,7 @@ export const endpointSchema = baseEndpointSchema.merge(
      * OpenAI-compatible endpoints.
      */
     provider: z.literal(EModelEndpoint.anthropic).optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     addParams: addParamsSchema.optional(),
     dropParams: z.array(z.string()).optional(),
     customParams: z
@@ -2069,6 +2073,7 @@ export const endpointSchema = baseEndpointSchema.merge(
     /** Static per-model token config: context window and per-million-token rates */
     tokenConfig: z
       .record(
+        z.string(),
         z.object({
           prompt: z.number(),
           completion: z.number(),
@@ -2359,7 +2364,7 @@ export const mcpAppRateLimitSchema = z
     resourcesPerMinute: z.number().int().positive().default(120),
     toolCallsPerMinute: z.number().int().positive().default(60),
   })
-  .default({});
+  .prefault({});
 
 export type TMCPAppRateLimits = z.infer<typeof mcpAppRateLimitSchema>;
 
@@ -2450,7 +2455,7 @@ const termsOfServiceSchema = z.object({
 export type TTermsOfService = z.infer<typeof termsOfServiceSchema>;
 
 // Schema for localized string (either simple string or language-keyed object)
-const localizedStringSchema = z.union([z.string(), z.record(z.string())]);
+const localizedStringSchema = z.union([z.string(), z.record(z.string(), z.string())]);
 export type LocalizedString = z.infer<typeof localizedStringSchema>;
 export const mcpRefreshDefaults = {
   toolsRefreshInterval: 5 * 60 * 1000,
@@ -2587,8 +2592,8 @@ const themeModeSchema = z
       z.string().regex(/^[a-z][a-z0-9-]*$/),
       z.string().regex(/^\d{1,3} \d{1,3} \d{1,3}$/),
     ),
-    appearance: z.record(z.string()),
-    brands: z.record(z.string()),
+    appearance: z.record(z.string(), z.string()),
+    brands: z.record(z.string(), z.string()),
   })
   .partial()
   .strict();
@@ -2602,7 +2607,7 @@ export const themeDefinitionSchema = z
     version: z.literal(1),
     name: z.string().trim().min(1),
     modes: z.object({ light: themeModeSchema, dark: themeModeSchema }).partial().strict(),
-    brands: z.record(z.string()).optional(),
+    brands: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 
@@ -2821,9 +2826,9 @@ export const interfaceSchema = z
             .object({
               enabled: z.boolean().optional(),
               maxLifetimeHours: z.number().int().min(1).max(8760).optional(),
-              resources: z.record(scheduledMCPResourceBindingSchema).optional(),
+              resources: z.record(z.string(), scheduledMCPResourceBindingSchema).optional(),
               /** Trusted service declarations, keyed by raw server and upstream tool name. */
-              readOnlyPolicy: z.record(scheduledMCPReadOnlyPolicySchema).optional(),
+              readOnlyPolicy: z.record(z.string(), scheduledMCPReadOnlyPolicySchema).optional(),
             })
             .optional(),
           /** Bounded exponential receipt retry interval; equal jitter prevents outage waves. */
@@ -2912,7 +2917,7 @@ export const interfaceSchema = z
      *  released at the next conversation switch. */
     historyCacheRecent: z.number().int().min(0).max(20).default(DEFAULT_HISTORY_CACHE_RECENT),
   })
-  .default({
+  .prefault({
     modelSelect: true,
     runningChatRename: true,
     codeHighlightThrottleMs: 300,
@@ -3378,7 +3383,7 @@ export const webSearchSchema = z.object({
       formats: z.array(z.string()).optional(),
       includeTags: z.array(z.string()).optional(),
       excludeTags: z.array(z.string()).optional(),
-      headers: z.record(z.string()).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
       waitFor: z.number().optional(),
       timeout: z.number().int().nonnegative().optional(),
       maxAge: z.number().optional(),
@@ -3399,7 +3404,7 @@ export const webSearchSchema = z.object({
       changeTrackingOptions: z
         .object({
           modes: z.array(z.string()).optional(),
-          schema: z.record(z.unknown()).optional(),
+          schema: z.record(z.string(), z.unknown()).optional(),
           prompt: z.string().optional(),
           tag: z.string().nullable().optional(),
         })
@@ -3528,7 +3533,7 @@ export const memorySchema = z.object({
         provider: z.string(),
         model: z.string(),
         instructions: z.string().optional(),
-        model_parameters: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+        model_parameters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
       }),
     ])
     .optional(),
@@ -3568,7 +3573,7 @@ export const summarizationConfigSchema = z.object({
   enabled: z.boolean().optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
-  parameters: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+  parameters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
   trigger: summarizationTriggerSchema.optional(),
   prompt: z.string().optional(),
   updatePrompt: z.string().optional(),
@@ -3772,7 +3777,7 @@ export const langfuseConfigSchema = z.object({
    * schema does not yet express — and note the fanout collector forwards only
    * `Authorization` upstream regardless.
    */
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   /** Trace user identity and allowlisted user/request metadata. */
   trace: langfuseTraceConfigSchema.optional(),
 });
@@ -3831,7 +3836,7 @@ export const chatProjectsConfigSchema = z
       .default(MAX_CHAT_PROJECT_DESCRIPTION_LENGTH),
   })
   .strict()
-  .default({});
+  .prefault({});
 
 export type TChatProjectsConfig = z.infer<typeof chatProjectsConfigSchema>;
 
@@ -3982,9 +3987,9 @@ export const configSchema = z.object({
             .max(256)
             .default(DEFAULT_MCP_APP_OPERATION_LIMITS.maxActive),
         })
-        .default({}),
+        .prefault({}),
     })
-    .default({}),
+    .prefault({}),
   mcpSettings: z
     .object({
       allowedDomains: z.array(z.string()).optional(),
@@ -4043,7 +4048,7 @@ export const configSchema = z.object({
             .default(30_000),
           authorizationFenceRetryBatchSize: z.number().int().positive().max(10_000).default(100),
         })
-        .default({}),
+        .prefault({}),
       apps: z.boolean().optional(),
     })
     .optional(),
