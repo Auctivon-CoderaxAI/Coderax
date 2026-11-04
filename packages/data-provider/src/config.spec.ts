@@ -2813,7 +2813,9 @@ describe('GitHub comparison configuration', () => {
 
 describe('swarm lease config', () => {
   it('applies the coordinator defaults inside an empty swarm section', () => {
-    expect(configSchema.parse({ version: '1.0', swarm: {} }).swarm).toEqual({
+    expect(
+      configSchema.parse({ version: '1.0', interface: { swarm: {} } }).interface?.swarm,
+    ).toEqual({
       leaseMs: 30_000,
       maxAttempts: 3,
       maxResultChars: 100_000,
@@ -2824,8 +2826,8 @@ describe('swarm lease config', () => {
     expect(
       configSchema.parse({
         version: '1.0',
-        swarm: { leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 },
-      }).swarm,
+        interface: { swarm: { leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 } },
+      }).interface?.swarm,
     ).toEqual({ leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 });
   });
 
@@ -2840,7 +2842,7 @@ describe('swarm lease config', () => {
     ['maxResultChars', 1_000_001],
   ])('rejects an invalid %s value', (key, value) => {
     expect(
-      configSchema.safeParse({ version: '1.0', swarm: { [key]: value } }).success,
+      configSchema.safeParse({ version: '1.0', interface: { swarm: { [key]: value } } }).success,
     ).toBe(false);
   });
 });
