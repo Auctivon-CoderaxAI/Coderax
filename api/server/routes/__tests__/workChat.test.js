@@ -209,7 +209,7 @@ const fakeDb = (existing = null) => {
     getConvo: async () => existing,
     saveConvo: async (ctx, fields, meta) => {
       saves.push({ ctx, fields, meta });
-      return { conversationId: fields.conversationId };
+      return { ...fields, conversationId: fields.conversationId };
     },
   };
 };
@@ -371,6 +371,36 @@ test('storage failure during Work tenant verification fails closed before agent 
     assert.equal(res.payload.error, 'WORK_CONVERSATION_UNAVAILABLE', failingMethod);
     assert.doesNotMatch(JSON.stringify(res.payload), /private storage failure/);
     assert.equal(db.saves.length, 0, failingMethod);
+  }
+});
+
+test('a nonthrowing failed or mismatched Work seed never delegates to an agent', async () => {
+  const failures = [
+    ['null storage result', null],
+    ['swallowed storage exception', { message: 'private database error' }],
+    ['foreign tenant', { conversationId: 'c-1', isWork: true, tenantId: 'tenant-b' }],
+    ['missing Work marker', { conversationId: 'c-1', isWork: false, tenantId: 'tenant-a' }],
+    ['different conversation', { conversationId: 'other', isWork: true, tenantId: 'tenant-a' }],
+  ];
+  for (const [label, returned] of failures) {
+    const db = fakeDb();
+    db.saveConvo = async () => returned;
+    const middleware = workContextMiddleware(
+      async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+      () => 'llama3:latest',
+      (req, context) => seedWorkConversation(req, context, db),
+    );
+    const req = {
+      body: { text: 'plan', model: 'auto', conversationId: 'c-1' },
+      user: { id: 'user-1', tenantId: 'tenant-a' },
+    };
+    const res = response();
+    let delegated = false;
+    await middleware(req, res, () => { delegated = true; });
+    assert.equal(delegated, false, label);
+    assert.equal(res.statusCode, 503, label);
+    assert.equal(res.payload.error, 'WORK_CONVERSATION_UNAVAILABLE', label);
+    assert.doesNotMatch(JSON.stringify(res.payload), /private database error/);
   }
 });
 
