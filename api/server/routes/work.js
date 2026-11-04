@@ -1,5 +1,6 @@
 const { logger } = require('@coderax/data-schemas');
 const {
+  createWorkDepsFactory,
   createWorkRouter,
   GenerationJobManager,
   persistTerminalWorkState,
@@ -7,7 +8,12 @@ const {
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
-const { createWorkDepsFactory } = require('./workDeps');
+const {
+  flattenModelConfig,
+  toWorkConversation,
+  rowsFromCursor,
+  onlyWorkRows,
+} = require('./workModels');
 const { getWorkChatRouter } = require('./workChat');
 const { createWorkApiRouter } = require('./workApi');
 
@@ -29,6 +35,7 @@ const depsFor = createWorkDepsFactory({
   loadModels,
   workStateForJobStatus,
   logger,
+  projections: { flattenModelConfig, toWorkConversation, rowsFromCursor, onlyWorkRows },
 });
 
 module.exports = createWorkApiRouter({
