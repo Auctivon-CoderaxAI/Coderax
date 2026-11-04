@@ -3,11 +3,12 @@ const { logger } = require('@coderax/data-schemas');
 const { Constants, EModelEndpoint, PermissionBits } = require('coderax-data-provider');
 const {
   buildWorkModelOptions,
+  createConfiguredDefaultResolver,
   resolveWorkAgentModel,
   resolveWorkSelection,
   WORK_AUTO_MODEL_ID,
 } = require('@coderax/api');
-const { createConfiguredDefaultResolver, flattenModelConfig } = require('./workModels');
+const { flattenModelConfig } = require('./workModels');
 
 /**
  * The deployment's default model, read from the app config Coderax already
@@ -31,14 +32,11 @@ function resolveConfiguredDefaultModel(config) {
   return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
 }
 
-const configuredDefaultFromRequest = createConfiguredDefaultResolver(
-  async (req) => {
-    const { getAppConfigOptionsFromUser } = require('@coderax/api');
-    const { getAppConfig } = require('~/server/services/Config');
-    return getAppConfig(getAppConfigOptionsFromUser(req?.user));
-  },
-  resolveConfiguredDefaultModel,
-);
+const configuredDefaultFromRequest = createConfiguredDefaultResolver(async (req) => {
+  const { getAppConfigOptionsFromUser } = require('@coderax/api');
+  const { getAppConfig } = require('~/server/services/Config');
+  return getAppConfig(getAppConfigOptionsFromUser(req?.user));
+}, resolveConfiguredDefaultModel);
 
 function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
@@ -71,7 +69,12 @@ function defaultAuthorizeAgent(req, res, next) {
 function selectedAgentAuthorizationMiddleware(authorizeAgent = defaultAuthorizeAgent) {
   return (req, res, next) => {
     if (hasMalformedSelectedAgentId(req.body)) {
-      return fail(res, 400, 'WORK_AGENT_ID_INVALID', 'The selected Work agent identifier is invalid.');
+      return fail(
+        res,
+        400,
+        'WORK_AGENT_ID_INVALID',
+        'The selected Work agent identifier is invalid.',
+      );
     }
     if (!selectedAgentId(req.body)) {
       return next();

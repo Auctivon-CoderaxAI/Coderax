@@ -89,6 +89,7 @@ export * from './projects';
 /* Conversations */
 export * from './conversations';
 /* Work */
+export * from './work/configuredDefault';
 export * from './work/models';
 export * from './work/task';
 export * from './work/router';

@@ -6,8 +6,8 @@ const {
   rowsFromCursor,
   onlyWorkRows,
   isLocalEndpoint,
-  createConfiguredDefaultResolver,
 } = require('../workModels');
+const { createConfiguredDefaultResolver } = require('@coderax/api');
 
 test('tags locally served endpoints as local and keeps them', () => {
   const models = flattenModelConfig({
@@ -60,7 +60,10 @@ test('maps a conversation and never infers Work from other fields', () => {
       updatedAt: undefined,
     },
   );
-  assert.equal(toWorkConversation({ conversationId: 'c-2', title: 'Chat', isWork: 'yes' }).isWork, false);
+  assert.equal(
+    toWorkConversation({ conversationId: 'c-2', title: 'Chat', isWork: 'yes' }).isWork,
+    false,
+  );
   assert.equal(toWorkConversation({ conversationId: 'c-3' }).workState, undefined);
   assert.equal(toWorkConversation(null), null);
 });
@@ -87,65 +90,4 @@ test('history keeps Work conversations only', () => {
   );
   assert.deepEqual(onlyWorkRows(undefined), []);
   assert.deepEqual(onlyWorkRows([]), []);
-});
-
-test('the Work default resolver loads the app config when the request has none', async () => {
-  let loads = 0;
-  const resolver = createConfiguredDefaultResolver(
-    async () => {
-      loads += 1;
-      return { modelSpecs: { list: [{ default: true, preset: { model: 'llama3:latest' } }] } };
-    },
-    (config) => config.modelSpecs.list[0].preset.model,
-  );
-  const req = { user: { id: 'user-1' } };
-
-  assert.equal(await resolver(req), 'llama3:latest');
-  assert.equal(loads, 1);
-  assert.deepEqual(req.config, {
-    modelSpecs: { list: [{ default: true, preset: { model: 'llama3:latest' } }] },
-  });
-});
-
-test('a loaded app config is reused instead of read again', async () => {
-  let loads = 0;
-  const resolver = createConfiguredDefaultResolver(
-    async () => {
-      loads += 1;
-      return { modelSpecs: { list: [{ default: true, preset: { model: 'qwen2.5' } }] } };
-    },
-    (config) => config?.modelSpecs?.list?.[0]?.preset?.model ?? null,
-  );
-  const req = {};
-
-  assert.equal(await resolver(req), 'qwen2.5');
-  assert.equal(await resolver(req), 'qwen2.5');
-  assert.equal(loads, 1);
-});
-
-test('an already attached config is not loaded again', async () => {
-  let loads = 0;
-  const resolver = createConfiguredDefaultResolver(
-    async () => {
-      loads += 1;
-      return null;
-    },
-    () => 'from-config',
-  );
-
-  assert.equal(await resolver({ config: {} }), 'from-config');
-  assert.equal(loads, 0);
-});
-
-test('a config read failure yields no default instead of failing the request', async () => {
-  const resolver = createConfiguredDefaultResolver(
-    async () => {
-      throw new Error('config unavailable');
-    },
-    () => {
-      throw new Error('the resolver must not run without a config');
-    },
-  );
-
-  assert.equal(await resolver({ user: { id: 'user-1' } }), null);
 });
