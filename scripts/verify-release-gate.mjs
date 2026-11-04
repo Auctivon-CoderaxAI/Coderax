@@ -1,0 +1,246 @@
+#!/usr/bin/env node
+/**
+ * Verify that a commit's required checks actually executed and passed.
+ *
+ * A failed GitHub Actions check with no recorded steps did not test the
+ * commit: the job never started (runner outage, account billing block, etc.).
+ * Treating that as an ordinary code failure is misleading, and treating a
+ * preview or health probe as sufficient is how an unverified release ships.
+ * This gate fails closed and reports those checks as BLOCKED with the runner's
+ * own annotation when GitHub provides one.
+ *
+ * Usage:
+ *   node scripts/verify-release-gate.mjs --sha <commit> --require "Static checks,Backend Unit Tests"
+ *   node scripts/verify-release-gate.mjs --sha <commit> --require "Static checks" --json
+ */
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const GITHUB_ACTIONS_APP = 'github-actions';
+const DEFAULT_REPO = 'CoderaxAI/Coderax';
+
+export function parseRequired(value) {
+  if (typeof value !== 'string') {
+    return [];
+  }
+  return [...new Set(value.split(',').map((name) => name.trim()).filter(Boolean))];
+}
+
+export function classifyCheckRun(check) {
+  if (check?.status !== 'completed') {
+    return 'pending';
+  }
+  if (check.conclusion === 'success') {
+    return 'pass';
+  }
+  const executedSteps = Array.isArray(check.steps) ? check.steps.length : 0;
+  if (check.app?.slug === GITHUB_ACTIONS_APP && executedSteps === 0) {
+    return 'blocked';
+  }
+  return 'fail';
+}
+
+function checkTimestamp(check) {
+  return Date.parse(check.completed_at ?? check.started_at ?? '') || 0;
+}
+
+function latestRequiredCheckRuns(checkRuns, required) {
+  const wanted = new Set(required);
+  const latest = new Map();
+  for (const check of checkRuns) {
+    if (!wanted.has(check.name)) {
+      continue;
+    }
+    const previous = latest.get(check.name);
+    if (!previous || checkTimestamp(check) >= checkTimestamp(previous)) {
+      latest.set(check.name, check);
+    }
+  }
+  return latest;
+}
+
+export function evaluateReleaseGate({ sha, required, checkRuns, annotations = {} }) {
+  if (!Array.isArray(checkRuns)) {
+    throw new TypeError('checkRuns must be an array');
+  }
+  if (!Array.isArray(required) || required.length === 0) {
+    throw new TypeError('required must contain at least one check name');
+  }
+
+  const latest = latestRequiredCheckRuns(checkRuns, required);
+  const results = required.map((name) => {
+    const check = latest.get(name);
+    if (!check) {
+      return {
+        name,
+        status: 'missing',
+        detail: 'No check run with this name exists at the commit.',
+        conclusion: null,
+        url: null,
+      };
+    }
+    const status = classifyCheckRun(check);
+    let detail;
+    if (status === 'pass') {
+      detail = 'Executed and passed.';
+    } else if (status === 'pending') {
+      detail = `Still ${check.status}.`;
+    } else if (status === 'blocked') {
+      const annotation = (annotations[check.id] ?? []).find(
+        (item) => typeof item?.message === 'string' && item.message.trim().length > 0,
+      );
+      detail =
+        annotation?.message ??
+        'The job did not execute any steps. Treat this as infrastructure-blocked, not as a code failure.';
+    } else {
+      detail = `Conclusion: ${check.conclusion ?? 'unknown'}.`;
+    }
+    return {
+      name,
+      status,
+      detail,
+      conclusion: check.conclusion ?? null,
+      url: check.html_url ?? null,
+    };
+  });
+
+  return {
+    sha,
+    ok: results.every((result) => result.status === 'pass'),
+    results,
+  };
+}
+
+export function parseArgs(argv) {
+  const args = {
+    repo: DEFAULT_REPO,
+    sha: process.env.GITHUB_SHA ?? '',
+    required: [],
+    json: false,
+    help: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--repo') {
+      args.repo = argv[++index] ?? '';
+    } else if (argument === '--sha') {
+      args.sha = argv[++index] ?? '';
+    } else if (argument === '--require') {
+      args.required = parseRequired(argv[++index] ?? '');
+    } else if (argument === '--json') {
+      args.json = true;
+    } else if (argument === '--help' || argument === '-h') {
+      args.help = true;
+    } else {
+      throw new Error(`Unknown argument: ${argument}`);
+    }
+  }
+  return args;
+}
+
+export function formatReleaseGate(gate) {
+  const width = Math.max(6, ...gate.results.map((result) => result.status.length));
+  const lines = gate.results.map(
+    (result) =>
+      `${result.status.toUpperCase().padEnd(width)}  ${result.name} — ${result.detail}`,
+  );
+  const failed = gate.results.filter((result) => result.status !== 'pass').length;
+  lines.push('');
+  lines.push(
+    gate.ok
+      ? `Release gate PASSED at ${gate.sha}.`
+      : `Release gate FAILED at ${gate.sha}: ${failed} of ${gate.results.length} required checks did not pass.`,
+  );
+  return lines.join('\n');
+}
+
+function runGh(args) {
+  return execFileSync('gh', args, {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+export function loadCheckRuns(repo, sha, exec = runGh) {
+  const raw = exec([
+    'api',
+    '--paginate',
+    '--slurp',
+    `repos/${repo}/commits/${sha}/check-runs?per_page=100&filter=all`,
+  ]);
+  const pages = JSON.parse(raw);
+  return pages.flatMap((page) =>
+    Array.isArray(page?.check_runs) ? page.check_runs : [],
+  );
+}
+
+export function loadAnnotations(repo, checkId, exec = runGh) {
+  try {
+    const parsed = JSON.parse(
+      exec(['api', `repos/${repo}/check-runs/${checkId}/annotations`]),
+    );
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function usage() {
+  return [
+    'Usage: node scripts/verify-release-gate.mjs --sha <commit> --require "Check A,Check B"',
+    '',
+    'Options:',
+    '  --repo <owner/name>  Repository (default: CoderaxAI/Coderax)',
+    '  --sha <commit>       Exact commit to verify (default: GITHUB_SHA)',
+    '  --require <names>    Comma-separated required check names',
+    '  --json               Print the full result as JSON',
+    '  --help               Show this message',
+  ].join('\n');
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(usage());
+    return 0;
+  }
+  if (!/^[^/\s]+\/[^/\s]+$/.test(args.repo)) {
+    throw new Error('--repo must be owner/name');
+  }
+  if (!/^[0-9a-f]{7,40}$/i.test(args.sha)) {
+    throw new Error('--sha must be a 7-40 character commit SHA');
+  }
+  if (args.required.length === 0) {
+    throw new Error('--require must name at least one check');
+  }
+
+  const checkRuns = loadCheckRuns(args.repo, args.sha);
+  const required = new Set(args.required);
+  const annotations = {};
+  for (const check of checkRuns) {
+    if (required.has(check.name) && classifyCheckRun(check) === 'blocked') {
+      annotations[check.id] = loadAnnotations(args.repo, check.id);
+    }
+  }
+
+  const gate = evaluateReleaseGate({
+    sha: args.sha,
+    required: args.required,
+    checkRuns,
+    annotations,
+  });
+  console.log(args.json ? JSON.stringify(gate, null, 2) : formatReleaseGate(gate));
+  return gate.ok ? 0 : 1;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error) => {
+      console.error(`Release gate verification failed: ${error.message}`);
+      process.exitCode = 1;
+    });
+}
