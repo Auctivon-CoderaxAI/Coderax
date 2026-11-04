@@ -49,17 +49,30 @@ export function classifyCheckRun(check) {
 }
 
 function isNewerCheck(check, previous) {
-  const currentTime = Date.parse(check.completed_at ?? check.started_at ?? '') || 0;
-  const previousTime = Date.parse(previous.completed_at ?? previous.started_at ?? '') || 0;
-  if (currentTime === 0 || previousTime === 0) {
-    return (Number(check.id) || 0) >= (Number(previous.id) || 0);
+  const runId = Number(check.workflow_run_id) || 0;
+  const previousRunId = Number(previous.workflow_run_id) || 0;
+  if (runId && previousRunId && runId !== previousRunId) {
+    return runId > previousRunId;
   }
-  return currentTime >= previousTime;
+  const attempt = Number(check.workflow_run_attempt) || 0;
+  const previousAttempt = Number(previous.workflow_run_attempt) || 0;
+  if (attempt !== previousAttempt) {
+    return attempt > previousAttempt;
+  }
+  // Check IDs increase with new attempts; completion timestamps can overlap.
+  return (Number(check.id) || 0) >= (Number(previous.id) || 0);
 }
 
 function checkRunKey(check) {
   const runId = /\/actions\/runs\/(\d+)/.exec(check.details_url ?? '')?.[1];
-  return `${check.name}\0${runId ?? check.id}`;
+  // Workflow ID is stable across push/dispatch/reruns. An unknown workflow
+  // stays isolated by run ID rather than silently hiding a failed check.
+  const workflow = check.workflow_id
+    ? `workflow:${check.workflow_id}`
+    : runId
+      ? `run:${runId}`
+      : `check:${check.id}`;
+  return `${check.name}\0${workflow}`;
 }
 
 function latestRequiredCheckRuns(checkRuns, required) {
@@ -218,16 +231,37 @@ export function loadCheckRuns(repo, sha, exec = runGh) {
     `repos/${repo}/commits/${sha}/check-runs?per_page=100&filter=all`,
   ]);
   const pages = JSON.parse(raw);
+  const workflows = new Map();
   return pages
     .flatMap((page) => (Array.isArray(page?.check_runs) ? page.check_runs : []))
     .map((check) => {
       if (check.app?.slug !== GITHUB_ACTIONS_APP) {
         return check;
       }
-      if (check.status !== 'completed' || check.conclusion === 'success') {
-        return check;
+      const runId = /\/actions\/runs\/(\d+)/.exec(check.details_url ?? '')?.[1];
+      if (runId && !workflows.has(runId)) {
+        try {
+          const run = JSON.parse(exec(['api', `repos/${repo}/actions/runs/${runId}`]));
+          workflows.set(runId, {
+            id: Number(run.workflow_id) || null,
+            attempt: Number(run.run_attempt) || null,
+          });
+        } catch {
+          // Unknown identity must not make an old failure disappear.
+          workflows.set(runId, { id: null, attempt: null });
+        }
       }
-      return { ...check, steps: loadJobSteps(repo, check, exec) };
+      const workflow = workflows.get(runId) ?? {};
+      const enriched = {
+        ...check,
+        workflow_id: workflow.id,
+        workflow_run_id: runId ? Number(runId) : null,
+        workflow_run_attempt: workflow.attempt,
+      };
+      if (check.status !== 'completed' || check.conclusion === 'success') {
+        return enriched;
+      }
+      return { ...enriched, steps: loadJobSteps(repo, check, exec) };
     });
 }
 
