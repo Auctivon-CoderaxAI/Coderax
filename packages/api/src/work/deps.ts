@@ -1,3 +1,7 @@
+import type { WorkModelSource } from './models';
+import type { WorkDeps } from './router';
+import type { WorkConversation } from './task';
+
 /**
  * Request-scoped dependencies for the native Work read/cancel router.
  *
@@ -43,17 +47,17 @@ export type WorkDepsLogger = {
 };
 
 export type WorkDepsProjections = {
-  flattenModelConfig: (config: unknown) => unknown[];
-  toWorkConversation: (row: unknown) => unknown;
-  rowsFromCursor: (result: unknown) => unknown[];
-  onlyWorkRows: (rows: unknown[]) => unknown[];
+  flattenModelConfig: (config: unknown) => WorkModelSource[];
+  toWorkConversation: (row: unknown) => WorkConversation | null;
+  rowsFromCursor: (result: unknown) => WorkConversation[];
+  onlyWorkRows: (rows: readonly unknown[]) => WorkConversation[];
 };
 
 export interface WorkDepsFactoryOptions {
   db: WorkDepsStore;
   jobs: WorkDepsJobs;
   loadModels: (req: WorkDepsRequest) => Promise<unknown> | unknown;
-  workStateForJobStatus: (status: string | null | undefined) => unknown;
+  workStateForJobStatus: (status: string | null | undefined) => string | null;
   logger?: WorkDepsLogger;
   projections: WorkDepsProjections;
 }
@@ -65,7 +69,7 @@ export function createWorkDepsFactory({
   workStateForJobStatus,
   logger,
   projections,
-}: WorkDepsFactoryOptions) {
+}: WorkDepsFactoryOptions): (req: WorkDepsRequest) => WorkDeps {
   if (
     !db ||
     !jobs ||
@@ -82,7 +86,7 @@ export function createWorkDepsFactory({
     );
   }
 
-  return function depsFor(req: WorkDepsRequest) {
+  return function depsFor(req: WorkDepsRequest): WorkDeps {
     return {
       listModels: async () => projections.flattenModelConfig(await loadModels(req)),
       listConversations: async ({ userId, limit }: { userId: string; limit: number }) => {
