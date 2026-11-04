@@ -25,6 +25,7 @@ function makeDeps(
   } = {},
 ) {
   const calls = { cursor: [] as unknown[], abort: [] as unknown[], warns: [] as string[] };
+  const abortJob = overrides.jobs?.abortJob;
   const db: WorkDepsStore = {
     getConvosByCursor: async (userId, options) => {
       calls.cursor.push({ userId, options });
@@ -36,11 +37,11 @@ function makeDeps(
   const jobs: WorkDepsJobs = {
     getJob: async () => ({ userId: 'user-1', tenantId: 'tenant-a', createdAt: 42 }),
     getJobStatus: async () => 'complete',
+    ...overrides.jobs,
     abortJob: async (conversationId, options) => {
       calls.abort.push([conversationId, options]);
-      return { success: true };
+      return abortJob ? abortJob(conversationId, options) : { success: true };
     },
-    ...overrides.jobs,
   };
   const factory = createWorkDepsFactory({
     db,
@@ -198,12 +199,13 @@ describe('createWorkDepsFactory', () => {
       }),
     ).resolves.toBe(false);
     await expect(
-      lost.depsFor({ user: { id: 'user-1' } }).cancelRun({
+      lost.depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).cancelRun({
         userId: 'user-1',
         conversationId: 'c-1',
       }),
     ).resolves.toBe(false);
     expect(missing.calls.abort).toHaveLength(0);
+    expect(lost.calls.abort).toEqual([['c-1', { expectedCreatedAt: 42 }]]);
   });
 
   it('rejects a factory without projections', () => {
