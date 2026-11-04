@@ -260,8 +260,8 @@ function workContextMiddleware(
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
-      /** A seed failure must not fail the turn: the marker is also written by the
-       *  turn's own save, so the run stays usable and the gap is logged. */
+      /** A seed/read failure must fail closed. Without the persisted-row read we cannot
+       *  verify tenant ownership before the native agent handler runs. */
       try {
         const seedResult = await seedConversation(req, context);
         if (seedResult?.reason === 'tenant_mismatch') {
@@ -281,7 +281,13 @@ function workContextMiddleware(
           );
         }
       } catch {
-        logger.warn('[Work] Failed to seed the Work conversation.');
+        logger.warn('[Work] Could not verify or seed the Work conversation.');
+        return fail(
+          res,
+          503,
+          'WORK_CONVERSATION_UNAVAILABLE',
+          'Work could not verify the conversation. Try again when storage is available.',
+        );
       }
       /**
        * `auto` is a UI choice, never a provider id: the native runner receives
