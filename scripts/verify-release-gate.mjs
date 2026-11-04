@@ -70,8 +70,17 @@ function checkRunKey(check) {
   let workflow = `check:${check.id}`;
   if (check.workflow_id) {
     workflow = `workflow:${check.workflow_id}`;
-  } else if (runId) {
-    workflow = `run:${runId}`;
+  } else {
+    // Non-Actions providers retry without an Actions run URL. Group those
+    // attempts by provider identity so the newest execution wins, while
+    // keeping different providers separate.
+    const provider =
+      check.app?.slug === GITHUB_ACTIONS_APP ? null : (check.app?.id ?? check.app?.slug);
+    if (provider != null && String(provider).length > 0) {
+      workflow = `provider:${provider}`;
+    } else if (runId) {
+      workflow = `run:${runId}`;
+    }
   }
   return `${check.name}\0${workflow}`;
 }

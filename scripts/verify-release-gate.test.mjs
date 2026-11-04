@@ -347,3 +347,46 @@ test('missing workflow identity preserves the old failure rather than guessing r
   assert.equal(gate.ok, false);
   assert.equal(gate.results[0].status, 'fail');
 });
+
+test('a newer non-Actions retry supersedes an older failure', () => {
+  const failed = actionsCheck({
+    id: 51,
+    name: 'Preview',
+    conclusion: 'failure',
+    app: { slug: 'vercel' },
+  });
+  const passed = actionsCheck({
+    id: 52,
+    name: 'Preview',
+    app: { slug: 'vercel' },
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'e'.repeat(40),
+    required: ['Preview'],
+    checkRuns: [failed, passed],
+  });
+  assert.equal(gate.ok, true);
+  assert.equal(gate.results[0].status, 'pass');
+});
+
+test('non-Actions providers stay isolated when they share a check name', () => {
+  const failed = actionsCheck({
+    id: 61,
+    name: 'Preview',
+    conclusion: 'failure',
+    app: { slug: 'vercel' },
+  });
+  const passed = actionsCheck({
+    id: 62,
+    name: 'Preview',
+    app: { slug: 'other-provider' },
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'f'.repeat(40),
+    required: ['Preview'],
+    checkRuns: [failed, passed],
+  });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'fail');
+  assert.match(gate.results[0].detail, /2 matching checks evaluated/);
+});
