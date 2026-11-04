@@ -428,7 +428,7 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* Work chooses an authenticated agent; Chat routes models automatically. */}
+        {/* Work selects an eligible model and authenticated agent; Chat routes models automatically. */}
         {index === 0 && showWorkAgentSelector && (
           <div className="max-w-56 min-w-0 shrink overflow-hidden">
             <WorkAgentConversationSelector />

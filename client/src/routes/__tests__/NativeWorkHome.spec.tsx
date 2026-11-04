@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { dataService, EModelEndpoint, PermissionBits, QueryKeys } from 'coderax-data-provider';
 import type { Agent, TWorkModelsResponse, TWorkTasksResponse } from 'coderax-data-provider';
+import { getWorkModelKey } from '~/components/Chat/Input/WorkAgentSelector';
 import NativeWorkHome from '../NativeWorkHome';
 
 const messages: Record<string, string> = {
@@ -16,6 +17,7 @@ const messages: Record<string, string> = {
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_work_agent: 'Work agent',
   com_work_select_agent: 'Select an available agent',
+  com_ui_model: 'Model',
   com_cyvox_cancel: 'Cancel',
   com_cyvox_work_start_task_aria: 'Start task',
   com_cyvox_tasks_unavailable: 'Unable to load recent work right now.',
@@ -150,8 +152,22 @@ describe('native Work home', () => {
     const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
     await screen.findByRole('option', { name: 'Reviewer' });
     const agentSelect = screen.getByLabelText('Work agent');
+    const modelSelect = screen.getByLabelText('Model');
     expect(screen.queryByRole('option', { name: 'Paid agent' })).not.toBeInTheDocument();
+    fireEvent.change(modelSelect, {
+      target: { value: getWorkModelKey({ id: 'qwen2.5:latest', provider: 'ollama' }) },
+    });
+    await waitFor(() => expect(agentSelect).toHaveValue('agent-review'));
+    fireEvent.change(agentSelect, { target: { value: 'agent-plan' } });
+    await waitFor(() =>
+      expect(modelSelect).toHaveValue(getWorkModelKey({ id: 'llama3:latest', provider: 'ollama' })),
+    );
     fireEvent.change(agentSelect, { target: { value: 'agent-review' } });
+    await waitFor(() =>
+      expect(modelSelect).toHaveValue(
+        getWorkModelKey({ id: 'qwen2.5:latest', provider: 'ollama' }),
+      ),
+    );
     fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
       target: { value: '  Make a rollout plan  ' },
     });
@@ -165,6 +181,31 @@ describe('native Work home', () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(getModels).toHaveBeenCalledTimes(1);
     expect(getTasks).toHaveBeenCalledTimes(1);
+    queryClient.clear();
+  });
+
+  it('distinguishes identical model ids from different providers', async () => {
+    const { queryClient } = renderHome(
+      {
+        models: [
+          { id: 'same-model', label: 'Ollama model', provider: 'ollama' },
+          { id: 'same-model', label: 'llama.cpp model', provider: 'llama.cpp' },
+        ],
+      },
+      { tasks: [] },
+      [
+        makeAgent('ollama-agent', 'Ollama agent', 'ollama', 'same-model'),
+        makeAgent('llama-cpp-agent', 'llama.cpp agent', 'llama.cpp', 'same-model'),
+      ],
+    );
+
+    const modelSelect = await screen.findByLabelText('Model');
+    const agentSelect = screen.getByLabelText('Work agent');
+    fireEvent.change(modelSelect, {
+      target: { value: getWorkModelKey({ id: 'same-model', provider: 'llama.cpp' }) },
+    });
+    await waitFor(() => expect(agentSelect).toHaveValue('llama-cpp-agent'));
+    expect(modelSelect).toHaveValue(getWorkModelKey({ id: 'same-model', provider: 'llama.cpp' }));
     queryClient.clear();
   });
 
