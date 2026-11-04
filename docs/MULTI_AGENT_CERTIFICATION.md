@@ -67,6 +67,6 @@ If any field is missing, keep its cell **UNVERIFIED / BLOCKED** and leave #88 op
 - [#52](https://github.com/CoderaxAI/Coderax/issues/52): restore real CI runner execution and validate public guest→real model→SSE→persisted conversation, with source-matched release evidence. CI failures before runner steps are not test failures and must not be bypassed.
 - [#92](https://github.com/CoderaxAI/Coderax/issues/92): Work must run natively without CyVox; optional CyVox outage cannot suppress Work functionality.
 - [#90](https://github.com/CoderaxAI/Coderax/issues/90): no cross-organization onboarding without explicit authorization; employer repositories stay on separate approved infrastructure; no automatic portfolio-wide model fan-out.
-- [#100](https://github.com/CoderaxAI/Coderax/issues/100): Freebuff Cloud bridge is not certified without an owner-authorized endpoint and a real authenticated exchange.
+- [#100](https://github.com/CoderaxAI/Coderax/issues/100): The external cloud bridge is not certified without an owner-authorized endpoint and a real authenticated exchange.
 
-**Do not release** while essential security/CI/production gates are failing or unsupported. Do not claim Codex, Freebuff CLI or Copilot CLI collaboration unless distinct actual terminal/process request-response evidence exists. Reopen this ledger with recorded facts and update each cell only when that exact verification has been performed.
+**Do not release** while essential security/CI/production gates are failing or unsupported. Do not claim Codex or Copilot CLI collaboration unless distinct actual terminal/process request-response evidence exists. Reopen this ledger with recorded facts and update each cell only when that exact verification has been performed.
