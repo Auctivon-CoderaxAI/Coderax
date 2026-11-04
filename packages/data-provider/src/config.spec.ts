@@ -2778,3 +2778,37 @@ describe('GitHub comparison configuration', () => {
     ).toBe(false);
   });
 });
+
+describe('swarm lease config', () => {
+  it('applies the coordinator defaults inside an empty swarm section', () => {
+    expect(configSchema.parse({ version: '1.0', swarm: {} }).swarm).toEqual({
+      leaseMs: 30_000,
+      maxAttempts: 3,
+      maxResultChars: 100_000,
+    });
+  });
+
+  it('accepts bounded deployment overrides', () => {
+    expect(
+      configSchema.parse({
+        version: '1.0',
+        swarm: { leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 },
+      }).swarm,
+    ).toEqual({ leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 });
+  });
+
+  it.each([
+    ['leaseMs', 0],
+    ['leaseMs', 999],
+    ['leaseMs', 600_001],
+    ['maxAttempts', 0],
+    ['maxAttempts', 101],
+    ['maxAttempts', 1.5],
+    ['maxResultChars', 0],
+    ['maxResultChars', 1_000_001],
+  ])('rejects an invalid %s value', (key, value) => {
+    expect(
+      configSchema.safeParse({ version: '1.0', swarm: { [key]: value } }).success,
+    ).toBe(false);
+  });
+});

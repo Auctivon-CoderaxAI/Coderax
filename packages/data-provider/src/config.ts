@@ -2867,6 +2867,14 @@ export const interfaceSchema = z
         scheduleConcurrency: z.number().int().min(1).max(100),
       })
       .optional(),
+    /** Decentralized swarm lease limits; omitted fields keep built-in defaults. */
+    swarm: z
+      .object({
+        leaseMs: z.number().int().min(1_000).max(600_000).default(30_000),
+        maxAttempts: z.number().int().min(1).max(100).default(3),
+        maxResultChars: z.number().int().min(1).max(1_000_000).default(100_000),
+      })
+      .optional(),
     /** Client confirmation window for a steer escalation arm, in milliseconds. */
     steerArmConfirmationTimeoutMs: z
       .number()
