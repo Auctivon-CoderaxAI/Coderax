@@ -140,10 +140,10 @@ function stripClientWorkFields(body) {
  * persist an ordinary chat row and vanish from Work history. Seeding here makes
  * the marker durable regardless of how the turn ends.
  *
- * Ownership comes from the authenticated user, never from the body. `saveConvo`
- * scopes its write to `{conversationId, user: userId}`, so this can never
- * overwrite a row belonging to another user. An existing row is left untouched,
- * so a follow-up can never re-stamp a conversation's original marker.
+ * Ownership and tenant scope come from the authenticated request, never the
+ * body. `saveConvo` scopes its write to `{conversationId, user: userId}`;
+ * the tenant marker must be stamped on insert so Work history can find it.
+ * Existing rows are never re-stamped, and cross-tenant follow-ups fail closed.
  */
 async function seedWorkConversation(req, context, db) {
   const store = db ?? require('~/models');
@@ -157,18 +157,38 @@ async function seedWorkConversation(req, context, db) {
   ) {
     return { seeded: false, reason: 'no_target' };
   }
+  const tenantId = req?.user?.tenantId ?? req?.tenantId ?? null;
   const existing = await store.getConvo(userId, conversationId);
+  if (existing && (existing.tenantId ?? null) !== tenantId) {
+    return { seeded: false, reason: 'tenant_mismatch' };
+  }
   if (existing && existing.isWork !== true) {
     return { seeded: false, reason: 'not_work' };
   }
   if (existing) {
     return { seeded: false, reason: 'exists' };
   }
-  await store.saveConvo(
+  const saved = await store.saveConvo(
     { userId, isTemporary: req.body?.isTemporary },
-    { conversationId, isWork: true, workModel: context.workModel },
+    {
+      conversationId,
+      isWork: true,
+      workModel: context.workModel,
+      ...(tenantId === null ? {} : { tenantId }),
+    },
     { context: 'api/server/routes/workChat.js - seed Work conversation' },
   );
+  /** saveConvo catches storage exceptions and can return { message } or null.
+   *  A successful await alone does not establish a persisted, tenant-safe Work row.
+   *  Also reject a mismatched row returned after a concurrent conversation write. */
+  if (
+    !saved ||
+    saved.conversationId !== conversationId ||
+    saved.isWork !== true ||
+    (saved.tenantId ?? null) !== tenantId
+  ) {
+    throw new Error('Work conversation seed was not verified');
+  }
   return { seeded: true };
 }
 
@@ -251,10 +271,18 @@ function workContextMiddleware(
       }
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
-      /** A seed failure must not fail the turn: the marker is also written by the
-       *  turn's own save, so the run stays usable and the gap is logged. */
+      /** A seed/read failure must fail closed. Without the persisted-row read we cannot
+       *  verify tenant ownership before the native agent handler runs. */
       try {
         const seedResult = await seedConversation(req, context);
+        if (seedResult?.reason === 'tenant_mismatch') {
+          return fail(
+            res,
+            404,
+            'WORK_TASK_NOT_FOUND',
+            'The requested Work conversation was not found.',
+          );
+        }
         if (seedResult?.reason === 'not_work') {
           return fail(
             res,
@@ -264,7 +292,13 @@ function workContextMiddleware(
           );
         }
       } catch {
-        logger.warn('[Work] Failed to seed the Work conversation.');
+        logger.warn('[Work] Could not verify or seed the Work conversation.');
+        return fail(
+          res,
+          503,
+          'WORK_CONVERSATION_UNAVAILABLE',
+          'Work could not verify the conversation. Try again when storage is available.',
+        );
       }
       /**
        * `auto` is a UI choice, never a provider id: the native runner receives

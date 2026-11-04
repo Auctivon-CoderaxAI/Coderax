@@ -114,7 +114,13 @@ function getUnsetFields(
   if (agentOwned) {
     kept.add('model');
   }
-  const preserved = new Set<string>([...preservedFields, 'isWork', 'workModel', 'workState']);
+  const preserved = new Set<string>([
+    ...preservedFields,
+    'tenantId', // Immutable conversation scope: a turn cannot erase the seed's tenant.
+    'isWork',
+    'workModel',
+    'workState',
+  ]);
   const unsetFields: Record<string, number> = {};
   for (const key of Object.keys(existing)) {
     if ((excludedKeys.has(key) && !kept.has(key)) || preserved.has(key)) {
