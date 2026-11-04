@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
-import { createWorkDepsFactory } from './deps';
 import type { WorkDepsJobs, WorkDepsProjections, WorkDepsStore } from './deps';
+import { createWorkDepsFactory } from './deps';
 import { workStateForJobStatus } from './state';
 
 const workModels = createRequire(__filename)(
@@ -108,9 +108,13 @@ describe('createWorkDepsFactory', () => {
   it('takes run state from the native job status', async () => {
     const { depsFor } = makeDeps({ jobs: { getJobStatus: async () => 'complete' } });
 
-    await expect(
-      depsFor({ user: { id: 'user-1' } }).getRunState({ conversationId: 'c-1' }),
-    ).resolves.toBe('completed');
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+    await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBe(
+      'completed',
+    );
   });
 
   it('refuses another user or tenant before aborting', async () => {
