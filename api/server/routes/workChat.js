@@ -168,7 +168,7 @@ async function seedWorkConversation(req, context, db) {
   if (existing) {
     return { seeded: false, reason: 'exists' };
   }
-  await store.saveConvo(
+  const saved = await store.saveConvo(
     { userId, isTemporary: req.body?.isTemporary },
     {
       conversationId,
@@ -178,6 +178,17 @@ async function seedWorkConversation(req, context, db) {
     },
     { context: 'api/server/routes/workChat.js - seed Work conversation' },
   );
+  /** saveConvo catches storage exceptions and can return { message } or null.
+   *  A successful await alone does not establish a persisted, tenant-safe Work row.
+   *  Also reject a mismatched row returned after a concurrent conversation write. */
+  if (
+    !saved ||
+    saved.conversationId !== conversationId ||
+    saved.isWork !== true ||
+    (saved.tenantId ?? null) !== tenantId
+  ) {
+    throw new Error('Work conversation seed was not verified');
+  }
   return { seeded: true };
 }
 
