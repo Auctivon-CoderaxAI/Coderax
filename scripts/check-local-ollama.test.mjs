@@ -4,10 +4,28 @@ import { test } from 'node:test';
 
 import { checkLocalOllama, localOllamaOrigin } from './check-local-ollama.mjs';
 
+const encoder = new TextEncoder();
+
 const jsonResponse = (body, status = 200) => ({
   ok: status >= 200 && status < 300,
   status,
   json: async () => body,
+});
+
+const chatLine = ({ model = 'qwen3.5:4b', content = '', done = false } = {}) =>
+  `${JSON.stringify({ model, message: { content }, done })}\n`;
+
+const streamResponse = (lines, status = 200) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  body: new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(line));
+      }
+      controller.close();
+    },
+  }),
 });
 
 function listen(server) {
@@ -28,7 +46,7 @@ async function close(server) {
   await new Promise((resolve) => server.close(resolve));
 }
 
-function createOllamaStub(chatReply) {
+function createOllamaStub(lines) {
   const requests = [];
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/api/tags') {
@@ -45,8 +63,11 @@ function createOllamaStub(chatReply) {
       });
       request.on('end', () => {
         requests.push({ method: request.method, url: request.url, body: JSON.parse(body) });
-        response.writeHead(200, { 'content-type': 'application/json' });
-        response.end(JSON.stringify(chatReply));
+        response.writeHead(200, { 'content-type': 'application/x-ndjson' });
+        for (const line of lines) {
+          response.write(line);
+        }
+        response.end();
       });
       return;
     }
@@ -73,11 +94,11 @@ test('rejects non-loopback or credentialed readiness endpoints', () => {
   }
 });
 
-test('checks Qwen 3.5 4B with key-free requests and refuses redirects', async () => {
+test('checks Qwen 3.5 4B with a key-free streamed chat and refuses redirects', async () => {
   const calls = [];
   const responses = [
     jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-    jsonResponse({ model: 'qwen3.5:4b', done: true, message: { content: 'LOCAL_OK' } }),
+    streamResponse([chatLine({ content: 'LOCAL' }), chatLine({ content: '_OK' }), chatLine({ done: true })]),
   ];
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
@@ -99,7 +120,7 @@ test('checks Qwen 3.5 4B with key-free requests and refuses redirects', async ()
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     model: 'qwen3.5:4b',
     messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
-    stream: false,
+    stream: true,
     think: false,
     options: { num_predict: 32 },
   });
@@ -119,10 +140,10 @@ test('does not send chat when the required local model is missing', async () => 
   assert.equal(calls, 1);
 });
 
-test('rejects an empty local chat response', async () => {
+test('rejects a stream that finishes without any generated content', async () => {
   const responses = [
     jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-    jsonResponse({ message: { content: '  ' } }),
+    streamResponse([chatLine({ done: true })]),
   ];
 
   await assert.rejects(
@@ -131,28 +152,76 @@ test('rejects an empty local chat response', async () => {
   );
 });
 
-test('does not report readiness when Ollama returns an incomplete response', async () => {
-  for (const done of [false, undefined]) {
-    const responses = [
-      jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-      jsonResponse({ model: 'qwen3.5:4b', done, message: { content: 'partial' } }),
-    ];
-    await assert.rejects(
-      checkLocalOllama({ fetchImpl: async () => responses.shift() }),
-      /Local Ollama chat did not finish/,
-    );
-  }
-});
-
-test('does not report readiness when a different model answers', async () => {
+test('rejects a stream that closes before a terminal done chunk', async () => {
   const responses = [
     jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-    jsonResponse({ model: 'different:tag', done: true, message: { content: 'LOCAL_OK' } }),
+    streamResponse([chatLine({ content: 'partial' })]),
   ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+    /Local Ollama chat did not finish/,
+  );
+});
+
+test('rejects a malformed stream chunk instead of accepting partial text', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    streamResponse(['not-json\n', chatLine({ done: true })]),
+  ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+    /malformed stream chunk/,
+  );
+});
+
+test('rejects a stream when a different model answers', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    streamResponse([
+      chatLine({ model: 'different:tag', content: 'LOCAL_OK' }),
+      chatLine({ model: 'different:tag', done: true }),
+    ]),
+  ];
+
   await assert.rejects(
     checkLocalOllama({ fetchImpl: async () => responses.shift() }),
     /Local Ollama chat returned a different model/,
   );
+});
+
+test('reports a timeout instead of an unbounded readiness wait', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    {
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            throw error;
+          },
+          releaseLock() {},
+        }),
+      },
+    },
+  ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+    /Local Ollama readiness check timed out/,
+  );
+});
+
+test('propagates an unavailable local host', async () => {
+  const fetchImpl = async () => {
+    throw new Error('connect ECONNREFUSED 127.0.0.1:11434');
+  };
+
+  await assert.rejects(checkLocalOllama({ fetchImpl }), /ECONNREFUSED/);
 });
 
 test('validates the readiness timeout range', async () => {
@@ -187,7 +256,7 @@ test('does not follow a chat redirect to another server', async (t) => {
   const target = createServer((_request, response) => {
     redirectedRequests += 1;
     response.writeHead(200, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ message: { content: 'REMOTE_OK' } }));
+    response.end(JSON.stringify({ message: { content: 'REMOTE_OK' }, done: true }));
   });
   const targetURL = await listen(target);
   const source = createServer((request, response) => {
@@ -209,12 +278,12 @@ test('does not follow a chat redirect to another server', async (t) => {
   assert.equal(redirectedRequests, 0);
 });
 
-test('checks readiness through the real loopback HTTP fetch flow', async (t) => {
-  const stub = createOllamaStub({
-    model: 'qwen3.5:4b',
-    done: true,
-    message: { content: 'LOCAL_OK' },
-  });
+test('checks readiness through the real loopback HTTP stream flow', async (t) => {
+  const stub = createOllamaStub([
+    chatLine({ content: 'LOCAL' }),
+    chatLine({ content: '_OK' }),
+    chatLine({ done: true }),
+  ]);
   const host = await listen(stub.server);
   t.after(() => close(stub.server));
 
@@ -229,7 +298,7 @@ test('checks readiness through the real loopback HTTP fetch flow', async (t) => 
       body: {
         model: 'qwen3.5:4b',
         messages: [{ role: 'user', content: 'Reply with LOCAL_OK.' }],
-        stream: false,
+        stream: true,
         think: false,
         options: { num_predict: 32 },
       },
@@ -237,12 +306,8 @@ test('checks readiness through the real loopback HTTP fetch flow', async (t) => 
   ]);
 });
 
-test('rejects an incomplete reply over the real loopback HTTP flow', async (t) => {
-  const stub = createOllamaStub({
-    model: 'qwen3.5:4b',
-    done: false,
-    message: { content: 'partial' },
-  });
+test('rejects an incomplete reply over the real loopback HTTP stream flow', async (t) => {
+  const stub = createOllamaStub([chatLine({ content: 'partial' })]);
   const host = await listen(stub.server);
   t.after(() => close(stub.server));
 
