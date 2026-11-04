@@ -255,6 +255,33 @@ describe('createWorkDepsFactory', () => {
     expect(getJobStatus).toHaveBeenCalledTimes(1);
   });
 
+  it('normalizes null and absent job tenants for tenantless status and cancellation only', async () => {
+    for (const jobTenant of [null, undefined]) {
+      const getJobStatus = jest.fn(async () => 'complete');
+      const { depsFor, calls } = makeDeps({
+        jobs: {
+          getJob: async () => ({
+            metadata: { userId: 'user-1', tenantId: jobTenant },
+            createdAt: 42,
+          }),
+          getJobStatus,
+        },
+      });
+      const input = { userId: 'user-1', conversationId: 'c-1' };
+      const tenantless = depsFor({ user: { id: 'user-1' } });
+      await expect(tenantless.getRunState?.(input)).resolves.toBe('completed');
+      await expect(tenantless.cancelRun(input)).resolves.toBe(true);
+      expect(getJobStatus).toHaveBeenCalledTimes(1);
+      expect(calls.abort).toEqual([['c-1', { expectedCreatedAt: 42 }]]);
+
+      const scoped = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } });
+      await expect(scoped.getRunState?.(input)).resolves.toBeNull();
+      await expect(scoped.cancelRun(input)).resolves.toBe(false);
+      expect(getJobStatus).toHaveBeenCalledTimes(1);
+      expect(calls.abort).toHaveLength(1);
+    }
+  });
+
   it('refuses another user or tenant before aborting', async () => {
     for (const [job, req] of [
       [
