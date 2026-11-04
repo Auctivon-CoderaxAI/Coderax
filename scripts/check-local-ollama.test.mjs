@@ -98,7 +98,11 @@ test('checks Qwen 3.5 4B with a key-free streamed chat and refuses redirects', a
   const calls = [];
   const responses = [
     jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
-    streamResponse([chatLine({ content: 'LOCAL' }), chatLine({ content: '_OK' }), chatLine({ done: true })]),
+    streamResponse([
+      chatLine({ content: 'LOCAL' }),
+      chatLine({ content: '_OK' }),
+      chatLine({ done: true }),
+    ]),
   ];
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
@@ -227,6 +231,109 @@ test('propagates an unavailable local host', async () => {
 test('validates the readiness timeout range', async () => {
   await assert.rejects(checkLocalOllama({ timeoutMs: 0 }), /timeoutMs must be between/);
   await assert.rejects(checkLocalOllama({ timeoutMs: 120001 }), /timeoutMs must be between/);
+});
+
+test('rejects a complete non-streaming reply that never yielded a content chunk', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    streamResponse([
+      JSON.stringify({
+        model: 'qwen3.5:4b',
+        message: { content: 'LOCAL_OK' },
+        done: true,
+      }),
+    ]),
+  ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+    /Local Ollama chat did not stream content/,
+  );
+});
+
+test('rejects JSON values that are not stream chunks', async () => {
+  for (const line of ['42', 'true', 'null', '[]']) {
+    const responses = [
+      jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+      streamResponse([`${line}\n`]),
+    ];
+
+    await assert.rejects(
+      checkLocalOllama({ fetchImpl: async () => responses.shift() }),
+      /malformed stream chunk/,
+    );
+  }
+});
+
+test('rejects oversized content as soon as it arrives', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    streamResponse([chatLine({ content: 'x'.repeat(50) }), chatLine({ done: true })]),
+  ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift(), maxReplyChars: 10 }),
+    /exceeded the maximum size/,
+  );
+});
+
+test('rejects an oversized unterminated line before it buffers without bound', async () => {
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    streamResponse([
+      JSON.stringify({
+        model: 'qwen3.5:4b',
+        message: { content: 'x'.repeat(50) },
+        done: false,
+      }),
+    ]),
+  ];
+
+  await assert.rejects(
+    checkLocalOllama({ fetchImpl: async () => responses.shift(), maxReplyChars: 10 }),
+    /exceeded the maximum size/,
+  );
+});
+
+test('cancels the response reader when a terminal chunk ends the check', async () => {
+  let cancelled = false;
+  let reads = 0;
+  const responses = [
+    jsonResponse({ models: [{ name: 'qwen3.5:4b' }] }),
+    {
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            reads += 1;
+            if (reads === 1) {
+              return { done: false, value: encoder.encode(chatLine({ content: 'LOCAL' })) };
+            }
+            return { done: false, value: encoder.encode(chatLine({ done: true })) };
+          },
+          cancel: async () => {
+            cancelled = true;
+          },
+          releaseLock() {},
+        }),
+      },
+    },
+  ];
+
+  const result = await checkLocalOllama({ fetchImpl: async () => responses.shift() });
+
+  assert.deepEqual(result, {
+    status: 'ready',
+    model: 'qwen3.5:4b',
+    origin: 'http://127.0.0.1:11434',
+  });
+  assert.equal(cancelled, true);
+});
+
+test('validates the reply size limit', async () => {
+  await assert.rejects(checkLocalOllama({ maxReplyChars: 0 }), /maxReplyChars/);
+  await assert.rejects(checkLocalOllama({ maxReplyChars: 1.5 }), /maxReplyChars/);
 });
 
 test('does not follow a model-inventory redirect to another server', async (t) => {

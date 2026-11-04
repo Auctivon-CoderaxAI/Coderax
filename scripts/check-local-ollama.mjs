@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const DEFAULT_HOST = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen3.5:4b';
+/** Standalone readiness probe, not runtime config; this cap bounds memory if a local stream misbehaves. */
 const MAX_REPLY_CHARS = 100_000;
 
 export function localOllamaOrigin(host = DEFAULT_HOST) {
@@ -41,7 +42,10 @@ function parseChatLine(line) {
   } catch {
     throw new Error('Local Ollama chat returned a malformed stream chunk');
   }
-  if (chunk && typeof chunk.error === 'string' && chunk.error.length > 0) {
+  if (chunk === null || typeof chunk !== 'object' || Array.isArray(chunk)) {
+    throw new Error('Local Ollama chat returned a malformed stream chunk');
+  }
+  if (typeof chunk.error === 'string' && chunk.error.length > 0) {
     throw new Error('Local Ollama chat returned an error chunk');
   }
   return chunk;
@@ -53,7 +57,7 @@ function parseChatLine(line) {
  * `done: true` chunk, and the requested model identity. A 200 response alone is
  * not readiness, and a non-streaming reply does not exercise the SSE path.
  */
-async function readChatStream(fetchImpl, url, options, model) {
+async function readChatStream(fetchImpl, url, options, model, maxReplyChars) {
   let response;
   try {
     response = await fetchImpl(url, { ...options, redirect: 'error' });
@@ -72,6 +76,12 @@ async function readChatStream(fetchImpl, url, options, model) {
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const assertWithinLimit = () => {
+    if (buffered.length > maxReplyChars || content.length > maxReplyChars) {
+      throw new Error('Local Ollama chat reply exceeded the maximum size');
+    }
+  };
+
   const consume = (line) => {
     const trimmed = line.trim();
     if (!trimmed) {
@@ -84,15 +94,20 @@ async function readChatStream(fetchImpl, url, options, model) {
     const delta = chunk.message?.content;
     if (typeof delta === 'string' && delta.length > 0) {
       content += delta;
+      if (chunk.done !== true) {
+        streamedContent = true;
+      }
     }
     if (chunk.done === true) {
       done = true;
     }
+    assertWithinLimit();
   };
 
   let buffered = '';
   let content = '';
   let done = false;
+  let streamedContent = false;
   let responseModel;
   try {
     while (!done) {
@@ -101,14 +116,17 @@ async function readChatStream(fetchImpl, url, options, model) {
         break;
       }
       buffered += decoder.decode(next.value, { stream: true });
+      assertWithinLimit();
       let newline;
       while (!done && (newline = buffered.indexOf('\n')) !== -1) {
         consume(buffered.slice(0, newline));
         buffered = buffered.slice(newline + 1);
+        assertWithinLimit();
       }
     }
     if (!done) {
       buffered += decoder.decode();
+      assertWithinLimit();
       consume(buffered);
     }
   } catch (error) {
@@ -117,14 +135,22 @@ async function readChatStream(fetchImpl, url, options, model) {
     }
     throw error;
   } finally {
+    try {
+      await reader.cancel?.();
+    } catch {
+      // The response body may already be closed.
+    }
     reader.releaseLock?.();
   }
 
-  if (content.length > MAX_REPLY_CHARS) {
+  if (content.length > maxReplyChars) {
     throw new Error('Local Ollama chat reply exceeded the maximum size');
   }
   if (!content.trim()) {
     throw new Error('Local Ollama chat returned an empty reply');
+  }
+  if (!streamedContent) {
+    throw new Error('Local Ollama chat did not stream content');
   }
   if (!done) {
     throw new Error('Local Ollama chat did not finish');
@@ -144,10 +170,14 @@ export async function checkLocalOllama({
   model = DEFAULT_MODEL,
   fetchImpl = globalThis.fetch,
   timeoutMs = 15000,
+  maxReplyChars = MAX_REPLY_CHARS,
 } = {}) {
   const origin = localOllamaOrigin(host);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) {
     throw new Error('timeoutMs must be between 1 and 120000');
+  }
+  if (!Number.isInteger(maxReplyChars) || maxReplyChars < 1) {
+    throw new Error('maxReplyChars must be a positive integer');
   }
 
   const signal = AbortSignal.timeout(timeoutMs);
@@ -172,6 +202,7 @@ export async function checkLocalOllama({
       }),
     },
     model,
+    maxReplyChars,
   );
 
   return { status: 'ready', model, origin };
