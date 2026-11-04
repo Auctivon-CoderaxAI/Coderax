@@ -140,10 +140,10 @@ function stripClientWorkFields(body) {
  * persist an ordinary chat row and vanish from Work history. Seeding here makes
  * the marker durable regardless of how the turn ends.
  *
- * Ownership comes from the authenticated user, never from the body. `saveConvo`
- * scopes its write to `{conversationId, user: userId}`, so this can never
- * overwrite a row belonging to another user. An existing row is left untouched,
- * so a follow-up can never re-stamp a conversation's original marker.
+ * Ownership and tenant scope come from the authenticated request, never the
+ * body. `saveConvo` scopes its write to `{conversationId, user: userId}`;
+ * the tenant marker must be stamped on insert so Work history can find it.
+ * Existing rows are never re-stamped, and cross-tenant follow-ups fail closed.
  */
 async function seedWorkConversation(req, context, db) {
   const store = db ?? require('~/models');
@@ -157,7 +157,11 @@ async function seedWorkConversation(req, context, db) {
   ) {
     return { seeded: false, reason: 'no_target' };
   }
+  const tenantId = req?.user?.tenantId ?? req?.tenantId ?? null;
   const existing = await store.getConvo(userId, conversationId);
+  if (existing && (existing.tenantId ?? null) !== tenantId) {
+    return { seeded: false, reason: 'tenant_mismatch' };
+  }
   if (existing && existing.isWork !== true) {
     return { seeded: false, reason: 'not_work' };
   }
@@ -166,7 +170,12 @@ async function seedWorkConversation(req, context, db) {
   }
   await store.saveConvo(
     { userId, isTemporary: req.body?.isTemporary },
-    { conversationId, isWork: true, workModel: context.workModel },
+    {
+      conversationId,
+      isWork: true,
+      workModel: context.workModel,
+      ...(tenantId === null ? {} : { tenantId }),
+    },
     { context: 'api/server/routes/workChat.js - seed Work conversation' },
   );
   return { seeded: true };
@@ -255,6 +264,14 @@ function workContextMiddleware(
        *  turn's own save, so the run stays usable and the gap is logged. */
       try {
         const seedResult = await seedConversation(req, context);
+        if (seedResult?.reason === 'tenant_mismatch') {
+          return fail(
+            res,
+            404,
+            'WORK_TASK_NOT_FOUND',
+            'The requested Work conversation was not found.',
+          );
+        }
         if (seedResult?.reason === 'not_work') {
           return fail(
             res,
