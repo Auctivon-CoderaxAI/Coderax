@@ -134,7 +134,7 @@ export function createWorkDepsFactory({
           return null;
         }
         const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (tenantId && job.metadata?.tenantId !== tenantId) {
+        if (job.metadata?.tenantId !== tenantId) {
           return null;
         }
         return workStateForJobStatus(await jobs.getJobStatus(conversationId));
