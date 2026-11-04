@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import type { WorkDepsJobs, WorkDepsProjections, WorkDepsStore } from './deps';
-import { createWorkDepsFactory } from './deps';
 import { workStateForJobStatus } from './state';
+import { createWorkDepsFactory } from './deps';
 
 const workModels = createRequire(__filename)(
   '../../../../api/server/routes/workModels.js',
