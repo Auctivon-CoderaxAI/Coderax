@@ -51,6 +51,56 @@
   </a>
 </p>
 
+## 🎯 Coderax mission: universal, verified AI execution
+
+Coderax aims to execute **any authorized, technically supported objective** through
+models, agents, software, connected tools and specialized engines. Its job is to
+**deliver verified outcomes**, not only chat responses, code changes or status updates.
+
+The shared execution lifecycle is:
+
+`Discover → Authorize → Plan → Execute → Observe → Verify → Deliver`
+
+- **General-purpose Work:** Route tasks through Coderax's own authenticated models and
+  agent infrastructure. CyVox is an *optional* integration, not a prerequisite.
+- **Agent coordination:** Support permission-scoped delegation, collaboration,
+  scheduling, multi-agent orchestration, authenticated A2A, swarms and multi-hop
+  communication. Do not equate an in-app handoff with external A2A interoperability.
+- **Tools and modalities:** Allow explicitly authorized browser, terminal, file,
+  repository and service adapters. Movie/video/voice/3D engines should be replaceable
+  capabilities, not mandatory hosted-platform dependencies.
+- **Operational efficiency:** Minimize elapsed task time, human intervention,
+  unnecessary agent fan-out, compute cost and operating expense together.
+- **Outcome evidence:** Measure successful task completion, real artifact quality,
+  latency, cost and attributable customer revenue. PR count or a deployed UI alone
+  is not a successful business outcome.
+- **Safety and control:** Preserve tenant isolation, least-privilege tool access,
+  action-specific approvals, audit traces, cancellation, recovery and hard budgets.
+  Never silently invoke paid providers or perform irreversible actions without
+  authorization.
+
+### Implementation and certification status
+
+This is a **product direction, not a claim of universal production capability**.
+The repository has agent discovery, MCP, subagents, attached code workspaces and
+a workflow engine. The swarm coordination code includes an opt-in, atomic
+compare-and-swap coordinator. A Mongo-backed store adapter is being developed
+to preserve lease claims across processes; **Chat/Work runtime wiring and
+production certification are still incomplete**.
+
+| Workstream | Current validation boundary | Tracking |
+| --- | --- | --- |
+| Native Work and CyVox independence | Source changes and focused regressions under review; deployed real-model lifecycle still needs verification | [#92](https://github.com/CoderaxAI/Coderax/issues/92) |
+| Seven multi-agent capabilities | Individual local tests exist, but real multi-agent, external A2A, durable swarm runtime and production behavior are not certified | [#88](https://github.com/CoderaxAI/Coderax/issues/88) |
+| CI and real deployed end-to-end checks | GitHub-hosted Actions have been blocked before job steps by an account-level restriction; staging/production certification must not be inferred from tests or previews | [#141](https://github.com/CoderaxAI/Coderax/issues/141) |
+
+See [multi-agent certification](docs/MULTI_AGENT_CERTIFICATION.md) for evidence
+and acceptance tests. The Mongo swarm adapter, when present in a release,
+requires an authenticated user/tenant/run scope and a suitable Mongo collection
+with acknowledged atomic writes; its existence alone does not activate a swarm.
+For a zero-additional-spend workflow, prefer already-approved local/free
+inference and do not bypass release security checks.
+
 ## 🖥️ Coderax Desktop for Windows
 
 [Download Coderax for Windows x64](https://github.com/CoderaxAI/Coderax/releases/download/desktop-v1.0.0/Coderax-Windows-x64.exe) · [Release details and SHA-256 checksum](https://github.com/CoderaxAI/Coderax/releases/tag/desktop-v1.0.0)
