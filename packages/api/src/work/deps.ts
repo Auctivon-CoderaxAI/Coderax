@@ -15,6 +15,8 @@ export type WorkDepsStore = {
     options: {
       limit: number;
       isArchived: boolean;
+      isWork?: true;
+      tenantId?: string | null;
       sortBy: string;
       sortDirection: 'asc' | 'desc';
     },
@@ -25,7 +27,7 @@ export type WorkDepsStore = {
 export type WorkDepsJob = {
   metadata?: {
     userId?: string;
-    tenantId?: string;
+    tenantId?: string | null;
   };
   createdAt?: unknown;
 };
@@ -95,6 +97,8 @@ export function createWorkDepsFactory({
         const result = await db.getConvosByCursor(userId, {
           limit,
           isArchived: false,
+          isWork: true,
+          tenantId: req.user?.tenantId ?? req.tenantId ?? null,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         });
@@ -108,7 +112,16 @@ export function createWorkDepsFactory({
       }: {
         userId: string;
         conversationId: string;
-      }) => projections.toWorkConversation(await db.getConvo(userId, conversationId)),
+      }) => {
+        const row = await db.getConvo(userId, conversationId);
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        const rowTenantId =
+          row != null && typeof row === 'object' && 'tenantId' in row ? row.tenantId : null;
+        if ((rowTenantId ?? null) !== tenantId) {
+          return null;
+        }
+        return projections.toWorkConversation(row);
+      },
       getRunState: async ({
         userId,
         conversationId,
@@ -120,8 +133,8 @@ export function createWorkDepsFactory({
         if (!job || job.metadata?.userId !== userId) {
           return null;
         }
-        const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (tenantId && job.metadata?.tenantId !== tenantId) {
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        if ((job.metadata?.tenantId ?? null) !== tenantId) {
           return null;
         }
         return workStateForJobStatus(await jobs.getJobStatus(conversationId));
@@ -140,8 +153,8 @@ export function createWorkDepsFactory({
           logger?.warn?.(`[Work] Refusing to abort another user's generation: ${conversationId}`);
           return false;
         }
-        const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (job.metadata?.tenantId !== tenantId) {
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        if ((job.metadata?.tenantId ?? null) !== tenantId) {
           logger?.warn?.(`[Work] Refusing to abort another tenant's generation: ${conversationId}`);
           return false;
         }

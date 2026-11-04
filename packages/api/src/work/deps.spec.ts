@@ -77,6 +77,8 @@ describe('createWorkDepsFactory', () => {
         options: {
           limit: 50,
           isArchived: false,
+          isWork: true,
+          tenantId: null,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         },
@@ -121,10 +123,60 @@ describe('createWorkDepsFactory', () => {
     expect(conversation).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
   });
 
+  it('scopes Work history to the authenticated tenant, including tenantless requests', async () => {
+    const getConvosByCursor = jest.fn(async () => ({
+      conversations: [WORK_ROW],
+      nextCursor: null,
+    }));
+    const { depsFor } = makeDeps({ db: { getConvosByCursor } });
+    await depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).listConversations({
+      userId: 'user-1',
+      limit: 50,
+    });
+    await depsFor({ user: { id: 'user-1' } }).listConversations({
+      userId: 'user-1',
+      limit: 50,
+    });
+    expect(getConvosByCursor).toHaveBeenNthCalledWith(
+      1, 'user-1', expect.objectContaining({ isWork: true, tenantId: 'tenant-a' }),
+    );
+    expect(getConvosByCursor).toHaveBeenNthCalledWith(
+      2, 'user-1', expect.objectContaining({ isWork: true, tenantId: null }),
+    );
+  });
+
+  it('denies tenant-scoped Work task reads to tenantless and foreign-tenant requests', async () => {
+    const { depsFor } = makeDeps({
+      db: { getConvo: async () => ({ ...WORK_ROW, tenantId: 'tenant-a' }) },
+    });
+    const input = { userId: 'user-1', conversationId: 'c-1' };
+    await expect(depsFor({ user: { id: 'user-1' } }).getConversation(input)).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-b' } }).getConversation(input),
+    ).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getConversation(input),
+    ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
+  });
+
+  it('does not expose a legacy tenantless Work task in a scoped tenant', async () => {
+    const { depsFor } = makeDeps({
+      db: { getConvo: async () => WORK_ROW },
+    });
+    const input = { userId: 'user-1', conversationId: 'c-1' };
+
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getConversation(input),
+    ).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1' } }).getConversation(input),
+    ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
+  });
+
   it('takes run state from the native job status', async () => {
     const { depsFor } = makeDeps({ jobs: { getJobStatus: async () => 'complete' } });
 
-    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    const getRunState = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getRunState;
     if (!getRunState) {
       throw new Error('getRunState missing');
     }
@@ -168,6 +220,66 @@ describe('createWorkDepsFactory', () => {
       getRunState({ userId: 'user-1', conversationId: 'c-1' }),
     ).resolves.toBe('completed');
     expect(getJobStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies a tenantless request access to a tenant-scoped live job', async () => {
+    const getJobStatus = jest.fn(async () => 'complete');
+    const { depsFor } = makeDeps({ jobs: { getJobStatus } });
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+
+    await expect(
+      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+    ).resolves.toBeNull();
+    expect(getJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('allows a tenantless request to read its own tenantless live job', async () => {
+    const getJobStatus = jest.fn(async () => 'complete');
+    const { depsFor } = makeDeps({
+      jobs: {
+        getJob: async () => ({ metadata: { userId: 'user-1' }, createdAt: 42 }),
+        getJobStatus,
+      },
+    });
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+
+    await expect(
+      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+    ).resolves.toBe('completed');
+    expect(getJobStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('normalizes null and absent job tenants for tenantless status and cancellation only', async () => {
+    for (const jobTenant of [null, undefined]) {
+      const getJobStatus = jest.fn(async () => 'complete');
+      const { depsFor, calls } = makeDeps({
+        jobs: {
+          getJob: async () => ({
+            metadata: { userId: 'user-1', tenantId: jobTenant },
+            createdAt: 42,
+          }),
+          getJobStatus,
+        },
+      });
+      const input = { userId: 'user-1', conversationId: 'c-1' };
+      const tenantless = depsFor({ user: { id: 'user-1' } });
+      await expect(tenantless.getRunState?.(input)).resolves.toBe('completed');
+      await expect(tenantless.cancelRun(input)).resolves.toBe(true);
+      expect(getJobStatus).toHaveBeenCalledTimes(1);
+      expect(calls.abort).toEqual([['c-1', { expectedCreatedAt: 42 }]]);
+
+      const scoped = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } });
+      await expect(scoped.getRunState?.(input)).resolves.toBeNull();
+      await expect(scoped.cancelRun(input)).resolves.toBe(false);
+      expect(getJobStatus).toHaveBeenCalledTimes(1);
+      expect(calls.abort).toHaveLength(1);
+    }
   });
 
   it('refuses another user or tenant before aborting', async () => {

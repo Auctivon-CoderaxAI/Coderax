@@ -5449,6 +5449,83 @@ describe('Conversation Operations', () => {
       expect(result?.nextCursor).toBeNull(); // No next page
     });
 
+    it('filters Work before pagination without changing ordinary Chat pages or owner scope', async () => {
+      const older = new Date('2026-01-01T00:00:00.000Z');
+      const workId = uuidv4();
+      const foreignWorkId = uuidv4();
+      await Conversation.collection.insertMany([
+        {
+          conversationId: workId,
+          user: 'user123',
+          title: 'Older Work task',
+          endpoint: EModelEndpoint.openAI,
+          isWork: true,
+          isArchived: false,
+          createdAt: older,
+          updatedAt: older,
+        },
+        {
+          conversationId: foreignWorkId,
+          user: 'another-owner',
+          title: 'Foreign Work task',
+          endpoint: EModelEndpoint.openAI,
+          isWork: true,
+          isArchived: false,
+          createdAt: older,
+          updatedAt: older,
+        },
+        ...Array.from({ length: 50 }, (_, i) => ({
+          conversationId: uuidv4(),
+          user: 'user123',
+          title: `Newer Chat ${i}`,
+          endpoint: EModelEndpoint.openAI,
+          isWork: false,
+          isArchived: false,
+          createdAt: new Date(older.getTime() + (i + 1) * 60_000),
+          updatedAt: new Date(older.getTime() + (i + 1) * 60_000),
+        })),
+      ]);
+
+      const normalPage = await getConvosByCursor('user123', { limit: 50 });
+      expect(normalPage.conversations).toHaveLength(50);
+      expect(normalPage.conversations.every((row) => row.isWork !== true)).toBe(true);
+      expect(normalPage.nextCursor).not.toBeNull();
+
+      const workPage = await getConvosByCursor('user123', { limit: 50, isWork: true });
+      expect(workPage.conversations.map((row) => row.conversationId)).toEqual([workId]);
+      expect(workPage.nextCursor).toBeNull();
+
+      const nextNormalPage = await getConvosByCursor('user123', {
+        limit: 50,
+        cursor: normalPage.nextCursor,
+      });
+      expect(nextNormalPage.conversations.map((row) => row.conversationId)).toEqual([workId]);
+    });
+
+    it('keeps Work history isolated across tenant scopes for the same owner', async () => {
+      const now = new Date('2026-01-03T00:00:00.000Z');
+      const a = uuidv4();
+      const b = uuidv4();
+      const unscoped = uuidv4();
+      await Conversation.collection.insertMany([
+        { conversationId: a, user: 'user123', tenantId: 'tenant-a', isWork: true,
+          title: 'Tenant A Work', endpoint: EModelEndpoint.openAI,
+          isArchived: false, createdAt: now, updatedAt: now },
+        { conversationId: b, user: 'user123', tenantId: 'tenant-b', isWork: true,
+          title: 'Tenant B Work', endpoint: EModelEndpoint.openAI,
+          isArchived: false, createdAt: now, updatedAt: now },
+        { conversationId: unscoped, user: 'user123', isWork: true,
+          title: 'Tenantless Work', endpoint: EModelEndpoint.openAI,
+          isArchived: false, createdAt: now, updatedAt: now },
+      ]);
+      const readIds = async (tenantId: string | null) =>
+        (await getConvosByCursor('user123', { isWork: true, tenantId }))
+          .conversations.map((row) => row.conversationId);
+      await expect(readIds('tenant-a')).resolves.toEqual([a]);
+      await expect(readIds('tenant-b')).resolves.toEqual([b]);
+      await expect(readIds(null)).resolves.toEqual([unscoped]);
+    });
+
     it('returns persisted Work markers through the cursor projection', async () => {
       const conversationId = uuidv4();
       await Conversation.create({
