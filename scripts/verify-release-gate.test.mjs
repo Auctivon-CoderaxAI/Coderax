@@ -105,6 +105,9 @@ test('loadCheckRuns fetches workflow job steps for failed Actions checks', () =>
         },
       ]);
     }
+    if (args[1]?.includes('/actions/runs/9')) {
+      return JSON.stringify({ workflow_id: 42, run_attempt: 1 });
+    }
     if (args[1]?.includes('/actions/jobs/77')) {
       return JSON.stringify({ steps: [{ name: 'Build packages' }] });
     }
@@ -114,6 +117,8 @@ test('loadCheckRuns fetches workflow job steps for failed Actions checks', () =>
   const checks = loadCheckRuns('CoderaxAI/Coderax', 'a'.repeat(40), exec);
 
   assert.deepEqual(checks[0].steps, [{ name: 'Build packages' }]);
+  assert.equal(checks[0].workflow_id, 42);
+  assert.equal(checks[0].workflow_run_id, 9);
   assert.equal(calls.filter((args) => args[1]?.includes('/actions/jobs/')).length, 1);
 });
 
@@ -247,4 +252,98 @@ test('the formatted result names every check and the final gate state', () => {
   assert.match(text, /PASS\s+Static checks/);
   assert.match(text, /BLOCKED\s+Build packages/);
   assert.match(text, /Release gate FAILED at abcdef1: 1 of 2/);
+});
+
+test('a newer successful run of the same workflow supersedes its old failure', () => {
+  const oldBlocked = actionsCheck({
+    id: 10,
+    name: 'Build packages',
+    conclusion: 'failure',
+    steps: [],
+    workflow_id: 42,
+    workflow_run_id: 100,
+    details_url: 'https://github.com/o/r/actions/runs/100/job/10',
+  });
+  const newSuccess = actionsCheck({
+    id: 11,
+    name: 'Build packages',
+    workflow_id: 42,
+    workflow_run_id: 101,
+    details_url: 'https://github.com/o/r/actions/runs/101/job/11',
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'a'.repeat(40),
+    required: ['Build packages'],
+    checkRuns: [newSuccess, oldBlocked],
+  });
+  assert.equal(gate.ok, true);
+  assert.equal(gate.results[0].status, 'pass');
+});
+
+test('newer pending run cannot be masked by an older workflow success', () => {
+  const older = actionsCheck({
+    id: 21,
+    workflow_id: 42,
+    workflow_run_id: 100,
+  });
+  const newer = actionsCheck({
+    id: 22,
+    status: 'queued',
+    conclusion: null,
+    started_at: null,
+    completed_at: null,
+    workflow_id: 42,
+    workflow_run_id: 101,
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'b'.repeat(40),
+    required: ['Static checks'],
+    checkRuns: [older, newer],
+  });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'pending');
+});
+
+test('different workflows sharing a check name are evaluated independently', () => {
+  const passing = actionsCheck({
+    id: 31,
+    name: 'Build packages',
+    workflow_id: 42,
+    workflow_run_id: 101,
+  });
+  const failing = actionsCheck({
+    id: 32,
+    name: 'Build packages',
+    conclusion: 'failure',
+    workflow_id: 43,
+    workflow_run_id: 102,
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'c'.repeat(40),
+    required: ['Build packages'],
+    checkRuns: [passing, failing],
+  });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'fail');
+});
+
+test('missing workflow identity preserves the old failure rather than guessing recovery', () => {
+  const oldFailure = actionsCheck({
+    id: 41,
+    conclusion: 'failure',
+    details_url: 'https://github.com/o/r/actions/runs/100/job/41',
+    workflow_run_id: 100,
+  });
+  const newer = actionsCheck({
+    id: 42,
+    details_url: 'https://github.com/o/r/actions/runs/101/job/42',
+    workflow_run_id: 101,
+  });
+  const gate = evaluateReleaseGate({
+    sha: 'd'.repeat(40),
+    required: ['Static checks'],
+    checkRuns: [oldFailure, newer],
+  });
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'fail');
 });
