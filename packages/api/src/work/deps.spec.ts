@@ -146,6 +146,8 @@ describe('createWorkDepsFactory', () => {
         { userId: 'user-1', tenantId: 'tenant-b', createdAt: 7 },
         { user: { id: 'user-1' }, tenantId: 'tenant-a' },
       ],
+      [{ userId: 'user-1', createdAt: 7 }, { user: { id: 'user-1', tenantId: 'tenant-a' } }],
+      [{ userId: 'user-1', tenantId: 'tenant-a', createdAt: 7 }, { user: { id: 'user-1' } }],
     ] as const) {
       const { depsFor, calls } = makeDeps({ jobs: { getJob: async () => job } });
       const cancelled = await depsFor(req).cancelRun({
@@ -162,6 +164,20 @@ describe('createWorkDepsFactory', () => {
   it('passes the job creation time to the owner’s abort and reports its result', async () => {
     const { depsFor, calls } = makeDeps();
     const cancelled = await depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).cancelRun({
+      userId: 'user-1',
+      conversationId: 'c-1',
+    });
+
+    expect(cancelled).toBe(true);
+    expect(calls.abort).toEqual([['c-1', { expectedCreatedAt: 42 }]]);
+    expect(calls.warns).toHaveLength(0);
+  });
+
+  it('allows an owner to cancel a job when both tenant scopes are absent', async () => {
+    const { depsFor, calls } = makeDeps({
+      jobs: { getJob: async () => ({ userId: 'user-1', createdAt: 42 }) },
+    });
+    const cancelled = await depsFor({ user: { id: 'user-1' } }).cancelRun({
       userId: 'user-1',
       conversationId: 'c-1',
     });
