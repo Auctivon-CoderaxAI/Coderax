@@ -27,7 +27,7 @@ export type WorkDepsStore = {
 export type WorkDepsJob = {
   metadata?: {
     userId?: string;
-    tenantId?: string;
+    tenantId?: string | null;
   };
   createdAt?: unknown;
 };
@@ -133,8 +133,8 @@ export function createWorkDepsFactory({
         if (!job || job.metadata?.userId !== userId) {
           return null;
         }
-        const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (job.metadata?.tenantId !== tenantId) {
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        if ((job.metadata?.tenantId ?? null) !== tenantId) {
           return null;
         }
         return workStateForJobStatus(await jobs.getJobStatus(conversationId));
@@ -153,8 +153,8 @@ export function createWorkDepsFactory({
           logger?.warn?.(`[Work] Refusing to abort another user's generation: ${conversationId}`);
           return false;
         }
-        const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (job.metadata?.tenantId !== tenantId) {
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        if ((job.metadata?.tenantId ?? null) !== tenantId) {
           logger?.warn?.(`[Work] Refusing to abort another tenant's generation: ${conversationId}`);
           return false;
         }
