@@ -404,6 +404,7 @@ export interface ConversationMethods {
       limit?: number;
       isArchived?: boolean;
       isWork?: true;
+      tenantId?: string | null;
       pinned?: boolean;
       tags?: string[];
       search?: string;
@@ -3529,6 +3530,7 @@ export function createConversationMethods(
       limit = DEFAULT_CONVO_PAGE_SIZE,
       isArchived = false,
       isWork,
+      tenantId,
       pinned = false,
       tags,
       search,
@@ -3545,6 +3547,7 @@ export function createConversationMethods(
       limit?: number;
       isArchived?: boolean;
       isWork?: true;
+      tenantId?: string | null;
       pinned?: boolean;
       tags?: string[];
       search?: string;
@@ -3576,6 +3579,11 @@ export function createConversationMethods(
 
     if (isWork === true) {
       filters.push({ isWork: true } as FilterQuery<IConversation>);
+    }
+
+    // Only explicit callers opt in; null matches legacy tenantless rows, not scoped tenants.
+    if (tenantId !== undefined) {
+      filters.push({ tenantId } as FilterQuery<IConversation>);
     }
 
     if (pinned) {

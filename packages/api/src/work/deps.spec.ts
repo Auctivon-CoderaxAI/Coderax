@@ -78,6 +78,7 @@ describe('createWorkDepsFactory', () => {
           limit: 50,
           isArchived: false,
           isWork: true,
+          tenantId: null,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         },
@@ -120,6 +121,42 @@ describe('createWorkDepsFactory', () => {
 
     expect(read).toEqual({ userId: 'user-1', conversationId: 'c-1' });
     expect(conversation).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
+  });
+
+  it('scopes Work history to the authenticated tenant, including tenantless requests', async () => {
+    const getConvosByCursor = jest.fn(async () => ({
+      conversations: [WORK_ROW],
+      nextCursor: null,
+    }));
+    const { depsFor } = makeDeps({ db: { getConvosByCursor } });
+    await depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).listConversations({
+      userId: 'user-1',
+      limit: 50,
+    });
+    await depsFor({ user: { id: 'user-1' } }).listConversations({
+      userId: 'user-1',
+      limit: 50,
+    });
+    expect(getConvosByCursor).toHaveBeenNthCalledWith(
+      1, 'user-1', expect.objectContaining({ isWork: true, tenantId: 'tenant-a' }),
+    );
+    expect(getConvosByCursor).toHaveBeenNthCalledWith(
+      2, 'user-1', expect.objectContaining({ isWork: true, tenantId: null }),
+    );
+  });
+
+  it('denies tenant-scoped Work task reads to tenantless and foreign-tenant requests', async () => {
+    const { depsFor } = makeDeps({
+      db: { getConvo: async () => ({ ...WORK_ROW, tenantId: 'tenant-a' }) },
+    });
+    const input = { userId: 'user-1', conversationId: 'c-1' };
+    await expect(depsFor({ user: { id: 'user-1' } }).getConversation(input)).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-b' } }).getConversation(input),
+    ).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getConversation(input),
+    ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
   });
 
   it('takes run state from the native job status', async () => {

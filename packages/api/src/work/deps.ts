@@ -16,6 +16,7 @@ export type WorkDepsStore = {
       limit: number;
       isArchived: boolean;
       isWork?: true;
+      tenantId?: string | null;
       sortBy: string;
       sortDirection: 'asc' | 'desc';
     },
@@ -97,6 +98,7 @@ export function createWorkDepsFactory({
           limit,
           isArchived: false,
           isWork: true,
+          tenantId: req.user?.tenantId ?? req.tenantId ?? null,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         });
@@ -110,7 +112,16 @@ export function createWorkDepsFactory({
       }: {
         userId: string;
         conversationId: string;
-      }) => projections.toWorkConversation(await db.getConvo(userId, conversationId)),
+      }) => {
+        const row = await db.getConvo(userId, conversationId);
+        const tenantId = req.user?.tenantId ?? req.tenantId ?? null;
+        const rowTenantId =
+          row != null && typeof row === 'object' && 'tenantId' in row ? row.tenantId : null;
+        if ((rowTenantId ?? null) !== tenantId) {
+          return null;
+        }
+        return projections.toWorkConversation(row);
+      },
       getRunState: async ({
         userId,
         conversationId,
