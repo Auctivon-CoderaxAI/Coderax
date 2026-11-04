@@ -59,7 +59,10 @@ test('maps a conversation and never infers Work from other fields', () => {
       updatedAt: undefined,
     },
   );
-  assert.equal(toWorkConversation({ conversationId: 'c-2', title: 'Chat', isWork: 'yes' }).isWork, false);
+  assert.equal(
+    toWorkConversation({ conversationId: 'c-2', title: 'Chat', isWork: 'yes' }).isWork,
+    false,
+  );
   assert.equal(toWorkConversation({ conversationId: 'c-3' }).workState, undefined);
   assert.equal(toWorkConversation(null), null);
 });
