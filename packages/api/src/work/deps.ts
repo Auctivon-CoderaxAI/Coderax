@@ -124,7 +124,7 @@ export function createWorkDepsFactory({
           return false;
         }
         const tenantId = req.user?.tenantId ?? req.tenantId;
-        if (tenantId && job.tenantId && job.tenantId !== tenantId) {
+        if (job.tenantId !== tenantId) {
           logger?.warn?.(`[Work] Refusing to abort another tenant's generation: ${conversationId}`);
           return false;
         }
