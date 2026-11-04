@@ -230,6 +230,81 @@ test('seeds a new Work conversation with the marker and the authenticated owner'
   assert.equal(db.saves[0].fields.conversationId, 'convo-1');
 });
 
+test('seeds the authenticated tenant on a new Work conversation, never the body tenant', async () => {
+  const db = fakeDb();
+  const result = await seedWorkConversation(
+    {
+      user: { id: 'user-1', tenantId: 'tenant-a' },
+      body: { conversationId: 'convo-1', tenantId: 'tenant-b' },
+    },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+
+  assert.deepEqual(result, { seeded: true });
+  assert.equal(db.saves.length, 1);
+  assert.equal(db.saves[0].fields.tenantId, 'tenant-a');
+  assert.equal(db.saves[0].fields.isWork, true);
+  assert.equal(db.saves[0].ctx.userId, 'user-1');
+});
+
+test('uses trusted request tenant context when the authenticated user has no tenant field', async () => {
+  const db = fakeDb();
+  await seedWorkConversation(
+    { user: { id: 'user-1' }, tenantId: 'tenant-a', body: { conversationId: 'convo-1' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+  assert.equal(db.saves[0].fields.tenantId, 'tenant-a');
+});
+
+test('keeps legacy tenantless seeds tenantless', async () => {
+  const db = fakeDb();
+  await seedWorkConversation(
+    { user: { id: 'user-1' }, body: { conversationId: 'convo-1', tenantId: 'spoofed' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+  assert.equal(Object.hasOwn(db.saves[0].fields, 'tenantId'), false);
+});
+
+test('allows a matching-tenant Work follow-up without re-stamping its marker', async () => {
+  const db = fakeDb({ conversationId: 'convo-1', isWork: true, tenantId: 'tenant-a' });
+  const result = await seedWorkConversation(
+    { user: { id: 'user-1', tenantId: 'tenant-a' }, body: { conversationId: 'convo-1' } },
+    { isWork: true, workModel: 'llama3:latest' },
+    db,
+  );
+  assert.deepEqual(result, { seeded: false, reason: 'exists' });
+  assert.equal(db.saves.length, 0);
+});
+
+test('rejects foreign and legacy tenantless Work follow-ups before the native agent router', async () => {
+  for (const existingTenant of ['tenant-b', undefined]) {
+    const db = fakeDb({
+      conversationId: 'convo-1',
+      isWork: true,
+      ...(existingTenant ? { tenantId: existingTenant } : {}),
+    });
+    const middleware = workContextMiddleware(
+      async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+      () => 'llama3:latest',
+      (req, context) => seedWorkConversation(req, context, db),
+    );
+    const req = {
+      user: { id: 'user-1', tenantId: 'tenant-a' },
+      body: { conversationId: 'convo-1', model: 'auto', text: 'continue' },
+    };
+    const res = response();
+    let continued = false;
+    await middleware(req, res, () => { continued = true; });
+    assert.equal(continued, false);
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.payload.error, 'WORK_TASK_NOT_FOUND');
+    assert.equal(db.saves.length, 0);
+  }
+});
+
 test('refuses to convert an existing non-Work conversation', async () => {
   const db = fakeDb({ conversationId: 'convo-1', isWork: false });
   const result = await seedWorkConversation(
