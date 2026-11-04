@@ -175,7 +175,7 @@
     "@coderax/data-schemas": "*",
     "@langchain/langgraph-checkpoint": "^1.1.2",
     "@langchain/langgraph-checkpoint-mongodb": "^1.4.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@simplewebauthn/server": "^13.3.2",
     "coderax-data-provider": "*",
     "cluster-key-slot": "^1.1.2",
@@ -189,11 +189,11 @@
     "openid-client": "^6.5.0",
     "proxy-from-env": "^2.1.0",
     "rate-limit-redis": "^4.2.0",
-    "re2js": "^2.8.6"
+    "re2js": "^2.9.1"
   },
   "devDependencies": {
     "@antithesishq/bombadil": "0.6.1",
-    "@axe-core/playwright": "^4.10.1",
+    "@axe-core/playwright": "^4.14.0",
     "@eslint/compat": "^1.2.6",
     "@eslint/eslintrc": "^3.3.4",
     "@eslint/js": "^9.20.0",
@@ -240,7 +240,7 @@
     },
     "@xmldom/xmldom": "^0.8.15",
     "@humanfs/node": "^0.16.8",
-    "qs": "^6.16.0",
+    "qs": "^6.17.1",
     "baseline-browser-mapping": "^2.11.0",
     "browserslist": "^4.28.7",
     "elliptic": "^6.6.1",
@@ -275,8 +275,8 @@
       "ajv": "6.14.0"
     },
     "underscore": "1.13.8",
-    "hono": "^4.13.7",
-    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.16",
+    "@hono/node-server": "^2.1.6",
     "monaco-editor": {
       "dompurify": "3.4.17"
     },
