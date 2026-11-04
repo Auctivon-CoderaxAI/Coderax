@@ -124,7 +124,7 @@ describe('createWorkDepsFactory', () => {
   it('takes run state from the native job status', async () => {
     const { depsFor } = makeDeps({ jobs: { getJobStatus: async () => 'complete' } });
 
-    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    const getRunState = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getRunState;
     if (!getRunState) {
       throw new Error('getRunState missing');
     }
@@ -164,6 +164,39 @@ describe('createWorkDepsFactory', () => {
     if (!getRunState) {
       throw new Error('getRunState missing');
     }
+    await expect(
+      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+    ).resolves.toBe('completed');
+    expect(getJobStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies a tenantless request access to a tenant-scoped live job', async () => {
+    const getJobStatus = jest.fn(async () => 'complete');
+    const { depsFor } = makeDeps({ jobs: { getJobStatus } });
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+
+    await expect(
+      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
+    ).resolves.toBeNull();
+    expect(getJobStatus).not.toHaveBeenCalled();
+  });
+
+  it('allows a tenantless request to read its own tenantless live job', async () => {
+    const getJobStatus = jest.fn(async () => 'complete');
+    const { depsFor } = makeDeps({
+      jobs: {
+        getJob: async () => ({ metadata: { userId: 'user-1' }, createdAt: 42 }),
+        getJobStatus,
+      },
+    });
+    const getRunState = depsFor({ user: { id: 'user-1' } }).getRunState;
+    if (!getRunState) {
+      throw new Error('getRunState missing');
+    }
+
     await expect(
       getRunState({ userId: 'user-1', conversationId: 'c-1' }),
     ).resolves.toBe('completed');
