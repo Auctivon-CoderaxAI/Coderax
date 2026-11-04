@@ -608,6 +608,48 @@ test('keeps the selected native agent and its own model on the Work path', async
   assert.equal(req.body.agent_id, 'agent-plan');
 });
 
+test('honours an explicit model when it matches the selected native agent', async () => {
+  const middleware = agentContextMiddleware(async (id) => ({
+    id,
+    model: 'llama3:latest',
+    provider: 'ollama',
+  }));
+  const req = {
+    body: { text: 'plan', model: 'llama3:latest', endpoint: 'agents', agent_id: 'agent-plan' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, true);
+  assert.equal(req.workContext.workModel, 'llama3:latest');
+  assert.equal(req.body.model, 'llama3:latest');
+});
+
+test('rejects a requested model that differs from the selected agent model', async () => {
+  const middleware = agentContextMiddleware(async (id) => ({
+    id,
+    model: 'llama3:latest',
+    provider: 'ollama',
+  }));
+  const req = {
+    body: { text: 'plan', model: 'gpt-4o', endpoint: 'agents', agent_id: 'agent-plan' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_MODEL_NOT_ALLOWED');
+});
+
 test('refuses an agent whose own model is paid even when the request names a free model', async () => {
   const middleware = agentContextMiddleware(async (id) => ({
     id,
@@ -886,12 +928,14 @@ test('/api/work continues to route natively when optional CyVox points at an unr
     });
     assert.equal(started.status, 200);
     assert.deepEqual(await started.json(), { accepted: true });
-    assert.deepEqual(admitted, [{
-      url: '/chat',
-      endpoint: 'ollama',
-      model: 'llama3:latest',
-      workModel: 'llama3:latest',
-    }]);
+    assert.deepEqual(admitted, [
+      {
+        url: '/chat',
+        endpoint: 'ollama',
+        model: 'llama3:latest',
+        workModel: 'llama3:latest',
+      },
+    ]);
   } finally {
     server.close();
   }

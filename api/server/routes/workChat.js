@@ -229,6 +229,15 @@ function workContextMiddleware(
         if (!selectedModel) {
           return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
         }
+        const requestedModel = req.body?.model;
+        if (
+          requestedModel != null &&
+          requestedModel !== '' &&
+          requestedModel !== WORK_AUTO_MODEL_ID &&
+          requestedModel !== selectedModel.id
+        ) {
+          return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
+        }
       }
       const context = selectedModel
         ? { isWork: true, workModel: selectedModel.id, workProvider: selectedModel.provider }
