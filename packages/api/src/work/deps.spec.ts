@@ -1,5 +1,11 @@
+import { createRequire } from 'node:module';
 import { createWorkDepsFactory } from './deps';
 import type { WorkDepsJobs, WorkDepsProjections, WorkDepsStore } from './deps';
+import { workStateForJobStatus } from './state';
+
+const workModels = createRequire(__filename)(
+  '../../../../api/server/routes/workModels.js',
+) as WorkDepsProjections;
 
 const WORK_ROW = {
   conversationId: 'c-1',
@@ -10,17 +16,7 @@ const WORK_ROW = {
 };
 const CHAT_ROW = { conversationId: 'c-2', title: 'Chat', isWork: false };
 
-const projections: WorkDepsProjections = {
-  flattenModelConfig: () => [
-    { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true },
-  ],
-  toWorkConversation: (row) => row,
-  rowsFromCursor: (result) =>
-    Array.isArray(result)
-      ? result
-      : ((result as { conversations?: unknown[] } | null)?.conversations ?? []),
-  onlyWorkRows: (rows) => rows.filter((row) => (row as { isWork?: boolean })?.isWork === true),
-};
+const projections: WorkDepsProjections = workModels;
 
 function makeDeps(
   overrides: {
@@ -50,8 +46,7 @@ function makeDeps(
     db,
     jobs,
     loadModels: async () => ({ ollama: [{ model: 'llama3:latest', name: 'Llama 3' }] }),
-    workStateForJobStatus: (status) =>
-      ({ complete: 'completed', error: 'failed', aborted: 'cancelled' })[status ?? ''] ?? null,
+    workStateForJobStatus,
     logger: { warn: (message) => calls.warns.push(message) },
     projections,
   });
@@ -60,7 +55,7 @@ function makeDeps(
 }
 
 describe('createWorkDepsFactory', () => {
-  it('flattens the native catalog through the injected projection', async () => {
+  it('flattens the native catalog through the real Work projections', async () => {
     const { depsFor } = makeDeps();
 
     await expect(depsFor({ user: { id: 'user-1' } }).listModels()).resolves.toEqual([
