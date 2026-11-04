@@ -1305,7 +1305,7 @@ export const tConversationSchema = z.object({
   additional_instructions: z.string().optional(),
   append_current_datetime: z.boolean().optional(),
   /** Used to overwrite active conversation settings when saving a Preset */
-  presetOverride: z.record(z.string(), z.unknown()).optional()
+  presetOverride: z.record(z.string(), z.unknown()).optional(),
   stop: z.array(z.string()).optional(),
   /* frontend components */
   greeting: z.string().optional(),
