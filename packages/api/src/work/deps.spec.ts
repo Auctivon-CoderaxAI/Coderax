@@ -159,6 +159,20 @@ describe('createWorkDepsFactory', () => {
     ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
   });
 
+  it('does not expose a legacy tenantless Work task in a scoped tenant', async () => {
+    const { depsFor } = makeDeps({
+      db: { getConvo: async () => WORK_ROW },
+    });
+    const input = { userId: 'user-1', conversationId: 'c-1' };
+
+    await expect(
+      depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getConversation(input),
+    ).resolves.toBeNull();
+    await expect(
+      depsFor({ user: { id: 'user-1' } }).getConversation(input),
+    ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
+  });
+
   it('takes run state from the native job status', async () => {
     const { depsFor } = makeDeps({ jobs: { getJobStatus: async () => 'complete' } });
 
