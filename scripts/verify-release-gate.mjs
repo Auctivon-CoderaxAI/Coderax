@@ -13,9 +13,9 @@
  *   node scripts/verify-release-gate.mjs --sha <commit> --require "Static checks,Backend Unit Tests"
  *   node scripts/verify-release-gate.mjs --sha <commit> --require "Static checks" --json
  */
-import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const GITHUB_ACTIONS_APP = 'github-actions';
 const DEFAULT_REPO = 'CoderaxAI/Coderax';
