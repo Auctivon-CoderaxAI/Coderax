@@ -5,6 +5,7 @@ import {
   classifyCheckRun,
   evaluateReleaseGate,
   formatReleaseGate,
+  loadCheckRuns,
   parseArgs,
   parseRequired,
 } from './verify-release-gate.mjs';
@@ -27,28 +28,98 @@ test('a completed successful Actions check passes whether or not steps are liste
 });
 
 test('a successful non-Actions check passes without steps', () => {
-  assert.equal(
-    classifyCheckRun({ ...actionsCheck(), app: { slug: 'vercel' }, steps: [] }),
-    'pass',
-  );
+  assert.equal(classifyCheckRun({ ...actionsCheck(), app: { slug: 'vercel' }, steps: [] }), 'pass');
 });
 
 test('a failed Actions check with no executed steps is BLOCKED, not a code failure', () => {
-  assert.equal(
-    classifyCheckRun(actionsCheck({ conclusion: 'failure', steps: [] })),
-    'blocked',
-  );
+  assert.equal(classifyCheckRun(actionsCheck({ conclusion: 'failure', steps: [] })), 'blocked');
+});
+
+test('an Actions failure without fetchable steps is a failure, not a runner block', () => {
+  assert.equal(classifyCheckRun(actionsCheck({ conclusion: 'failure', steps: undefined })), 'fail');
+});
+
+test('a newer queued check does not lose to an older success', () => {
+  const olderSuccess = actionsCheck({
+    id: 1,
+    completed_at: '2026-11-03T10:10:00Z',
+  });
+  const newerPending = actionsCheck({
+    id: 2,
+    status: 'queued',
+    conclusion: null,
+    started_at: null,
+    completed_at: null,
+  });
+
+  const gate = evaluateReleaseGate({
+    sha: 'f'.repeat(40),
+    required: ['Static checks'],
+    checkRuns: [olderSuccess, newerPending],
+  });
+
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'pending');
+});
+
+test('duplicate check names from different workflows are all evaluated', () => {
+  const passing = actionsCheck({
+    id: 2,
+    name: 'Build packages',
+    details_url: 'https://github.com/o/r/actions/runs/2/job/22',
+  });
+  const failing = actionsCheck({
+    id: 1,
+    name: 'Build packages',
+    conclusion: 'failure',
+    details_url: 'https://github.com/o/r/actions/runs/1/job/11',
+  });
+
+  const gate = evaluateReleaseGate({
+    sha: '1'.repeat(40),
+    required: ['Build packages'],
+    checkRuns: [passing, failing],
+  });
+
+  assert.equal(gate.ok, false);
+  assert.equal(gate.results[0].status, 'fail');
+  assert.match(gate.results[0].detail, /2 matching checks evaluated/);
+});
+
+test('loadCheckRuns fetches workflow job steps for failed Actions checks', () => {
+  const calls = [];
+  const exec = (args) => {
+    calls.push(args);
+    if (args[1] === '--paginate') {
+      return JSON.stringify([
+        {
+          check_runs: [
+            actionsCheck({
+              id: 5,
+              name: 'Build packages',
+              conclusion: 'failure',
+              details_url: 'https://github.com/CoderaxAI/Coderax/actions/runs/9/job/77',
+            }),
+            actionsCheck({ id: 6, name: 'Static checks' }),
+          ],
+        },
+      ]);
+    }
+    if (args[1]?.includes('/actions/jobs/77')) {
+      return JSON.stringify({ steps: [{ name: 'Build packages' }] });
+    }
+    throw new Error(`Unexpected gh call: ${args.join(' ')}`);
+  };
+
+  const checks = loadCheckRuns('CoderaxAI/Coderax', 'a'.repeat(40), exec);
+
+  assert.deepEqual(checks[0].steps, [{ name: 'Build packages' }]);
+  assert.equal(calls.filter((args) => args[1]?.includes('/actions/jobs/')).length, 1);
 });
 
 test('a failed or cancelled check that executed steps is a real failure', () => {
-  assert.equal(
-    classifyCheckRun(actionsCheck({ conclusion: 'failure' })),
-    'fail',
-  );
-  assert.equal(
-    classifyCheckRun(actionsCheck({ conclusion: 'cancelled' })),
-    'fail',
-  );
+  assert.equal(classifyCheckRun(actionsCheck({ conclusion: 'failure' })), 'fail');
+  assert.equal(classifyCheckRun(actionsCheck({ conclusion: 'cancelled' })), 'fail');
 });
 
 test('an incomplete check is pending', () => {
@@ -62,10 +133,7 @@ test('the gate passes only when every required check executed and passed', () =>
   const gate = evaluateReleaseGate({
     sha: 'a'.repeat(40),
     required: ['Static checks', 'Tests'],
-    checkRuns: [
-      actionsCheck(),
-      actionsCheck({ id: 2, name: 'Tests', steps: [{ name: 'jest' }] }),
-    ],
+    checkRuns: [actionsCheck(), actionsCheck({ id: 2, name: 'Tests', steps: [{ name: 'jest' }] })],
   });
 
   assert.equal(gate.ok, true);
@@ -116,11 +184,13 @@ test('the newest run for a repeated check name is the one evaluated', () => {
   const olderFailure = actionsCheck({
     id: 1,
     conclusion: 'failure',
+    details_url: 'https://github.com/o/r/actions/runs/1/job/1',
     started_at: '2026-11-03T09:00:00Z',
     completed_at: '2026-11-03T09:05:00Z',
   });
   const newerSuccess = actionsCheck({
     id: 2,
+    details_url: 'https://github.com/o/r/actions/runs/1/job/2',
     started_at: '2026-11-03T10:00:00Z',
     completed_at: '2026-11-03T10:05:00Z',
   });

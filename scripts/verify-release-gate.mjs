@@ -24,7 +24,14 @@ export function parseRequired(value) {
   if (typeof value !== 'string') {
     return [];
   }
-  return [...new Set(value.split(',').map((name) => name.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 export function classifyCheckRun(check) {
@@ -34,15 +41,25 @@ export function classifyCheckRun(check) {
   if (check.conclusion === 'success') {
     return 'pass';
   }
-  const executedSteps = Array.isArray(check.steps) ? check.steps.length : 0;
+  const executedSteps = Array.isArray(check.steps) ? check.steps.length : null;
   if (check.app?.slug === GITHUB_ACTIONS_APP && executedSteps === 0) {
     return 'blocked';
   }
   return 'fail';
 }
 
-function checkTimestamp(check) {
-  return Date.parse(check.completed_at ?? check.started_at ?? '') || 0;
+function isNewerCheck(check, previous) {
+  const currentTime = Date.parse(check.completed_at ?? check.started_at ?? '') || 0;
+  const previousTime = Date.parse(previous.completed_at ?? previous.started_at ?? '') || 0;
+  if (currentTime === 0 || previousTime === 0) {
+    return (Number(check.id) || 0) >= (Number(previous.id) || 0);
+  }
+  return currentTime >= previousTime;
+}
+
+function checkRunKey(check) {
+  const runId = /\/actions\/runs\/(\d+)/.exec(check.details_url ?? '')?.[1];
+  return `${check.name}\0${runId ?? check.id}`;
 }
 
 function latestRequiredCheckRuns(checkRuns, required) {
@@ -52,12 +69,19 @@ function latestRequiredCheckRuns(checkRuns, required) {
     if (!wanted.has(check.name)) {
       continue;
     }
-    const previous = latest.get(check.name);
-    if (!previous || checkTimestamp(check) >= checkTimestamp(previous)) {
-      latest.set(check.name, check);
+    const key = checkRunKey(check);
+    const previous = latest.get(key);
+    if (!previous || isNewerCheck(check, previous)) {
+      latest.set(key, check);
     }
   }
-  return latest;
+  const byName = new Map();
+  for (const check of latest.values()) {
+    const checks = byName.get(check.name) ?? [];
+    checks.push(check);
+    byName.set(check.name, checks);
+  }
+  return byName;
 }
 
 export function evaluateReleaseGate({ sha, required, checkRuns, annotations = {} }) {
@@ -68,10 +92,10 @@ export function evaluateReleaseGate({ sha, required, checkRuns, annotations = {}
     throw new TypeError('required must contain at least one check name');
   }
 
-  const latest = latestRequiredCheckRuns(checkRuns, required);
+  const latestByName = latestRequiredCheckRuns(checkRuns, required);
   const results = required.map((name) => {
-    const check = latest.get(name);
-    if (!check) {
+    const checks = latestByName.get(name) ?? [];
+    if (checks.length === 0) {
       return {
         name,
         status: 'missing',
@@ -80,7 +104,16 @@ export function evaluateReleaseGate({ sha, required, checkRuns, annotations = {}
         url: null,
       };
     }
-    const status = classifyCheckRun(check);
+    const statuses = checks.map((check) => classifyCheckRun(check));
+    let status = 'pass';
+    if (statuses.includes('fail')) {
+      status = 'fail';
+    } else if (statuses.includes('blocked')) {
+      status = 'blocked';
+    } else if (statuses.includes('pending')) {
+      status = 'pending';
+    }
+    const check = checks.find((candidate) => classifyCheckRun(candidate) === status) ?? checks[0];
     let detail;
     if (status === 'pass') {
       detail = 'Executed and passed.';
@@ -95,6 +128,9 @@ export function evaluateReleaseGate({ sha, required, checkRuns, annotations = {}
         'The job did not execute any steps. Treat this as infrastructure-blocked, not as a code failure.';
     } else {
       detail = `Conclusion: ${check.conclusion ?? 'unknown'}.`;
+    }
+    if (checks.length > 1) {
+      detail += ` (${checks.length} matching checks evaluated.)`;
     }
     return {
       name,
@@ -142,8 +178,7 @@ export function parseArgs(argv) {
 export function formatReleaseGate(gate) {
   const width = Math.max(6, ...gate.results.map((result) => result.status.length));
   const lines = gate.results.map(
-    (result) =>
-      `${result.status.toUpperCase().padEnd(width)}  ${result.name} — ${result.detail}`,
+    (result) => `${result.status.toUpperCase().padEnd(width)}  ${result.name} — ${result.detail}`,
   );
   const failed = gate.results.filter((result) => result.status !== 'pass').length;
   lines.push('');
@@ -162,6 +197,19 @@ function runGh(args) {
   });
 }
 
+export function loadJobSteps(repo, check, exec = runGh) {
+  const jobId = /\/actions\/runs\/\d+\/job\/(\d+)/.exec(check.details_url ?? '')?.[1];
+  if (!jobId) {
+    return undefined;
+  }
+  try {
+    const job = JSON.parse(exec(['api', `repos/${repo}/actions/jobs/${jobId}`]));
+    return Array.isArray(job?.steps) ? job.steps : [];
+  } catch {
+    return undefined;
+  }
+}
+
 export function loadCheckRuns(repo, sha, exec = runGh) {
   const raw = exec([
     'api',
@@ -170,16 +218,22 @@ export function loadCheckRuns(repo, sha, exec = runGh) {
     `repos/${repo}/commits/${sha}/check-runs?per_page=100&filter=all`,
   ]);
   const pages = JSON.parse(raw);
-  return pages.flatMap((page) =>
-    Array.isArray(page?.check_runs) ? page.check_runs : [],
-  );
+  return pages
+    .flatMap((page) => (Array.isArray(page?.check_runs) ? page.check_runs : []))
+    .map((check) => {
+      if (check.app?.slug !== GITHUB_ACTIONS_APP) {
+        return check;
+      }
+      if (check.status !== 'completed' || check.conclusion === 'success') {
+        return check;
+      }
+      return { ...check, steps: loadJobSteps(repo, check, exec) };
+    });
 }
 
 export function loadAnnotations(repo, checkId, exec = runGh) {
   try {
-    const parsed = JSON.parse(
-      exec(['api', `repos/${repo}/check-runs/${checkId}/annotations`]),
-    );
+    const parsed = JSON.parse(exec(['api', `repos/${repo}/check-runs/${checkId}/annotations`]));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
