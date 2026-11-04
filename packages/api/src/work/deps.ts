@@ -15,6 +15,7 @@ export type WorkDepsStore = {
     options: {
       limit: number;
       isArchived: boolean;
+      isWork?: true;
       sortBy: string;
       sortDirection: 'asc' | 'desc';
     },
@@ -95,6 +96,7 @@ export function createWorkDepsFactory({
         const result = await db.getConvosByCursor(userId, {
           limit,
           isArchived: false,
+          isWork: true,
           sortBy: 'updatedAt',
           sortDirection: 'desc',
         });
