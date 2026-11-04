@@ -61,8 +61,10 @@ describe('durable Mongo swarm lease store', () => {
     expect(await collection.countDocuments({})).toBe(1);
 
     const winner = outcomes.find((outcome) => outcome.ok);
-    expect(winner?.ok).toBe(true);
-    const lease = claimed(winner as SwarmClaimResult);
+    if (!winner) {
+      throw new Error('Expected one winning Mongo lease claim');
+    }
+    const lease = claimed(winner);
     expect((await createMongoSwarmStore(collection, owner).get(task.id))?.leaseId).toBe(
       lease.leaseId,
     );
