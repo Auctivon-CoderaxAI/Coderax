@@ -85,6 +85,21 @@ describe('createWorkDepsFactory', () => {
     expect((rows[0] as { conversationId: string }).conversationId).toBe('c-1');
   });
 
+  it('projects raw cursor rows before filtering Work history', async () => {
+    const rawRows = [WORK_ROW, null, CHAT_ROW];
+    const { depsFor } = makeDeps({
+      db: { getConvosByCursor: async () => ({ conversations: rawRows, nextCursor: null }) },
+    });
+
+    expect(projections.rowsFromCursor({ conversations: rawRows })).toEqual(rawRows);
+    await expect(
+      depsFor({ user: { id: 'user-1' } }).listConversations({
+        userId: 'user-1',
+        limit: 3,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ conversationId: 'c-1', isWork: true })]);
+  });
+
   it('reads one conversation through the owner-scoped store', async () => {
     let read: unknown;
     const { depsFor } = makeDeps({
