@@ -591,7 +591,11 @@ type SchemaShape<T> = T extends z.ZodObject<infer U> ? U : never;
 
 // Helper type to determine the default value or undefined based on whether the field has a default
 type DefaultValue<T> =
-  T extends z.ZodDefault<infer Inner> ? z.output<Inner> : undefined;
+  T extends z.ZodDefault<infer Inner>
+    ? z.output<Inner>
+    : T extends z.ZodPrefault<infer Inner>
+      ? z.output<Inner>
+      : undefined;
 
 // Extract default values or undefined from the schema shape
 type ExtractDefaults<T> = {
@@ -607,8 +611,8 @@ export function getSchemaDefaults<Schema extends z.ZodObject>(
 ): ExtractDefaults<SchemaShape<Schema>> {
   const shape = schema.shape;
   const entries = Object.entries(shape).map(([key, value]) => {
-    if (value instanceof z.ZodDefault) {
-      // Extract default value if it exists
+    if (value instanceof z.ZodDefault || value instanceof z.ZodPrefault) {
+      // Extract the parsed default, including nested defaults applied by a prefault.
       return [key, value.parse(undefined)];
     }
     return [key, undefined];

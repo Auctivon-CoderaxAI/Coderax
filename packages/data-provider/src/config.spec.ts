@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import type { TEndpointsConfig } from './types';
 import {
   allowedAddressesSchema,
@@ -24,6 +26,8 @@ import {
   resolveMCPAppRateLimits,
   resolveMCPAppsPolicy,
   endpointSchema,
+  getConfigDefaults,
+  getSchemaDefaults,
   isTwoFactorPolicyProvider,
   resolveEndpointType,
   webSearchSchema,
@@ -32,6 +36,34 @@ import { EModelEndpoint, isDocumentSupportedProvider } from './schemas';
 import { getEndpointFileConfig, mergeFileConfig } from './file-config';
 import { DEFAULT_MCP_APP_CSP_LIMITS } from './mcp/csp';
 import { modelSpecSubagentsSchema } from './models';
+
+describe('config schema defaults', () => {
+  it('includes prefault sections and their nested defaults', () => {
+    const defaults = getConfigDefaults();
+
+    expect(defaults.interface).toBeDefined();
+    expect(defaults.interface?.modelSelect).toBe(true);
+    expect(defaults.interface?.runningChatRename).toBe(true);
+  });
+
+  it('parses prefault defaults rather than returning undefined', () => {
+    const schema = z.object({
+      section: z
+        .object({
+          enabled: z.boolean().default(true),
+          nested: z
+            .object({ count: z.number().default(2) })
+            .optional()
+            .prefault({}),
+        })
+        .prefault({}),
+    });
+
+    expect(getSchemaDefaults(schema)).toEqual({
+      section: { enabled: true, nested: { count: 2 } },
+    });
+  });
+});
 
 const endpointsConfig: TEndpointsConfig = {
   [EModelEndpoint.openAI]: { userProvide: false, order: 0 },
