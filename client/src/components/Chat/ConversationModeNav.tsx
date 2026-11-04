@@ -12,8 +12,10 @@ type ConversationModeNavProps = {
   };
 };
 
-const selectedClassName = 'rounded-md bg-surface-active px-3 py-1.5 text-text-primary';
-const idleClassName = 'rounded-md px-3 py-1.5 text-text-secondary hover:bg-surface-active';
+const segmentClassName =
+  'flex min-w-[5.5rem] items-center justify-center rounded-full px-6 py-1.5 text-sm transition-colors';
+const selectedClassName = `${segmentClassName} bg-surface-tertiary text-text-primary shadow-sm`;
+const idleClassName = `${segmentClassName} text-text-secondary hover:text-text-primary`;
 
 export default function ConversationModeNav({
   active,
@@ -23,7 +25,7 @@ export default function ConversationModeNav({
   return (
     <nav
       aria-label={labels.ariaLabel}
-      className="border-border-medium bg-surface-secondary flex items-center gap-1 rounded-lg border p-1 text-xs"
+      className="border-border-light bg-surface-primary-alt flex items-center gap-1 rounded-full border p-1"
     >
       <Link
         to={chatPath ?? '/c/new'}

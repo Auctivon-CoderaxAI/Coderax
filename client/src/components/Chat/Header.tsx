@@ -92,8 +92,8 @@ function Header({
 
       <div
         className={cn(
-          'flex min-w-0 flex-1 items-center gap-2',
-          !isSmallScreen && 'pl-3 transition-all duration-200 ease-in-out',
+          'flex min-w-0 flex-1 items-center justify-center gap-2',
+          !isSmallScreen && 'transition-all duration-200 ease-in-out',
           hiddenBehindNav,
         )}
       >
@@ -111,6 +111,9 @@ function Header({
             }}
           />
         )}
+      </div>
+
+      <div className={cn('flex shrink-0 items-center gap-2', hiddenBehindNav)}>
         {hasAccessToBookmarks === true && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
             <BookmarkMenu />
@@ -121,9 +124,6 @@ function Header({
             <AddMultiConvo />
           </div>
         )}
-      </div>
-
-      <div className={cn('flex shrink-0 items-center gap-2', hiddenBehindNav)}>
         {showTemporaryChat && <TemporaryChatIndicator />}
         {!isNewChat && <NewChat className={isSmallScreen ? undefined : 'hidden'} />}
         {!isNewChat && parentConversationId == null && (

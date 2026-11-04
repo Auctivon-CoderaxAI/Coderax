@@ -84,7 +84,7 @@ export function WorkAgentSelect({
       <select
         id={id}
         aria-label={localize('com_work_agent')}
-        className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:ring-2 focus-visible:outline-hidden"
+        className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer rounded-full bg-transparent px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden"
         value={selectedAgent?.id ?? ''}
         onChange={(event) => {
           const agent = agents.find((option) => option.id === event.target.value);

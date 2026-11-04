@@ -51,7 +51,7 @@ export default function WorkRoute() {
         <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
           <OpenSidebar />
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
           <ConversationModeNav
             active="work"
             labels={{

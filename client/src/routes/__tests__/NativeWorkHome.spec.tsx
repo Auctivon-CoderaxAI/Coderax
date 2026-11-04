@@ -1,4 +1,5 @@
 import React from 'react';
+import { RecoilRoot } from 'recoil';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -26,7 +27,31 @@ const messages: Record<string, string> = {
   com_work_cancel_failed: 'Work could not cancel this task.',
   com_work_task_selection_note: 'Select an available agent for this task.',
   com_cyvox_work_policy_note: 'Native tools retain their permission and approval controls.',
+  com_ui_use_micrphone: 'Use microphone',
+  com_ui_stop: 'Stop',
+  com_ui_transcribing: 'Transcribing...',
 };
+
+const mockStartRecording = jest.fn();
+const mockStopRecording = jest.fn();
+const mockAbortRecording = jest.fn();
+let mockSpeechOnText: ((text: string) => void) | undefined;
+let mockSpeechIsListening = false;
+let mockSpeechIsLoading = false;
+
+jest.mock('~/hooks/Input/useSpeechToText', () => ({
+  __esModule: true,
+  default: (setText: (text: string) => void) => {
+    mockSpeechOnText = setText;
+    return {
+      isListening: mockSpeechIsListening,
+      isLoading: mockSpeechIsLoading,
+      startRecording: mockStartRecording,
+      stopRecording: mockStopRecording,
+      abortRecording: mockAbortRecording,
+    };
+  },
+}));
 
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => messages[key] ?? key,
@@ -82,17 +107,28 @@ function renderHome(
     last_id: '',
   });
   render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/work']}>
-        <NativeWorkHome />
-        <LocationDisplay />
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <RecoilRoot>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/work']}>
+          <NativeWorkHome />
+          <LocationDisplay />
+        </MemoryRouter>
+      </QueryClientProvider>
+    </RecoilRoot>,
   );
   return { getModels, getTasks, queryClient };
 }
 
 describe('native Work home', () => {
+  beforeEach(() => {
+    mockStartRecording.mockClear();
+    mockStopRecording.mockClear();
+    mockAbortRecording.mockClear();
+    mockSpeechOnText = undefined;
+    mockSpeechIsListening = false;
+    mockSpeechIsLoading = false;
+  });
+
   afterEach(() => jest.restoreAllMocks());
 
   it('starts a native Work task with the selected accessible agent', async () => {
@@ -193,9 +229,9 @@ describe('native Work home', () => {
 
     expect(await screen.findByText('Work models are unavailable.')).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Planner' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('textbox', { name: 'Describe what you want to get done' }),
-    ).toHaveValue('Plan the release');
+    expect(screen.getByRole('textbox', { name: 'Describe what you want to get done' })).toHaveValue(
+      'Plan the release',
+    );
     expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
     expect(getModels).toHaveBeenCalledTimes(2);
     queryClient.clear();
@@ -209,9 +245,7 @@ describe('native Work home', () => {
       { getTasks: () => Promise.reject(new Error('history offline')) },
     );
 
-    expect(
-      await screen.findByText('Unable to load recent work right now.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Unable to load recent work right now.')).toBeInTheDocument();
     await screen.findByRole('option', { name: 'Planner' });
     fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
       target: { value: 'Plan the release' },
@@ -232,9 +266,7 @@ describe('native Work home', () => {
     await screen.findByRole('button', { name: 'Cancel Refresh the report' });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel Refresh the report' }));
 
-    expect(
-      await screen.findByText('Work could not cancel this task.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Work could not cancel this task.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel Refresh the report' })).toBeInTheDocument();
     queryClient.clear();
   });
@@ -250,6 +282,38 @@ describe('native Work home', () => {
     expect(
       screen.queryByRole('button', { name: 'Cancel Finished report' }),
     ).not.toBeInTheDocument();
+    queryClient.clear();
+  });
+
+  it('dictates the task description through the microphone control', async () => {
+    const { queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+    );
+
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.click(screen.getByRole('button', { name: 'Use microphone' }));
+    expect(mockStartRecording).toHaveBeenCalledTimes(1);
+
+    act(() => mockSpeechOnText?.('Plan the launch'));
+    expect(screen.getByRole('textbox', { name: 'Describe what you want to get done' })).toHaveValue(
+      'Plan the launch',
+    );
+    queryClient.clear();
+  });
+
+  it('stops recording from the same microphone control', async () => {
+    mockSpeechIsListening = true;
+    const { queryClient } = renderHome(
+      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      { tasks: [] },
+      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+    );
+
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(mockStopRecording).toHaveBeenCalledTimes(1);
     queryClient.clear();
   });
 

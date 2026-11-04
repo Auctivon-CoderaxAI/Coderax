@@ -298,14 +298,8 @@
     }
   },
   "client/src/components/Chat/Landing.tsx": {
-    "shadcn/no-raw-colors": {
-      "count": 1
-    },
     "shadcn/no-restyle": {
-      "count": 16
-    },
-    "shadcn/require-static-classes": {
-      "count": 2
+      "count": 5
     }
   },
   "client/src/components/Chat/Menus/Endpoints/components/EndpointItem.tsx": {
