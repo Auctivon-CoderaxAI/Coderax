@@ -17,6 +17,12 @@ projects:
   # Characters of the project description shown in the workspace and sidebar (maximum 10000).
   maxDescriptionLength: 1000
 
+# Work agent-graph admission limits. Both fields are optional and default to
+# these values when the block is absent.
+# work:
+#   agentGraphLimit: 64        # agents checked in one graph (maximum 100000)
+#   agentGraphConcurrency: 8   # catalog graphs checked at once (maximum 64)
+
 # Tool-call previews: a long conversation's tool outputs, arguments and subagent transcripts
 # can run to megabytes, though their cards render collapsed. The web client asks for bounded
 # previews when it loads a conversation (the start and end of each long output, arguments

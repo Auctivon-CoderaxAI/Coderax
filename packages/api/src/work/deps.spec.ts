@@ -64,6 +64,17 @@ describe('createWorkDepsFactory', () => {
     ]);
   });
 
+  it('passes deployment Work graph limits into the request-scoped router deps', () => {
+    const { depsFor } = makeDeps();
+    const deps = depsFor({
+      user: { id: 'user-1' },
+      config: { work: { agentGraphLimit: 128, agentGraphConcurrency: 4 } },
+    });
+
+    expect(deps.agentGraphLimit).toBe(128);
+    expect(deps.agentGraphConcurrency).toBe(4);
+  });
+
   it('reads history newest-first for this owner and keeps only Work conversations', async () => {
     const { depsFor, calls } = makeDeps();
     const rows = await depsFor({ user: { id: 'user-1' } }).listConversations({

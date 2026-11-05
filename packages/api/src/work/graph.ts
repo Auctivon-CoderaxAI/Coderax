@@ -1,3 +1,4 @@
+import { DEFAULT_WORK_AGENT_GRAPH_LIMIT } from 'coderax-data-provider';
 import type { GraphEdge } from 'coderax-data-provider';
 import type { WorkModel } from './models';
 import { collectEdgeAgentIds } from '../agents/edges';
@@ -37,22 +38,7 @@ export type WorkAgentGraph =
   | { ok: true; model: WorkModel; members: WorkAgentMember[] }
   | { ok: false; reason: WorkAgentGraphFailure; agentId?: string };
 
-/** Mirrors the native subagent graph ceiling closely enough to bound a Work check. */
-const DEFAULT_WORK_AGENT_GRAPH_LIMIT = 64;
-
-/**
- * Allow deployments to tune the ceiling without changing code.
- * Falls back to the historical default (64) when unset/invalid.
- */
-function readWorkAgentGraphLimit(): number {
-  const raw = process.env.CODERAX_WORK_AGENT_GRAPH_LIMIT;
-  if (!raw) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
-  return parsed;
-}
-
-export const WORK_AGENT_GRAPH_LIMIT = readWorkAgentGraphLimit();
+export { DEFAULT_WORK_AGENT_GRAPH_LIMIT };
 
 /** Every agent one saved agent can hand work to directly, whatever the route. */
 export function workAgentReferences(agent: WorkGraphAgent): string[] {
@@ -92,7 +78,7 @@ export async function resolveWorkAgentGraph(
   root: WorkGraphAgent,
   models: WorkModel[],
   loadAgent: (agentId: string) => Promise<WorkGraphAgent | null | undefined>,
-  limit: number = WORK_AGENT_GRAPH_LIMIT,
+  limit: number = DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 ): Promise<WorkAgentGraph> {
   const rootModel = resolveWorkAgentModel(models, root);
   if (!rootModel) {

@@ -1,84 +1,105 @@
 import type { WorkGraphAgent } from './graph';
-import { admitWorkAgent } from './admission';
+import { resolveWorkAdmission, resolveWorkContext } from './admission';
 
-const sources = [{ id: 'llama3:latest', provider: 'ollama', local: true }];
+const sources = [{ id: 'local-model', provider: 'ollama', local: true }];
 
-const agent = (
-  id: string,
-  overrides: Partial<WorkGraphAgent> = {},
-): WorkGraphAgent => ({
-  id,
-  model: 'llama3:latest',
-  provider: 'ollama',
-  ...overrides,
-});
-
-describe('Work agent admission', () => {
-  it('checks reachable agents through the injected loader and ACL', async () => {
-    const root = agent('root', { agent_ids: ['private', 'visible'] });
-    const loads: string[] = [];
-    const checks: string[] = [];
-    const result = await admitWorkAgent({
-      requestedAgentId: 'root',
-      sources,
-      loadAgent: async (id) => {
-        loads.push(id);
-        if (id === 'root') return root;
-        if (id === 'private') return agent(id, { model: 'gpt-4o', provider: 'openAI' });
-        return agent(id);
-      },
-      canViewAgent: async (candidate) => {
-        checks.push(candidate.id ?? '');
-        return candidate.id !== 'private';
+describe('Work admission', () => {
+  it('preserves automatic model resolution for non-agent tasks', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources,
+        requestedModel: 'auto',
+        configuredDefaultModel: 'local-model',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      context: {
+        isWork: true,
+        workModel: 'local-model',
+        workProvider: 'ollama',
+        allowedModels: [{ id: 'local-model', provider: 'ollama' }],
       },
     });
-
-    expect(result).toMatchObject({ ok: true, model: { id: 'llama3:latest', provider: 'ollama' } });
-    expect(loads).toEqual(['root', 'private', 'visible']);
-    expect(checks).toEqual(['private', 'visible']);
   });
 
-  it('returns stable failures for missing agents and disallowed models', async () => {
+  it('rejects a selected agent graph that reaches a paid model', async () => {
+    const root: WorkGraphAgent = {
+      id: 'root',
+      model: 'local-model',
+      provider: 'ollama',
+      agent_ids: ['child'],
+    };
     await expect(
-      admitWorkAgent({
-        requestedAgentId: 'missing',
+      resolveWorkAdmission({
         sources,
-        loadAgent: async () => null,
+        requestedModel: 'auto',
+        requestedAgentId: 'root',
+        findAgent: async (id) =>
+          id === 'root' ? root : { id: 'child', model: 'gpt-4o', provider: 'openAI' },
         canViewAgent: async () => true,
       }),
-    ).resolves.toEqual({ ok: false, reason: 'agent_not_found' });
-
-    await expect(
-      admitWorkAgent({
-        requestedAgentId: 'paid',
-        sources,
-        loadAgent: async () => agent('paid', { model: 'gpt-4o', provider: 'openAI' }),
-        canViewAgent: async () => true,
-      }),
-    ).resolves.toEqual({ ok: false, reason: 'model_not_allowed' });
+    ).resolves.toEqual({ ok: false, error: 'WORK_AGENT_GRAPH_NOT_ALLOWED' });
   });
 
-  it('rejects disallowed reachable agents and mismatched requested models', async () => {
+  it('ignores inaccessible members because the native runner cannot execute them', async () => {
+    const root: WorkGraphAgent = {
+      id: 'root',
+      model: 'local-model',
+      provider: 'ollama',
+      agent_ids: ['private', 'visible'],
+    };
     await expect(
-      admitWorkAgent({
-        requestedAgentId: 'root',
+      resolveWorkAdmission({
         sources,
-        loadAgent: async (id) =>
-          id === 'root'
-            ? agent(id, { agent_ids: ['paid'] })
-            : agent(id, { model: 'gpt-4o', provider: 'openAI' }),
-        canViewAgent: async () => true,
+        requestedModel: 'auto',
+        requestedAgentId: 'root',
+        findAgent: async (id) => {
+          if (id === 'root') return root;
+          return {
+            id,
+            model: id === 'private' ? 'gpt-4o' : 'local-model',
+            provider: id === 'private' ? 'openAI' : 'ollama',
+          };
+        },
+        canViewAgent: async (agent) => agent.id !== 'private',
       }),
-    ).resolves.toEqual({ ok: false, reason: 'graph_not_allowed' });
+    ).resolves.toMatchObject({
+      ok: true,
+      context: {
+        workModel: 'local-model',
+        allowedModels: [{ id: 'local-model', provider: 'ollama' }],
+      },
+    });
+  });
 
+  it('uses the configured graph-size limit for selected agents', async () => {
+    const root: WorkGraphAgent = {
+      id: 'root',
+      model: 'local-model',
+      provider: 'ollama',
+      agent_ids: ['child'],
+    };
     await expect(
-      admitWorkAgent({
-        requestedAgentId: 'root',
+      resolveWorkAdmission({
         sources,
-        requestedModel: 'different-model',
-        loadAgent: async () => agent('root'),
+        requestedModel: 'auto',
+        requestedAgentId: 'root',
+        graphLimit: 1,
+        findAgent: async (id) =>
+          id === 'root' ? root : { id, model: 'local-model', provider: 'ollama' },
         canViewAgent: async () => true,
       }),
-    ).resolves.toEqual({ ok: false, reason: 'model_not_allowed' });
+    ).resolves.toEqual({ ok: false, error: 'WORK_AGENT_GRAPH_TOO_LARGE' });
+  });
+
+  it('keeps the existing model selection error contract', () => {
+    expect(resolveWorkContext(sources, 'gpt-4o', null)).toEqual({
+      error: 'WORK_MODEL_NOT_ALLOWED',
+    });
+    expect(resolveWorkContext(sources, { id: 'local-model' }, 'local-model')).toEqual({
+      error: 'WORK_MODEL_NOT_ALLOWED',
+    });
   });
 });

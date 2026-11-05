@@ -65,16 +65,29 @@ describe('native Work router', () => {
     expect(res.body.code).toBe('WORK_MODELS_UNAVAILABLE');
   });
 
-  it('lists eligible agents across graph-check batches', async () => {
-    const agents = Array.from({ length: 9 }, (_, index) => ({
-      id: `agent-${index}`,
-      model: 'llama3:latest',
-    }));
-    const res = await request(app({ listAgents: async () => agents })).get('/api/work/agents');
+  it('applies the configured graph-size limit to agent listings', async () => {
+    const res = await request(
+      app({
+        listModels: async () => [{ id: 'llama3:latest', provider: 'ollama', local: true }],
+        agentGraphLimit: 1,
+        listAgents: async () => [
+          {
+            id: 'root',
+            model: 'llama3:latest',
+            provider: 'ollama',
+            agent_ids: ['child'],
+          },
+          {
+            id: 'child',
+            model: 'llama3:latest',
+            provider: 'ollama',
+          },
+        ],
+      }),
+    ).get('/api/work/agents');
+
     expect(res.status).toBe(200);
-    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(
-      agents.map((agent) => agent.id),
-    );
+    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['child']);
   });
 
   it('has no task-start route, so a run can only begin through native chat', async () => {

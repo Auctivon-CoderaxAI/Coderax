@@ -45,6 +45,12 @@ export type WorkDepsJobs = {
 export type WorkDepsRequest = {
   user?: { id?: string; tenantId?: string };
   tenantId?: string;
+  config?: {
+    work?: {
+      agentGraphLimit?: number;
+      agentGraphConcurrency?: number;
+    };
+  } | null;
 };
 
 export type WorkDepsLogger = {
@@ -138,6 +144,7 @@ export function createWorkDepsFactory({
   }
 
   return function depsFor(req: WorkDepsRequest): WorkDeps {
+    const workConfig = req.config?.work;
     return {
       listModels: async () => projections.flattenModelConfig(await loadModels(req)),
       ...(listAgents
@@ -150,6 +157,10 @@ export function createWorkDepsFactory({
         : {}),
       ...(configuredDefaultModel
         ? { configuredDefaultModel: () => configuredDefaultModel(req) }
+        : {}),
+      ...(workConfig?.agentGraphLimit != null ? { agentGraphLimit: workConfig.agentGraphLimit } : {}),
+      ...(workConfig?.agentGraphConcurrency != null
+        ? { agentGraphConcurrency: workConfig.agentGraphConcurrency }
         : {}),
       listConversations: async ({ userId, limit }: { userId: string; limit: number }) => {
         const result = await db.getConvosByCursor(userId, {
