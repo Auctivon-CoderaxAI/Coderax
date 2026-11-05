@@ -428,9 +428,11 @@ function expandUnionIssues(issues: SchemaIssue[], depth = 0): SchemaIssue[] {
 type SchemaNode = {
   _def: {
     typeName?: string;
+    type?: string | SchemaNode;
     innerType?: SchemaNode;
     schema?: SchemaNode;
-    type?: SchemaNode;
+    element?: SchemaNode;
+    shape?: Record<string, SchemaNode>;
     valueType?: SchemaNode;
     options?: SchemaNode[] | Map<unknown, SchemaNode>;
   };
@@ -467,27 +469,30 @@ function findUnionDroppedKeys(
     return [];
   }
   const node = unwrapSchema(schema);
-  const { typeName } = node._def;
-  if (typeName === 'ZodObject' && node.shape && isPlainObject(value)) {
-    const shape = node.shape;
+  // Zod 3 uses typeName and Zod 4 uses type; both expose the object shape.
+  const kind = node._def.typeName ?? node._def.type;
+  const shape = node.shape ?? node._def.shape;
+  if ((kind === 'ZodObject' || kind === 'object') && shape && isPlainObject(value)) {
     return Object.keys(value)
       .filter((key) => hasOwn(shape, key))
       .flatMap((key) => findUnionDroppedKeys(shape[key], value[key], [...path, key], depth + 1));
   }
-  if (typeName === 'ZodArray' && node._def.type && Array.isArray(value)) {
-    const item = node._def.type;
+  const arrayItem = node._def.element ??
+    (typeof node._def.type === 'object' ? node._def.type : undefined);
+  if ((kind === 'ZodArray' || kind === 'array') && arrayItem && Array.isArray(value)) {
+    const item = arrayItem;
     return value.flatMap((entry, index) =>
       findUnionDroppedKeys(item, entry, [...path, index], depth + 1),
     );
   }
-  if (typeName === 'ZodRecord' && node._def.valueType && isPlainObject(value)) {
+  if ((kind === 'ZodRecord' || kind === 'record') && node._def.valueType && isPlainObject(value)) {
     const entrySchema = node._def.valueType;
     return Object.entries(value).flatMap(([key, entry]) =>
       findUnionDroppedKeys(entrySchema, entry, [...path, key], depth + 1),
     );
   }
   if (
-    (typeName !== 'ZodUnion' && typeName !== 'ZodDiscriminatedUnion') ||
+    (kind !== 'ZodUnion' && kind !== 'ZodDiscriminatedUnion' && kind !== 'union') ||
     !node._def.options ||
     !isPlainObject(value)
   ) {
@@ -498,9 +503,13 @@ function findUnionDroppedKeys(
   if (!accepted) {
     return [];
   }
-  const acceptedShape = unwrapSchema(accepted).shape;
+  const acceptedNode = unwrapSchema(accepted);
+  const acceptedShape = acceptedNode.shape ?? acceptedNode._def.shape;
   const defined = new Set(
-    options.flatMap((option) => Object.keys(unwrapSchema(option).shape ?? {})),
+    options.flatMap((option) => {
+      const optionNode = unwrapSchema(option);
+      return Object.keys(optionNode.shape ?? optionNode._def.shape ?? {});
+    }),
   );
   const dropped = acceptedShape
     ? Object.keys(value)
