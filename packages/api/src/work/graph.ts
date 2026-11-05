@@ -207,3 +207,20 @@ export function findWorkRunViolation(
   }
   return null;
 }
+
+export function enforceWorkRunAllowance(
+  context: { isWork?: boolean; allowedModels?: WorkRunAllowance | null } | null | undefined,
+  roots: Array<WorkRunConfig | null | undefined>,
+  errorType: string,
+  reportViolation: (target: WorkRunTarget) => void,
+): void {
+  if (!context?.isWork) {
+    return;
+  }
+  const violation = findWorkRunViolation(context.allowedModels, roots);
+  if (!violation) {
+    return;
+  }
+  reportViolation(violation);
+  throw new Error(`{ "type": "${errorType}" }`);
+}

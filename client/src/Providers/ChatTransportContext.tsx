@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import { EndpointURLs } from 'coderax-data-provider';
+import { EndpointURLs, EModelEndpoint, isAssistantsEndpoint } from 'coderax-data-provider';
 import type { WorkOptions, WorkSelection } from '~/components/Chat/Input/workSelection';
 import type { Transport } from '~/hooks/Chat/contract';
 import {
@@ -66,12 +66,17 @@ export function createWorkChatTransport(
             ...selected.preset,
             agent_id: selected.preset.agent_id,
             assistant_id: undefined,
+            endpointType: selected.preset.endpoint,
             spec: null,
           }
         : payload;
       return transport.start(
         {
-          server: toWorkChatServer(server),
+          server: toWorkChatServer(
+            isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
+              ? EndpointURLs[EModelEndpoint.agents]
+              : server,
+          ),
           payload: workPayload,
         },
         requestOptions,

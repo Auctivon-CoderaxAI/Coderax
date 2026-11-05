@@ -21,11 +21,12 @@ export default function useAdaptiveSSE(
   chatHelpers: ChatHelpers,
   isAddedRequest = false,
   runIndex = 0,
+  forceResumable = false,
 ) {
   const endpoint = submission?.conversation?.endpoint;
   const endpointType = submission?.conversation?.endpointType;
   const actualEndpoint = endpointType ?? endpoint;
-  const isAssistants = isAssistantsEndpoint(actualEndpoint);
+  const isAssistants = !forceResumable && isAssistantsEndpoint(actualEndpoint);
   const resumableEnabled = !isAssistants;
 
   useSSE(resumableEnabled ? null : submission, chatHelpers, isAddedRequest, runIndex);

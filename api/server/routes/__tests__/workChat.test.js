@@ -117,6 +117,7 @@ test('the alias middleware sets server-owned context and strips client claims', 
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.isWork, undefined);
   assert.equal(req.body.workModel, undefined);

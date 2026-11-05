@@ -7,6 +7,7 @@ const {
   ResourceType,
 } = require('coderax-data-provider');
 const {
+  canViewWorkAgent,
   createConfiguredDefaultResolver,
   hasMalformedWorkAgentId,
   resolveWorkAdmission,
@@ -53,16 +54,16 @@ function defaultFindAgent(agentId) {
 /** The same VIEW check the native runtime applies before a run reaches another agent. */
 function defaultCanViewAgent(req, agent) {
   const { checkPermission } = require('~/server/services/PermissionService');
-  if (!req?.user?.id || !agent?._id) {
-    return Promise.resolve(false);
-  }
-  return checkPermission({
-    userId: req.user.id,
-    role: req.user.role,
-    resourceType: ResourceType.AGENT,
-    resourceId: agent._id,
-    requiredPermission: PermissionBits.VIEW,
-  });
+  return canViewWorkAgent(
+    {
+      userId: req?.user?.id,
+      role: req?.user?.role,
+      agentId: agent?._id,
+      resourceType: ResourceType.AGENT,
+      requiredPermission: PermissionBits.VIEW,
+    },
+    checkPermission,
+  );
 }
 
 function defaultAuthorizeAgent(req, res, next) {

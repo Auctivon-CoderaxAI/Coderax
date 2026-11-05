@@ -1,6 +1,10 @@
-import { resolveWorkAgentGraph, workAgentReferences } from './graph';
-import { toWorkGraphAgent } from './deps';
+import {
+  enforceWorkRunAllowance,
+  resolveWorkAgentGraph,
+  workAgentReferences,
+} from './graph';
 import { buildWorkModelOptions } from './models';
+import { toWorkGraphAgent } from './deps';
 
 const models = buildWorkModelOptions([
   { id: 'qwen3.5:4b', provider: 'ollama', local: true },
@@ -18,6 +22,37 @@ const root = {
 };
 
 describe('native Work graph admission', () => {
+  it('does not apply prepared-run admission outside Work mode', () => {
+    expect(() =>
+      enforceWorkRunAllowance(
+        { isWork: false },
+        [{ id: 'paid', model: 'gpt-4o', provider: 'openAI' }],
+        'WORK_MODEL_NOT_ALLOWED',
+        jest.fn(),
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects prepared models outside the admitted Work allowance', () => {
+    const reportViolation = jest.fn();
+    expect(() =>
+      enforceWorkRunAllowance(
+        {
+          isWork: true,
+          allowedModels: [{ id: 'local', provider: 'ollama' }],
+        },
+        [{ id: 'paid', model: 'gpt-4o', provider: 'openAI' }],
+        'WORK_MODEL_NOT_ALLOWED',
+        reportViolation,
+      ),
+    ).toThrow('{ "type": "WORK_MODEL_NOT_ALLOWED" }');
+    expect(reportViolation).toHaveBeenCalledWith({
+      id: 'paid',
+      model: 'gpt-4o',
+      provider: 'openAI',
+    });
+  });
+
   it('ignores saved subagent references when delegation is disabled', async () => {
     expect(workAgentReferences(root)).toEqual([]);
     let loaded = 0;

@@ -72,6 +72,7 @@ describe('createWorkChatTransport', () => {
         payload: expect.objectContaining({
           conversationId: 'same-conversation',
           endpoint: 'ollama',
+          endpointType: 'ollama',
           model: 'local-free',
           agent_id: undefined,
         }),
@@ -94,6 +95,27 @@ describe('createWorkChatTransport', () => {
       model: 'local-free',
       agent_id: 'reviewer',
     });
+  });
+
+  it('routes an Assistants conversation to the native Work agent endpoint', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport({ start } as never, options);
+    await transport.start({
+      server: '/api/assistants/v2/chat/completions',
+      payload: {
+        ...chatRequest.payload,
+        endpoint: EModelEndpoint.assistants,
+      },
+    });
+    expect(start.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        server: expect.stringMatching(/\/api\/work\/chat$/),
+        payload: expect.objectContaining({
+          endpoint: 'ollama',
+          model: 'local-free',
+        }),
+      }),
+    );
   });
 
   it('fails closed before sending when no free model is offered', () => {

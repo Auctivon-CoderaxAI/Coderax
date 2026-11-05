@@ -57,7 +57,7 @@ const {
   createSubagentCodeRouting,
   applyAutomaticDelegation,
   latestUserRequest,
-  findWorkRunViolation,
+  enforceWorkRunAllowance,
 } = require('@coderax/api');
 const {
   ErrorTypes,
@@ -1900,18 +1900,19 @@ const initializeClientWithProvider = async ({
 
   /** Work admitted only free/local models. Every agent this run prepared, not just
    *  the selected one, must stay inside that set before any model is called. */
-  if (req.workContext?.isWork === true) {
-    const violation = findWorkRunViolation(req.workContext.allowedModels, [
+  enforceWorkRunAllowance(
+    req.workContext,
+    [
       primaryConfig,
       ...agentConfigs.values(),
-    ]);
-    if (violation) {
+    ],
+    ErrorTypes.WORK_MODEL_NOT_ALLOWED,
+    (violation) => {
       logger.warn('[initializeClient] Work run prepared an agent outside its admitted models', {
         agentId: violation.id,
       });
-      throw new Error(`{ "type": "${ErrorTypes.WORK_MODEL_NOT_ALLOWED}" }`);
-    }
-  }
+    },
+  );
 
   const agentContextAttachmentsByAgentId = buildAgentContextAttachmentsByAgentId([
     primaryConfig,
