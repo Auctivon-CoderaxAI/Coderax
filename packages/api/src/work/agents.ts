@@ -92,6 +92,7 @@ export async function listEligibleWorkAgents(input: {
         models,
         loadAgent,
         graphLimit,
+        requestedConcurrency,
       );
       if (!graph.ok) {
         continue;
