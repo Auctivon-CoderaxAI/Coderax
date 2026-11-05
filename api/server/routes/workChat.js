@@ -146,9 +146,11 @@ function stripClientWorkFields(body) {
  * Existing rows are never re-stamped, and cross-tenant follow-ups fail closed.
  */
 async function seedWorkConversation(req, context, db) {
-  const store = db ?? require('~/models');
   const userId = req?.user?.id;
   const conversationId = req?.body?.conversationId;
+  /** A brand-new chat has nothing to seed or verify. Check that before loading
+   *  the store: a missing target is not a storage failure, and must not fail
+   *  closed on a module that this request never needs. */
   if (
     !userId ||
     typeof conversationId !== 'string' ||
@@ -157,6 +159,7 @@ async function seedWorkConversation(req, context, db) {
   ) {
     return { seeded: false, reason: 'no_target' };
   }
+  const store = db ?? require('~/models');
   const tenantId = req?.user?.tenantId ?? req?.tenantId ?? null;
   const existing = await store.getConvo(userId, conversationId);
   if (existing && (existing.tenantId ?? null) !== tenantId) {
