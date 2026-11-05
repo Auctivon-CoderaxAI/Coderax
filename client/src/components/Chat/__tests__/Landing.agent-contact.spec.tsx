@@ -227,8 +227,8 @@ describe('Landing temporary chat empty state', () => {
   it('keeps the normal greeting when temporary chat is off', () => {
     renderLanding();
 
-    expect(screen.getByText('Welcome')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'com_cyvox_home_chat_title' })).toBeInTheDocument();
     expect(screen.queryByText('Temporary Chat')).not.toBeInTheDocument();
-    expect(screen.getByTestId('convo-icon')).toBeInTheDocument();
+    expect(screen.queryByText("This chat won't appear in your history and will be deleted automatically.")).not.toBeInTheDocument();
   });
 });
