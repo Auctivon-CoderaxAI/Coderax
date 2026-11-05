@@ -299,6 +299,46 @@ describe('SwarmCoordinator', () => {
     expect(result.ok && result.allowedTools).toEqual(['read']);
   });
 
+  it('rejects a slow-store claim that has expired before acknowledgment, then permits recovery', async () => {
+    let now = 1_000;
+    let delayed = true;
+    let sequence = 0;
+    const backing = createMemorySwarmStore();
+    const store = {
+      get: (taskId: string) => backing.get(taskId),
+      compareAndSwap: async (
+        taskId: string,
+        expected: Pick<SwarmLease, 'leaseId' | 'state'> | null,
+        next: SwarmLease | null,
+      ) => {
+        const changed = await backing.compareAndSwap(taskId, expected, next);
+        if (changed && delayed) {
+          delayed = false;
+          now += 101;
+        }
+        return changed;
+      },
+    };
+    const coordinator = new SwarmCoordinator({
+      store,
+      allowedTools: ['read'],
+      now: () => now,
+      leaseMs: 100,
+      maxAttempts: 2,
+      createLeaseId: () => `lease-delayed-${++sequence}`,
+    });
+
+    await expect(coordinator.claim(peerA, task)).resolves.toEqual({
+      ok: false,
+      reason: 'unavailable',
+    });
+    expect(backing.get(task.id)).toMatchObject({ state: 'claimed', attempt: 1 });
+
+    const retry = await coordinator.claim(peerB, task);
+    expect(retry.ok && retry.lease.attempt).toBe(2);
+    expect(retry.ok && retry.allowedTools).toEqual(['read']);
+  });
+
   it('rejects malformed peer and task identities without writing a lease', async () => {
     const { coordinator, store } = setup();
 
