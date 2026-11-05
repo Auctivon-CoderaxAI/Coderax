@@ -16,7 +16,7 @@ describe('CyVox Work compatibility route', () => {
   it('redirects the legacy URL to native Work and preserves location state', async () => {
     const router = createMemoryRouter(
       [
-        { path: '/work', element: <main>{'com_ui_work'}</main> },
+        { path: '/work', element: <main>{'Native Work'}</main> },
         { path: '/cyvox/:tool', element: <CyVoxAddon /> },
       ],
       {
