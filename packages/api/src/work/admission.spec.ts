@@ -1,9 +1,17 @@
 import type { WorkGraphAgent } from './graph';
-import { resolveWorkAdmission, resolveWorkContext } from './admission';
+import { resolveWorkAdmission, resolveWorkContext, workAdmissionStatus } from './admission';
 
 const sources = [{ id: 'local-model', provider: 'ollama', local: true }];
 
 describe('Work admission', () => {
+  it.each([
+    ['WORK_AGENT_ID_INVALID', 400],
+    ['WORK_AGENT_NOT_FOUND', 404],
+    ['WORK_AGENT_UNAVAILABLE', 503],
+    ['WORK_MODEL_NOT_ALLOWED', 409],
+  ] as const)('maps %s to the existing HTTP status %s', (code, status) => {
+    expect(workAdmissionStatus(code)).toBe(status);
+  });
   it('preserves automatic model resolution for non-agent tasks', async () => {
     await expect(
       resolveWorkAdmission({

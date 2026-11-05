@@ -1,3 +1,6 @@
+import { EModelEndpoint } from 'coderax-data-provider';
+import type { ChatTransportRequest } from 'coderax-data-provider';
+import type { WorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
 import { toWorkChatServer } from '../workTransport';
 
@@ -36,6 +39,74 @@ describe('toWorkChatServer', () => {
 });
 
 describe('createWorkChatTransport', () => {
+  const options: WorkOptions = {
+    models: [{ id: 'local-free', label: 'Local free', provider: 'ollama' }],
+    auto: {
+      id: 'auto',
+      label: 'Automatic',
+      auto: true,
+      target: { id: 'local-free', label: 'Local free', provider: 'ollama' },
+    },
+    agents: [
+      { id: 'reviewer', name: 'Reviewer', model: 'local-free', provider: 'ollama', members: [] },
+    ],
+  };
+  const chatRequest: ChatTransportRequest = {
+    server: '/api/agents/chat/openAI',
+    payload: {
+      conversationId: 'same-conversation',
+      endpoint: EModelEndpoint.openAI,
+      model: 'paid-model',
+      isContinued: false,
+      isTemporary: false,
+    },
+  };
+
+  it('uses the offered free automatic model without changing the existing conversation id', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'work-generation' });
+    const transport = createWorkChatTransport({ start } as never, options);
+    await transport.start(chatRequest);
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        server: expect.stringContaining('/api/work/chat/openAI'),
+        payload: expect.objectContaining({
+          conversationId: 'same-conversation',
+          endpoint: 'ollama',
+          model: 'local-free',
+          agent_id: undefined,
+        }),
+      }),
+      undefined,
+    );
+    expect(chatRequest.payload.model).toBe('paid-model');
+  });
+
+  it('applies the selected agent and its concrete model only to the new Work request', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport({ start } as never, options, {
+      agentId: 'reviewer',
+      modelKey: 'auto',
+    });
+    await transport.start(chatRequest);
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      conversationId: 'same-conversation',
+      endpoint: 'agents',
+      model: 'local-free',
+      agent_id: 'reviewer',
+    });
+  });
+
+  it('fails closed before sending when no free model is offered', () => {
+    const start = jest.fn();
+    const transport = createWorkChatTransport({ start } as never, {
+      models: [],
+      agents: [],
+      auto: null,
+    });
+    expect(() => transport.start(chatRequest)).toThrow('WORK_NO_FREE_MODEL');
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it('routes the selected accessible agent through Work without replacing its request fields', async () => {
     const start = jest.fn().mockResolvedValue({ generationId: 'work-generation' });
     const transport = createWorkChatTransport({ start } as never);

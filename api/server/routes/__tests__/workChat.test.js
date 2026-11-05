@@ -46,21 +46,21 @@ test('auto resolves through the configured default when it is offered', () => {
   });
 });
 
-test('auto never picks an arbitrary alternate when no default is configured', () => {
-  assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', null), {
-    error: 'WORK_AUTO_UNRESOLVED',
-  });
-  assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', undefined), {
-    error: 'WORK_AUTO_UNRESOLVED',
-  });
-  assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', '   '), {
-    error: 'WORK_AUTO_UNRESOLVED',
-  });
+test('auto ranks a free/local model when no default is configured', () => {
+  for (const configuredDefault of [null, undefined, '   ']) {
+    assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', configuredDefault), {
+      isWork: true,
+      workModel: 'llama3:latest',
+      workProvider: 'ollama',
+    });
+  }
 });
 
-test('a paid configured default is rejected rather than used or swapped', () => {
+test('a paid configured default cannot displace an eligible local model', () => {
   assert.deepEqual(resolveWorkContext([PAID, LOCAL], 'auto', 'gpt-4o'), {
-    error: 'WORK_AUTO_UNRESOLVED',
+    isWork: true,
+    workModel: 'llama3:latest',
+    workProvider: 'ollama',
   });
 });
 
@@ -159,8 +159,12 @@ test('an omitted model resolves through the configured default', async () => {
   assert.equal(req.body.model, req.workContext.workModel);
 });
 
-test('auto without a configured default is refused before the handler runs', async () => {
-  const middleware = workContextMiddleware(async () => ({ ollama: [{ model: 'llama3:latest' }] }));
+test('auto without a configured default admits only an eligible local model', async () => {
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => null,
+    noConversationSeed,
+  );
   const req = { body: { text: 'plan', model: 'auto' }, user: {} };
   const res = response();
   let continued = false;
@@ -168,10 +172,9 @@ test('auto without a configured default is refused before the handler runs', asy
     continued = true;
   });
 
-  assert.equal(continued, false);
-  assert.equal(res.statusCode, 409);
-  assert.equal(res.payload.error, 'WORK_AUTO_UNRESOLVED');
-  assert.match(res.payload.message, /Choose a model explicitly/);
+  assert.equal(continued, true);
+  assert.equal(req.body.model, 'llama3:latest');
+  assert.equal(req.body.endpoint, 'ollama');
 });
 
 test('the alias middleware refuses a paid model before the chat handler runs', async () => {
@@ -214,7 +217,7 @@ const fakeDb = (existing = null) => {
     getConvo: async () => existing,
     saveConvo: async (ctx, fields, meta) => {
       saves.push({ ctx, fields, meta });
-      return { ...fields, conversationId: fields.conversationId };
+      return { ...existing, ...fields, conversationId: fields.conversationId };
     },
   };
 };
@@ -312,7 +315,7 @@ test('rejects foreign and legacy tenantless Work follow-ups before the native ag
   }
 });
 
-test('refuses to convert an existing non-Work conversation', async () => {
+test('marks an existing Chat conversation as Work without replacing its identity or transcript', async () => {
   const db = fakeDb({ conversationId: 'convo-1', isWork: false });
   const result = await seedWorkConversation(
     { user: { id: 'user-1' }, body: { conversationId: 'convo-1' } },
@@ -320,8 +323,11 @@ test('refuses to convert an existing non-Work conversation', async () => {
     db,
   );
 
-  assert.deepEqual(result, { seeded: false, reason: 'not_work' });
-  assert.equal(db.saves.length, 0);
+  assert.deepEqual(result, { seeded: true });
+  assert.equal(db.saves.length, 1);
+  assert.equal(db.saves[0].fields.conversationId, 'convo-1');
+  assert.equal(db.saves[0].meta.noUpsert, true);
+  assert.equal(Object.hasOwn(db.saves[0].fields, 'messages'), false);
 });
 
 test('does nothing without an authenticated user or a conversation id', async () => {
@@ -413,7 +419,7 @@ test('a nonthrowing failed or mismatched Work seed never delegates to an agent',
   }
 });
 
-test('rejects a normal conversation before it reaches the Work agent router', async () => {
+test('admits an owned Chat conversation through the Work model gate and native agent router', async () => {
   const db = fakeDb({ conversationId: 'chat-1', isWork: false });
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
@@ -430,10 +436,10 @@ test('rejects a normal conversation before it reaches the Work agent router', as
     continued = true;
   });
 
-  assert.equal(continued, false);
-  assert.equal(res.statusCode, 409);
-  assert.equal(res.payload.error, 'WORK_CONVERSATION_REQUIRED');
-  assert.equal(db.saves.length, 0);
+  assert.equal(continued, true);
+  assert.equal(req.body.conversationId, 'chat-1');
+  assert.equal(req.workContext.workModel, 'llama3:latest');
+  assert.equal(db.saves.length, 1);
 });
 
 test('reads the hard default spec model from the real app config shape', () => {

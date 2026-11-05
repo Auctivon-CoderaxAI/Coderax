@@ -1,6 +1,12 @@
 import { createContext, useContext } from 'react';
 import { EndpointURLs } from 'coderax-data-provider';
+import type { WorkOptions, WorkSelection } from '~/components/Chat/Input/workSelection';
 import type { Transport } from '~/hooks/Chat/contract';
+import {
+  resolveWorkSelection,
+  sanitizeWorkSelection,
+  workSelectionFromConversation,
+} from '~/components/Chat/Input/workSelection';
 import { createSSETransport } from '~/hooks/SSE/transport';
 import { toWorkChatServer } from './workTransport';
 import * as requests from '~/data-provider';
@@ -35,17 +41,42 @@ export const defaultChatTransport: Transport = {
   cancelQueued: (input) => requests.cancelAgentQueuedTurn(input),
 };
 
-export function createWorkChatTransport(transport: Transport = defaultChatTransport): Transport {
+export function createWorkChatTransport(
+  transport: Transport = defaultChatTransport,
+  options?: WorkOptions,
+  selection?: WorkSelection | null,
+): Transport {
   return {
     ...transport,
-    start: ({ server, payload }, options) =>
-      transport.start(
+    start: ({ server, payload }, requestOptions) => {
+      const selected = options
+        ? resolveWorkSelection(
+            selection
+              ? sanitizeWorkSelection(selection, options)
+              : workSelectionFromConversation(payload, options),
+            options,
+          )
+        : undefined;
+      if (options && !selected) {
+        throw new Error('WORK_NO_FREE_MODEL');
+      }
+      const workPayload = selected
+        ? {
+            ...payload,
+            ...selected.preset,
+            agent_id: selected.preset.agent_id,
+            assistant_id: undefined,
+            spec: null,
+          }
+        : payload;
+      return transport.start(
         {
           server: toWorkChatServer(server),
-          payload,
+          payload: workPayload,
         },
-        options,
-      ),
+        requestOptions,
+      );
+    },
   };
 }
 

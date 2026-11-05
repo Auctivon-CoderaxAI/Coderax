@@ -70,11 +70,12 @@ describe('native work model discovery', () => {
   });
 
   it('cannot select a paid gateway model through automatic or by omission', () => {
-    /** The deployment default is paid: automatic must fail rather than route to it. */
+    /** A paid default cannot enter the offered catalog; automatic stays free/local. */
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toEqual({
-        ok: false,
-        reason: 'auto_unresolved',
+      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toMatchObject({
+        ok: true,
+        auto: true,
+        model: { id: 'llama3:latest' },
       });
     }
     /** Even a paid id the caller names explicitly is refused. */
@@ -84,14 +85,16 @@ describe('native work model discovery', () => {
     });
   });
 
-  it('refuses automatic when no default is configured', () => {
-    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, null)).toEqual({
-      ok: false,
-      reason: 'auto_unresolved',
+  it('ranks only free/local candidates when no default is configured', () => {
+    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, null)).toMatchObject({
+      ok: true,
+      auto: true,
+      model: { id: 'llama3:latest' },
     });
-    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, '  ')).toEqual({
-      ok: false,
-      reason: 'auto_unresolved',
+    expect(resolveWorkSelection(withPaid(), WORK_AUTO_MODEL_ID, '  ')).toMatchObject({
+      ok: true,
+      auto: true,
+      model: { id: 'llama3:latest' },
     });
   });
 

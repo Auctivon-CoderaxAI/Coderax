@@ -1,210 +1,163 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { mockReply, NEW_CHAT_PATH } from './helpers';
+import {
+  getAccessToken,
+  mockReply,
+  NEW_CHAT_PATH,
+  requestJson,
+  sendMessageAndWaitForCompletion,
+  uploadViaUnifiedButton,
+} from './helpers';
 
 const LOCAL_MODEL_B = 'e2e-work-local-b';
+const modeNav = (page: Page) => page.getByRole('navigation', { name: 'Conversation mode' });
+const composer = (page: Page) => page.getByTestId('composer-surface');
+const input = (page: Page) => page.getByRole('textbox', { name: 'Message input' });
 
-type Geometry = {
-  mains: number;
-  navCenter: number;
-  canvasCenter: number;
-  surfaceX: number;
-  surfaceWidth: number;
-  surfaceBottom: number;
-  radius: string;
-  greetingSize: string;
-  viewportHeight: number;
-};
-
-/** Measures the parts Chat and Work must share on their welcome screens. */
-async function landingGeometry(page: Page, path: string): Promise<Geometry> {
-  await page.goto(path);
-  const surface = page.locator(
-    '[data-testid="composer-surface"], [data-testid="work-composer-surface"]',
+async function switchMode(page: Page, mode: 'Chat' | 'Work') {
+  const url = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  const element = await composer(page).elementHandle();
+  const before = await composer(page).boundingBox();
+  await modeNav(page).getByRole('button', { name: mode, exact: true }).click();
+  await expect(modeNav(page).getByRole('button', { name: mode, exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
   );
-  await expect(surface).toBeVisible();
-  /* Landing clearance and width animate; measure the settled layout. */
-  await page.waitForTimeout(400);
-  return page.evaluate(() => {
-    const main = document.querySelector('main') as HTMLElement;
-    const nav = document.querySelector('nav[aria-label="Conversation mode"]') as HTMLElement;
-    const box = document.querySelector(
-      '[data-testid="composer-surface"], [data-testid="work-composer-surface"]',
-    ) as HTMLElement;
-    const greeting = [...main.querySelectorAll('h1, h2')].find(
-      (heading) =>
-        !heading.classList.contains('sr-only') && heading.getBoundingClientRect().width > 1,
-    ) as HTMLElement;
-    const mainRect = main.getBoundingClientRect();
-    const navRect = nav.getBoundingClientRect();
-    const boxRect = box.getBoundingClientRect();
-    return {
-      mains: document.querySelectorAll('main').length,
-      navCenter: navRect.x + navRect.width / 2,
-      canvasCenter: mainRect.x + mainRect.width / 2,
-      surfaceX: boxRect.x,
-      surfaceWidth: boxRect.width,
-      surfaceBottom: boxRect.bottom,
-      radius: getComputedStyle(box).borderRadius,
-      greetingSize: getComputedStyle(greeting).fontSize,
-      viewportHeight: window.innerHeight,
-    };
-  });
+  if (mode === 'Work') {
+    await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible();
+  }
+  await expect(page).toHaveURL(url);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  expect(await composer(page).evaluate((node, original) => node === original, element)).toBe(true);
+  await expect.poll(() => composer(page).boundingBox()).toEqual(before);
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(modeNav(page)).toHaveCount(1);
 }
 
-async function expectSharedLanding(page: Page, label: string) {
-  const chat = await landingGeometry(page, NEW_CHAT_PATH);
-  await test.info().attach(`${label}-chat`, {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  });
-  const work = await landingGeometry(page, '/work');
-  await test.info().attach(`${label}-work`, {
-    body: await page.screenshot(),
-    contentType: 'image/png',
-  });
-
-  expect(chat.mains).toBe(1);
-  expect(work.mains).toBe(1);
-  expect(Math.abs(chat.navCenter - chat.canvasCenter)).toBeLessThanOrEqual(1);
-  expect(Math.abs(work.navCenter - work.canvasCenter)).toBeLessThanOrEqual(1);
-  expect(Math.abs(work.surfaceX - chat.surfaceX)).toBeLessThanOrEqual(1);
-  expect(Math.abs(work.surfaceWidth - chat.surfaceWidth)).toBeLessThanOrEqual(1);
-  expect(Math.abs(work.surfaceBottom - chat.surfaceBottom)).toBeLessThanOrEqual(1);
-  expect(work.radius).toBe(chat.radius);
-  expect(work.greetingSize).toBe(chat.greetingSize);
-  return { chat, work };
-}
-
-async function workStart(page: Page, description: string) {
-  const starts: Array<Record<string, unknown>> = [];
-  page.on('request', (request) => {
-    if (
-      request.method() === 'POST' &&
-      new URL(request.url()).pathname.startsWith('/api/work/chat')
-    ) {
-      starts.push(request.postDataJSON() as Record<string, unknown>);
-    }
-  });
-  const taskInput = page.locator('#work-task');
-  await taskInput.fill(description);
+async function workStart(page: Page, text: string) {
+  await input(page).fill(text);
   const [response] = await Promise.all([
     page.waitForResponse(
       (candidate) =>
         candidate.request().method() === 'POST' &&
         new URL(candidate.url()).pathname.startsWith('/api/work/chat'),
-      { timeout: 30_000 },
     ),
-    page.getByRole('button', { name: 'Start task' }).click(),
+    input(page).press('Enter'),
   ]);
-  return { response, starts };
+  expect(response.status()).toBe(200);
+  return response;
 }
 
-/** API reads authenticate as the app does: a bearer token from the refresh cookie. */
-async function accessToken(page: Page): Promise<string> {
-  const token = await page.evaluate(async () => {
-    const response = await fetch('/api/auth/refresh', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const body = (await response.json().catch(() => null)) as { token?: string } | null;
-    return body?.token ?? null;
-  });
-  expect(token, 'refresh should issue an access token').toBeTruthy();
-  return token as string;
-}
-
-async function readConversation(page: Page) {
-  await expect(page).toHaveURL(/\/work\/(?!new)[^/?]+/);
-  const conversationId = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!);
-  const token = await accessToken(page);
-  return page.evaluate(
-    async ({ id, bearer }) => {
-      const response = await fetch(`/api/convos/${encodeURIComponent(id)}`, {
-        credentials: 'include',
-        headers: { Authorization: `Bearer ${bearer}` },
+test.describe('continuous Chat and Work conversation', () => {
+  for (const viewport of [
+    { name: 'desktop', width: 1440, height: 900 },
+    { name: 'mobile', width: 390, height: 844 },
+  ]) {
+    test(`${viewport.name}: modes retain URL, draft and shared layout`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(NEW_CHAT_PATH);
+      await input(page).fill('Keep this unsent draft.');
+      await test.info().attach(`${viewport.name}-chat`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
       });
-      return response.ok ? response.json() : { status: response.status };
-    },
-    { id: conversationId, bearer: token },
-  );
-}
+      await switchMode(page, 'Work');
+      await expect(input(page)).toHaveValue('Keep this unsent draft.');
+      await test.info().attach(`${viewport.name}-work`, {
+        body: await page.screenshot(),
+        contentType: 'image/png',
+      });
+      await switchMode(page, 'Chat');
+      await expect(input(page)).toHaveValue('Keep this unsent draft.');
+    });
+  }
 
-test.describe('Chat and Work share one layout', () => {
-  test('desktop: switch, greeting and composer sit in the same place in both modes', async ({
+  test('an existing Chat transcript becomes Work in place and survives reload in either mode', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await expectSharedLanding(page, 'desktop');
-  });
-
-  test('mobile: both composers run to the viewport floor', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    const { chat, work } = await expectSharedLanding(page, 'mobile');
-    expect(Math.abs(chat.surfaceBottom - chat.viewportHeight)).toBeLessThanOrEqual(1);
-    expect(Math.abs(work.surfaceBottom - work.viewportHeight)).toBeLessThanOrEqual(1);
-    expect(work.radius).toMatch(/ 0px 0px$/);
-  });
-});
-
-test.describe('Work agent and model selection', () => {
-  test('defaults to automatic routing and runs on the model it names', async ({ page }) => {
-    await page.goto('/work');
-    const model = page.getByRole('combobox', { name: 'Model' });
-    await expect(model).toHaveValue('auto');
-    await expect(page.getByRole('combobox', { name: 'Work agent' })).toHaveValue('auto');
-    const summary = page.getByTestId('work-selection-summary');
-    await expect(summary).toHaveText(/^Runs on .+\.$/);
-    const target = (await summary.textContent())!.replace(/^Runs on /, '').replace(/\.$/, '');
-
-    const { response, starts } = await workStart(page, 'Reply with the mock result.');
-    expect(response.status()).toBe(200);
-    await expect(mockReply(page)).toBeVisible({ timeout: 20_000 });
-    expect(starts).toHaveLength(1);
-    expect(starts[0]?.agent_id ?? null).toBeNull();
-    expect(starts[0]?.model).toBe(target);
-
-    const conversation = await readConversation(page);
-    expect(conversation).toMatchObject({ isWork: true, workModel: target });
-
-    const modeNav = page.getByRole('navigation', { name: 'Conversation mode' });
-    await expect(modeNav).toHaveCount(1);
-    await expect(modeNav.getByRole('link', { name: 'Work' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    await expect(page.locator('main')).toHaveCount(1);
-  });
-
-  test('an explicit model survives a refresh and reaches the native runner', async ({ page }) => {
-    await page.goto('/work');
-    const model = page.getByRole('combobox', { name: 'Model' });
-    await model.selectOption({ label: LOCAL_MODEL_B });
-    await expect(page.getByTestId('work-selection-summary')).toHaveText(
-      `Runs on ${LOCAL_MODEL_B}.`,
-    );
-
+    await page.goto(NEW_CHAT_PATH);
+    await sendMessageAndWaitForCompletion(page, 'Keep this conversation history.');
+    const url = page.url();
+    const id = new URL(url).pathname.split('/').at(-1)!;
+    await switchMode(page, 'Work');
+    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: LOCAL_MODEL_B });
+    const replies = await mockReply(page).count();
+    const start = await workStart(page, 'Reply with the mock result.');
+    expect(start.request().postDataJSON().conversationId).toBe(id);
+    expect(start.request().postDataJSON().model).toBe(LOCAL_MODEL_B);
+    await expect(mockReply(page)).toHaveCount(replies + 1);
+    await expect(page).toHaveURL(url);
     await page.reload();
-    await expect(page.getByTestId('work-selection-summary')).toHaveText(
-      `Runs on ${LOCAL_MODEL_B}.`,
+    await expect(modeNav(page).getByRole('button', { name: 'Work' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
     );
+    await expect(page.getByText('Keep this conversation history.', { exact: true })).toBeVisible();
+    await switchMode(page, 'Chat');
+    await page.reload();
+    await expect(modeNav(page).getByRole('button', { name: 'Chat', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page).toHaveURL(url);
+    await expect(page.getByText('Keep this conversation history.', { exact: true })).toBeVisible();
+  });
 
-    const { response, starts } = await workStart(page, 'Reply with the mock result.');
-    expect(response.status()).toBe(200);
-    await expect(mockReply(page)).toBeVisible({ timeout: 20_000 });
-    expect(starts[0]?.model).toBe(LOCAL_MODEL_B);
-    expect(await readConversation(page)).toMatchObject({
-      isWork: true,
-      workModel: LOCAL_MODEL_B,
+  test('switching modes does not abort or restart an active Work generation', async ({ page }) => {
+    const controls: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (request.method() === 'POST' && /\/(chat|abort)/.test(path)) {
+        controls.push(path);
+      }
+    });
+    await page.goto('/work/new');
+    await workStart(page, 'E2E_SLOW_REPLY:continuous-work');
+    await expect(page).not.toHaveURL(/\/work\/new$/);
+    await expect(page.getByTestId('messages-view')).toBeVisible();
+    await switchMode(page, 'Chat');
+    await switchMode(page, 'Work');
+    expect(controls.filter((path) => path.startsWith('/api/work/chat'))).toHaveLength(1);
+    expect(controls.some((path) => path.endsWith('/abort'))).toBe(false);
+    await expect(page.getByText(/E2E slow reply continuous-work.*chunk-159/)).toBeVisible({
+      timeout: 30_000,
     });
   });
 
-  test('the server refuses choices Work does not offer', async ({ page }) => {
-    await page.goto('/work');
-    await expect(page.getByTestId('work-selection-summary')).toBeVisible();
-    const token = await accessToken(page);
+  test('unsent attachments stay attached across both mode changes', async ({ page }) => {
+    await page.goto(NEW_CHAT_PATH);
+    await sendMessageAndWaitForCompletion(page, 'Keep my staged attachment.');
+    await input(page).fill('Draft with attachment');
+    const upload = await uploadViaUnifiedButton(page, {
+      name: 'continuous-requirements.md',
+      mimeType: 'text/markdown',
+      content: '# Requirements\nKeep this file attached.\n',
+    });
+    expect(upload.ok()).toBe(true);
+    const tray = page.getByTestId('composer-tray');
+    await expect(tray).toContainText('continuous-requirements.md');
+    await switchMode(page, 'Work');
+    await expect(tray).toContainText('continuous-requirements.md');
+    await switchMode(page, 'Chat');
+    await expect(tray).toContainText('continuous-requirements.md');
+    await expect(input(page)).toHaveValue('Draft with attachment');
+  });
+
+  test('a legacy Work deep link keeps its pathname when switching to Chat', async ({ page }) => {
+    await page.goto('/work/new');
+    await expect(input(page)).toBeVisible();
+    await switchMode(page, 'Chat');
+    await switchMode(page, 'Work');
+    await expect(page).toHaveURL(/\/work\/new$/);
+  });
+
+  test('the server refuses a paid model and an unsupported second conversation', async ({
+    page,
+  }) => {
+    await page.goto(NEW_CHAT_PATH);
+    const token = await getAccessToken(page);
     const results = await page.evaluate(async (bearer) => {
       const post = async (body: Record<string, unknown>) => {
         const response = await fetch('/api/work/chat/openAI', {
@@ -213,24 +166,53 @@ test.describe('Work agent and model selection', () => {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
           body: JSON.stringify({ text: 'hi', conversationId: 'new', ...body }),
         });
-        const json = await response.json().catch(() => ({}));
-        return { status: response.status, error: json.error ?? json.code ?? null };
+        const json = await response.json();
+        return { status: response.status, error: json.error ?? json.code };
       };
       return {
-        paidModel: await post({ endpoint: 'openAI', model: 'gpt-4o' }),
-        addedConversation: await post({
-          endpoint: 'openAI',
-          model: 'auto',
-          addedConvo: { endpoint: 'openAI', model: 'gpt-4o' },
-        }),
-        malformedAgent: await post({ endpoint: 'agents', agent_id: 'not valid!' }),
+        paid: await post({ endpoint: 'openAI', model: 'gpt-4o' }),
+        second: await post({ model: 'auto', addedConvo: { model: 'gpt-4o' } }),
       };
     }, token);
-    expect(results.paidModel).toEqual({ status: 409, error: 'WORK_MODEL_NOT_ALLOWED' });
-    expect(results.addedConversation).toEqual({
+    expect(results.paid).toEqual({ status: 409, error: 'WORK_MODEL_NOT_ALLOWED' });
+    expect(results.second).toEqual({
       status: 400,
       error: 'WORK_ADDED_CONVERSATION_UNSUPPORTED',
     });
-    expect(results.malformedAgent).toEqual({ status: 400, error: 'WORK_AGENT_ID_INVALID' });
+  });
+
+  test('the selected eligible agent reaches the native runner on its actual model', async ({
+    page,
+  }) => {
+    await page.goto(NEW_CHAT_PATH);
+    const token = await getAccessToken(page);
+    const agent = await requestJson<{ id: string }>(page, {
+      path: '/api/agents',
+      method: 'POST',
+      token,
+      body: {
+        name: `Free Work reviewer ${Date.now()}`,
+        provider: 'Ollama',
+        model: LOCAL_MODEL_B,
+        tools: [],
+        model_parameters: {},
+      },
+    });
+    try {
+      await switchMode(page, 'Work');
+      await page.getByRole('combobox', { name: 'Work agent' }).selectOption(agent.id);
+      const start = await workStart(page, 'Reply with the mock result.');
+      expect(start.request().postDataJSON()).toMatchObject({
+        agent_id: agent.id,
+        model: LOCAL_MODEL_B,
+      });
+      await expect(mockReply(page)).toBeVisible();
+    } finally {
+      await requestJson(page, {
+        path: `/api/agents/${encodeURIComponent(agent.id)}`,
+        method: 'DELETE',
+        token,
+      });
+    }
   });
 });

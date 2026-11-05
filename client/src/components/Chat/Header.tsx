@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { useLocation, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   getConfigDefaults,
   Constants,
@@ -38,7 +38,6 @@ function Header({
   mode?: 'chat' | 'work';
 }) {
   const localize = useLocalize();
-  const location = useLocation();
   const { data: startupConfig } = useGetStartupConfig();
   const navVisible = useRecoilValue(store.sidebarExpanded);
   const isSubmitting = useRecoilValue(store.isSubmittingFamily(0));
@@ -110,9 +109,6 @@ function Header({
         {!readOnly && (
           <ConversationModeNav
             active={mode}
-            chatPath={
-              mode === 'chat' ? `${location.pathname}${location.search}${location.hash}` : undefined
-            }
             labels={{
               ariaLabel: localize('com_ui_conversation_mode'),
               chat: localize('com_ui_chat'),

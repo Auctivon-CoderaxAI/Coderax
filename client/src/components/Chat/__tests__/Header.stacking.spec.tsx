@@ -81,7 +81,7 @@ describe('Header stacking', () => {
     expect(container.firstElementChild).toHaveClass('absolute', 'top-0', 'z-20');
     expect(backgroundTasks).toHaveBeenCalled();
     expect(screen.getByRole('navigation', { name: 'Conversation mode' })).toHaveTextContent('Chat');
-    expect(screen.getByRole('link', { name: 'Work' })).toHaveAttribute('href', '/work');
+    expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('keeps conversation task controls mounted across endpoint switches', () => {

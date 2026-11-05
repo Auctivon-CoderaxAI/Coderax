@@ -100,6 +100,7 @@ export * from './work/models';
 export * from './work/task';
 export * from './work/router';
 export * from './work/state';
+export * from './work/seed';
 /* Messages */
 export * from './messages';
 /* Skills */

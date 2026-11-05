@@ -36,12 +36,29 @@ export type WorkAdmissionResult =
   | { ok: true; context: WorkAdmissionContext }
   | { ok: false; error: WorkAdmissionFailure };
 
+export function workAdmissionStatus(error: WorkAdmissionFailure): number {
+  switch (error) {
+    case 'WORK_AGENT_ID_INVALID':
+      return 400;
+    case 'WORK_AGENT_NOT_FOUND':
+      return 404;
+    case 'WORK_AGENT_UNAVAILABLE':
+      return 503;
+    default:
+      return 409;
+  }
+}
+
 export function resolveWorkContext(
   sources: WorkModelSource[],
   requested: unknown,
   configuredDefault?: string | null,
 ): WorkModelContext | { error: WorkAdmissionFailure } {
-  return resolveWorkContextFromOptions(buildWorkModelOptions(sources), requested, configuredDefault);
+  return resolveWorkContextFromOptions(
+    buildWorkModelOptions(sources),
+    requested,
+    configuredDefault,
+  );
 }
 
 function resolveWorkContextFromOptions(
@@ -55,11 +72,7 @@ function resolveWorkContextFromOptions(
   const explicit = requested != null && requested !== WORK_AUTO_MODEL_ID;
   const selection = resolveWorkSelection(
     options,
-    typeof requested === 'string'
-      ? requested
-      : requested == null
-        ? WORK_AUTO_MODEL_ID
-        : '',
+    typeof requested === 'string' ? requested : WORK_AUTO_MODEL_ID,
     configuredDefault,
   );
   if (selection.ok) {

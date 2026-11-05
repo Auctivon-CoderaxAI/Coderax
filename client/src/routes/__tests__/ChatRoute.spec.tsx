@@ -33,6 +33,13 @@ jest.mock('~/store', () => ({
   },
 }));
 jest.mock('~/store/temporary', () => ({ __esModule: true, default: {} }));
+jest.mock('~/components/Chat/Input/WorkAgentSelector', () => {
+  const selection = jest.requireActual('jotai').atom(null);
+  return {
+    useWorkOptions: () => ({ options: { models: [], agents: [], auto: null } }),
+    workSelectionFamily: () => selection,
+  };
+});
 jest.mock('../useAuthRedirect', () => ({
   __esModule: true,
   default: () => ({ isAuthenticated: true, roles: mockRoles }),
@@ -84,7 +91,20 @@ jest.mock('~/utils', () => ({
 }));
 jest.mock('~/components/Chat/ChatView', () => ({
   __esModule: true,
-  default: () => <div data-testid="composer">{mockConversation.conversationId}</div>,
+  default: ({ workMode }: { workMode: boolean }) => {
+    const ModeNav = jest.requireActual('~/components/Chat/ConversationModeNav').default;
+    return (
+      <div data-testid="composer">
+        {mockConversation.conversationId}
+        <ModeNav
+          active={workMode ? 'work' : 'chat'}
+          labels={{ ariaLabel: 'Conversation mode', chat: 'Chat', work: 'Work' }}
+        />
+        <textarea aria-label="Draft" />
+        <input aria-label="Attachment" type="file" />
+      </div>
+    );
+  },
 }));
 
 function Harness({ workMode = false }: { workMode?: boolean }) {
@@ -111,12 +131,52 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
 }
 
 beforeEach(() => {
+  localStorage.clear();
   mockConversation = { conversationId: 'chat-a' };
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
   mockDefaultModelSpec = {};
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
+});
+
+it.each(['/c/chat-a?projectId=keep#anchor', '/work/chat-a?prompt=keep#anchor'])(
+  'switches execution modes in place at %s without replacing the composer or its input state',
+  async (path) => {
+    const { router } = setup([path]);
+    const composer = screen.getByTestId('composer');
+    const draft = screen.getByRole('textbox', { name: 'Draft' });
+    const attachment = screen.getByLabelText('Attachment') as HTMLInputElement;
+    const file = new File(['requirements'], 'requirements.txt', { type: 'text/plain' });
+    fireEvent.change(draft, { target: { value: 'Keep my draft' } });
+    fireEvent.change(attachment, { target: { files: [file] } });
+    const location = { ...router.state.location };
+
+    fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+    expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+    expect(router.state.location).toEqual(location);
+    expect(screen.getByTestId('composer')).toBe(composer);
+    expect(draft).toHaveValue('Keep my draft');
+    expect(attachment.files?.[0]).toBe(file);
+    expect(mockConversation.conversationId).toBe('chat-a');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    expect(router.state.location).toEqual(location);
+    expect(screen.getByTestId('composer')).toBe(composer);
+    expect(draft).toHaveValue('Keep my draft');
+    expect(attachment.files?.[0]).toBe(file);
+    expect(mockNewConversation).not.toHaveBeenCalled();
+  },
+);
+
+it('does not redirect a stored Work transcript away from its existing Chat deep link', async () => {
+  mockConversation = { conversationId: 'previous-chat' };
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: true });
+  const { router } = setup(['/c/chat-a']);
+  await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-a'));
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
 });
 
 it('starts the authenticated transcript query while route metadata is still pending', async () => {

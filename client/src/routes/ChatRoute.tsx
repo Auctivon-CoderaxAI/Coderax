@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
-import { Navigate, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -42,13 +43,19 @@ import {
   toChatModelPreset,
 } from '~/hooks/Chat/chatModelRouting';
 import {
+  useChatTransport,
+  ChatTransportContext,
+  createWorkChatTransport,
+} from '~/Providers/ChatTransportContext';
+import {
   useAssistantListMap,
   useIdChangeEffect,
   useAppStartup,
   useNewConvo,
   useLocalize,
 } from '~/hooks';
-import { useChatTransport, ChatTransportContext } from '~/Providers/ChatTransportContext';
+import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
+import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
 import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
 import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
@@ -62,8 +69,6 @@ const isValidChatProjectId = (projectId: string | null): projectId is string =>
   projectId != null && /^[a-f\d]{24}$/i.test(projectId);
 
 export default function ChatRoute({ workMode = false }: { workMode?: boolean }) {
-  const location = useLocation();
-  const isWorkMode = workMode || location.pathname.startsWith('/work/');
   const { data: startupConfig } = useGetStartupConfig();
   const { isAuthenticated, user, roles } = useAuthRedirect();
   const queryClient = useQueryClient();
@@ -78,7 +83,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   );
   const index = 0;
   const [searchParams, setSearchParams] = useSearchParams();
-  const { conversationId = '' } = useParams();
+  const { conversationId = Constants.NEW_CONVO } = useParams();
   const projectIdParam = searchParams.get('projectId');
   const chatProjectId = isValidChatProjectId(projectIdParam) ? projectIdParam : null;
   useIdChangeEffect(conversationId);
@@ -175,10 +180,19 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       conversationId !== Constants.NEW_CONVO &&
       (!hasSetConversation.current || routeState.pending),
   });
-  const conversationModeMismatch =
-    conversationId !== Constants.NEW_CONVO &&
-    initialConvoQuery.isSuccess &&
-    (initialConvoQuery.data?.isWork === true) !== isWorkMode;
+  const modeState = useStoredConversationMode({
+    userId: user?.id ?? '',
+    conversationId,
+    initialMode:
+      workMode ||
+      initialConvoQuery.data?.isWork === true ||
+      (conversation?.conversationId === conversationId && conversation.isWork === true)
+        ? 'work'
+        : 'chat',
+  });
+  const isWorkMode = modeState.mode === 'work';
+  const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
+  const workSelection = useAtomValue(workSelectionFamily(modeState.selectionKey));
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
   const baseChatTransport = useChatTransport();
@@ -232,14 +246,15 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     }),
     [chatRoutingController, automaticChatSelection],
   );
+  const workTransport = useMemo(
+    () => createWorkChatTransport(baseChatTransport, workOptions.options, workSelection),
+    [baseChatTransport, workOptions.options, workSelection],
+  );
 
   const isTemporaryChat = isTemporaryConversation(conversation);
   const forceTemporaryChat = isForcedTemporaryRetention(startupConfig?.interface?.retentionMode);
 
   useEffect(() => {
-    if (conversationModeMismatch) {
-      return;
-    }
     if (conversationId === Constants.NEW_CONVO) {
       setIsTemporary(forceTemporaryChat || defaultTemporaryChat);
     } else if (forceTemporaryChat || isTemporaryChat) {
@@ -247,22 +262,12 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     } else {
       setIsTemporary(false);
     }
-  }, [
-    conversationId,
-    conversationModeMismatch,
-    isTemporaryChat,
-    setIsTemporary,
-    defaultTemporaryChat,
-    forceTemporaryChat,
-  ]);
+  }, [conversationId, isTemporaryChat, setIsTemporary, defaultTemporaryChat, forceTemporaryChat]);
 
   /** This effect is mainly for the first conversation state change on first load of the page.
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
-    if (conversationModeMismatch) {
-      return;
-    }
     // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
     const rolesLoaded = roles?.USER != null;
     const isNewConvo = conversationId === Constants.NEW_CONVO;
@@ -445,7 +450,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     conversationId,
-    conversationModeMismatch,
     isWorkMode,
     routeState.pending,
     roles,
@@ -477,18 +481,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
 
   if (!isAuthenticated) {
     return null;
-  }
-
-  if (conversationModeMismatch) {
-    return (
-      <Navigate
-        to={{
-          pathname: `${initialConvoQuery.data?.isWork === true ? '/work' : '/c'}/${conversationId}`,
-          search: location.search,
-        }}
-        replace
-      />
-    );
   }
 
   // if not a conversation
@@ -530,15 +522,15 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         </div>
       )}
       <div hidden={routeState.pending} className={routeState.pending ? 'hidden' : 'contents'}>
-        {isWorkMode ? (
-          chatView
-        ) : (
-          <ChatModelRoutingContext.Provider value={chatModelRouting}>
-            <ChatTransportContext.Provider value={chatRoutingController.transport}>
+        <ConversationModeContext.Provider value={modeState}>
+          <ChatModelRoutingContext.Provider value={isWorkMode ? null : chatModelRouting}>
+            <ChatTransportContext.Provider
+              value={isWorkMode ? workTransport : chatRoutingController.transport}
+            >
               {chatView}
             </ChatTransportContext.Provider>
           </ChatModelRoutingContext.Provider>
-        )}
+        </ConversationModeContext.Provider>
       </div>
     </ToolCallsMapProvider>
   );
