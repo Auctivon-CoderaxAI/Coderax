@@ -142,3 +142,9 @@ If any field is missing, keep its cell **UNVERIFIED / BLOCKED** and leave #88 op
 - [#100](https://github.com/CoderaxAI/Coderax/issues/100): The external cloud bridge is not certified without an owner-authorized endpoint and a real authenticated exchange.
 
 **Do not release** while essential security/CI/production gates are failing or unsupported. Do not claim Codex or Copilot CLI collaboration unless distinct actual terminal/process request-response evidence exists. Reopen this ledger with recorded facts and update each cell only when that exact verification has been performed.
+
+## Execution blockers observed — 2026-11-05
+
+- The inspected checkout was `0db4bc5f6c8423d5dc36e9c209d426afb255221f` (planning commit; parent `59e989dd571b2e279a93fef276ee1ffd1ce5454f`). The working tree was clean before this ledger update. The root `node_modules/.bin/jest` executable was absent, so no local suite was run on this checkout.
+- The Actions job cited in the #153 report (`126962715000`) could not be inspected: GitHub's job-log request returned HTTP 404. Issue [#141](https://github.com/CoderaxAI/Coderax/issues/141) records that representative jobs were rejected before runner setup with no steps because of an account billing/spending-limit block. This is a runner-startup blocker, not evidence that tests passed or failed.
+- No billing, workflow, secret, or required-check setting was changed, and no CI rerun, staging deployment, or production verification was performed. Keep CI, staging, production, and all seven capability certifications **UNVERIFIED**. The next release-gate action remains owner-authorized restoration of Actions execution, followed by rerunning the required checks on the exact candidate SHA.
