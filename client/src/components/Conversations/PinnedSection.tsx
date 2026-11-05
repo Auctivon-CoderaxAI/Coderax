@@ -5,7 +5,13 @@ import { useQueries } from '@tanstack/react-query';
 import { useDrag, useDragLayer, useDrop } from 'react-dnd';
 import { dataService, DynamicQueryKeys } from 'coderax-data-provider';
 import { Skeleton, useMediaQuery, useToastContext, buttonVariants } from '@coderax/client';
-import type { TConversation, TEndpointsConfig, TWorkTask } from 'coderax-data-provider';
+import type {
+  TConversation,
+  TEndpointsConfig,
+  TWorkTask,
+  TWorkTaskResponse,
+} from 'coderax-data-provider';
+import type { UseQueryOptions } from '@tanstack/react-query';
 import type {
   SelectEndpointHandler,
   SelectSpecHandler,
@@ -318,7 +324,7 @@ const FavoriteRow = ({
 
 interface PinnedSectionProps {
   conversations: TConversation[];
-  toggleNav: () => void;
+  toggleNav: (afterSlide?: () => void) => void;
   isSmallScreen?: boolean;
   /** True when this list is the whole pinned list: no bookmark filter, and the
    *  pinned query has finished draining. Only then can keys the section cannot
@@ -369,12 +375,14 @@ const PinnedSection = ({
     [storedOrder],
   );
   const pinnedWorkQueries = useQueries({
-    queries: pinnedWorkIds.map((conversationId) => ({
-      queryKey: DynamicQueryKeys.workTask(conversationId),
-      queryFn: ({ signal }) => dataService.getWorkTask(conversationId, signal),
-      retry: false,
-      staleTime: 30_000,
-    })),
+    queries: pinnedWorkIds.map(
+      (conversationId): UseQueryOptions<TWorkTaskResponse> => ({
+        queryKey: DynamicQueryKeys.workTask(conversationId),
+        queryFn: ({ signal }) => dataService.getWorkTask(conversationId, signal),
+        retry: false,
+        staleTime: 30_000,
+      }),
+    ),
   });
   const pinnedWorkTasks = useMemo(
     () =>

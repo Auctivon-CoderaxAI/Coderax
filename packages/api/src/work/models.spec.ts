@@ -15,7 +15,7 @@ const withPaid = () =>
   ]);
 
 describe('native work model discovery', () => {
-  it('offers free and local models without any CyVox input', () => {
+  it('offers free and local models from Coderax configuration', () => {
     const models = buildWorkModels([
       { id: 'llama3:latest', label: 'Llama 3', local: true },
       { id: 'ollama/qwen', local: true },

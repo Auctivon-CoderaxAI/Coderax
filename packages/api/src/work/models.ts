@@ -1,7 +1,4 @@
-/**
- * Work model options come from Coderax's own configuration. Nothing here reads
- * CyVox: an unconfigured or offline CyVox must not change this list.
- */
+/** Work model options come from Coderax's own configuration. */
 
 export type WorkModelSource = {
   /** Configured model identifier, e.g. `gpt-4o-mini` or `llama3:latest`. */
