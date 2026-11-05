@@ -171,8 +171,8 @@ export default function NativeWorkHome() {
   return (
     <div className="bg-surface-canvas relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ModeHeader />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-center px-5 py-10">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-end px-5 py-10 sm:justify-center">
           <h1 className="text-text-primary text-center text-3xl leading-tight font-normal tracking-tight">
             {localize('com_cyvox_work_welcome_title')}
           </h1>
