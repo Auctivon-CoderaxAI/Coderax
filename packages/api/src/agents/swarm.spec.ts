@@ -271,6 +271,34 @@ describe('SwarmCoordinator', () => {
     expect(result.ok && result.allowedTools).toEqual(['read']);
   });
 
+  it('snapshots required tools before awaiting the lease store', async () => {
+    let resolveRead!: (lease: SwarmLease | null) => void;
+    const store = {
+      get: () =>
+        new Promise<SwarmLease | null>((resolve) => {
+          resolveRead = resolve;
+        }),
+      compareAndSwap: () => true,
+    };
+    const coordinator = new SwarmCoordinator({
+      store,
+      allowedTools: ['read', 'write'],
+      now: () => 1_000,
+      createLeaseId: () => 'lease-snapshot',
+    });
+    const requiredTools = ['read'];
+
+    const pendingClaim = coordinator.claim(
+      { id: 'peer-reader', tools: ['read', 'write'] },
+      { id: 'task-snapshot', requiredTools },
+    );
+    requiredTools.push('write');
+    resolveRead(null);
+
+    const result = await pendingClaim;
+    expect(result.ok && result.allowedTools).toEqual(['read']);
+  });
+
   it('rejects malformed peer and task identities without writing a lease', async () => {
     const { coordinator, store } = setup();
 

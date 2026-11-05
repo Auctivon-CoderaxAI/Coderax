@@ -154,7 +154,7 @@ export class SwarmCoordinator {
       return { ok: false, reason: 'invalid_task' };
     }
 
-    const requiredTools = task.requiredTools ?? [];
+    const requiredTools = [...(task.requiredTools ?? [])];
     const peerTools = new Set(peer.tools ?? []);
     if (requiredTools.some((tool) => !this.ceiling.has(tool) || !peerTools.has(tool))) {
       return { ok: false, reason: 'tool_denied' };
