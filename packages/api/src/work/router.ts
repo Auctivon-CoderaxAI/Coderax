@@ -62,7 +62,8 @@ async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
     return null;
   }
 }
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
+const WORK_AGENT_ID_MAX_LENGTH = 200;
+const ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${WORK_AGENT_ID_MAX_LENGTH}}$`);
 
 async function withResolvedRunState(
   conversation: WorkConversation,
