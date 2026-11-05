@@ -1,10 +1,10 @@
 import { MongoClient } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import type { Collection } from 'mongodb';
-import type { SwarmClaimResult, SwarmLease } from './swarm';
 import type { MongoSwarmLeaseDocument, MongoSwarmScope } from './swarmMongoStore';
-import { SwarmCoordinator } from './swarm';
+import type { SwarmClaimResult, SwarmLease } from './swarm';
 import { createMongoSwarmStore } from './swarmMongoStore';
+import { SwarmCoordinator } from './swarm';
 
 const owner: MongoSwarmScope = { userId: 'owner-a', tenantId: 'tenant-a', runId: 'run-a' };
 const task = { id: 'task-a', requiredTools: ['read'] };
@@ -92,9 +92,7 @@ describe('durable Mongo swarm lease store', () => {
       ok: true,
       status: 'completed',
     });
-    expect((await createMongoSwarmStore(collection, owner).get(task.id))?.result).toBe(
-      'verified',
-    );
+    expect((await createMongoSwarmStore(collection, owner).get(task.id))?.result).toBe('verified');
   });
 
   it('preserves a completed lease across newly constructed stores', async () => {
@@ -132,6 +130,25 @@ describe('durable Mongo swarm lease store', () => {
     for (const scope of scopes) {
       expect((await createMongoSwarmStore(collection, scope).get(task.id))?.attempt).toBe(1);
     }
+  });
+
+  it('fences replacement and deletion from a stale lease ID or state', async () => {
+    const store = createMongoSwarmStore(collection, owner);
+    const lease = claimed(await coordinator(owner, 'first', () => 1_000).claim(peerA, task));
+    const next: SwarmLease = {
+      ...lease,
+      leaseId: 'lease-next',
+      attempt: lease.attempt + 1,
+      expiresAt: lease.expiresAt + 100,
+    };
+    const staleId = { leaseId: 'lease-old', state: lease.state };
+    const staleState = { leaseId: lease.leaseId, state: 'completed' as const };
+
+    await expect(store.compareAndSwap(task.id, staleId, next)).resolves.toBe(false);
+    await expect(store.compareAndSwap(task.id, staleState, next)).resolves.toBe(false);
+    await expect(store.compareAndSwap(task.id, staleId, null)).resolves.toBe(false);
+
+    await expect(store.get(task.id)).resolves.toEqual(lease);
   });
 
   it('fails closed on missing scope and mismatched CAS task IDs', async () => {

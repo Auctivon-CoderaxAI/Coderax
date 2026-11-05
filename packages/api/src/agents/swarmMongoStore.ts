@@ -28,9 +28,11 @@ function checkScope(scope: MongoSwarmScope): void {
   if (
     !scope ||
     typeof scope.userId !== 'string' ||
-    (scope.userId.trim().length === 0 || scope.userId.length > 120) ||
+    scope.userId.trim().length === 0 ||
+    scope.userId.length > 120 ||
     typeof scope.runId !== 'string' ||
-    (scope.runId.trim().length === 0 || scope.runId.length > 120) ||
+    scope.runId.trim().length === 0 ||
+    scope.runId.length > 120 ||
     (scope.tenantId !== null &&
       (typeof scope.tenantId !== 'string' ||
         scope.tenantId.trim().length === 0 ||
@@ -96,7 +98,9 @@ export function createMongoSwarmStore(
       if (next == null) {
         return (await collection.deleteOne(filter)).deletedCount === 1;
       }
-      return (await collection.replaceOne(filter, { _id, ...next })).matchedCount === 1;
+      /** `_id` is immutable and already pinned by the filter; a replacement carrying it is
+       *  rejected by Mongo and by the driver's replacement type. */
+      return (await collection.replaceOne(filter, next)).matchedCount === 1;
     },
   };
 }
