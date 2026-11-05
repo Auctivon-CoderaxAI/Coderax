@@ -58,6 +58,7 @@ export const errorRenderers: Record<string, ComponentType<ErrorRendererProps>> =
   [ProviderErrorCodes.INVALID_API_KEY]: UserKeyError,
   [ProviderErrorCodes.INSUFFICIENT_QUOTA]: UserKeyError,
   [ErrorTypes.INVALID_AGENT_PROVIDER]: AgentError,
+  [ErrorTypes.WORK_MODEL_NOT_ALLOWED]: ModelError,
   [ErrorTypes.MISSING_MODEL]: ModelError,
   [ErrorTypes.ENDPOINT_MODELS_NOT_LOADED]: ModelError,
   [ErrorTypes.UPSTREAM_MODEL_ERROR]: ModelError,

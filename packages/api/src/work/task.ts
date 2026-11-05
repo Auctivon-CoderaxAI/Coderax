@@ -51,6 +51,8 @@ export type WorkConversation = {
   isWork?: boolean;
   workModel?: string;
   workState?: string;
+  /** The saved agent the conversation runs; absent for Coderax's default agent. */
+  agentId?: string;
 };
 
 export type WorkTask = {
@@ -59,6 +61,9 @@ export type WorkTask = {
   state: WorkTaskState;
   createdAt?: string;
   updatedAt?: string;
+  /** The concrete model the server ran the latest turn on. */
+  model?: string;
+  agentId?: string;
 };
 
 /** A conversation is Work only when its persisted first-class flag is true. */
@@ -129,6 +134,8 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
     state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
+    ...(conversation.workModel ? { model: conversation.workModel } : {}),
+    ...(conversation.agentId ? { agentId: conversation.agentId } : {}),
   };
 }
 

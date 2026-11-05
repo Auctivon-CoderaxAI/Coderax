@@ -1,9 +1,11 @@
 import express from 'express';
 import type { NextFunction, Request, Response, Router } from 'express';
+import type { WorkGraphAgent, WorkAgentMember } from './graph';
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
 import { buildWorkModelOptions } from './models';
+import { resolveWorkAgentGraph } from './graph';
 
 /**
  * Work reads Coderax conversations and models; it never starts a run.
@@ -21,6 +23,12 @@ export type WorkDeps = {
    * also be among the offered free/local models.
    */
   configuredDefaultModel?: () => Promise<string | null>;
+  /**
+   * Agents the caller can view, with the model and provider each runs on and
+   * its handoff, chain and subagent references. Tenant and ACL scope are the
+   * caller's: an agent absent from this list cannot run for them.
+   */
+  listAgents?: () => Promise<WorkGraphAgent[]>;
   listConversations: (input: { userId: string; limit: number }) => Promise<WorkConversation[]>;
   getConversation: (input: {
     userId: string;
@@ -32,7 +40,28 @@ export type WorkDeps = {
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
 };
 
+export type WorkAgentOption = {
+  id: string;
+  name?: string;
+  description?: string;
+  model: string;
+  provider: string;
+  members: WorkAgentMember[];
+};
+
 const HISTORY_LIMIT = 50;
+
+/** A default that cannot be read leaves automatic routing to the free/local ranking. */
+async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
+  if (!deps.configuredDefaultModel) {
+    return null;
+  }
+  try {
+    return await deps.configuredDefaultModel();
+  } catch {
+    return null;
+  }
+}
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
 
 async function withResolvedRunState(
@@ -81,11 +110,57 @@ export function createWorkRouter(deps: WorkDeps): Router {
 
   router.get('/models', async (_req: Request, res: Response) => {
     try {
-      const models = buildWorkModelOptions(await deps.listModels());
+      const [sources, configuredDefault] = await Promise.all([
+        deps.listModels(),
+        readConfiguredDefault(deps),
+      ]);
+      const models = buildWorkModelOptions(sources, configuredDefault);
       res.setHeader('Cache-Control', 'no-store');
       res.json({ models });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * Agents a Work task can run: the whole graph each one can reach executes on
+   * an offered free/local model. Anything else is left out rather than shown
+   * disabled, so the picker never offers a run the server would refuse.
+   */
+  router.get('/agents', async (_req: Request, res: Response) => {
+    if (!deps.listAgents) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ agents: [] });
+      return;
+    }
+    try {
+      const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
+      const models = buildWorkModelOptions(sources);
+      const byId = new Map(
+        agents.filter((agent) => typeof agent.id === 'string').map((agent) => [agent.id, agent]),
+      );
+      const eligible: WorkAgentOption[] = [];
+      for (const agent of agents) {
+        if (typeof agent.id !== 'string' || !agent.id) {
+          continue;
+        }
+        const graph = await resolveWorkAgentGraph(agent, models, async (id) => byId.get(id));
+        if (!graph.ok) {
+          continue;
+        }
+        eligible.push({
+          id: agent.id,
+          ...(agent.name ? { name: agent.name } : {}),
+          ...(agent.description ? { description: agent.description } : {}),
+          model: graph.model.id,
+          provider: graph.model.provider ?? '',
+          members: graph.members,
+        });
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ agents: eligible });
+    } catch {
+      res.status(503).json({ code: 'WORK_AGENTS_UNAVAILABLE' });
     }
   });
 

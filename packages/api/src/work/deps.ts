@@ -1,5 +1,6 @@
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
+import type { WorkGraphAgent } from './graph';
 import type { WorkDeps } from './router';
 
 /**
@@ -64,6 +65,49 @@ export interface WorkDepsFactoryOptions {
   workStateForJobStatus: (status: string | null | undefined) => string | null;
   logger?: WorkDepsLogger;
   projections: WorkDepsProjections;
+  /** Agents the request's user can view in its tenant, with model and graph fields. */
+  listAgents?: (req: WorkDepsRequest) => Promise<unknown[]>;
+  /** The deployment default that automatic routing prefers when it is offered. */
+  configuredDefaultModel?: (req: WorkDepsRequest) => Promise<string | null>;
+}
+
+const isStringList = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+
+/** Reads only the fields that decide where a run can go; nothing else leaves the store. */
+export function toWorkGraphAgent(row: unknown): WorkGraphAgent | null {
+  if (row == null || typeof row !== 'object') {
+    return null;
+  }
+  const agent = row as Record<string, unknown>;
+  if (typeof agent.id !== 'string' || !agent.id) {
+    return null;
+  }
+  const subagents =
+    agent.subagents != null && typeof agent.subagents === 'object'
+      ? (agent.subagents as Record<string, unknown>)
+      : null;
+  const graphs = Array.isArray(subagents?.graphs)
+    ? subagents.graphs.map((graph) => ({
+        agent_ids:
+          graph != null && typeof graph === 'object' && isStringList(graph.agent_ids)
+            ? graph.agent_ids
+            : [],
+      }))
+    : [];
+  return {
+    id: agent.id,
+    ...(typeof agent.name === 'string' ? { name: agent.name } : {}),
+    ...(typeof agent.description === 'string' ? { description: agent.description } : {}),
+    ...(typeof agent.model === 'string' ? { model: agent.model } : {}),
+    ...(typeof agent.provider === 'string' ? { provider: agent.provider } : {}),
+    edges: Array.isArray(agent.edges) ? (agent.edges as WorkGraphAgent['edges']) : [],
+    agent_ids: isStringList(agent.agent_ids) ? agent.agent_ids : [],
+    subagents: {
+      agent_ids: isStringList(subagents?.agent_ids) ? subagents.agent_ids : [],
+      graphs,
+    },
+  };
 }
 
 export function createWorkDepsFactory({
@@ -73,6 +117,8 @@ export function createWorkDepsFactory({
   workStateForJobStatus,
   logger,
   projections,
+  listAgents,
+  configuredDefaultModel,
 }: WorkDepsFactoryOptions): (req: WorkDepsRequest) => WorkDeps {
   if (
     !db ||
@@ -93,6 +139,17 @@ export function createWorkDepsFactory({
   return function depsFor(req: WorkDepsRequest): WorkDeps {
     return {
       listModels: async () => projections.flattenModelConfig(await loadModels(req)),
+      ...(listAgents
+        ? {
+            listAgents: async () =>
+              (await listAgents(req))
+                .map(toWorkGraphAgent)
+                .filter((agent): agent is WorkGraphAgent => agent !== null),
+          }
+        : {}),
+      ...(configuredDefaultModel
+        ? { configuredDefaultModel: () => configuredDefaultModel(req) }
+        : {}),
       listConversations: async ({ userId, limit }: { userId: string; limit: number }) => {
         const result = await db.getConvosByCursor(userId, {
           limit,

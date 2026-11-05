@@ -53,6 +53,7 @@ import {
   PendingToolApprovalButton,
   PendingToolApprovalPanel,
 } from '~/components/Chat/approval/Review';
+import { composerShapeClass, composerWidthClass, landingComposerClearance } from '../layout';
 import { useChatModelRouting } from '~/Providers/ChatModelRoutingContext';
 import useComposerRestore from '~/hooks/Input/useComposerRestore';
 import { useChatSettings } from '~/Providers/ChatSettingsContext';
@@ -188,7 +189,6 @@ const ChatForm = memo(function ChatForm({
   setConversation,
   isSubmitting,
   setFilesLoading,
-  newConversation,
   handleStopGenerating,
   stopGenerating,
 }: ChatFormProps) {
@@ -229,11 +229,7 @@ const ChatForm = memo(function ChatForm({
 
   const { requiresKey } = useRequiresKey();
   const methods = useChatFormContext();
-  const {
-    generateConversation,
-    conversation: addedConvo,
-    setConversation: setAddedConvo,
-  } = useAddedChatContext();
+  const { conversation: addedConvo, setConversation: setAddedConvo } = useAddedChatContext();
   const assistantMap = useAssistantsMapContext();
   const { data: startupConfig } = useGetStartupConfig();
 
@@ -744,8 +740,7 @@ const ChatForm = memo(function ChatForm({
      conversation has nothing beneath it, so it keeps only enough to clear the
      surface's own shadow. Below `sm` the composer runs to the viewport floor in
      every state. */
-  const landingClearance =
-    centerFormOnLanding && !isSubmitting ? 'transition-all duration-200 sm:mb-28' : 'sm:mb-10';
+  const landingClearance = landingComposerClearance(centerFormOnLanding && !isSubmitting);
   let bottomClearance = 'sm:mb-4';
   if (isLandingPage) {
     bottomClearance = landingClearance;
@@ -824,7 +819,7 @@ const ChatForm = memo(function ChatForm({
            asked for less motion gets the new position outright — this one is a
            slide across the page rather than decoration. */
         'mx-auto flex w-full flex-row gap-3 transition-[max-width,margin-bottom] duration-300 motion-reduce:transition-none sm:px-2',
-        maximizeChatSpace ? 'max-w-full' : 'md:max-w-3xl xl:max-w-4xl',
+        maximizeChatSpace ? 'max-w-full' : composerWidthClass,
         bottomClearance,
       )}
     >
@@ -890,7 +885,8 @@ const ChatForm = memo(function ChatForm({
                    squared off at the bottom (`rounded-t-theme-surface-lg`) and no disclaimer
                    follows it — so the action row is the last thing in it, with no
                    band of padding under the buttons. */
-                'rounded-t-theme-surface-lg sm:rounded-theme-surface-lg relative flex w-full grow flex-col overflow-hidden',
+                composerShapeClass,
+                'relative flex w-full grow flex-col overflow-hidden',
                 composerSurfaceClasses(),
                 isTextAreaFocused ? composerSurfaceShadow.focused : composerSurfaceShadow.blurred,
                 /* Temporary-chat accent is a ChatForm-only override, not part of

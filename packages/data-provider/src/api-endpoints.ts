@@ -140,6 +140,7 @@ export const apiKeyById = (id: string) => `${apiKeysEndpoint}/${id}`;
 export const conversationsRoot = `${BASE_URL}/api/convos`;
 export const workRoot = `${BASE_URL}/api/work`;
 export const workModels = () => `${workRoot}/models`;
+export const workAgents = () => `${workRoot}/agents`;
 export const workTasks = () => `${workRoot}/tasks`;
 export const workTask = (conversationId: string) =>
   `${workTasks()}/${encodeURIComponent(conversationId)}`;

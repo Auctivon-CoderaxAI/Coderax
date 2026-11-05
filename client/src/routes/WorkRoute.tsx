@@ -5,7 +5,6 @@ import {
   createWorkChatTransport,
   defaultChatTransport,
 } from '~/Providers/ChatTransportContext';
-import ModeHeader from '~/components/Chat/ModeHeader';
 import NativeWorkHome from './NativeWorkHome';
 import ChatRoute from './ChatRoute';
 
@@ -40,14 +39,11 @@ export default function WorkRoute() {
     return <NativeWorkHome />;
   }
 
+  /** The conversation renders exactly as Chat does — its own landmark, header and
+   * canvas — with the header switch showing Work. */
   return (
-    <main className="bg-surface-canvas text-text-primary relative flex h-full min-h-0 flex-col overflow-hidden">
-      <ModeHeader />
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <ChatTransportContext.Provider value={workChatTransport}>
-          <ChatRoute workMode />
-        </ChatTransportContext.Provider>
-      </div>
-    </main>
+    <ChatTransportContext.Provider value={workChatTransport}>
+      <ChatRoute workMode />
+    </ChatTransportContext.Provider>
   );
 }

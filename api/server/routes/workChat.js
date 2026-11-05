@@ -1,11 +1,18 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
-const { Constants, EModelEndpoint, PermissionBits } = require('coderax-data-provider');
+const {
+  Constants,
+  EModelEndpoint,
+  PermissionBits,
+  ResourceType,
+} = require('coderax-data-provider');
 const {
   buildWorkModelOptions,
   createConfiguredDefaultResolver,
+  resolveWorkAgentGraph,
   resolveWorkAgentModel,
   resolveWorkSelection,
+  workConcreteModels,
   WORK_AUTO_MODEL_ID,
 } = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
@@ -40,6 +47,21 @@ const configuredDefaultFromRequest = createConfiguredDefaultResolver(async (req)
 
 function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
+}
+
+/** The same VIEW check the native runtime applies before a run reaches another agent. */
+function defaultCanViewAgent(req, agent) {
+  const { checkPermission } = require('~/server/services/PermissionService');
+  if (!req?.user?.id || !agent?._id) {
+    return Promise.resolve(false);
+  }
+  return checkPermission({
+    userId: req.user.id,
+    role: req.user.role,
+    resourceType: ResourceType.AGENT,
+    resourceId: agent._id,
+    requiredPermission: PermissionBits.VIEW,
+  });
 }
 
 /** A concrete selected agent; the ephemeral sentinel is not a selection. */
@@ -87,11 +109,11 @@ function selectedAgentAuthorizationMiddleware(authorizeAgent = defaultAuthorizeA
 /**
  * Resolve the concrete model a Work turn stores and runs on.
  *
- * `auto` is a sentinel, never a model: it resolves through the configured
- * default and only when that exact model is in the offered free/local set.
- * Picking "the first local model" would silently substitute a choice the user
- * did not make, so an absent or paid default fails with an actionable error
- * instead.
+ * `auto` is a sentinel, never a model: it resolves to the configured default
+ * when that exact model is in the offered free/local set, otherwise to the
+ * top-ranked free/local model, which `GET /api/work/models` names as the
+ * automatic option's target before the user starts. A paid default is never
+ * chosen.
  *
  * @returns {{isWork: true, workModel: string} | {error: string}}
  */
@@ -129,7 +151,15 @@ function stripClientWorkFields(body) {
   if (!body || typeof body !== 'object') {
     return body;
   }
-  const { isWork: _isWork, workModel: _workModel, workContext: _workContext, ...rest } = body;
+  /** A model spec can replace the model or attach subagents of its own, so Work
+   *  never takes one from the client: the server-resolved selection is the run. */
+  const {
+    isWork: _isWork,
+    workModel: _workModel,
+    workContext: _workContext,
+    spec: _spec,
+    ...rest
+  } = body;
   return rest;
 }
 
@@ -205,6 +235,12 @@ const MESSAGES = {
     'Work has no default free or locally served model. Choose a model explicitly, or configure a default that is free or local.',
   WORK_NO_FREE_MODEL:
     'Work needs a free or locally served model. Configure a local model, then try again.',
+  WORK_AGENT_GRAPH_NOT_ALLOWED:
+    'This agent can hand work to an agent that does not run on a free or locally served model. Choose another agent.',
+  WORK_AGENT_GRAPH_TOO_LARGE:
+    'This agent coordinates more agents than Work can check. Choose another agent.',
+  WORK_ADDED_CONVERSATION_UNSUPPORTED:
+    'Work runs one task at a time. Remove the added conversation and try again.',
 };
 
 const fail = (res, status, error, message) => res.status(status).json({ error, message });
@@ -218,11 +254,21 @@ function workContextMiddleware(
   configuredDefaultModel = configuredDefaultFromRequest,
   seedConversation = seedWorkConversation,
   findAgent = defaultFindAgent,
+  canViewAgent = defaultCanViewAgent,
 ) {
   return async (req, res, next) => {
     try {
       if (hasMalformedSelectedAgentId(req.body)) {
         return fail(res, 400, 'WORK_AGENT_ID_INVALID', MESSAGES.WORK_AGENT_ID_INVALID);
+      }
+      /** A second conversation would run beside the task on a model Work never admitted. */
+      if (req.body?.addedConvo != null) {
+        return fail(
+          res,
+          400,
+          'WORK_ADDED_CONVERSATION_UNSUPPORTED',
+          MESSAGES.WORK_ADDED_CONVERSATION_UNSUPPORTED,
+        );
       }
       const config = await loadModelsForRequest(req);
       /** The source may be sync or async; awaiting covers both. A failure to read it
@@ -247,9 +293,33 @@ function workContextMiddleware(
         if (!agent) {
           return fail(res, 404, 'WORK_AGENT_NOT_FOUND', MESSAGES.WORK_AGENT_NOT_FOUND);
         }
-        selectedModel = resolveWorkAgentModel(buildWorkModelOptions(sources), agent);
+        const options = buildWorkModelOptions(sources);
+        selectedModel = resolveWorkAgentModel(options, agent);
         if (!selectedModel) {
           return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
+        }
+        /** Handoffs, chains and subagents run on their own saved models; every one
+         *  the user can reach must be free or local too, or the task does not start. */
+        let graph;
+        try {
+          graph = await resolveWorkAgentGraph(
+            { ...agent, id: requestedAgentId },
+            options,
+            async (agentId) => {
+              const member = await findAgent(agentId);
+              return member && (await canViewAgent(req, member)) ? member : null;
+            },
+          );
+        } catch {
+          logger.warn('[Work] Failed to read the selected agent graph.');
+          return fail(res, 503, 'WORK_AGENT_UNAVAILABLE', MESSAGES.WORK_AGENT_UNAVAILABLE);
+        }
+        if (!graph.ok) {
+          const code =
+            graph.reason === 'too_large'
+              ? 'WORK_AGENT_GRAPH_TOO_LARGE'
+              : 'WORK_AGENT_GRAPH_NOT_ALLOWED';
+          return fail(res, 409, code, MESSAGES[code]);
         }
         const requestedModel = req.body?.model;
         if (
@@ -271,6 +341,10 @@ function workContextMiddleware(
       if (context.error) {
         return fail(res, 409, context.error, MESSAGES[context.error]);
       }
+      /** The initializer re-checks every agent it prepares against this set. */
+      context.allowedModels = workConcreteModels(buildWorkModelOptions(sources)).map(
+        ({ id, provider }) => ({ id, provider }),
+      );
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
       /** A seed/read failure must fail closed. Without the persisted-row read we cannot
@@ -367,6 +441,7 @@ function createWorkChatRouter({
   agentsRouter,
   findAgent,
   authorizeAgent,
+  canViewAgent,
 } = {}) {
   const router = express.Router();
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
@@ -378,6 +453,7 @@ function createWorkChatRouter({
       configuredDefaultModel,
       seedConversation,
       findAgent,
+      canViewAgent,
     ),
   );
   router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
@@ -385,6 +461,7 @@ function createWorkChatRouter({
 }
 
 module.exports = {
+  configuredDefaultFromRequest,
   createWorkChatRouter,
   delegateToAgents,
   resolveWorkContext,

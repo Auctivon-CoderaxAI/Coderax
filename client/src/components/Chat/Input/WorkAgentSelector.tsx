@@ -1,103 +1,100 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { EModelEndpoint, QueryKeys, dataService } from 'coderax-data-provider';
-import type { Agent, TWorkModel } from 'coderax-data-provider';
+import { EModelEndpoint, QueryKeys, dataService, getEndpointField } from 'coderax-data-provider';
+import type { TWorkAgent } from 'coderax-data-provider';
+import type { ResolvedWorkSelection, WorkOptions, WorkSelection } from './workSelection';
+import {
+  workSelectionFromConversation,
+  automaticWorkSelection,
+  resolveWorkSelection,
+  getWorkModelKey,
+  selectWorkAgent,
+  WORK_AUTOMATIC,
+  toWorkOptions,
+} from './workSelection';
 import {
   ModelSelectorChatProvider,
   useModelSelectorChatContext,
 } from '~/components/Chat/Menus/Endpoints/ModelSelectorChatContext';
-import { useListAgentsQuery, useGetEndpointsQuery } from '~/data-provider';
-import { useLocalize, useAgentDefaultPermissionLevel } from '~/hooks';
 import useSelectMention from '~/hooks/Input/useSelectMention';
+import { createStorageAtom } from '~/store/jotai-utils';
+import { useGetEndpointsQuery } from '~/data-provider';
+import { useChatContext } from '~/Providers';
+import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
-export type WorkAgentOption = Pick<Agent, 'id' | 'name' | 'model' | 'provider'>;
-type EligibleAgent = Agent & { id: string; model: string; provider: string };
+export { getWorkModelKey } from './workSelection';
 
-export function getWorkModelKey(model: Pick<TWorkModel, 'id' | 'provider'>): string {
-  return JSON.stringify([model.provider ?? '', model.id]);
-}
+/** The last Work selection, re-validated against the server's offer on every read. */
+export const workSelectionAtom = createStorageAtom<WorkSelection>(
+  'workSelection',
+  automaticWorkSelection,
+);
 
-/** Only agents that can run on the server's current Work-eligible model catalog. */
-export function filterWorkAgents(agents: Agent[], models: TWorkModel[]): WorkAgentOption[] {
-  const available = new Set(
-    models
-      .filter((model) => model.auto !== true && typeof model.provider === 'string')
-      .map((model) => `${model.provider}\u0000${model.id}`),
-  );
+const selectClassName =
+  'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer truncate rounded-full bg-transparent px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-default disabled:opacity-70';
 
-  return agents
-    .filter(
-      (agent): agent is EligibleAgent =>
-        typeof agent.id === 'string' &&
-        agent.id.length > 0 &&
-        typeof agent.model === 'string' &&
-        agent.model.length > 0 &&
-        typeof agent.provider === 'string' &&
-        available.has(`${agent.provider}\u0000${agent.model}`),
-    )
-    .map(({ id, name, model, provider }) => ({ id, name, model, provider }));
-}
-
-/** Only expose models that at least one accessible Work agent can actually run. */
-export function filterWorkModels(agents: WorkAgentOption[], models: TWorkModel[]): TWorkModel[] {
-  const configured = new Set(agents.map((agent) => `${agent.provider}\u0000${agent.model}`));
-  return models.filter(
-    (model) =>
-      model.auto !== true &&
-      typeof model.provider === 'string' &&
-      configured.has(`${model.provider}\u0000${model.id}`),
-  );
-}
-
-export function useWorkAgentOptions() {
-  const permissionLevel = useAgentDefaultPermissionLevel();
+/** Work's own catalog: free/local models and the agents whose whole graph runs on them. */
+export function useWorkOptions() {
   const modelsQuery = useQuery({
     queryKey: [QueryKeys.workModels],
     queryFn: () => dataService.getWorkModels(),
     retry: false,
     staleTime: 30_000,
   });
-  const agentsQuery = useListAgentsQuery(
-    { requiredPermission: permissionLevel },
-    { retry: false, staleTime: 30_000 },
-  );
-  const agents = useMemo(
-    () => filterWorkAgents(agentsQuery.data?.data ?? [], modelsQuery.data?.models ?? []),
-    [agentsQuery.data, modelsQuery.data],
-  );
-  const models = useMemo(
-    () => filterWorkModels(agents, modelsQuery.data?.models ?? []),
-    [agents, modelsQuery.data],
+  const agentsQuery = useQuery({
+    queryKey: [QueryKeys.workAgents],
+    queryFn: () => dataService.getWorkAgents(),
+    retry: false,
+    staleTime: 30_000,
+  });
+  const options = useMemo(
+    () => toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents),
+    [modelsQuery.data, agentsQuery.data],
   );
 
   return {
-    agents,
-    models,
+    options,
     modelsQuery,
     agentsQuery,
     isLoading: modelsQuery.isLoading || agentsQuery.isLoading,
-    isError: modelsQuery.isError || agentsQuery.isError,
   };
 }
 
+function agentLabel(agent: TWorkAgent, localize: ReturnType<typeof useLocalize>): string {
+  const name = agent.name?.trim() || agent.id;
+  return agent.members.length > 0
+    ? localize('com_work_agent_coordinates', { 0: name, 1: agent.members.length })
+    : name;
+}
+
 export function WorkModelSelect({
-  models,
-  value,
+  options,
+  selection,
   onChange,
   disabled = false,
   id = 'work-model',
   className,
 }: {
-  models: TWorkModel[];
-  value: string;
-  onChange: (model: TWorkModel) => void;
+  options: WorkOptions;
+  selection: WorkSelection;
+  onChange: (selection: WorkSelection) => void;
   disabled?: boolean;
   id?: string;
   className?: string;
 }) {
   const localize = useLocalize();
-  const selectedModel = models.find((model) => getWorkModelKey(model) === value);
+  const agent =
+    selection.agentId === WORK_AUTOMATIC
+      ? undefined
+      : options.agents.find((option) => option.id === selection.agentId);
+  /** A saved agent runs on its own model, so the model is shown, not offered. */
+  const models = agent
+    ? options.models.filter(
+        (model) => model.id === agent.model && model.provider === agent.provider,
+      )
+    : options.models;
+  const showAutomatic = !agent && options.auto?.target != null;
 
   return (
     <>
@@ -107,20 +104,22 @@ export function WorkModelSelect({
       <select
         id={id}
         aria-label={localize('com_ui_model')}
-        className={cn(
-          'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer rounded-full bg-transparent px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden',
-          className,
-        )}
-        value={selectedModel ? getWorkModelKey(selectedModel) : ''}
-        onChange={(event) => {
-          const model = models.find((option) => getWorkModelKey(option) === event.target.value);
-          if (model) {
-            onChange(model);
-          }
-        }}
-        disabled={disabled || models.length === 0}
+        title={agent ? localize('com_work_model_set_by_agent') : undefined}
+        className={cn(selectClassName, className)}
+        value={selection.modelKey}
+        onChange={(event) => onChange({ agentId: WORK_AUTOMATIC, modelKey: event.target.value })}
+        disabled={disabled || agent != null || (models.length === 0 && !showAutomatic)}
       >
-        <option value="">{localize('com_ui_model')}</option>
+        {showAutomatic && (
+          <option value={WORK_AUTOMATIC}>
+            {localize('com_work_automatic_model', {
+              0: options.auto?.target?.label || options.auto?.target?.id || '',
+            })}
+          </option>
+        )}
+        {!showAutomatic && models.length === 0 && (
+          <option value={WORK_AUTOMATIC}>{localize('com_ui_model')}</option>
+        )}
         {models.map((model) => (
           <option key={getWorkModelKey(model)} value={getWorkModelKey(model)}>
             {model.label?.trim() || model.id}
@@ -132,22 +131,21 @@ export function WorkModelSelect({
 }
 
 export function WorkAgentSelect({
-  agents,
-  value,
+  options,
+  selection,
   onChange,
   disabled = false,
   id = 'work-agent',
   className,
 }: {
-  agents: WorkAgentOption[];
-  value: string;
-  onChange: (agent: WorkAgentOption) => void;
+  options: WorkOptions;
+  selection: WorkSelection;
+  onChange: (selection: WorkSelection) => void;
   disabled?: boolean;
   id?: string;
   className?: string;
 }) {
   const localize = useLocalize();
-  const selectedAgent = agents.find((agent) => agent.id === value);
 
   return (
     <>
@@ -157,23 +155,18 @@ export function WorkAgentSelect({
       <select
         id={id}
         aria-label={localize('com_work_agent')}
-        className={cn(
-          'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer rounded-full bg-transparent px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden',
-          className,
-        )}
-        value={selectedAgent?.id ?? ''}
+        className={cn(selectClassName, className)}
+        value={selection.agentId}
         onChange={(event) => {
-          const agent = agents.find((option) => option.id === event.target.value);
-          if (agent) {
-            onChange(agent);
-          }
+          const agent = options.agents.find((option) => option.id === event.target.value) ?? null;
+          onChange(selectWorkAgent(selection, agent));
         }}
-        disabled={disabled || agents.length === 0}
+        disabled={disabled}
       >
-        <option value="">{localize('com_work_select_agent')}</option>
-        {agents.map((agent) => (
+        <option value={WORK_AUTOMATIC}>{localize('com_work_automatic_agent')}</option>
+        {options.agents.map((agent) => (
           <option key={agent.id} value={agent.id}>
-            {agent.name?.trim() || agent.id}
+            {agentLabel(agent, localize)}
           </option>
         ))}
       </select>
@@ -181,7 +174,36 @@ export function WorkAgentSelect({
   );
 }
 
-/** Composer selector applies an agent through the same conversation-setting path as Chat. */
+/** Names exactly what a task will run on before it starts. */
+export function WorkSelectionSummary({
+  resolved,
+  className,
+}: {
+  resolved: ResolvedWorkSelection | null;
+  className?: string;
+}) {
+  const localize = useLocalize();
+  if (!resolved) {
+    return null;
+  }
+  const model = resolved.model.label?.trim() || resolved.model.id;
+  const agentName = resolved.agent ? resolved.agent.name?.trim() || resolved.agent.id : null;
+  const members = resolved.agent?.members.map((member) => member.name?.trim() || member.id) ?? [];
+
+  return (
+    <p
+      data-testid="work-selection-summary"
+      className={cn('text-text-secondary text-xs', className)}
+    >
+      {agentName
+        ? localize('com_work_runs_agent_on_model', { 0: agentName, 1: model })
+        : localize('com_work_runs_on_model', { 0: model })}
+      {members.length > 0 && ` ${localize('com_work_with_agents', { 0: members.join(', ') })}`}
+    </p>
+  );
+}
+
+/** The in-task composer applies a new selection to the open Work conversation. */
 export function WorkAgentConversationSelector() {
   return (
     <ModelSelectorChatProvider>
@@ -192,8 +214,9 @@ export function WorkAgentConversationSelector() {
 
 function WorkAgentConversationSelectorContent() {
   const localize = useLocalize();
-  const { agents, models, isLoading, modelsQuery, agentsQuery } = useWorkAgentOptions();
-  const { agent_id, model, getConversation, newConversation } = useModelSelectorChatContext();
+  const { options, isLoading, modelsQuery, agentsQuery } = useWorkOptions();
+  const { conversation, setConversation } = useChatContext();
+  const { getConversation, newConversation } = useModelSelectorChatContext();
   const { data: endpointsConfig } = useGetEndpointsQuery();
   const { onSelectEndpoint } = useSelectMention({
     modelSpecs: [],
@@ -202,51 +225,51 @@ function WorkAgentConversationSelectorContent() {
     newConversation,
     returnHandlers: true,
   });
+  const selection = workSelectionFromConversation(conversation, options);
 
-  const selectedAgent = agents.find((agent) => agent.id === agent_id);
-  const selectedModel =
-    models.find(
-      (option) => option.id === selectedAgent?.model && option.provider === selectedAgent.provider,
-    ) ?? models.find((option) => option.id === model);
-  const compatibleAgents = selectedModel
-    ? agents.filter(
-        (agent) => agent.model === selectedModel.id && agent.provider === selectedModel.provider,
-      )
-    : agents;
-  const hasCatalogModels = (modelsQuery.data?.models ?? []).some((option) => option.auto !== true);
-
-  const onChangeAgent = (agent: WorkAgentOption) => {
-    onSelectEndpoint?.(EModelEndpoint.agents, {
-      agent_id: agent.id,
-      model: agent.model ?? '',
-    });
-  };
-  const onChangeModel = (selected: TWorkModel) => {
-    const compatibleAgent = agents.find(
-      (agent) => agent.model === selected.id && agent.provider === selected.provider,
-    );
-    if (compatibleAgent) {
-      onSelectEndpoint?.(EModelEndpoint.agents, {
-        agent_id: compatibleAgent.id,
-        model: selected.id,
-      });
+  const apply = (next: WorkSelection) => {
+    const resolved = resolveWorkSelection(next, options);
+    if (!resolved) {
+      return;
     }
+    if (resolved.agent) {
+      onSelectEndpoint?.(EModelEndpoint.agents, {
+        agent_id: resolved.agent.id,
+        model: resolved.model.id,
+      });
+      return;
+    }
+    /** Without an agent the conversation runs Coderax's default agent on this
+     *  model; any earlier agent is cleared so it cannot ride along. */
+    const { endpoint, model } = resolved.preset;
+    setConversation((previous) =>
+      previous
+        ? {
+            ...previous,
+            endpoint: endpoint as EModelEndpoint,
+            endpointType: getEndpointField(endpointsConfig, endpoint, 'type') ?? null,
+            model,
+            agent_id: undefined,
+            spec: null,
+          }
+        : previous,
+    );
   };
 
   return (
     <div className="flex min-w-0 flex-col gap-1" data-testid="work-agent-selection">
       <WorkModelSelect
-        models={models}
-        value={selectedModel ? getWorkModelKey(selectedModel) : ''}
-        onChange={onChangeModel}
-        disabled={isLoading || modelsQuery.isError || agentsQuery.isError}
+        options={options}
+        selection={selection}
+        onChange={apply}
+        disabled={isLoading || modelsQuery.isError}
         id="work-model-composer"
         className="w-full max-w-full"
       />
       <WorkAgentSelect
-        agents={compatibleAgents}
-        value={agent_id ?? ''}
-        onChange={onChangeAgent}
+        options={options}
+        selection={selection}
+        onChange={apply}
         disabled={isLoading || modelsQuery.isError || agentsQuery.isError}
         id="work-agent-composer"
         className="w-full max-w-full"
@@ -261,20 +284,6 @@ function WorkAgentConversationSelectorContent() {
           {localize('com_work_agents_unavailable')}
         </span>
       )}
-      {!isLoading && !modelsQuery.isError && !agentsQuery.isError && !hasCatalogModels && (
-        <span role="alert" className="text-text-secondary text-xs">
-          {localize('com_work_no_models')}
-        </span>
-      )}
-      {!isLoading &&
-        !modelsQuery.isError &&
-        !agentsQuery.isError &&
-        hasCatalogModels &&
-        agents.length === 0 && (
-          <span role="alert" className="text-text-secondary text-xs">
-            {localize('com_work_no_agents')}
-          </span>
-        )}
     </div>
   );
 }

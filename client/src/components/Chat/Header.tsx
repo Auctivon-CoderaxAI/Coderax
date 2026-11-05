@@ -20,6 +20,7 @@ import SubagentThreadLink from './SubagentThreadLink';
 import { useHasAccess, useLocalize } from '~/hooks';
 import BookmarkMenu from './Menus/BookmarkMenu';
 import AddMultiConvo from './AddMultiConvo';
+import { modeHeaderClass } from './layout';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -29,9 +30,12 @@ const defaultInterface = getConfigDefaults().interface;
 function Header({
   parentConversationId,
   readOnly = false,
+  mode = 'chat',
 }: {
   parentConversationId?: string;
   readOnly?: boolean;
+  /** Work conversations render through this view too; the switch names the mode in use. */
+  mode?: 'chat' | 'work';
 }) {
   const localize = useLocalize();
   const location = useLocation();
@@ -85,7 +89,7 @@ function Header({
   return (
     /* The composer review is in a z-10 stacking context. Keep header controls
        above it when a tall review reaches the top of a short viewport. */
-    <div className="from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 flex h-[3.25rem] w-full items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent">
+    <div className={modeHeaderClass}>
       <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
         <OpenSidebar testId="header-open-sidebar-button" />
       </div>
@@ -102,8 +106,10 @@ function Header({
         )}
         {!readOnly && (
           <ConversationModeNav
-            active="chat"
-            chatPath={`${location.pathname}${location.search}${location.hash}`}
+            active={mode}
+            chatPath={
+              mode === 'chat' ? `${location.pathname}${location.search}${location.hash}` : undefined
+            }
             labels={{
               ariaLabel: localize('com_cyvox_conversation_mode'),
               chat: localize('com_cyvox_chat'),
@@ -119,7 +125,8 @@ function Header({
             <BookmarkMenu />
           </div>
         )}
-        {hasAccessToMultiConvo === true && (
+        {/* Work runs one task per conversation; the server refuses an added one. */}
+        {hasAccessToMultiConvo === true && mode === 'chat' && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
             <AddMultiConvo />
           </div>

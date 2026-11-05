@@ -1,10 +1,16 @@
 import React from 'react';
 import { RecoilRoot } from 'recoil';
+import { Provider as JotaiProvider } from 'jotai';
 import { MemoryRouter, useLocation } from 'react-router-dom';
+import { dataService, QueryKeys } from 'coderax-data-provider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { dataService, EModelEndpoint, PermissionBits, QueryKeys } from 'coderax-data-provider';
-import type { Agent, TWorkModelsResponse, TWorkTasksResponse } from 'coderax-data-provider';
+import type {
+  TWorkAgent,
+  TWorkAgentsResponse,
+  TWorkModelsResponse,
+  TWorkTasksResponse,
+} from 'coderax-data-provider';
 import { getWorkModelKey } from '~/components/Chat/Input/WorkAgentSelector';
 import NativeWorkHome from '../NativeWorkHome';
 
@@ -13,28 +19,45 @@ const messages: Record<string, string> = {
   com_cyvox_chat: 'Chat',
   com_cyvox_work: 'Work',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
-  com_cyvox_work_welcome_description: 'Describe the outcome you want.',
   com_cyvox_work_history_loading: 'Loading recent work…',
   com_cyvox_work_recent_heading: 'Recent tasks',
   com_cyvox_work_description_label: 'Describe what you want to get done',
   com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
   com_work_agent: 'Work agent',
-  com_work_select_agent: 'Select an available agent',
+  com_work_automatic_agent: 'Automatic',
   com_ui_model: 'Model',
   com_cyvox_cancel: 'Cancel',
   com_cyvox_work_start_task_aria: 'Start task',
   com_cyvox_tasks_unavailable: 'Unable to load recent work right now.',
   com_work_models_unavailable: 'Work models are unavailable.',
   com_work_agents_unavailable: 'Work agents are unavailable.',
-  com_work_no_agents: 'No agent available for Work.',
   com_work_no_models: 'No free or local agent models are configured for Work yet.',
   com_work_cancel_task_confirmation: 'Cancel this Work task?',
   com_work_cancel_failed: 'Work could not cancel this task.',
-  com_work_task_selection_note: 'Select an available agent for this task.',
+  com_work_model_set_by_agent: 'The selected agent runs on its own model.',
   com_cyvox_work_policy_note: 'Native tools retain their permission and approval controls.',
   com_ui_use_micrphone: 'Use microphone',
   com_ui_stop: 'Stop',
   com_ui_transcribing: 'Transcribing...',
+};
+
+const format = (key: string, values?: Record<string, string | number>) => {
+  if (key === 'com_work_automatic_model') {
+    return `Automatic (${values?.[0]})`;
+  }
+  if (key === 'com_work_runs_on_model') {
+    return `Runs on ${values?.[0]}.`;
+  }
+  if (key === 'com_work_runs_agent_on_model') {
+    return `${values?.[0]} runs on ${values?.[1]}.`;
+  }
+  if (key === 'com_work_with_agents') {
+    return `Hands work to ${values?.[0]}.`;
+  }
+  if (key === 'com_work_agent_coordinates') {
+    return `${values?.[0]} · coordinates ${values?.[1]} agents`;
+  }
+  return messages[key] ?? key;
 };
 
 const mockStartRecording = jest.fn();
@@ -42,7 +65,6 @@ const mockStopRecording = jest.fn();
 const mockAbortRecording = jest.fn();
 let mockSpeechOnText: ((text: string) => void) | undefined;
 let mockSpeechIsListening = false;
-let mockSpeechIsLoading = false;
 
 jest.mock('~/hooks/Input/useSpeechToText', () => ({
   __esModule: true,
@@ -50,7 +72,7 @@ jest.mock('~/hooks/Input/useSpeechToText', () => ({
     mockSpeechOnText = setText;
     return {
       isListening: mockSpeechIsListening,
-      isLoading: mockSpeechIsLoading,
+      isLoading: false,
       startRecording: mockStartRecording,
       stopRecording: mockStopRecording,
       abortRecording: mockAbortRecording,
@@ -59,8 +81,12 @@ jest.mock('~/hooks/Input/useSpeechToText', () => ({
 }));
 
 jest.mock('~/hooks', () => ({
-  useLocalize: () => (key: string) => messages[key] ?? key,
-  useAgentDefaultPermissionLevel: () => 1,
+  useLocalize: () => format,
+}));
+
+jest.mock('~/components/Chat/Footer', () => ({
+  __esModule: true,
+  default: () => <footer data-testid="chat-footer" />,
 }));
 
 jest.mock('coderax-data-provider', () => {
@@ -70,14 +96,30 @@ jest.mock('coderax-data-provider', () => {
     dataService: {
       ...actual.dataService,
       getWorkModels: jest.fn(),
+      getWorkAgents: jest.fn(),
       getWorkTasks: jest.fn(),
       cancelWorkTask: jest.fn(),
     },
   };
 });
 
-function makeAgent(id: string, name: string, provider: string, model: string): Agent {
-  return { id, name, provider, model } as unknown as Agent;
+const LOCAL_A = { id: 'qwen3.5:4b', label: 'qwen3.5:4b', provider: 'ollama' };
+const LOCAL_B = { id: 'qwen3.5:9b', label: 'qwen3.5:9b', provider: 'ollama' };
+const AUTO = {
+  id: 'auto',
+  label: 'Automatic',
+  auto: true as const,
+  target: { id: LOCAL_A.id, label: LOCAL_A.label, provider: LOCAL_A.provider },
+};
+const CATALOG: TWorkModelsResponse = { models: [AUTO, LOCAL_A, LOCAL_B] };
+
+function makeAgent(
+  id: string,
+  name: string,
+  model = LOCAL_B.id,
+  members: TWorkAgent['members'] = [],
+): TWorkAgent {
+  return { id, name, model, provider: 'ollama', members };
 }
 
 function LocationDisplay() {
@@ -87,197 +129,218 @@ function LocationDisplay() {
 
 type RenderOverrides = {
   getModels?: () => Promise<TWorkModelsResponse>;
+  getAgents?: () => Promise<TWorkAgentsResponse>;
   getTasks?: () => Promise<TWorkTasksResponse>;
 };
 
 function renderHome(
   models: TWorkModelsResponse,
   tasks: TWorkTasksResponse,
-  agents: Agent[],
+  agents: TWorkAgent[],
   overrides: RenderOverrides = {},
 ) {
   const getModels = jest
     .spyOn(dataService, 'getWorkModels')
     .mockImplementation(overrides.getModels ?? (() => Promise.resolve(models)));
+  const getAgents = jest
+    .spyOn(dataService, 'getWorkAgents')
+    .mockImplementation(overrides.getAgents ?? (() => Promise.resolve({ agents })));
   const getTasks = jest
     .spyOn(dataService, 'getWorkTasks')
     .mockImplementation(overrides.getTasks ?? (() => Promise.resolve(tasks)));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData([QueryKeys.endpoints], { [EModelEndpoint.agents]: {} });
-  queryClient.setQueryData([QueryKeys.agents, { requiredPermission: PermissionBits.VIEW }], {
-    object: 'list',
-    data: agents,
-    has_more: false,
-    first_id: '',
-    last_id: '',
-  });
-  const { container } = render(
-    <RecoilRoot>
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/work']}>
-          <NativeWorkHome />
-          <LocationDisplay />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </RecoilRoot>,
+  const tree = (
+    <JotaiProvider>
+      <RecoilRoot>
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={['/work']}>
+            <NativeWorkHome />
+            <LocationDisplay />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </RecoilRoot>
+    </JotaiProvider>
   );
-  return { container, getModels, getTasks, queryClient };
+  const view = render(tree);
+  return { ...view, getModels, getAgents, getTasks, queryClient };
+}
+
+const taskBox = () => screen.getByRole('textbox', { name: 'Describe what you want to get done' });
+const startButton = () => screen.getByRole('button', { name: 'Start task' });
+const modelSelect = () => screen.getByRole('combobox', { name: 'Model' });
+const agentSelect = () => screen.getByRole('combobox', { name: 'Work agent' });
+
+async function startWith(description: string) {
+  fireEvent.change(taskBox(), { target: { value: description } });
+  await waitFor(() => expect(startButton()).toBeEnabled());
+  fireEvent.click(startButton());
+  return new URLSearchParams(screen.getByTestId('location').textContent?.split('?')[1] ?? '');
 }
 
 describe('native Work home', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockStartRecording.mockClear();
     mockStopRecording.mockClear();
     mockAbortRecording.mockClear();
     mockSpeechOnText = undefined;
     mockSpeechIsListening = false;
-    mockSpeechIsLoading = false;
   });
 
   afterEach(() => jest.restoreAllMocks());
 
-  it('uses the shared mode switch and Work surface on its landing page', async () => {
-    const { container, queryClient } = renderHome({ models: [] }, { tasks: [] }, []);
+  it('renders on the shared Chat landing geometry with Work active in the mode switch', async () => {
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, []);
 
-    const modeNav = screen.getByRole('navigation', { name: 'Conversation mode' });
+    const main = screen.getByRole('main');
+    expect(main).toHaveClass('bg-surface-canvas');
+    const modeNav = within(main).getByRole('navigation', { name: 'Conversation mode' });
     expect(within(modeNav).getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/c/new');
     expect(within(modeNav).getByRole('link', { name: 'Work' })).toHaveAttribute(
       'aria-current',
       'page',
     );
-    expect(container.firstChild).toHaveClass('bg-surface-canvas');
+    expect(screen.getByTestId('work-landing')).toHaveClass(
+      'flex-1',
+      'justify-end',
+      'sm:justify-center',
+    );
+    expect(screen.getByTestId('work-composer-form')).toHaveClass('md:max-w-3xl', 'xl:max-w-4xl');
+    expect(screen.getByTestId('work-composer-surface')).toHaveClass(
+      'rounded-t-theme-surface-lg',
+      'sm:rounded-theme-surface-lg',
+    );
+    expect(screen.getByTestId('chat-footer')).toBeInTheDocument();
+    await screen.findByRole('option', { name: 'Automatic (qwen3.5:4b)' });
     queryClient.clear();
   });
 
-  it('starts a native Work task with the selected accessible agent', async () => {
-    const { getModels, getTasks, queryClient } = renderHome(
-      {
-        models: [
-          { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama' },
-          { id: 'qwen2.5:latest', label: 'Qwen', provider: 'ollama' },
-        ],
-      },
-      { tasks: [] },
-      [
-        makeAgent('agent-plan', 'Planner', 'ollama', 'llama3:latest'),
-        makeAgent('agent-review', 'Reviewer', 'ollama', 'qwen2.5:latest'),
-        makeAgent('agent-paid', 'Paid agent', 'openai', 'gpt-4o'),
-      ],
-    );
+  it('defaults to automatic routing and names the model it resolves to', async () => {
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [makeAgent('agent-1', 'Planner')]);
 
-    const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
-    await screen.findByRole('option', { name: 'Reviewer' });
-    const agentSelect = screen.getByLabelText('Work agent');
-    const modelSelect = screen.getByLabelText('Model');
-    expect(screen.queryByRole('option', { name: 'Paid agent' })).not.toBeInTheDocument();
-    fireEvent.change(modelSelect, {
-      target: { value: getWorkModelKey({ id: 'qwen2.5:latest', provider: 'ollama' }) },
-    });
-    await waitFor(() => expect(agentSelect).toHaveValue('agent-review'));
-    fireEvent.change(agentSelect, { target: { value: 'agent-plan' } });
-    await waitFor(() =>
-      expect(modelSelect).toHaveValue(getWorkModelKey({ id: 'llama3:latest', provider: 'ollama' })),
-    );
-    fireEvent.change(agentSelect, { target: { value: 'agent-review' } });
-    await waitFor(() =>
-      expect(modelSelect).toHaveValue(
-        getWorkModelKey({ id: 'qwen2.5:latest', provider: 'ollama' }),
-      ),
-    );
-    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
-      target: { value: '  Make a rollout plan  ' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Start task' }));
+    await screen.findByRole('option', { name: 'Automatic (qwen3.5:4b)' });
+    expect(modelSelect()).toHaveValue('auto');
+    expect(agentSelect()).toHaveValue('auto');
+    expect(screen.getByTestId('work-selection-summary')).toHaveTextContent('Runs on qwen3.5:4b.');
 
-    await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/work/new?prompt=Make+a+rollout+plan&submit=true&endpoint=agents&agent_id=agent-review&model=qwen2.5%3Alatest',
-      ),
-    );
-    expect(confirm).not.toHaveBeenCalled();
-    expect(getModels).toHaveBeenCalledTimes(1);
-    expect(getTasks).toHaveBeenCalledTimes(1);
+    const search = await startWith('Plan the release');
+    expect(screen.getByTestId('location')).toHaveTextContent('/work/new?');
+    expect(search.get('endpoint')).toBe('ollama');
+    expect(search.get('model')).toBe('qwen3.5:4b');
+    expect(search.get('agent_id')).toBeNull();
+    expect(search.get('submit')).toBe('true');
     queryClient.clear();
   });
 
-  it('distinguishes identical model ids from different providers', async () => {
-    const { queryClient } = renderHome(
-      {
-        models: [
-          { id: 'same-model', label: 'Ollama model', provider: 'ollama' },
-          { id: 'same-model', label: 'llama.cpp model', provider: 'llama.cpp' },
-        ],
-      },
-      { tasks: [] },
-      [
-        makeAgent('ollama-agent', 'Ollama agent', 'ollama', 'same-model'),
-        makeAgent('llama-cpp-agent', 'llama.cpp agent', 'llama.cpp', 'same-model'),
-      ],
-    );
+  it('starts on an explicitly chosen model without an agent', async () => {
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, []);
 
-    const modelSelect = await screen.findByLabelText('Model');
-    const agentSelect = screen.getByLabelText('Work agent');
-    fireEvent.change(modelSelect, {
-      target: { value: getWorkModelKey({ id: 'same-model', provider: 'llama.cpp' }) },
-    });
-    await waitFor(() => expect(agentSelect).toHaveValue('llama-cpp-agent'));
-    expect(modelSelect).toHaveValue(getWorkModelKey({ id: 'same-model', provider: 'llama.cpp' }));
+    await screen.findByRole('option', { name: 'qwen3.5:9b' });
+    fireEvent.change(modelSelect(), { target: { value: getWorkModelKey(LOCAL_B) } });
+    expect(screen.getByTestId('work-selection-summary')).toHaveTextContent('Runs on qwen3.5:9b.');
+
+    const search = await startWith('Summarize the notes');
+    expect(search.get('endpoint')).toBe('ollama');
+    expect(search.get('model')).toBe('qwen3.5:9b');
+    expect(search.get('agent_id')).toBeNull();
     queryClient.clear();
   });
 
-  it('keeps task start disabled when no accessible agent has a Work-eligible model', async () => {
-    const { queryClient } = renderHome(
-      { models: [{ id: 'llama3:latest', label: 'Llama 3', provider: 'ollama' }] },
-      { tasks: [] },
-      [
-        makeAgent('wrong-provider', 'Wrong provider', 'openai', 'llama3:latest'),
-        makeAgent('paid-model', 'Paid model', 'openai', 'gpt-4o'),
-      ],
+  it('starts an explicitly chosen agent on its own model and names the agents it coordinates', async () => {
+    const lead = makeAgent('agent-lead', 'Lead', LOCAL_B.id, [
+      { id: 'agent-writer', name: 'Writer', model: LOCAL_A.id, provider: 'ollama' },
+    ]);
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [lead]);
+
+    await screen.findByRole('option', { name: 'Lead · coordinates 1 agents' });
+    fireEvent.change(agentSelect(), { target: { value: 'agent-lead' } });
+
+    expect(modelSelect()).toBeDisabled();
+    expect(modelSelect()).toHaveValue(getWorkModelKey(LOCAL_B));
+    expect(within(modelSelect()).getAllByRole('option')).toHaveLength(1);
+    expect(screen.getByTestId('work-selection-summary')).toHaveTextContent(
+      'Lead runs on qwen3.5:9b. Hands work to Writer.',
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('No agent available for Work.');
-    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
+    const search = await startWith('Draft the launch post');
+    expect(search.get('endpoint')).toBe('agents');
+    expect(search.get('agent_id')).toBe('agent-lead');
+    expect(search.get('model')).toBe('qwen3.5:9b');
+    queryClient.clear();
+  });
+
+  it('never offers a model or agent outside the server catalog', async () => {
+    const stray = makeAgent('agent-paid', 'Paid helper', 'gpt-4o');
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [makeAgent('a1', 'Planner'), stray]);
+
+    await screen.findByRole('option', { name: 'Planner' });
+    expect(screen.queryByRole('option', { name: 'Paid helper' })).not.toBeInTheDocument();
+    expect(
+      within(modelSelect())
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Automatic (qwen3.5:4b)', 'qwen3.5:4b', 'qwen3.5:9b']);
+    queryClient.clear();
+  });
+
+  it('remembers the selection across a refresh', async () => {
+    const first = renderHome(CATALOG, { tasks: [] }, [makeAgent('agent-1', 'Planner')]);
+    await screen.findByRole('option', { name: 'Planner' });
+    fireEvent.change(agentSelect(), { target: { value: 'agent-1' } });
+    first.queryClient.clear();
+    first.unmount();
+    jest.restoreAllMocks();
+
+    const second = renderHome(CATALOG, { tasks: [] }, [makeAgent('agent-1', 'Planner')]);
+    await screen.findByRole('option', { name: 'Planner' });
+    await waitFor(() => expect(agentSelect()).toHaveValue('agent-1'));
+    second.queryClient.clear();
+  });
+
+  it('falls back to automatic when a remembered agent is no longer offered', async () => {
+    localStorage.setItem(
+      'workSelection',
+      JSON.stringify({ agentId: 'agent-gone', modelKey: getWorkModelKey(LOCAL_B) }),
+    );
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [makeAgent('agent-1', 'Planner')]);
+
+    await screen.findByRole('option', { name: 'Planner' });
+    expect(agentSelect()).toHaveValue('auto');
+    const search = await startWith('Plan it');
+    expect(search.get('agent_id')).toBeNull();
+    queryClient.clear();
+  });
+
+  it('keeps automatic routing and models usable when the agent list fails', async () => {
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [], {
+      getAgents: () => Promise.reject(new Error('agents offline')),
+    });
+
+    expect(await screen.findByText('Work agents are unavailable.')).toBeInTheDocument();
+    expect(agentSelect()).toBeDisabled();
+    const search = await startWith('Plan the release');
+    expect(search.get('model')).toBe('qwen3.5:4b');
     queryClient.clear();
   });
 
   it('shows an empty-model state and keeps task start disabled', async () => {
     const { queryClient } = renderHome({ models: [] }, { tasks: [] }, []);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'No free or local agent models are configured for Work yet.',
-    );
-    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
-    queryClient.clear();
-  });
-
-  it('cancels only the selected task through the owner-scoped native task service', async () => {
-    const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-      { tasks: [{ id: 'task-1', title: 'Refresh the report', state: 'running' }] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-    );
-    const cancel = jest.spyOn(dataService, 'cancelWorkTask').mockResolvedValue({ canceled: true });
-    jest.spyOn(window, 'confirm').mockReturnValue(true);
-
-    await screen.findByRole('button', { name: 'Cancel Refresh the report' });
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel Refresh the report' }));
-
-    await waitFor(() => expect(cancel).toHaveBeenCalledWith('task-1'));
+    expect(
+      await screen.findByText('No free or local agent models are configured for Work yet.'),
+    ).toBeInTheDocument();
+    fireEvent.change(taskBox(), { target: { value: 'Plan the release' } });
+    expect(startButton()).toBeDisabled();
+    expect(screen.queryByTestId('work-selection-summary')).not.toBeInTheDocument();
     queryClient.clear();
   });
 
   it('disables task start after a model refresh failure with valid cached models', async () => {
-    const { getModels, queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-      { tasks: [] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-    );
+    const { getModels, queryClient } = renderHome(CATALOG, { tasks: [] }, []);
 
-    await screen.findByRole('option', { name: 'Planner' });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
-      target: { value: 'Plan the release' },
-    });
-    expect(screen.getByRole('button', { name: 'Start task' })).toBeEnabled();
+    await screen.findByRole('option', { name: 'Automatic (qwen3.5:4b)' });
+    fireEvent.change(taskBox(), { target: { value: 'Plan the release' } });
+    expect(startButton()).toBeEnabled();
 
     getModels.mockRejectedValueOnce(new Error('catalog offline'));
     await act(async () => {
@@ -285,43 +348,69 @@ describe('native Work home', () => {
     });
 
     expect(await screen.findByText('Work models are unavailable.')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Planner' })).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Describe what you want to get done' })).toHaveValue(
-      'Plan the release',
-    );
-    expect(screen.getByRole('button', { name: 'Start task' })).toBeDisabled();
-    expect(getModels).toHaveBeenCalledTimes(2);
+    expect(taskBox()).toHaveValue('Plan the release');
+    expect(startButton()).toBeDisabled();
     queryClient.clear();
   });
 
   it('keeps native task start available when only task history fails', async () => {
-    const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-      { tasks: [] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-      { getTasks: () => Promise.reject(new Error('history offline')) },
-    );
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [], {
+      getTasks: () => Promise.reject(new Error('history offline')),
+    });
 
     expect(await screen.findByText('Unable to load recent work right now.')).toBeInTheDocument();
-    await screen.findByRole('option', { name: 'Planner' });
-    fireEvent.change(screen.getByRole('textbox', { name: 'Describe what you want to get done' }), {
-      target: { value: 'Plan the release' },
-    });
-    expect(screen.getByRole('button', { name: 'Start task' })).toBeEnabled();
+    fireEvent.change(taskBox(), { target: { value: 'Plan the release' } });
+    await waitFor(() => expect(startButton()).toBeEnabled());
+    queryClient.clear();
+  });
+
+  it('shows the agent and model each recent task ran on', async () => {
+    const { queryClient } = renderHome(
+      CATALOG,
+      {
+        tasks: [
+          {
+            id: 'task-1',
+            title: 'Refresh the report',
+            state: 'completed',
+            model: 'qwen3.5:9b',
+            agentId: 'agent-1',
+          },
+        ],
+      },
+      [makeAgent('agent-1', 'Planner')],
+    );
+
+    const row = await screen.findByRole('button', { name: /Refresh the report/ });
+    await waitFor(() => expect(row).toHaveTextContent('Planner · qwen3.5:9b'));
+    queryClient.clear();
+  });
+
+  it('cancels only the selected task through the owner-scoped native task service', async () => {
+    const { queryClient } = renderHome(
+      CATALOG,
+      { tasks: [{ id: 'task-1', title: 'Refresh the report', state: 'running' }] },
+      [],
+    );
+    const cancel = jest.spyOn(dataService, 'cancelWorkTask').mockResolvedValue({ canceled: true });
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel Refresh the report' }));
+
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith('task-1'));
     queryClient.clear();
   });
 
   it('surfaces a failed cancel without dropping the task row', async () => {
     const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      CATALOG,
       { tasks: [{ id: 'task-1', title: 'Refresh the report', state: 'running' }] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+      [],
     );
     jest.spyOn(dataService, 'cancelWorkTask').mockRejectedValue(new Error('cancel failed'));
     jest.spyOn(window, 'confirm').mockReturnValue(true);
 
-    await screen.findByRole('button', { name: 'Cancel Refresh the report' });
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel Refresh the report' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel Refresh the report' }));
 
     expect(await screen.findByText('Work could not cancel this task.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel Refresh the report' })).toBeInTheDocument();
@@ -330,9 +419,9 @@ describe('native Work home', () => {
 
   it('does not offer cancel for an already-terminal task', async () => {
     const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
+      CATALOG,
       { tasks: [{ id: 'task-2', title: 'Finished report', state: 'completed' }] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
+      [],
     );
 
     await screen.findByText('Finished report');
@@ -343,57 +432,42 @@ describe('native Work home', () => {
   });
 
   it('dictates the task description through the microphone control', async () => {
-    const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-      { tasks: [] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-    );
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, []);
 
-    await screen.findByRole('option', { name: 'Planner' });
-    fireEvent.click(screen.getByRole('button', { name: 'Use microphone' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use microphone' }));
     expect(mockStartRecording).toHaveBeenCalledTimes(1);
 
     act(() => mockSpeechOnText?.('Plan the launch'));
-    expect(screen.getByRole('textbox', { name: 'Describe what you want to get done' })).toHaveValue(
-      'Plan the launch',
-    );
+    expect(taskBox()).toHaveValue('Plan the launch');
     queryClient.clear();
   });
 
   it('stops recording from the same microphone control', async () => {
     mockSpeechIsListening = true;
-    const { queryClient } = renderHome(
-      { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-      { tasks: [] },
-      [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-    );
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, []);
 
-    await screen.findByRole('option', { name: 'Planner' });
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
     expect(mockStopRecording).toHaveBeenCalledTimes(1);
     queryClient.clear();
   });
 
-  it('loads native models, agents, and history without calling the optional CyVox addon', async () => {
+  it('loads native models, agents and history without calling the optional CyVox addon', async () => {
     const originalFetch = global.fetch;
-    const fetchSpy = jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>();
-    global.fetch = fetchSpy;
+    const fetchSpy = jest.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
     try {
-      const { queryClient } = renderHome(
-        { models: [{ id: 'local', label: 'Local', provider: 'ollama' }] },
-        { tasks: [] },
-        [makeAgent('agent-1', 'Planner', 'ollama', 'local')],
-      );
+      const { getAgents, getModels, getTasks, queryClient } = renderHome(CATALOG, { tasks: [] }, [
+        makeAgent('agent-1', 'Planner'),
+      ]);
 
       await screen.findByRole('option', { name: 'Planner' });
+      expect(getModels).toHaveBeenCalled();
+      expect(getAgents).toHaveBeenCalled();
+      expect(getTasks).toHaveBeenCalled();
       expect(fetchSpy).not.toHaveBeenCalled();
       queryClient.clear();
     } finally {
-      if (originalFetch) {
-        global.fetch = originalFetch;
-      } else {
-        delete (global as typeof globalThis & { fetch?: typeof fetch }).fetch;
-      }
+      global.fetch = originalFetch;
     }
   });
 });

@@ -1,3 +1,5 @@
+import { rankFreeOrLocalModels } from 'coderax-data-provider';
+
 /**
  * Work model options come from Coderax's own configuration. Nothing here reads
  * CyVox: an unconfigured or offline CyVox must not change this list.
@@ -15,12 +17,20 @@ export type WorkModelSource = {
   local?: boolean;
 };
 
+export type WorkModelTarget = {
+  id: string;
+  label: string;
+  provider?: string;
+};
+
 export type WorkModel = {
   id: string;
   label: string;
   provider?: string;
   /** Set on the single option that lets Coderax choose among the listed models. */
   auto?: true;
+  /** What the automatic option runs on, so the picker can name it before a task starts. */
+  target?: WorkModelTarget;
 };
 
 /**
@@ -76,16 +86,62 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
 }
 
 /**
+ * The model the automatic option runs on: the deployment's configured default
+ * when that exact model is offered, otherwise the same free/local ranking Chat
+ * routes by. Every candidate is already free or local, so ranking can never
+ * reach a paid model.
+ */
+export function resolveWorkAutoModel(
+  models: WorkModel[],
+  configuredDefault?: string | null,
+): WorkModel | null {
+  const concrete = workConcreteModels(models);
+  const fallbackId = configuredDefault?.trim();
+  const configured = fallbackId ? concrete.find((model) => model.id === fallbackId) : undefined;
+  if (configured) {
+    return configured;
+  }
+  const [best] = rankFreeOrLocalModels(
+    concrete.map((model) => ({
+      id: model.id,
+      label: model.label,
+      provider: model.provider,
+      free: true,
+    })),
+  );
+  if (!best) {
+    return null;
+  }
+  return concrete.find((model) => model.id === best.id && model.provider === best.provider) ?? null;
+}
+
+/**
  * The picker's options: the automatic choice first, then the concrete models.
  * Automatic is offered only when there is at least one model to choose from,
- * so it can never be selected against an empty list.
+ * so it can never be selected against an empty list, and it names its target.
  */
-export function buildWorkModelOptions(sources: WorkModelSource[]): WorkModel[] {
+export function buildWorkModelOptions(
+  sources: WorkModelSource[],
+  configuredDefault?: string | null,
+): WorkModel[] {
   const models = buildWorkModels(sources);
-  if (models.length === 0) {
+  const target = resolveWorkAutoModel(models, configuredDefault);
+  if (!target) {
     return [];
   }
-  return [{ id: WORK_AUTO_MODEL_ID, label: WORK_AUTO_MODEL_LABEL, auto: true }, ...models];
+  return [
+    {
+      id: WORK_AUTO_MODEL_ID,
+      label: WORK_AUTO_MODEL_LABEL,
+      auto: true,
+      target: {
+        id: target.id,
+        label: target.label,
+        ...(target.provider ? { provider: target.provider } : {}),
+      },
+    },
+    ...models,
+  ];
 }
 
 /** The concrete models a submission may actually run on. */
@@ -149,11 +205,11 @@ export type WorkModelSelection =
 /**
  * Resolve the concrete model a Work submission will store and invoke with.
  *
- * `auto` is resolved through the deployment's configured default, and only
- * when that default is present among the offered free/local models. Anything
- * else fails with `auto_unresolved` so the caller can report an actionable
- * configuration error. A paid gateway default is never selected, and an
- * omitted model never routes to one.
+ * `auto` resolves through `resolveWorkAutoModel`: the configured default when
+ * it is offered, otherwise the top-ranked free/local model, which the picker
+ * names before the task starts. It fails with `auto_unresolved` only when
+ * nothing is offered. A paid gateway default is never selected, and an omitted
+ * model never routes to one.
  */
 export function resolveWorkSelection(
   models: WorkModel[],
@@ -169,12 +225,8 @@ export function resolveWorkSelection(
       : { ok: false, reason: 'model_unavailable' };
   }
 
-  const fallbackId = configuredDefault?.trim();
-  if (!fallbackId) {
-    return { ok: false, reason: 'auto_unresolved' };
-  }
   /** `concrete` already excludes paid gateway models, so membership is the proof. */
-  const fallback = concrete.find((model) => model.id === fallbackId);
+  const fallback = resolveWorkAutoModel(concrete, configuredDefault);
   return fallback
     ? { ok: true, model: fallback, auto: true }
     : { ok: false, reason: 'auto_unresolved' };

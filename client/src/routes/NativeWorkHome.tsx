@@ -1,21 +1,41 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAtom } from 'jotai';
 import { useRecoilValue } from 'recoil';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUp, Loader2, Mic, Square } from 'lucide-react';
+import { Loader2, Mic, Square } from 'lucide-react';
+import { dataService, MutationKeys, QueryKeys } from 'coderax-data-provider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, composerSurfaceClasses, composerSurfaceShadow } from '@coderax/client';
-import { dataService, EModelEndpoint, MutationKeys, QueryKeys } from 'coderax-data-provider';
+import {
+  IconButton,
+  SendIcon,
+  TooltipAnchor,
+  composerSurfaceClasses,
+  composerSurfaceShadow,
+} from '@coderax/client';
 import type { TWorkTask } from 'coderax-data-provider';
 import {
-  getWorkModelKey,
+  composerShapeClass,
+  composerWidthClass,
+  landingBandClass,
+  landingColumnClass,
+  landingComposerClearance,
+  landingGreetingBlockClass,
+  landingGreetingClass,
+  landingGreetingSpacing,
+} from '~/components/Chat/layout';
+import {
   WorkAgentSelect,
   WorkModelSelect,
-  useWorkAgentOptions,
+  WorkSelectionSummary,
+  useWorkOptions,
+  workSelectionAtom,
 } from '~/components/Chat/Input/WorkAgentSelector';
+import { resolveWorkSelection, sanitizeWorkSelection } from '~/components/Chat/Input/workSelection';
 import useSpeechToText from '~/hooks/Input/useSpeechToText';
 import ModeHeader from '~/components/Chat/ModeHeader';
+import { cn, removeFocusRings } from '~/utils';
+import Footer from '~/components/Chat/Footer';
 import { useLocalize } from '~/hooks';
-import { cn } from '~/utils';
 import store from '~/store';
 
 function canCancelTask(state: TWorkTask['state']) {
@@ -72,14 +92,11 @@ function WorkVoiceInput({ value, onChange }: { value: string; onChange: (next: s
   }
 
   return (
-    <Button
-      type="button"
+    <IconButton
+      label={label}
+      size="md"
+      shape="composer"
       variant="ghost"
-      size="icon-sm"
-      shape="round"
-      className="size-9 shrink-0"
-      aria-label={label}
-      title={label}
       aria-pressed={isListening}
       disabled={transcribing}
       onClick={() => {
@@ -91,19 +108,28 @@ function WorkVoiceInput({ value, onChange }: { value: string; onChange: (next: s
         startRecording();
       }}
     >
-      {icon}
-    </Button>
+      <span className="text-text-secondary hover:text-text-primary flex h-full w-full items-center justify-center transition-colors">
+        {icon}
+      </span>
+    </IconButton>
   );
 }
 
+/**
+ * Work's welcome screen. It shares Chat's landing geometry — header, greeting,
+ * composer band and footer — so switching modes moves nothing; recent tasks sit
+ * where Chat shows conversation starters, and agent/model selection sits in the
+ * composer's action row.
+ */
 export default function NativeWorkHome() {
   const localize = useLocalize();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
   const [task, setTask] = useState('');
-  const [selectedAgentId, setSelectedAgentId] = useState('');
   const [cancelError, setCancelError] = useState(false);
-  const workAgents = useWorkAgentOptions();
+  const [storedSelection, setStoredSelection] = useAtom(workSelectionAtom);
+  const work = useWorkOptions();
   const tasks = useQuery({
     queryKey: [QueryKeys.workTasks],
     queryFn: () => dataService.getWorkTasks(),
@@ -120,39 +146,26 @@ export default function NativeWorkHome() {
     },
     onError: () => setCancelError(true),
   });
-  const hasCatalogModels = (workAgents.modelsQuery.data?.models ?? []).some(
-    (model) => model.auto !== true,
-  );
-  const hasModels = workAgents.models.length > 0;
-  const selectedAgent = workAgents.agents.find((agent) => agent.id === selectedAgentId);
-  const selectedModel = workAgents.models.find(
-    (model) => model.id === selectedAgent?.model && model.provider === selectedAgent.provider,
-  );
-  useEffect(() => {
-    if (workAgents.agents.length > 0 && !selectedAgent) {
-      setSelectedAgentId(workAgents.agents[0]!.id);
-    }
-  }, [selectedAgent, workAgents.agents]);
+
+  const selection = sanitizeWorkSelection(storedSelection, work.options);
+  const resolved = resolveWorkSelection(selection, work.options);
+  const hasModels = work.options.models.length > 0;
+  const modelsSettled = !work.modelsQuery.isLoading && work.modelsQuery.data != null;
+  const canStart = !work.isLoading && !work.modelsQuery.isError && resolved != null;
   const recentTasks = (tasks.data?.tasks ?? []).slice(0, 12);
+  const agentNames = new Map(work.options.agents.map((agent) => [agent.id, agent.name]));
 
   const startTask = () => {
     const description = task.trim();
-    if (
-      !description ||
-      workAgents.isLoading ||
-      workAgents.isError ||
-      !hasModels ||
-      !selectedAgent ||
-      !selectedModel
-    ) {
+    if (!description || !canStart || !resolved) {
       return;
     }
     const search = new URLSearchParams({
       prompt: description,
       submit: 'true',
-      endpoint: EModelEndpoint.agents,
-      agent_id: selectedAgent.id,
-      model: selectedModel.id,
+      endpoint: resolved.preset.endpoint,
+      model: resolved.preset.model,
+      ...(resolved.preset.agent_id ? { agent_id: resolved.preset.agent_id } : {}),
     });
     navigate(`/work/new?${search.toString()}`);
   };
@@ -169,23 +182,77 @@ export default function NativeWorkHome() {
   };
 
   return (
-    <div className="bg-surface-canvas relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="bg-surface-canvas text-text-primary relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ModeHeader />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-end px-5 py-10 sm:justify-center">
-          <h1 className="text-text-primary text-center text-3xl leading-tight font-normal tracking-tight">
-            {localize('com_cyvox_work_welcome_title')}
-          </h1>
+      <div
+        data-testid="work-landing"
+        className={cn('scrollbar-gutter-spacer flex min-h-0 flex-col', landingColumnClass)}
+      >
+        <div className={cn(landingGreetingBlockClass, landingGreetingSpacing(centerFormOnLanding))}>
+          <h1 className={landingGreetingClass}>{localize('com_cyvox_work_welcome_title')}</h1>
+        </div>
+        <div className={cn('bg-surface-canvas relative z-10 w-full', landingBandClass)}>
+          {recentTasks.length > 0 && !tasks.isError && (
+            <section
+              aria-label={localize('com_cyvox_work_recent_heading')}
+              className={cn('mx-auto w-full px-4 pb-3 sm:px-4', composerWidthClass)}
+            >
+              <h2 className="text-text-muted px-1 text-xs font-medium">
+                {localize('com_cyvox_work_recent_heading')}
+              </h2>
+              <ul className="mt-1.5 max-h-[min(30vh,15rem)] space-y-0.5 overflow-y-auto">
+                {recentTasks.map((item) => {
+                  const agentName = item.agentId ? agentNames.get(item.agentId) : undefined;
+                  const runOn = [agentName, item.model].filter(Boolean).join(' · ');
+                  return (
+                    <li key={item.id} className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="text-text-primary hover:bg-surface-hover focus-visible:ring-border-xheavy flex min-w-0 flex-1 items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+                        onClick={() => navigate(`/work/${encodeURIComponent(item.id)}`)}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                        {runOn && (
+                          <span className="text-text-muted hidden max-w-[40%] shrink truncate text-xs sm:inline">
+                            {runOn}
+                          </span>
+                        )}
+                        <span className="text-text-muted shrink-0 text-xs">{item.state}</span>
+                      </button>
+                      {canCancelTask(item.state) && (
+                        <button
+                          type="button"
+                          className="text-text-secondary hover:bg-surface-hover hover:text-text-primary shrink-0 rounded-lg px-2 py-1 text-xs transition-colors disabled:opacity-60"
+                          disabled={cancelTask.isLoading}
+                          aria-label={localize('com_cyvox_cancel') + ' ' + item.title}
+                          onClick={() => void cancel(item)}
+                        >
+                          {localize('com_cyvox_cancel')}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
           <form
-            className="mt-8 w-full"
+            data-testid="work-composer-form"
+            className={cn(
+              'mx-auto flex w-full flex-col sm:px-2',
+              composerWidthClass,
+              landingComposerClearance(centerFormOnLanding),
+            )}
             onSubmit={(event) => {
               event.preventDefault();
               startTask();
             }}
           >
             <div
+              data-testid="work-composer-surface"
               className={cn(
-                'rounded-theme-surface-lg focus-within:border-border-heavy p-3.5',
+                composerShapeClass,
+                'relative flex w-full grow flex-col overflow-hidden',
                 composerSurfaceClasses(),
                 composerSurfaceShadow.within,
               )}
@@ -195,8 +262,11 @@ export default function NativeWorkHome() {
               </label>
               <textarea
                 id="work-task"
-                className="text-text-primary placeholder:text-text-tertiary max-h-48 min-h-[3.5rem] w-full resize-none bg-transparent px-2 pt-2 pb-1 text-base leading-6 focus:outline-hidden"
-                rows={2}
+                className={cn(
+                  'placeholder:text-text-tertiary m-0 max-h-[45vh] min-h-[3.25rem] w-full resize-none bg-transparent px-5 py-3.25 text-base md:max-h-[55vh] md:py-3.5',
+                  removeFocusRings,
+                )}
+                rows={1}
                 maxLength={4000}
                 value={task}
                 onChange={(event) => setTask(event.target.value)}
@@ -215,131 +285,82 @@ export default function NativeWorkHome() {
                 }}
                 placeholder={localize('com_cyvox_work_description_placeholder')}
               />
-              <div className="flex items-center justify-between gap-2 px-1 pt-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <WorkModelSelect
-                    models={workAgents.models}
-                    value={selectedModel ? getWorkModelKey(selectedModel) : ''}
-                    onChange={(model) => {
-                      const agent = workAgents.agents.find(
-                        (option) => option.model === model.id && option.provider === model.provider,
-                      );
-                      if (agent) {
-                        setSelectedAgentId(agent.id);
-                      }
-                    }}
-                    disabled={workAgents.isLoading || workAgents.isError}
-                  />
-                  <WorkAgentSelect
-                    agents={workAgents.agents}
-                    value={selectedAgent?.id ?? ''}
-                    onChange={(agent) => setSelectedAgentId(agent.id)}
-                    disabled={workAgents.isLoading || workAgents.isError}
-                  />
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <WorkVoiceInput value={task} onChange={setTask} />
-                  <Button
-                    type="submit"
-                    variant="default"
-                    size="icon-sm"
-                    shape="round"
-                    className="size-9 shrink-0"
-                    aria-label={localize('com_cyvox_work_start_task_aria')}
-                    disabled={
-                      workAgents.isLoading ||
-                      workAgents.isError ||
-                      !hasModels ||
-                      !selectedAgent ||
-                      !selectedModel ||
-                      !task.trim()
-                    }
-                  >
-                    <ArrowUp className="size-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 space-y-1 px-1">
-              {tasks.isLoading && (
-                <p role="status" className="text-text-muted text-center text-xs">
-                  {localize('com_cyvox_work_history_loading')}
-                </p>
-              )}
-              {tasks.isError && (
-                <p role="alert" className="text-text-muted text-center text-xs">
-                  {localize('com_cyvox_tasks_unavailable')}
-                </p>
-              )}
-              {workAgents.modelsQuery.isError && (
-                <p role="alert" className="text-text-muted text-center text-xs">
+              <WorkSelectionSummary resolved={resolved} className="px-5 pb-1" />
+              {work.modelsQuery.isError && (
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
                   {localize('com_work_models_unavailable')}
                 </p>
               )}
-              {workAgents.agentsQuery.isError && (
-                <p role="alert" className="text-text-muted text-center text-xs">
+              {work.agentsQuery.isError && (
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
                   {localize('com_work_agents_unavailable')}
                 </p>
               )}
-              {!workAgents.modelsQuery.isLoading &&
-                workAgents.modelsQuery.data != null &&
-                !hasCatalogModels && (
-                  <p role="alert" className="text-text-muted text-center text-xs">
-                    {localize('com_work_no_models')}
-                  </p>
-                )}
-              {!workAgents.isLoading &&
-                !workAgents.isError &&
-                hasCatalogModels &&
-                workAgents.agents.length === 0 && (
-                  <p role="alert" className="text-text-muted text-center text-xs">
-                    {localize('com_work_no_agents')}
-                  </p>
-                )}
+              {modelsSettled && !hasModels && (
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
+                  {localize('com_work_no_models')}
+                </p>
+              )}
+              {tasks.isError && (
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
+                  {localize('com_cyvox_tasks_unavailable')}
+                </p>
+              )}
               {cancelError && (
-                <p role="alert" className="text-text-muted text-center text-xs">
+                <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
                   {localize('com_work_cancel_failed')}
                 </p>
               )}
-              <p className="text-text-muted text-center text-xs">
-                {localize('com_cyvox_work_policy_note')}
-              </p>
+              <div className="flex flex-col gap-1.5 px-2 pb-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <WorkModelSelect
+                    options={work.options}
+                    selection={selection}
+                    onChange={setStoredSelection}
+                    disabled={work.isLoading || work.modelsQuery.isError}
+                  />
+                  <WorkAgentSelect
+                    options={work.options}
+                    selection={selection}
+                    onChange={setStoredSelection}
+                    disabled={
+                      work.isLoading || work.modelsQuery.isError || work.agentsQuery.isError
+                    }
+                  />
+                  <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                    <WorkVoiceInput value={task} onChange={setTask} />
+                    <TooltipAnchor
+                      description={localize('com_cyvox_work_start_task_aria')}
+                      render={
+                        <IconButton
+                          label={localize('com_cyvox_work_start_task_aria')}
+                          variant="submit"
+                          size="theme"
+                          shape="composer"
+                          type="submit"
+                          data-testid="work-start-task"
+                          disabled={!canStart || !task.trim()}
+                        >
+                          <SendIcon className="size-6" />
+                        </IconButton>
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
+            {tasks.isLoading && (
+              <p role="status" className="text-text-muted px-3 pt-1.5 text-xs">
+                {localize('com_cyvox_work_history_loading')}
+              </p>
+            )}
+            <p className="text-text-muted hidden px-3 pt-1.5 text-xs sm:block">
+              {localize('com_cyvox_work_policy_note')}
+            </p>
           </form>
-          {recentTasks.length > 0 && !tasks.isError && (
-            <section aria-label={localize('com_cyvox_work_recent_heading')} className="mt-6 w-full">
-              <h2 className="text-text-muted px-1 text-xs font-medium">
-                {localize('com_cyvox_work_recent_heading')}
-              </h2>
-              <ul className="mt-1.5 space-y-0.5">
-                {recentTasks.map((item) => (
-                  <li key={item.id} className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      className="text-text-primary hover:bg-surface-hover focus-visible:ring-border-xheavy flex min-w-0 flex-1 items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
-                      onClick={() => navigate(`/work/${encodeURIComponent(item.id)}`)}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                      <span className="text-text-muted ml-3 shrink-0 text-xs">{item.state}</span>
-                    </button>
-                    {canCancelTask(item.state) && (
-                      <button
-                        type="button"
-                        className="text-text-secondary hover:bg-surface-hover hover:text-text-primary shrink-0 rounded-lg px-2 py-1 text-xs transition-colors disabled:opacity-60"
-                        disabled={cancelTask.isLoading}
-                        aria-label={localize('com_cyvox_cancel') + ' ' + item.title}
-                        onClick={() => void cancel(item)}
-                      >
-                        {localize('com_cyvox_cancel')}
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
         </div>
       </div>
-    </div>
+      <Footer />
+    </main>
   );
 }

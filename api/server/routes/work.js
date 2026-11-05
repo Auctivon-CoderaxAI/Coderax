@@ -1,20 +1,24 @@
 const { logger } = require('@coderax/data-schemas');
+const { PermissionBits } = require('coderax-data-provider');
 const {
   createWorkDepsFactory,
   createWorkRouter,
+  getAgentListAccess,
   GenerationJobManager,
   persistTerminalWorkState,
   workStateForJobStatus,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
+const { findAccessibleResources } = require('~/server/services/PermissionService');
+const { hasCapability } = require('~/server/middleware/roles/capabilities');
 const {
   flattenModelConfig,
   toWorkConversation,
   rowsFromCursor,
   onlyWorkRows,
 } = require('./workModels');
-const { getWorkChatRouter } = require('./workChat');
+const { getWorkChatRouter, configuredDefaultFromRequest } = require('./workChat');
 const { createWorkApiRouter } = require('./workApi');
 
 /** The native generation record is transient; persist its terminal outcome on
@@ -24,6 +28,22 @@ GenerationJobManager.onGenerationSettled((event) => {
     logger.warn('[Work] Could not persist terminal task state.');
   });
 });
+
+/** The agent list's own ACL and tenant scope, with the fields Work gates runs by. */
+async function listViewableAgents(req) {
+  const { accessibleIds } = await getAgentListAccess(req.user, PermissionBits.VIEW, {
+    hasCapability,
+    findAccessibleResources,
+  });
+  const page = await db.getListAgentsByAccess({
+    accessibleIds,
+    tenantId: req.user?.tenantId ?? null,
+    limit: 1000,
+    includeExecutionConfig: true,
+    includeModelConfig: true,
+  });
+  return page?.data ?? [];
+}
 
 /**
  * A Work request carries its own authenticated context: model discovery is
@@ -36,6 +56,8 @@ const depsFor = createWorkDepsFactory({
   workStateForJobStatus,
   logger,
   projections: { flattenModelConfig, toWorkConversation, rowsFromCursor, onlyWorkRows },
+  listAgents: listViewableAgents,
+  configuredDefaultModel: configuredDefaultFromRequest,
 });
 
 module.exports = createWorkApiRouter({

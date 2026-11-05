@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { EModelEndpoint } from 'coderax-data-provider';
+import { landingGreetingBlockClass, landingGreetingSpacing, landingGreetingClass } from './layout';
 import { useChatContext, useAgentsMapContext, useAssistantsMapContext } from '~/Providers';
 import Description, { isHtmlDescription } from '~/components/ui/Description';
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
-import { getIconEndpoint, getEntity, getModelSpec } from '~/utils';
+import { getIconEndpoint, getEntity, getModelSpec, cn } from '~/utils';
 import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import AgentContact from '~/components/Agents/AgentContact';
 import { useLocalize, useAuthContext } from '~/hooks';
@@ -69,13 +70,13 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
 
   return (
     <div
-      className={`flex h-full transform-gpu flex-col items-center justify-center px-4 transition-all duration-200 ${
-        centerFormOnLanding ? 'pb-16' : 'pb-10'
-      }`}
+      className={cn(
+        landingGreetingBlockClass,
+        'transform-gpu transition-all duration-200',
+        landingGreetingSpacing(centerFormOnLanding),
+      )}
     >
-      <h2 className="text-text-primary max-w-2xl text-center text-3xl leading-tight font-normal tracking-tight">
-        {name || greetingText}
-      </h2>
+      <h2 className={landingGreetingClass}>{name || greetingText}</h2>
       <Description
         allowMedia
         description={description}
