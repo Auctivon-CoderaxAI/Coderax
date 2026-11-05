@@ -5,7 +5,7 @@
       "root": "client",
       "framework": "vite",
       "installCommand": "cd .. && npm ci --include=dev",
-      "buildCommand": "cd .. && npm run frontend && cd client && npm run test:ci -- --runInBand --coverage=false src/routes/__tests__/NativeWorkHome.spec.tsx",
+      "buildCommand": "cd .. && npm run frontend && cd client && npm run test:ci -- --runInBand --coverage=false src/routes/__tests__/ChatRoute.spec.tsx src/components/Chat/__tests__/mode.spec.tsx",
       "outputDirectory": "dist",
       "rewrites": [
         {

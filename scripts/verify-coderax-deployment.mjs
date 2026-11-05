@@ -8,6 +8,7 @@
  *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app
  */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -171,6 +172,33 @@ export function verifyDataSchemasModelsExport(dataSchemasPackage) {
 /** Validate installed workspace build tools rather than declaring untraced root
  * versions. A root tsdown range without a root lockfile package breaks npm ci.
  */
+const buildTestFile = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
+
+/**
+ * Lists test files named by a Vercel service build command that are absent from
+ * the repository; Jest exits non-zero when an explicit path matches nothing.
+ */
+export function findMissingBuildTestFiles(services, exists) {
+  const missing = [];
+  for (const [name, service] of Object.entries(services.services ?? {})) {
+    let cwd = service.root ?? '.';
+    for (const step of (service.buildCommand ?? '').split('&&')) {
+      const [command, ...args] = step.trim().split(/\s+/);
+      if (command === 'cd') {
+        cwd = path.posix.join(cwd, args[0] ?? '.');
+        continue;
+      }
+      for (const arg of args) {
+        const file = path.posix.join(cwd, arg);
+        if (buildTestFile.test(arg) && !exists(file)) {
+          missing.push(`${name}: ${file}`);
+        }
+      }
+    }
+  }
+  return missing;
+}
+
 export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, apiPackage, services) {
   for (const name of ['tsdown', 'typescript']) {
     if (rootPackage.devDependencies?.[name] !== undefined) {
@@ -269,6 +297,11 @@ export async function verifyRepositoryContracts(root = repoRoot) {
     'SPA routing must not swallow /api requests',
   );
   const services = JSON.parse(await readFile(path.join(root, 'vercel.json'), 'utf8'));
+  assert.deepEqual(
+    findMissingBuildTestFiles(services, (file) => existsSync(path.join(root, file))),
+    [],
+    'Vercel build commands must only name test files that exist',
+  );
   assert.equal(services.services?.frontend?.framework, 'vite', 'frontend service not configured');
   assert.ok(services.services?.frontend?.rewrites?.some((r) => r.source === '/(.*)' && r.destination === '/index.html'), 'Vite SPA deep-link fallback missing inside frontend service');
   assert.match(

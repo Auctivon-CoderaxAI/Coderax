@@ -504,22 +504,27 @@ test('auto resolves through the real config adapter', async () => {
   assert.equal(req.workContext.workModel, 'qwen2.5');
 });
 
-test('a paid config default still fails auto with the actionable error', async () => {
-  const middleware = workContextMiddleware(async () => ({ ollama: [{ model: 'llama3:latest' }] }));
+test('a paid config default never wins auto; it routes to the offered free model', async () => {
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    undefined,
+    async () => ({ seeded: false }),
+  );
   const req = {
     body: { text: 'plan', model: 'auto' },
     user: { id: 'user-1' },
     config: { modelSpecs: { list: [{ default: true, preset: { model: 'gpt-4o' } }] } },
   };
   const res = response();
-  let continued = false;
+  let received;
   await middleware(req, res, () => {
-    continued = true;
+    received = req.body.model;
   });
 
-  assert.equal(continued, false);
-  assert.equal(res.statusCode, 409);
-  assert.equal(res.payload.error, 'WORK_AUTO_UNRESOLVED');
+  assert.equal(res.statusCode, 0);
+  assert.equal(res.payload, null);
+  assert.equal(received, 'llama3:latest');
+  assert.equal(req.workContext.workModel, 'llama3:latest');
 });
 
 test('seeds before the handler runs, so a later failure still leaves a marked row', async () => {

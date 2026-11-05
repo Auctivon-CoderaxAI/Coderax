@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { findMissingBuildTestFiles, validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
@@ -71,6 +71,35 @@ test('Vercel routes the client and API through separate services', async () => {
   assert.equal(result.backendExcludesFrontendBuild, true);
 });
 
+
+test('Vercel build commands name only test files that exist', () => {
+  const services = {
+    services: {
+      frontend: {
+        root: 'client',
+        buildCommand:
+          'cd .. && npm run frontend && cd client && npm run test:ci -- --runInBand src/routes/__tests__/Gone.spec.tsx src/Kept.spec.tsx',
+      },
+      backend: {
+        root: '.',
+        buildCommand:
+          'npm run build:api && cd packages/api && npm run test:ci -- src/work/models.spec.ts && cd ../.. && node --test api/server/routes/__tests__/workChat.test.js scripts/verify-coderax-deployment.test.mjs',
+      },
+    },
+  };
+  const present = new Set([
+    'client/src/Kept.spec.tsx',
+    'packages/api/src/work/models.spec.ts',
+    'api/server/routes/__tests__/workChat.test.js',
+    'scripts/verify-coderax-deployment.test.mjs',
+  ]);
+
+  assert.deepEqual(
+    findMissingBuildTestFiles(services, (file) => present.has(file)),
+    ['frontend: client/src/routes/__tests__/Gone.spec.tsx'],
+  );
+  assert.deepEqual(findMissingBuildTestFiles(services, () => true), []);
+});
 
 test('Vercel uses a narrow authenticated proxy instead of booting the database API', async () => {
   const { readFile } = await import('node:fs/promises');
