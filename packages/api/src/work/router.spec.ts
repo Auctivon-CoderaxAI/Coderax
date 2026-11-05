@@ -65,6 +65,18 @@ describe('native Work router', () => {
     expect(res.body.code).toBe('WORK_MODELS_UNAVAILABLE');
   });
 
+  it('lists eligible agents across graph-check batches', async () => {
+    const agents = Array.from({ length: 9 }, (_, index) => ({
+      id: `agent-${index}`,
+      model: 'llama3:latest',
+    }));
+    const res = await request(app({ listAgents: async () => agents })).get('/api/work/agents');
+    expect(res.status).toBe(200);
+    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(
+      agents.map((agent) => agent.id),
+    );
+  });
+
   it('has no task-start route, so a run can only begin through native chat', async () => {
     const res = await request(app()).post('/api/work/tasks').send({ task: 'Plan' });
     expect(res.status).toBe(404);

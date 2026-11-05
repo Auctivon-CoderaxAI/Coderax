@@ -50,6 +50,7 @@ export type WorkAgentOption = {
 };
 
 const HISTORY_LIMIT = 50;
+const WORK_AGENT_GRAPH_CONCURRENCY = 8;
 
 /** A default that cannot be read leaves automatic routing to the free/local ranking. */
 async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
@@ -141,22 +142,33 @@ export function createWorkRouter(deps: WorkDeps): Router {
         agents.filter((agent) => typeof agent.id === 'string').map((agent) => [agent.id, agent]),
       );
       const eligible: WorkAgentOption[] = [];
-      for (const agent of agents) {
-        if (typeof agent.id !== 'string' || !agent.id) {
-          continue;
+      for (let offset = 0; offset < agents.length; offset += WORK_AGENT_GRAPH_CONCURRENCY) {
+        const graphs = await Promise.all(
+          agents
+            .slice(offset, offset + WORK_AGENT_GRAPH_CONCURRENCY)
+            .map(async (agent): Promise<WorkAgentOption | null> => {
+              if (typeof agent.id !== 'string' || !agent.id) {
+                return null;
+              }
+              const graph = await resolveWorkAgentGraph(agent, models, async (id) => byId.get(id));
+              if (!graph.ok) {
+                return null;
+              }
+              return {
+                id: agent.id,
+                ...(agent.name ? { name: agent.name } : {}),
+                ...(agent.description ? { description: agent.description } : {}),
+                model: graph.model.id,
+                provider: graph.model.provider ?? '',
+                members: graph.members,
+              };
+            }),
+        );
+        for (const graph of graphs) {
+          if (graph) {
+            eligible.push(graph);
+          }
         }
-        const graph = await resolveWorkAgentGraph(agent, models, async (id) => byId.get(id));
-        if (!graph.ok) {
-          continue;
-        }
-        eligible.push({
-          id: agent.id,
-          ...(agent.name ? { name: agent.name } : {}),
-          ...(agent.description ? { description: agent.description } : {}),
-          model: graph.model.id,
-          provider: graph.model.provider ?? '',
-          members: graph.members,
-        });
       }
       res.setHeader('Cache-Control', 'no-store');
       res.json({ agents: eligible });
