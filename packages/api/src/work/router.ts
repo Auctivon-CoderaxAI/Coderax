@@ -1,11 +1,16 @@
 import express from 'express';
+import {
+  DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+  DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+} from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
-import type { WorkGraphAgent, WorkAgentMember } from './graph';
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
+import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
-import { resolveWorkAgentGraph } from './graph';
+import { isValidWorkId } from './ids';
 
 /**
  * Work reads Coderax conversations and models; it never starts a run.
@@ -29,6 +34,8 @@ export type WorkDeps = {
    * caller's: an agent absent from this list cannot run for them.
    */
   listAgents?: () => Promise<WorkGraphAgent[]>;
+  agentGraphLimit?: number;
+  agentGraphConcurrency?: number;
   listConversations: (input: { userId: string; limit: number }) => Promise<WorkConversation[]>;
   getConversation: (input: {
     userId: string;
@@ -40,17 +47,7 @@ export type WorkDeps = {
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
 };
 
-export type WorkAgentOption = {
-  id: string;
-  name?: string;
-  description?: string;
-  model: string;
-  provider: string;
-  members: WorkAgentMember[];
-};
-
 const HISTORY_LIMIT = 50;
-const WORK_AGENT_GRAPH_CONCURRENCY = 8;
 
 /** A default that cannot be read leaves automatic routing to the free/local ranking. */
 async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
@@ -63,9 +60,6 @@ async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
     return null;
   }
 }
-const WORK_AGENT_ID_MAX_LENGTH = 200;
-const ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{1,${WORK_AGENT_ID_MAX_LENGTH}}$`);
-
 async function withResolvedRunState(
   conversation: WorkConversation,
   userId: string,
@@ -138,38 +132,12 @@ export function createWorkRouter(deps: WorkDeps): Router {
     try {
       const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
       const models = buildWorkModelOptions(sources);
-      const byId = new Map(
-        agents.filter((agent) => typeof agent.id === 'string').map((agent) => [agent.id, agent]),
-      );
-      const eligible: WorkAgentOption[] = [];
-      for (let offset = 0; offset < agents.length; offset += WORK_AGENT_GRAPH_CONCURRENCY) {
-        const graphs = await Promise.all(
-          agents
-            .slice(offset, offset + WORK_AGENT_GRAPH_CONCURRENCY)
-            .map(async (agent): Promise<WorkAgentOption | null> => {
-              if (typeof agent.id !== 'string' || !agent.id) {
-                return null;
-              }
-              const graph = await resolveWorkAgentGraph(agent, models, async (id) => byId.get(id));
-              if (!graph.ok) {
-                return null;
-              }
-              return {
-                id: agent.id,
-                ...(agent.name ? { name: agent.name } : {}),
-                ...(agent.description ? { description: agent.description } : {}),
-                model: graph.model.id,
-                provider: graph.model.provider ?? '',
-                members: graph.members,
-              };
-            }),
-        );
-        for (const graph of graphs) {
-          if (graph) {
-            eligible.push(graph);
-          }
-        }
-      }
+      const eligible = await listEligibleWorkAgents({
+        agents,
+        models,
+        graphLimit: deps.agentGraphLimit ?? DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+        concurrency: deps.agentGraphConcurrency ?? DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+      });
       res.setHeader('Cache-Control', 'no-store');
       res.json({ agents: eligible });
     } catch {
@@ -196,7 +164,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
   router.get('/tasks/:conversationId', async (req: Request, res: Response) => {
     const userId = userIdOf(req) as string;
     const { conversationId } = req.params;
-    if (!ID_PATTERN.test(conversationId)) {
+    if (!isValidWorkId(conversationId)) {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
@@ -219,7 +187,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
   router.post('/tasks/:conversationId/cancel', async (req: Request, res: Response) => {
     const userId = userIdOf(req) as string;
     const { conversationId } = req.params;
-    if (!ID_PATTERN.test(conversationId)) {
+    if (!isValidWorkId(conversationId)) {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }

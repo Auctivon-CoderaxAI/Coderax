@@ -83,6 +83,31 @@ describe('native Work router', () => {
     );
   });
 
+  it('applies the configured graph-size limit to agent listings', async () => {
+    const res = await request(
+      app({
+        listModels: async () => [{ id: 'llama3:latest', provider: 'ollama', local: true }],
+        agentGraphLimit: 1,
+        listAgents: async () => [
+          {
+            id: 'root',
+            model: 'llama3:latest',
+            provider: 'ollama',
+            agent_ids: ['child'],
+          },
+          {
+            id: 'child',
+            model: 'llama3:latest',
+            provider: 'ollama',
+          },
+        ],
+      }),
+    ).get('/api/work/agents');
+
+    expect(res.status).toBe(200);
+    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['child']);
+  });
+
   it('has no task-start route, so a run can only begin through native chat', async () => {
     const res = await request(app()).post('/api/work/tasks').send({ task: 'Plan' });
     expect(res.status).toBe(404);

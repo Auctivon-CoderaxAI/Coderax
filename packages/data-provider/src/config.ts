@@ -3889,9 +3889,30 @@ export const toolCallPreviewsConfigSchema = z.object({
 
 export type TToolCallPreviewsConfig = z.infer<typeof toolCallPreviewsConfigSchema>;
 
+export const DEFAULT_WORK_AGENT_GRAPH_LIMIT = 64;
+export const DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY = 8;
+
+export const workConfigSchema = z
+  .object({
+    agentGraphLimit: z
+      .number()
+      .int()
+      .positive()
+      .max(100_000)
+      .default(DEFAULT_WORK_AGENT_GRAPH_LIMIT),
+    agentGraphConcurrency: z
+      .number()
+      .int()
+      .positive()
+      .max(64)
+      .default(DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY),
+  })
+  .prefault({});
+
 export const configSchema = z.object({
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
+  work: workConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   ocr: ocrSchema.optional(),
