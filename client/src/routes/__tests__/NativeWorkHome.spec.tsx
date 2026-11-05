@@ -2,13 +2,16 @@ import React from 'react';
 import { RecoilRoot } from 'recoil';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { dataService, EModelEndpoint, PermissionBits, QueryKeys } from 'coderax-data-provider';
 import type { Agent, TWorkModelsResponse, TWorkTasksResponse } from 'coderax-data-provider';
 import { getWorkModelKey } from '~/components/Chat/Input/WorkAgentSelector';
 import NativeWorkHome from '../NativeWorkHome';
 
 const messages: Record<string, string> = {
+  com_cyvox_conversation_mode: 'Conversation mode',
+  com_cyvox_chat: 'Chat',
+  com_cyvox_work: 'Work',
   com_cyvox_work_welcome_title: 'What would you like to work on?',
   com_cyvox_work_welcome_description: 'Describe the outcome you want.',
   com_cyvox_work_history_loading: 'Loading recent work…',
@@ -108,7 +111,7 @@ function renderHome(
     first_id: '',
     last_id: '',
   });
-  render(
+  const { container } = render(
     <RecoilRoot>
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/work']}>
@@ -118,7 +121,7 @@ function renderHome(
       </QueryClientProvider>
     </RecoilRoot>,
   );
-  return { getModels, getTasks, queryClient };
+  return { container, getModels, getTasks, queryClient };
 }
 
 describe('native Work home', () => {
@@ -132,6 +135,19 @@ describe('native Work home', () => {
   });
 
   afterEach(() => jest.restoreAllMocks());
+
+  it('uses the shared mode switch and Work surface on its landing page', async () => {
+    const { container, queryClient } = renderHome({ models: [] }, { tasks: [] }, []);
+
+    const modeNav = screen.getByRole('navigation', { name: 'Conversation mode' });
+    expect(within(modeNav).getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/c/new');
+    expect(within(modeNav).getByRole('link', { name: 'Work' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(container.firstChild).toHaveClass('bg-surface-canvas');
+    queryClient.clear();
+  });
 
   it('starts a native Work task with the selected accessible agent', async () => {
     const { getModels, getTasks, queryClient } = renderHome(
