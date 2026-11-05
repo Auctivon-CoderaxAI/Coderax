@@ -5,11 +5,8 @@ import {
   createWorkChatTransport,
   defaultChatTransport,
 } from '~/Providers/ChatTransportContext';
-import ConversationModeNav from '~/components/Chat/ConversationModeNav';
-import OpenSidebar from '~/components/Chat/Menus/OpenSidebar';
-import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import ModeHeader from '~/components/Chat/ModeHeader';
 import NativeWorkHome from './NativeWorkHome';
-import { useLocalize } from '~/hooks';
 import ChatRoute from './ChatRoute';
 
 /** Work is a first-party mode of the authenticated agent chat experience. Its
@@ -18,8 +15,6 @@ import ChatRoute from './ChatRoute';
 export default function WorkRoute() {
   const { conversationId } = useParams();
   const location = useLocation();
-  const localize = useLocalize();
-  const isSmallScreen = useDrawerViewport();
   const searchParams = new URLSearchParams(location.search);
   const prompt = searchParams.get('prompt') ?? searchParams.get('q');
   const shouldStartPrompt =
@@ -46,22 +41,8 @@ export default function WorkRoute() {
   }
 
   return (
-    <main className="bg-surface-primary text-text-primary flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="from-surface-canvas via-surface-canvas/70 flex h-[3.25rem] shrink-0 items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold">
-        <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
-          <OpenSidebar />
-        </div>
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
-          <ConversationModeNav
-            active="work"
-            labels={{
-              ariaLabel: localize('com_cyvox_conversation_mode'),
-              chat: localize('com_cyvox_chat'),
-              work: localize('com_cyvox_work'),
-            }}
-          />
-        </div>
-      </header>
+    <main className="bg-surface-canvas text-text-primary relative flex h-full min-h-0 flex-col overflow-hidden">
+      <ModeHeader />
       <div className="min-h-0 flex-1 overflow-hidden">
         <ChatTransportContext.Provider value={workChatTransport}>
           <ChatRoute workMode />
