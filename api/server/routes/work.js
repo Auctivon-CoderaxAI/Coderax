@@ -1,4 +1,6 @@
+const express = require('express');
 const { logger } = require('@coderax/data-schemas');
+const { strictConfigMiddleware } = require('~/server/middleware/config/app');
 const { PermissionBits } = require('coderax-data-provider');
 const {
   createWorkDepsFactory,
@@ -67,5 +69,12 @@ module.exports = createWorkApiRouter({
   chatRouter: getWorkChatRouter({
     findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
   }),
-  createReadRouterForRequest: (req) => createWorkRouter(depsFor(req)),
+  createReadRouterForRequest: () => {
+    const readRouter = express.Router();
+    // Catalog admission needs the authenticated YAML/tenant configuration before
+    // depsFor captures graph limits; unrelated task reads/cancellation do not.
+    readRouter.use('/agents', strictConfigMiddleware);
+    readRouter.use((req, res, next) => createWorkRouter(depsFor(req))(req, res, next));
+    return readRouter;
+  },
 });

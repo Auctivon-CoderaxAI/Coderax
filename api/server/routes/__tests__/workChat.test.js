@@ -728,10 +728,40 @@ test('keeps the selected native agent and its own model on the Work path', async
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.model, 'llama3:latest');
   assert.equal(req.body.endpoint, 'agents', 'the native agent endpoint reaches the runner');
   assert.equal(req.body.agent_id, 'agent-plan');
+});
+
+test('YAML Work graph limit blocks a larger agent graph before execution', async () => {
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => null,
+    noConversationSeed,
+    async (id) => ({
+      id,
+      model: 'llama3:latest',
+      provider: 'ollama',
+      ...(id === 'agent-root' ? { agent_ids: ['agent-child'] } : {}),
+    }),
+    async () => true,
+  );
+  const req = {
+    body: { text: 'plan', model: 'auto', agent_id: 'agent-root' },
+    user: { id: 'user-1' },
+    config: { config: { work: { agentGraphLimit: 1, agentGraphConcurrency: 1 } } },
+  };
+  const res = response();
+  let delegated = false;
+  await middleware(req, res, () => {
+    delegated = true;
+  });
+
+  assert.equal(delegated, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_AGENT_GRAPH_TOO_LARGE');
 });
 
 test('honours an explicit model when it matches the selected native agent', async () => {

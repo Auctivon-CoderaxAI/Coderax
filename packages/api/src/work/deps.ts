@@ -46,9 +46,11 @@ export type WorkDepsRequest = {
   user?: { id?: string; tenantId?: string };
   tenantId?: string;
   config?: {
-    work?: {
-      agentGraphLimit?: number;
-      agentGraphConcurrency?: number;
+    config?: {
+      work?: {
+        agentGraphLimit?: number;
+        agentGraphConcurrency?: number;
+      };
     };
   } | null;
 };
@@ -144,7 +146,7 @@ export function createWorkDepsFactory({
   }
 
   return function depsFor(req: WorkDepsRequest): WorkDeps {
-    const workConfig = req.config?.work;
+    const workConfig = req.config?.config?.work;
     return {
       listModels: async () => projections.flattenModelConfig(await loadModels(req)),
       ...(listAgents

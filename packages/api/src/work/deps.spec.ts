@@ -68,11 +68,14 @@ describe('createWorkDepsFactory', () => {
     const { depsFor } = makeDeps();
     const deps = depsFor({
       user: { id: 'user-1' },
-      config: { work: { agentGraphLimit: 128, agentGraphConcurrency: 4 } },
+      config: { config: { work: { agentGraphLimit: 128, agentGraphConcurrency: 4 } } },
     });
 
     expect(deps.agentGraphLimit).toBe(128);
     expect(deps.agentGraphConcurrency).toBe(4);
+    const withoutYamlWork = depsFor({ user: { id: 'user-1' }, config: { config: {} } });
+    expect(withoutYamlWork.agentGraphLimit).toBeUndefined();
+    expect(withoutYamlWork.agentGraphConcurrency).toBeUndefined();
   });
 
   it('reads history newest-first for this owner and keeps only Work conversations', async () => {
