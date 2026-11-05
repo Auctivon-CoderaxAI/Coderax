@@ -121,11 +121,10 @@ function WorkVoiceInput({ value, onChange }: { value: string; onChange: (next: s
  * where Chat shows conversation starters, and agent/model selection sits in the
  * composer's action row.
  */
-export default function NativeWorkHome() {
+export default function NativeWorkHome({ centerFormOnLanding }: { centerFormOnLanding: boolean }) {
   const localize = useLocalize();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
   const [task, setTask] = useState('');
   const [cancelError, setCancelError] = useState(false);
   const [storedSelection, setStoredSelection] = useAtom(workSelectionAtom);

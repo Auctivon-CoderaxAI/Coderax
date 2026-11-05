@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useRecoilValue } from 'recoil';
 import { useLocation, useParams } from 'react-router-dom';
 import {
   ChatTransportContext,
@@ -6,7 +7,14 @@ import {
   defaultChatTransport,
 } from '~/Providers/ChatTransportContext';
 import NativeWorkHome from './NativeWorkHome';
+import store from '~/store';
 import ChatRoute from './ChatRoute';
+
+/** The Work route owns the global landing preference; the Work feature only consumes it. */
+function WorkLandingHome() {
+  const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
+  return <NativeWorkHome centerFormOnLanding={centerFormOnLanding} />;
+}
 
 /** Work is a first-party mode of the authenticated agent chat experience. Its
  * generation starts pass through the Work model gate; the native stream,
@@ -36,7 +44,7 @@ export default function WorkRoute() {
   const workChatTransport = useMemo(() => createWorkChatTransport(defaultChatTransport), []);
 
   if (!showChat) {
-    return <NativeWorkHome />;
+    return <WorkLandingHome />;
   }
 
   /** The conversation renders exactly as Chat does — its own landmark, header and
