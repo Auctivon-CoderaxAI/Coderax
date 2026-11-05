@@ -495,6 +495,7 @@ const startServer = async () => {
   /* Work reads native conversations/models and aborts generations; task start
    * and follow-up stay on the native agent chat path and its SSE protocol. */
   app.use('/api/work', requireJwtAuth, require('./routes/work'));
+  app.use('/api/workflows', routes.workflows);
   app.use('/api/banner', routes.banner);
   app.use('/api/memories', routes.memories);
   app.use('/api/schedules', rejectScheduleWritesUntilReady, routes.schedules);
