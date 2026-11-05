@@ -31,6 +31,8 @@ const response = () => ({
   },
 });
 
+const noConversationSeed = async () => ({ seeded: false, reason: 'no_target' });
+
 test('auto resolves through the configured default when it is offered', () => {
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'llama3:latest'), {
     isWork: true,
@@ -98,6 +100,7 @@ test('the alias middleware sets server-owned context and strips client claims', 
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
     () => 'llama3:latest',
+    noConversationSeed,
   );
   const req = {
     body: { text: 'plan', model: 'auto', isWork: true, workModel: 'gpt-4o' },
@@ -124,6 +127,7 @@ test('the alias hands the handler the concrete model, never the auto sentinel', 
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
     () => 'llama3:latest',
+    noConversationSeed,
   );
   const req = { body: { text: 'plan', model: 'auto' }, user: {} };
   const res = response();
@@ -142,6 +146,7 @@ test('an omitted model resolves through the configured default', async () => {
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }], lmstudio: ['qwen2.5'] }),
     () => 'qwen2.5',
+    noConversationSeed,
   );
   const req = { body: { text: 'plan' }, user: {} };
   const res = response();
@@ -297,7 +302,9 @@ test('rejects foreign and legacy tenantless Work follow-ups before the native ag
     };
     const res = response();
     let continued = false;
-    await middleware(req, res, () => { continued = true; });
+    await middleware(req, res, () => {
+      continued = true;
+    });
     assert.equal(continued, false);
     assert.equal(res.statusCode, 404);
     assert.equal(res.payload.error, 'WORK_TASK_NOT_FOUND');
@@ -396,7 +403,9 @@ test('a nonthrowing failed or mismatched Work seed never delegates to an agent',
     };
     const res = response();
     let delegated = false;
-    await middleware(req, res, () => { delegated = true; });
+    await middleware(req, res, () => {
+      delegated = true;
+    });
     assert.equal(delegated, false, label);
     assert.equal(res.statusCode, 503, label);
     assert.equal(res.payload.error, 'WORK_CONVERSATION_UNAVAILABLE', label);
@@ -589,7 +598,7 @@ function serve(app) {
   });
 }
 
-test('/api/work/chat runs the native path when CyVox is disabled and passes the selected model and provider', async () => {
+test('/api/work/chat runs the native path and passes the selected model and provider', async () => {
   const seen = [];
   const fakeAgents = (req, res) => {
     seen.push({
@@ -597,7 +606,6 @@ test('/api/work/chat runs the native path when CyVox is disabled and passes the 
       workModel: req.workContext?.workModel,
       model: req.body?.model,
       endpoint: req.body?.endpoint,
-      cyvox: req.config?.cyvox,
     });
     res.status(200).json({ ok: true });
   };
@@ -606,7 +614,6 @@ test('/api/work/chat runs the native path when CyVox is disabled and passes the 
   app.use(express.json());
   app.use('/api/work', (req, _res, next) => {
     req.user = { id: 'user-1' };
-    req.config = { cyvox: false };
     next();
   });
   app.use(
@@ -638,7 +645,6 @@ test('/api/work/chat runs the native path when CyVox is disabled and passes the 
     assert.equal(seen[0].workModel, 'llama3:latest', 'Work context set before admission');
     assert.equal(seen[0].model, 'llama3:latest', 'the concrete model reaches the runner');
     assert.equal(seen[0].endpoint, 'ollama', 'the selected model provider reaches the runner');
-    assert.equal(seen[0].cyvox, false, 'native Work does not need CyVox');
   } finally {
     server.close();
   }
@@ -841,7 +847,7 @@ test('reports an agent lookup failure as unavailable', async () => {
   assert.equal(res.payload.error, 'WORK_AGENT_UNAVAILABLE');
 });
 
-test('/api/work/chat keeps the selected agent and does not require CyVox', async () => {
+test('/api/work/chat keeps the selected agent on the native path', async () => {
   const seen = [];
   const fakeAgents = (req, res) => {
     seen.push({
@@ -849,7 +855,6 @@ test('/api/work/chat keeps the selected agent and does not require CyVox', async
       endpoint: req.body?.endpoint,
       agent_id: req.body?.agent_id,
       model: req.body?.model,
-      cyvox: req.config?.cyvox,
     });
     res.status(200).json({ ok: true });
   };
@@ -858,7 +863,6 @@ test('/api/work/chat keeps the selected agent and does not require CyVox', async
   app.use(express.json());
   app.use('/api/work', (req, _res, next) => {
     req.user = { id: 'user-1' };
-    req.config = { cyvox: false };
     next();
   });
   app.use(
@@ -898,7 +902,6 @@ test('/api/work/chat keeps the selected agent and does not require CyVox', async
         endpoint: 'agents',
         agent_id: 'agent-plan',
         model: 'llama3:latest',
-        cyvox: false,
       },
     ]);
   } finally {
@@ -918,7 +921,6 @@ test('/api/work/chat checks access to the selected agent before reading its mode
   app.use(express.json());
   app.use('/api/work', (req, _res, next) => {
     req.user = { id: 'user-2' };
-    req.config = { cyvox: false };
     next();
   });
   app.use(
@@ -987,68 +989,6 @@ test('Work model reads skip chat-only model resolution', async () => {
     assert.equal(response.status, 200);
     assert.equal(await response.text(), '{"models":[]}');
     assert.equal(loadedChatModels, false);
-  } finally {
-    server.close();
-  }
-});
-
-test('/api/work continues to route natively when optional CyVox points at an unreachable origin', async () => {
-  const admitted = [];
-  const app = express();
-  app.use(express.json());
-  app.use('/api/work', (req, _res, next) => {
-    req.user = { id: 'owner-1' };
-    // A configured but unavailable optional integration must not become a
-    // dependency of the native Work model or task routes.
-    req.config = { cyvox: { enabled: true, origin: 'http://127.0.0.1:1' } };
-    next();
-  });
-
-  const readRouter = express.Router();
-  readRouter.get('/models', (_req, res) => res.status(200).json({ models: [LOCAL] }));
-  app.use(
-    '/api/work',
-    createWorkApiRouter({
-      chatRouter: createWorkChatRouter({
-        loadModelsForRequest: async () => ({ ollama: [{ model: 'llama3:latest' }] }),
-        configuredDefaultModel: () => 'llama3:latest',
-        seedConversation: async () => ({ seeded: true }),
-        agentsRouter: (req, res) => {
-          admitted.push({
-            url: req.url,
-            endpoint: req.body.endpoint,
-            model: req.body.model,
-            workModel: req.workContext.workModel,
-          });
-          res.status(200).json({ accepted: true });
-        },
-      }),
-      createReadRouterForRequest: () => readRouter,
-    }),
-  );
-
-  const { server, port } = await serve(app);
-  const base = 'http://127.0.0.1:' + port + '/api/work';
-  try {
-    const inventory = await fetch(base + '/models');
-    assert.equal(inventory.status, 200);
-    assert.deepEqual(await inventory.json(), { models: [LOCAL] });
-
-    const started = await fetch(base + '/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: 'plan', model: 'auto' }),
-    });
-    assert.equal(started.status, 200);
-    assert.deepEqual(await started.json(), { accepted: true });
-    assert.deepEqual(admitted, [
-      {
-        url: '/chat',
-        endpoint: 'ollama',
-        model: 'llama3:latest',
-        workModel: 'llama3:latest',
-      },
-    ]);
   } finally {
     server.close();
   }

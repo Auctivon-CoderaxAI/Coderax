@@ -16,9 +16,9 @@ export default function ModeHeader() {
         <ConversationModeNav
           active="work"
           labels={{
-            ariaLabel: localize('com_cyvox_conversation_mode'),
-            chat: localize('com_cyvox_chat'),
-            work: localize('com_cyvox_work'),
+            ariaLabel: localize('com_ui_conversation_mode'),
+            chat: localize('com_ui_chat'),
+            work: localize('com_ui_work'),
           }}
         />
       </div>

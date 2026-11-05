@@ -73,16 +73,15 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
     [localize, orderLoaded, pinnedOrder, showToast, updatePinnedOrder],
   );
 
-  if (!isAuthenticated || (!tasksQuery.isLoading && !tasksQuery.isError && recentTasks.length === 0)) {
+  if (
+    !isAuthenticated ||
+    (!tasksQuery.isLoading && !tasksQuery.isError && recentTasks.length === 0)
+  ) {
     return null;
   }
 
   return (
-    <section
-      className="flex flex-col px-3 pt-3 text-sm"
-      role="region"
-      aria-label={localize('com_cyvox_work')}
-    >
+    <section className="flex flex-col px-3 pt-3 text-sm" aria-label={localize('com_ui_work')}>
       <div className="flex h-8 w-full items-center pr-1">
         <button
           type="button"
@@ -90,7 +89,7 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
           className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
           aria-expanded={isExpanded}
         >
-          <span className="truncate select-none">{localize('com_cyvox_work')}</span>
+          <span className="truncate select-none">{localize('com_ui_work')}</span>
           <ChevronDown
             className={cn(
               'h-3 w-3 shrink-0 transition-transform duration-200',
@@ -104,12 +103,12 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
         <div className="pt-0.5">
           {tasksQuery.isLoading && (
             <p role="status" className="text-text-secondary px-2 py-2 text-xs">
-              {localize('com_cyvox_work_history_loading')}
+              {localize('com_work_history_loading')}
             </p>
           )}
           {tasksQuery.isError && (
             <p role="alert" className="text-text-secondary px-2 py-2 text-xs">
-              {localize('com_cyvox_tasks_unavailable')}
+              {localize('com_work_tasks_unavailable')}
             </p>
           )}
           {!tasksQuery.isError && recentTasks.length > 0 && (

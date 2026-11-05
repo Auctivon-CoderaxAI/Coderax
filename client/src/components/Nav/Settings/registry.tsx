@@ -745,7 +745,7 @@ export const registry: SettingEntry[] = [
     show: (ctx) => ctx.langfuseConnectionAccess,
     Component: LangfuseConnection,
   },
-  // Coderax Work (CyVox)
+  // CyVox integration
   {
     id: 'cyvoxConnection',
     tab: SettingsTabValues.CYVOX,
