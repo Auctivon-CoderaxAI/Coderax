@@ -146,7 +146,6 @@ function stripClientWorkFields(body) {
  * Existing rows are never re-stamped, and cross-tenant follow-ups fail closed.
  */
 async function seedWorkConversation(req, context, db) {
-  const store = db ?? require('~/models');
   const userId = req?.user?.id;
   const conversationId = req?.body?.conversationId;
   if (
@@ -157,6 +156,9 @@ async function seedWorkConversation(req, context, db) {
   ) {
     return { seeded: false, reason: 'no_target' };
   }
+  /** Resolve the store only when there is a row to verify, so a request with no
+   *  target never depends on the app's `~` module aliases. */
+  const store = db ?? require('~/models');
   const tenantId = req?.user?.tenantId ?? req?.tenantId ?? null;
   const existing = await store.getConvo(userId, conversationId);
   if (existing && (existing.tenantId ?? null) !== tenantId) {

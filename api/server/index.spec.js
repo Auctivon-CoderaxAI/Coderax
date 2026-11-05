@@ -93,6 +93,14 @@ describe('Telemetry wiring', () => {
     expect(telemetryMiddlewareIndex).toBeLessThan(apiRoutesIndex);
   });
 
+  it('mounts workflow routes before the API 404 guard', () => {
+    const workflowRoutesIndex = source.indexOf("app.use('/api/workflows', routes.workflows);");
+    const notFoundIndex = source.indexOf("app.use('/api', apiNotFound);");
+
+    expect(workflowRoutesIndex).toBeGreaterThan(-1);
+    expect(notFoundIndex).toBeGreaterThan(workflowRoutesIndex);
+  });
+
   it('mounts telemetry error middleware before ErrorController', () => {
     const telemetryErrorMiddlewareIndex = source.indexOf(
       'app.use(telemetry.telemetryErrorMiddleware);',

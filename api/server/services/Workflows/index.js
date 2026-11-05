@@ -25,6 +25,7 @@ function buildEngine(options) {
     createWorkflowTerminalOutcomeHandler({
       record: methods.recordWorkflowStepOutcome,
       readResult: createWorkflowConversationResultReader(methods),
+      wake: wakeWorkflowEngine,
     }),
   );
 

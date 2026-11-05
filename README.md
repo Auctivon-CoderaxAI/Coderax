@@ -84,15 +84,25 @@ The shared execution lifecycle is:
 This is a **product direction, not a claim of universal production capability**.
 The repository has agent discovery, MCP, subagents, attached code workspaces and
 a workflow engine. The swarm coordination code includes an opt-in, atomic
-compare-and-swap coordinator. A Mongo-backed store adapter is being developed
-to preserve lease claims across processes; **Chat/Work runtime wiring and
-production certification are still incomplete**.
+compare-and-swap coordinator. A durable Mongo-backed lease repository now lives
+in `packages/data-schemas` with locally executed cross-process claim and fencing
+tests; no runtime constructs a swarm yet, so an explicit permission-scoped
+feature gate and production certification remain incomplete.
 
 | Workstream | Current validation boundary | Tracking |
 | --- | --- | --- |
 | Native Work and CyVox independence | Source changes and focused regressions under review; deployed real-model lifecycle still needs verification | [#92](https://github.com/CoderaxAI/Coderax/issues/92) |
 | Seven multi-agent capabilities | Individual local tests exist, but real multi-agent, external A2A, durable swarm runtime and production behavior are not certified | [#88](https://github.com/CoderaxAI/Coderax/issues/88) |
 | CI and real deployed end-to-end checks | GitHub-hosted Actions have been blocked before job steps by an account-level restriction; staging/production certification must not be inferred from tests or previews | [#141](https://github.com/CoderaxAI/Coderax/issues/141) |
+
+### Verified local checks (2026-11-04)
+
+Run with installed dependencies on `main@1ef8647`: durable lease repository 5/5,
+durable lease adapter 5/5, in-memory lease contract 17/17, Work dependency guards
+18/18, conversation turn saves 24/24, conversation storage 352/352, Work chat
+route 48/48 and Work model projection 8/8. GitHub Actions is still blocked before
+any job step (#141), and `tsc --noEmit` still reports unrelated existing errors,
+so this is not CI or deployment evidence.
 
 See [multi-agent certification](docs/MULTI_AGENT_CERTIFICATION.md) for evidence
 and acceptance tests. The Mongo swarm adapter, when present in a release,
