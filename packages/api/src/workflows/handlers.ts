@@ -268,7 +268,9 @@ function scheduleFailure(schedule: WorkflowSchedulePayload | null | undefined): 
 export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
   const createRunId = deps.createRunId ?? randomUUID;
   const now = deps.now ?? (() => new Date());
-  const streamPollMs = deps.streamPollMs ?? 2_000;
+  // A run snapshot is one indexed row; 250 ms keeps the run card responsive
+  // while a model turn is in flight without a write fan-out.
+  const streamPollMs = deps.streamPollMs ?? 250;
   const ownerLocks = new Map<string, Promise<unknown>>();
 
   /** Serializes chain validation with the mutation in this process. */

@@ -80,8 +80,15 @@ export const useStartWorkflowRunMutation = (workflowId: string) => {
   return useMutation(
     (payload: StartWorkflowRunRequest) => dataService.startWorkflowRun(workflowId, payload),
     {
-      onSuccess: (_run: StartWorkflowRunResponse) => {
-        queryClient.invalidateQueries([QueryKeys.workflowRuns, workflowId]);
+      onSuccess: ({ run }: StartWorkflowRunResponse) => {
+        // Show the accepted run immediately so the stream opens without waiting
+        // for a second list round trip. The stream's first frame is authoritative.
+        queryClient.setQueryData<WorkflowRunListResponse>(
+          [QueryKeys.workflowRuns, workflowId],
+          (current) => ({
+            runs: [run, ...(current?.runs ?? []).filter((entry) => entry.id !== run.id)],
+          }),
+        );
       },
     },
   );

@@ -107,6 +107,7 @@ describe('workflow step delivery admission', () => {
     manager.initialize();
 
     const run = runWithStep();
+    const wake = jest.fn();
     const record = jest.fn(
       async (input: { attempt: number; status: 'complete' | 'error'; result?: string | null }) => {
         run.steps[0].terminalStatus = input.status;
@@ -119,6 +120,7 @@ describe('workflow step delivery admission', () => {
       createWorkflowTerminalOutcomeHandler({
         record,
         readResult: async () => 'first result',
+        wake,
         now: () => new Date('2026-01-01T00:00:00.000Z'),
       }),
     );
@@ -140,6 +142,7 @@ describe('workflow step delivery admission', () => {
     expect(record).toHaveBeenCalledWith(
       expect.objectContaining({ attempt: 1, status: 'complete', result: 'first result' }),
     );
+    expect(wake).toHaveBeenCalledTimes(1);
 
     const getGeneration = jest.fn(async () => {
       throw new Error('the deleted job must not be read');

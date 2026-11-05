@@ -69,6 +69,9 @@ export function createWorkflowStepResultReader(
 export function createWorkflowTerminalOutcomeHandler(deps: {
   record: WorkflowMethods['recordWorkflowStepOutcome'];
   readResult: (input: { userId: string; conversationId: string }) => Promise<string | null>;
+  /** Advances the runner as soon as the durable outcome exists, instead of
+   *  waiting for the next recovery tick. */
+  wake?: () => void;
   now?: () => Date;
 }): TerminalHostActionHandler {
   const now = deps.now ?? (() => new Date());
@@ -115,6 +118,7 @@ export function createWorkflowTerminalOutcomeHandler(deps: {
       result,
       now: now(),
     });
+    deps.wake?.();
   };
 }
 
