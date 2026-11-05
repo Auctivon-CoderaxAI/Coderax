@@ -38,7 +38,21 @@ export type WorkAgentGraph =
   | { ok: false; reason: WorkAgentGraphFailure; agentId?: string };
 
 /** Mirrors the native subagent graph ceiling closely enough to bound a Work check. */
-export const WORK_AGENT_GRAPH_LIMIT = 64;
+const DEFAULT_WORK_AGENT_GRAPH_LIMIT = 64;
+
+/**
+ * Allow deployments to tune the ceiling without changing code.
+ * Falls back to the historical default (64) when unset/invalid.
+ */
+function readWorkAgentGraphLimit(): number {
+  const raw = process.env.CODERAX_WORK_AGENT_GRAPH_LIMIT;
+  if (!raw) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
+  return parsed;
+}
+
+export const WORK_AGENT_GRAPH_LIMIT = readWorkAgentGraphLimit();
 
 /** Every agent one saved agent can hand work to directly, whatever the route. */
 export function workAgentReferences(agent: WorkGraphAgent): string[] {
