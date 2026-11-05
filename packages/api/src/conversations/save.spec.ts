@@ -213,11 +213,17 @@ describe('persisted tenant scope across turn saves', () => {
         req.resolvedConversation = await store.getConvo(userId, conversationId);
         expect(req.resolvedConversation?.tenantId).toBe('tenant-a');
 
+        // Inspect the outgoing update before the tenant plugin sanitizes $unset.
+        // A persisted tenantId alone cannot detect an attempted scope erasure.
+        const saveConvo = jest.spyOn(store, 'saveConvo');
         await saveTurnConversation(store, {
           ...seedFields(req, conversationId),
           ctx: getConversationWriteContext(req),
           context: 'save.spec preserve tenant scope',
         });
+        expect(saveConvo).toHaveBeenCalledTimes(1);
+        expect(saveConvo.mock.calls[0]?.[2]?.unsetFields).not.toHaveProperty('tenantId');
+        saveConvo.mockRestore();
 
         const persisted = await store.getConvo(userId, conversationId);
         expect(persisted?.tenantId).toBe('tenant-a');
