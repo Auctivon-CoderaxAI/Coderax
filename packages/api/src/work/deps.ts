@@ -104,6 +104,7 @@ export function toWorkGraphAgent(row: unknown): WorkGraphAgent | null {
     edges: Array.isArray(agent.edges) ? (agent.edges as WorkGraphAgent['edges']) : [],
     agent_ids: isStringList(agent.agent_ids) ? agent.agent_ids : [],
     subagents: {
+      enabled: subagents?.enabled === true,
       agent_ids: isStringList(subagents?.agent_ids) ? subagents.agent_ids : [],
       graphs,
     },

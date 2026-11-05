@@ -1,4 +1,5 @@
 import { resolveWorkAgentGraph, workAgentReferences } from './graph';
+import { toWorkGraphAgent } from './deps';
 import { buildWorkModelOptions } from './models';
 
 const models = buildWorkModelOptions([
@@ -26,6 +27,28 @@ describe('native Work graph admission', () => {
     });
     expect(graph).toMatchObject({ ok: true, members: [] });
     expect(loaded).toBe(0);
+  });
+
+  it('preserves the enabled flag through the ACL-scoped catalog projection', async () => {
+    const projected = toWorkGraphAgent(root);
+    expect(projected?.subagents?.enabled).toBe(false);
+    if (!projected) {
+      throw new Error('Expected a projected Work agent');
+    }
+    let loaded = 0;
+    const graph = await resolveWorkAgentGraph(projected, models, async () => {
+      loaded += 1;
+      return { id: 'paid-child', model: 'gpt-4o', provider: 'openAI' };
+    });
+    expect(graph).toMatchObject({ ok: true, members: [] });
+    expect(loaded).toBe(0);
+
+    const enabled = toWorkGraphAgent({
+      ...root,
+      subagents: { ...root.subagents, enabled: true },
+    });
+    expect(enabled?.subagents?.enabled).toBe(true);
+    expect(enabled && workAgentReferences(enabled)).toEqual(['paid-child', 'paid-graph-child']);
   });
 
   it('does not traverse subagents without an explicit enabled flag', () => {
