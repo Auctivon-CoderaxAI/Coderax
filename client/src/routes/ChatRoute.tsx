@@ -38,6 +38,11 @@ import {
   useTokenConfigQuery,
 } from '~/data-provider';
 import {
+  resolveWorkSelection,
+  sanitizeWorkSelection,
+  workSelectionFromConversation,
+} from '~/components/Chat/Input/workSelection';
+import {
   buildChatModelSources,
   getConfiguredDefaultModel,
   toChatModelPreset,
@@ -193,6 +198,16 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   const isWorkMode = modeState.mode === 'work';
   const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
   const workSelection = useAtomValue(workSelectionFamily(modeState.selectionKey));
+  const resolvedWorkSelection = resolveWorkSelection(
+    workSelection
+      ? sanitizeWorkSelection(workSelection, workOptions.options)
+      : workSelectionFromConversation(conversation, workOptions.options),
+    workOptions.options,
+  );
+  const workCanSubmit =
+    !workOptions.isLoading &&
+    !workOptions.modelsQuery.isError &&
+    resolvedWorkSelection != null;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
   const baseChatTransport = useChatTransport();
@@ -502,6 +517,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       project={verifiedChatProjectId ? projectQuery.data : undefined}
       routePending={routeState.pending}
       workMode={isWorkMode}
+      workCanSubmit={workCanSubmit}
     />
   );
 

@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { dataService, QueryKeys } from 'coderax-data-provider';
 import { buttonVariants, cn, useToastContext } from '@coderax/client';
+import { dataService, MutationKeys, QueryKeys } from 'coderax-data-provider';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TWorkTasksResponse } from 'coderax-data-provider';
 import { useGetPinnedOrderQuery, useUpdatePinnedOrderMutation } from '~/data-provider';
 import WorkTaskRow, { workTaskPinKey } from './WorkTaskRow';
@@ -23,6 +23,7 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
   const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useLocalStorage('workTasksExpanded', true);
   const { showToast } = useToastContext();
+  const queryClient = useQueryClient();
   const tasksQuery = useQuery<TWorkTasksResponse>({
     queryKey: [QueryKeys.workTasks],
     queryFn: ({ signal }) => dataService.getWorkTasks(signal),
@@ -32,6 +33,19 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
     refetchInterval: 5_000,
     refetchIntervalInBackground: false,
   });
+  const cancelTask = useMutation(
+    (conversationId: string) => dataService.cancelWorkTask(conversationId),
+    {
+      mutationKey: [MutationKeys.cancelWorkTask],
+      onSuccess: () => queryClient.invalidateQueries([QueryKeys.workTasks]),
+      onError: () =>
+        showToast({
+          message: localize('com_work_cancel_failed'),
+          severity: NotificationSeverity.ERROR,
+          showIcon: true,
+        }),
+    },
+  );
   const {
     data: pinnedOrder,
     isSuccess: isOrderFetched,
@@ -123,6 +137,8 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
                     }
                     onTogglePin={() => pinTask(task.id)}
                     pinDisabled={!orderLoaded || updatePinnedOrder.isLoading}
+                    onCancel={() => cancelTask.mutate(task.id)}
+                    cancelDisabled={cancelTask.isLoading && cancelTask.variables === task.id}
                   />
                 </li>
               ))}

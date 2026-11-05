@@ -59,6 +59,7 @@ function ChatView({
   project,
   routePending = false,
   workMode = false,
+  workCanSubmit = false,
 }: {
   index?: number;
   project?: TChatProject;
@@ -66,6 +67,7 @@ function ChatView({
   routePending?: boolean;
   /** Work keeps its model selector; Chat selects automatically and shows none. */
   workMode?: boolean;
+  workCanSubmit?: boolean;
 }) {
   const { conversationId } = useParams();
   const localize = useLocalize();
@@ -268,6 +270,7 @@ function ChatView({
                                 index={index}
                                 routePending={routePending}
                                 workMode={workMode}
+                                workCanSubmit={workCanSubmit}
                                 placeholder={chatFormPlaceholder}
                                 project={isProjectLandingPage ? project : undefined}
                                 isLandingPage={isLandingPage}
