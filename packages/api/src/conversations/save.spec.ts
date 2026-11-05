@@ -189,12 +189,12 @@ describe('seedTurnConversation', () => {
 
 describe('persisted tenant scope across turn saves', () => {
   it('does not unset the tenant of a seeded Work or ordinary Chat conversation', async () => {
-    /** The tenant-isolation plugin stamps the active request scope; a save outside
-     *  that context has no tenant to persist, so the test must run like a request. */
-    await tenantStorage.run({ tenantId: 'tenant-a' }, async () => {
-      for (const isWork of [false, true]) {
-        const userId = new mongoose.Types.ObjectId().toString();
-        const conversationId = randomUUID();
+    for (const isWork of [false, true]) {
+      const userId = new mongoose.Types.ObjectId().toString();
+      const conversationId = randomUUID();
+      /** The tenant-isolation plugin stamps the active request scope; a save outside
+       *  that context has no tenant to persist, so the test must run like a request. */
+      await tenantStorage.run({ tenantId: 'tenant-a', userId }, async () => {
         await store.saveConvo(
           { userId },
           {
@@ -213,19 +213,30 @@ describe('persisted tenant scope across turn saves', () => {
         req.resolvedConversation = await store.getConvo(userId, conversationId);
         expect(req.resolvedConversation?.tenantId).toBe('tenant-a');
 
+        // Inspect the outgoing update before the tenant plugin sanitizes $unset.
+        // A persisted tenantId alone cannot detect an attempted scope erasure.
+        const saveConvo = jest.spyOn(store, 'saveConvo');
         await saveTurnConversation(store, {
           ...seedFields(req, conversationId),
           ctx: getConversationWriteContext(req),
           context: 'save.spec preserve tenant scope',
         });
+        expect(saveConvo).toHaveBeenCalledTimes(1);
+        expect(saveConvo.mock.calls[0]?.[2]?.unsetFields).not.toHaveProperty('tenantId');
+        saveConvo.mockRestore();
 
         const persisted = await store.getConvo(userId, conversationId);
         expect(persisted?.tenantId).toBe('tenant-a');
         if (isWork) {
           expect(persisted).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
         }
-      }
-    });
+      });
+
+      // A matching user ID cannot bypass the tenant boundary after the turn save.
+      await tenantStorage.run({ tenantId: 'tenant-b', userId }, async () => {
+        await expect(store.getConvo(userId, conversationId)).resolves.toBeNull();
+      });
+    }
   });
 });
 
