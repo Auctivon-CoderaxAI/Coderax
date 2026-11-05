@@ -89,6 +89,7 @@ export * from './projects';
 /* Conversations */
 export * from './conversations';
 /* Work */
+export * from './work/admission';
 export * from './work/configuredDefault';
 export * from './work/deps';
 export * from './work/graph';

@@ -17,6 +17,8 @@ export type WorkGraphAgent = {
   /** Legacy sequential chain. */
   agent_ids?: string[] | null;
   subagents?: {
+    /** Disabled subagents are not prepared by the native initializer. */
+    enabled?: boolean | null;
     agent_ids?: string[] | null;
     graphs?: Array<{ agent_ids?: string[] | null } | null> | null;
   } | null;
@@ -36,7 +38,21 @@ export type WorkAgentGraph =
   | { ok: false; reason: WorkAgentGraphFailure; agentId?: string };
 
 /** Mirrors the native subagent graph ceiling closely enough to bound a Work check. */
-export const WORK_AGENT_GRAPH_LIMIT = 64;
+const DEFAULT_WORK_AGENT_GRAPH_LIMIT = 64;
+
+/**
+ * Allow deployments to tune the ceiling without changing code.
+ * Falls back to the historical default (64) when unset/invalid.
+ */
+function readWorkAgentGraphLimit(): number {
+  const raw = process.env.CODERAX_WORK_AGENT_GRAPH_LIMIT;
+  if (!raw) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_WORK_AGENT_GRAPH_LIMIT;
+  return parsed;
+}
+
+export const WORK_AGENT_GRAPH_LIMIT = readWorkAgentGraphLimit();
 
 /** Every agent one saved agent can hand work to directly, whatever the route. */
 export function workAgentReferences(agent: WorkGraphAgent): string[] {
@@ -44,12 +60,16 @@ export function workAgentReferences(agent: WorkGraphAgent): string[] {
   for (const id of agent.agent_ids ?? []) {
     ids.add(id);
   }
-  for (const id of agent.subagents?.agent_ids ?? []) {
-    ids.add(id);
-  }
-  for (const graph of agent.subagents?.graphs ?? []) {
-    for (const id of graph?.agent_ids ?? []) {
+  /** Saved disabled children must not affect Work admission: native execution
+   * skips them until subagents are explicitly enabled. */
+  if (agent.subagents?.enabled === true) {
+    for (const id of agent.subagents.agent_ids ?? []) {
       ids.add(id);
+    }
+    for (const graph of agent.subagents.graphs ?? []) {
+      for (const id of graph?.agent_ids ?? []) {
+        ids.add(id);
+      }
     }
   }
   if (agent.id) {

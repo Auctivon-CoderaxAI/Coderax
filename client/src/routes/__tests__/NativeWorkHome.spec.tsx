@@ -43,19 +43,19 @@ const messages: Record<string, string> = {
 
 const format = (key: string, values?: Record<string, string | number>) => {
   if (key === 'com_work_automatic_model') {
-    return `Automatic (${values?.[0]})`;
+    return `Automatic (${values?.['0']})`;
   }
   if (key === 'com_work_runs_on_model') {
-    return `Runs on ${values?.[0]}.`;
+    return `Runs on ${values?.['0']}.`;
   }
   if (key === 'com_work_runs_agent_on_model') {
-    return `${values?.[0]} runs on ${values?.[1]}.`;
+    return `${values?.['0']} runs on ${values?.['1']}.`;
   }
   if (key === 'com_work_with_agents') {
-    return `Hands work to ${values?.[0]}.`;
+    return `Hands work to ${values?.['0']}.`;
   }
   if (key === 'com_work_agent_coordinates') {
-    return `${values?.[0]} · coordinates ${values?.[1]} agents`;
+    return `${values?.['0']} · coordinates ${values?.['1']} agents`;
   }
   return messages[key] ?? key;
 };
@@ -128,6 +128,7 @@ function LocationDisplay() {
 }
 
 type RenderOverrides = {
+  centerFormOnLanding?: boolean;
   getModels?: () => Promise<TWorkModelsResponse>;
   getAgents?: () => Promise<TWorkAgentsResponse>;
   getTasks?: () => Promise<TWorkTasksResponse>;
@@ -154,7 +155,7 @@ function renderHome(
       <RecoilRoot>
         <QueryClientProvider client={queryClient}>
           <MemoryRouter initialEntries={['/work']}>
-            <NativeWorkHome />
+            <NativeWorkHome centerFormOnLanding={overrides.centerFormOnLanding ?? true} />
             <LocationDisplay />
           </MemoryRouter>
         </QueryClientProvider>
@@ -212,6 +213,15 @@ describe('native Work home', () => {
     );
     expect(screen.getByTestId('chat-footer')).toBeInTheDocument();
     await screen.findByRole('option', { name: 'Automatic (qwen3.5:4b)' });
+    queryClient.clear();
+  });
+
+  it('uses the host-provided landing preference for composer spacing', () => {
+    const { queryClient } = renderHome(CATALOG, { tasks: [] }, [], {
+      centerFormOnLanding: false,
+    });
+    expect(screen.getByTestId('work-composer-form')).toHaveClass('sm:mb-10');
+    expect(screen.getByTestId('work-composer-form')).not.toHaveClass('sm:mb-28');
     queryClient.clear();
   });
 

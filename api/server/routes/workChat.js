@@ -7,10 +7,9 @@ const {
   ResourceType,
 } = require('coderax-data-provider');
 const {
+  admitWorkAgent,
   buildWorkModelOptions,
   createConfiguredDefaultResolver,
-  resolveWorkAgentGraph,
-  resolveWorkAgentModel,
   resolveWorkSelection,
   workConcreteModels,
   WORK_AUTO_MODEL_ID,
@@ -283,53 +282,33 @@ function workContextMiddleware(
       const requestedAgentId = selectedAgentId(req.body);
       let selectedModel = null;
       if (requestedAgentId) {
-        let agent;
+        let admission;
         try {
-          agent = await findAgent(requestedAgentId);
+          admission = await admitWorkAgent({
+            requestedAgentId,
+            sources,
+            requestedModel: req.body?.model,
+            loadAgent: findAgent,
+            canViewAgent: (agent) => canViewAgent(req, agent),
+          });
         } catch {
           logger.warn('[Work] Failed to read the selected agent.');
           return fail(res, 503, 'WORK_AGENT_UNAVAILABLE', MESSAGES.WORK_AGENT_UNAVAILABLE);
         }
-        if (!agent) {
+        if (!admission.ok && admission.reason === 'agent_not_found') {
           return fail(res, 404, 'WORK_AGENT_NOT_FOUND', MESSAGES.WORK_AGENT_NOT_FOUND);
         }
-        const options = buildWorkModelOptions(sources);
-        selectedModel = resolveWorkAgentModel(options, agent);
-        if (!selectedModel) {
+        if (!admission.ok && admission.reason === 'model_not_allowed') {
           return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
         }
-        /** Handoffs, chains and subagents run on their own saved models; every one
-         *  the user can reach must be free or local too, or the task does not start. */
-        let graph;
-        try {
-          graph = await resolveWorkAgentGraph(
-            { ...agent, id: requestedAgentId },
-            options,
-            async (agentId) => {
-              const member = await findAgent(agentId);
-              return member && (await canViewAgent(req, member)) ? member : null;
-            },
-          );
-        } catch {
-          logger.warn('[Work] Failed to read the selected agent graph.');
-          return fail(res, 503, 'WORK_AGENT_UNAVAILABLE', MESSAGES.WORK_AGENT_UNAVAILABLE);
-        }
-        if (!graph.ok) {
+        if (!admission.ok) {
           const code =
-            graph.reason === 'too_large'
+            admission.reason === 'graph_too_large'
               ? 'WORK_AGENT_GRAPH_TOO_LARGE'
               : 'WORK_AGENT_GRAPH_NOT_ALLOWED';
           return fail(res, 409, code, MESSAGES[code]);
         }
-        const requestedModel = req.body?.model;
-        if (
-          requestedModel != null &&
-          requestedModel !== '' &&
-          requestedModel !== WORK_AUTO_MODEL_ID &&
-          requestedModel !== selectedModel.id
-        ) {
-          return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
-        }
+        selectedModel = admission.model;
       }
       const context = selectedModel
         ? { isWork: true, workModel: selectedModel.id, workProvider: selectedModel.provider }

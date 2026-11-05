@@ -97,7 +97,7 @@ describe('createWorkDepsFactory', () => {
         provider: 'ollama',
         edges: [{ from: 'lead', to: 'writer' }],
         agent_ids: [],
-        subagents: { agent_ids: ['sub'], graphs: [{ agent_ids: ['member'] }] },
+        subagents: { enabled: true, agent_ids: ['sub'], graphs: [{ agent_ids: ['member'] }] },
       },
     ]);
     expect(seen).toEqual([{ user: { id: 'user-1', tenantId: 'tenant-a' } }]);

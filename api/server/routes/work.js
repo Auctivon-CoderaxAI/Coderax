@@ -35,14 +35,46 @@ async function listViewableAgents(req) {
     hasCapability,
     findAccessibleResources,
   });
-  const page = await db.getListAgentsByAccess({
-    accessibleIds,
-    tenantId: req.user?.tenantId ?? null,
-    limit: 1000,
-    includeExecutionConfig: true,
-    includeModelConfig: true,
-  });
-  return page?.data ?? [];
+
+  // db.getListAgentsByAccess is paginated. Iteratively fetch pages so users with
+  // >1000 accessible agents (or referenced children) don't get truncated results.
+  const data = [];
+  let after = undefined;
+
+  // Defensive guard against accidental infinite loops if the backend pagination
+  // metadata is inconsistent.
+  const MAX_PAGES = 1000;
+
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const page = await db.getListAgentsByAccess({
+      accessibleIds,
+      tenantId: req.user?.tenantId ?? null,
+      limit: 1000,
+      includeExecutionConfig: true,
+      includeModelConfig: true,
+      ...(after ? { after } : {}),
+    });
+
+    if (page?.data?.length) {
+      data.push(...page.data);
+    }
+
+    const hasMore = Boolean(page?.has_more ?? page?.hasMore);
+    if (!hasMore) {
+      break;
+    }
+
+    // Cursor field naming can vary; prefer `after`, but fall back to common alternatives.
+    const nextAfter = page?.after ?? page?.cursor ?? page?.next_after ?? page?.nextCursor;
+    if (!nextAfter) {
+      // If the server indicates more pages but doesn't provide a cursor, stop to
+      // avoid looping forever and return what we have.
+      break;
+    }
+    after = nextAfter;
+  }
+
+  return data;
 }
 
 /**
