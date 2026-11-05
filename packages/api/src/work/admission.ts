@@ -1,3 +1,4 @@
+import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY } from 'coderax-data-provider';
 import type { WorkAgentGraph, WorkGraphAgent } from './graph';
 import type { WorkModelSource } from './models';
 import type { WorkModel } from './models';
@@ -8,7 +9,6 @@ import {
   workConcreteModels,
   WORK_AUTO_MODEL_ID,
 } from './models';
-import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY } from 'coderax-data-provider';
 import { DEFAULT_WORK_AGENT_GRAPH_LIMIT, resolveWorkAgentGraph } from './graph';
 import { isValidWorkId } from './ids';
 

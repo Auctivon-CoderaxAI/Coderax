@@ -102,4 +102,33 @@ describe('Work admission', () => {
       error: 'WORK_MODEL_NOT_ALLOWED',
     });
   });
+
+  it('passes the configured concurrency cap through selected-agent admission', async () => {
+    const root: WorkGraphAgent = {
+      id: 'root',
+      model: 'local-model',
+      provider: 'ollama',
+      agent_ids: ['one', 'two', 'three'],
+    };
+    let active = 0;
+    let maximumActive = 0;
+    const result = await resolveWorkAdmission({
+      sources,
+      requestedModel: 'auto',
+      requestedAgentId: 'root',
+      graphConcurrency: 2,
+      findAgent: async (id) => {
+        if (id === 'root') return root;
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return { id, model: 'local-model', provider: 'ollama' };
+      },
+      canViewAgent: async () => true,
+    });
+    expect(result.ok).toBe(true);
+    expect(maximumActive).toBe(2);
+    expect(active).toBe(0);
+  });
 });
