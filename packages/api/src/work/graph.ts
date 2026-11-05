@@ -17,6 +17,8 @@ export type WorkGraphAgent = {
   /** Legacy sequential chain. */
   agent_ids?: string[] | null;
   subagents?: {
+    /** Disabled subagents are not prepared by the native initializer. */
+    enabled?: boolean | null;
     agent_ids?: string[] | null;
     graphs?: Array<{ agent_ids?: string[] | null } | null> | null;
   } | null;
@@ -44,12 +46,16 @@ export function workAgentReferences(agent: WorkGraphAgent): string[] {
   for (const id of agent.agent_ids ?? []) {
     ids.add(id);
   }
-  for (const id of agent.subagents?.agent_ids ?? []) {
-    ids.add(id);
-  }
-  for (const graph of agent.subagents?.graphs ?? []) {
-    for (const id of graph?.agent_ids ?? []) {
+  /** Saved disabled children must not affect Work admission: native execution
+   * skips them until subagents are explicitly enabled. */
+  if (agent.subagents?.enabled === true) {
+    for (const id of agent.subagents.agent_ids ?? []) {
       ids.add(id);
+    }
+    for (const graph of agent.subagents.graphs ?? []) {
+      for (const id of graph?.agent_ids ?? []) {
+        ids.add(id);
+      }
     }
   }
   if (agent.id) {
