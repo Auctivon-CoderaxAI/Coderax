@@ -238,12 +238,34 @@ describe('SwarmCoordinator', () => {
     ).resolves.toEqual({ ok: false, reason: 'tool_denied' });
   });
 
-  it('returns only the intersection of the ceiling and the peer tools', async () => {
+  it('grants only the tools required by the task, even when the peer can do more', async () => {
     const { coordinator } = setup();
 
     const result = await coordinator.claim(
-      { id: 'peer-read-only', tools: ['read', 'admin'] },
+      { id: 'peer-powerful', tools: ['read', 'write', 'admin'] },
+      { id: 'task-read', requiredTools: ['read'] },
+    );
+
+    expect(result.ok && result.allowedTools).toEqual(['read']);
+  });
+
+  it('grants no tools to a task that declares no tool requirements', async () => {
+    const { coordinator } = setup();
+
+    const result = await coordinator.claim(
+      { id: 'peer-powerful', tools: ['read', 'write', 'admin'] },
       { id: 'task-plain' },
+    );
+
+    expect(result.ok && result.allowedTools).toEqual([]);
+  });
+
+  it('deduplicates the explicitly requested and permitted task tools', async () => {
+    const { coordinator } = setup();
+
+    const result = await coordinator.claim(
+      { id: 'peer-reader', tools: ['read', 'write'] },
+      { id: 'task-duplicate', requiredTools: ['read', 'read'] },
     );
 
     expect(result.ok && result.allowedTools).toEqual(['read']);
