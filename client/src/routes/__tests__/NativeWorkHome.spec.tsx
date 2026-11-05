@@ -15,27 +15,27 @@ import { getWorkModelKey } from '~/components/Chat/Input/WorkAgentSelector';
 import NativeWorkHome from '../NativeWorkHome';
 
 const messages: Record<string, string> = {
-  com_cyvox_conversation_mode: 'Conversation mode',
-  com_cyvox_chat: 'Chat',
-  com_cyvox_work: 'Work',
-  com_cyvox_work_welcome_title: 'What would you like to work on?',
-  com_cyvox_work_history_loading: 'Loading recent work…',
-  com_cyvox_work_recent_heading: 'Recent tasks',
-  com_cyvox_work_description_label: 'Describe what you want to get done',
-  com_cyvox_work_description_placeholder: 'Tell me what you need to get done...',
+  com_ui_conversation_mode: 'Conversation mode',
+  com_ui_chat: 'Chat',
+  com_ui_work: 'Work',
+  com_work_welcome_title: 'What would you like to work on?',
+  com_work_history_loading: 'Loading recent work…',
+  com_work_recent_heading: 'Recent tasks',
+  com_work_description_label: 'Describe what you want to get done',
+  com_work_description_placeholder: 'Tell me what you need to get done...',
   com_work_agent: 'Work agent',
   com_work_automatic_agent: 'Automatic',
   com_ui_model: 'Model',
-  com_cyvox_cancel: 'Cancel',
-  com_cyvox_work_start_task_aria: 'Start task',
-  com_cyvox_tasks_unavailable: 'Unable to load recent work right now.',
+  com_ui_cancel: 'Cancel',
+  com_work_start_task_aria: 'Start task',
+  com_work_tasks_unavailable: 'Unable to load recent work right now.',
   com_work_models_unavailable: 'Work models are unavailable.',
   com_work_agents_unavailable: 'Work agents are unavailable.',
   com_work_no_models: 'No free or local agent models are configured for Work yet.',
   com_work_cancel_task_confirmation: 'Cancel this Work task?',
   com_work_cancel_failed: 'Work could not cancel this task.',
   com_work_model_set_by_agent: 'The selected agent runs on its own model.',
-  com_cyvox_work_policy_note: 'Native tools retain their permission and approval controls.',
+  com_work_policy_note: 'Native tools retain their permission and approval controls.',
   com_ui_use_micrphone: 'Use microphone',
   com_ui_stop: 'Stop',
   com_ui_transcribing: 'Transcribing...',
@@ -451,10 +451,12 @@ describe('native Work home', () => {
     queryClient.clear();
   });
 
-  it('loads native models, agents and history without calling the optional CyVox addon', async () => {
+  it('loads native models, agents and history without external fetches', async () => {
     const originalFetch = global.fetch;
-    const fetchSpy = jest.fn();
-    global.fetch = fetchSpy as unknown as typeof fetch;
+    const fetchSpy = Object.assign(jest.fn<ReturnType<typeof fetch>, Parameters<typeof fetch>>(), {
+      preconnect: jest.fn(),
+    });
+    global.fetch = fetchSpy;
     try {
       const { getAgents, getModels, getTasks, queryClient } = renderHome(CATALOG, { tasks: [] }, [
         makeAgent('agent-1', 'Planner'),
@@ -467,7 +469,11 @@ describe('native Work home', () => {
       expect(fetchSpy).not.toHaveBeenCalled();
       queryClient.clear();
     } finally {
-      global.fetch = originalFetch;
+      if (originalFetch) {
+        global.fetch = originalFetch;
+      } else {
+        Reflect.deleteProperty(global, 'fetch');
+      }
     }
   });
 });

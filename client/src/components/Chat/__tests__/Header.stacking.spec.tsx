@@ -30,9 +30,9 @@ jest.mock('~/hooks', () => ({
   useHasAccess: () => false,
   useLocalize: () => (key: string) =>
     ({
-      com_cyvox_conversation_mode: 'Conversation mode',
-      com_cyvox_chat: 'Chat',
-      com_cyvox_work: 'Work',
+      com_ui_conversation_mode: 'Conversation mode',
+      com_ui_chat: 'Chat',
+      com_ui_work: 'Work',
     })[key] ?? key,
 }));
 jest.mock('~/hooks/Nav/useDrawerViewport', () => () => false);

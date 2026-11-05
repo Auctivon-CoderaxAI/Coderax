@@ -189,16 +189,16 @@ export default function NativeWorkHome() {
         className={cn('scrollbar-gutter-spacer flex min-h-0 flex-col', landingColumnClass)}
       >
         <div className={cn(landingGreetingBlockClass, landingGreetingSpacing(centerFormOnLanding))}>
-          <h1 className={landingGreetingClass}>{localize('com_cyvox_work_welcome_title')}</h1>
+          <h1 className={landingGreetingClass}>{localize('com_work_welcome_title')}</h1>
         </div>
         <div className={cn('bg-surface-canvas relative z-10 w-full', landingBandClass)}>
           {recentTasks.length > 0 && !tasks.isError && (
             <section
-              aria-label={localize('com_cyvox_work_recent_heading')}
+              aria-label={localize('com_work_recent_heading')}
               className={cn('mx-auto w-full px-4 pb-3 sm:px-4', composerWidthClass)}
             >
               <h2 className="text-text-muted px-1 text-xs font-medium">
-                {localize('com_cyvox_work_recent_heading')}
+                {localize('com_work_recent_heading')}
               </h2>
               <ul className="mt-1.5 max-h-[min(30vh,15rem)] space-y-0.5 overflow-y-auto">
                 {recentTasks.map((item) => {
@@ -224,10 +224,10 @@ export default function NativeWorkHome() {
                           type="button"
                           className="text-text-secondary hover:bg-surface-hover hover:text-text-primary shrink-0 rounded-lg px-2 py-1 text-xs transition-colors disabled:opacity-60"
                           disabled={cancelTask.isLoading}
-                          aria-label={localize('com_cyvox_cancel') + ' ' + item.title}
+                          aria-label={localize('com_ui_cancel') + ' ' + item.title}
                           onClick={() => void cancel(item)}
                         >
-                          {localize('com_cyvox_cancel')}
+                          {localize('com_ui_cancel')}
                         </button>
                       )}
                     </li>
@@ -258,7 +258,7 @@ export default function NativeWorkHome() {
               )}
             >
               <label htmlFor="work-task" className="sr-only">
-                {localize('com_cyvox_work_description_label')}
+                {localize('com_work_description_label')}
               </label>
               <textarea
                 id="work-task"
@@ -283,7 +283,7 @@ export default function NativeWorkHome() {
                     startTask();
                   }
                 }}
-                placeholder={localize('com_cyvox_work_description_placeholder')}
+                placeholder={localize('com_work_description_placeholder')}
               />
               <WorkSelectionSummary resolved={resolved} className="px-5 pb-1" />
               {work.modelsQuery.isError && (
@@ -303,7 +303,7 @@ export default function NativeWorkHome() {
               )}
               {tasks.isError && (
                 <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
-                  {localize('com_cyvox_tasks_unavailable')}
+                  {localize('com_work_tasks_unavailable')}
                 </p>
               )}
               {cancelError && (
@@ -330,10 +330,10 @@ export default function NativeWorkHome() {
                   <div className="ml-auto flex shrink-0 items-center gap-1.5">
                     <WorkVoiceInput value={task} onChange={setTask} />
                     <TooltipAnchor
-                      description={localize('com_cyvox_work_start_task_aria')}
+                      description={localize('com_work_start_task_aria')}
                       render={
                         <IconButton
-                          label={localize('com_cyvox_work_start_task_aria')}
+                          label={localize('com_work_start_task_aria')}
                           variant="submit"
                           size="theme"
                           shape="composer"
@@ -354,10 +354,10 @@ export default function NativeWorkHome() {
             <div className="absolute inset-x-0 top-full hidden px-5 pt-1.5 sm:block">
               {tasks.isLoading && (
                 <p role="status" className="text-text-muted text-xs">
-                  {localize('com_cyvox_work_history_loading')}
+                  {localize('com_work_history_loading')}
                 </p>
               )}
-              <p className="text-text-muted text-xs">{localize('com_cyvox_work_policy_note')}</p>
+              <p className="text-text-muted text-xs">{localize('com_work_policy_note')}</p>
             </div>
           </form>
         </div>
