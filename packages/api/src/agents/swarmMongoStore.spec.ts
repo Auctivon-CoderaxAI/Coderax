@@ -3,7 +3,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createSwarmLeaseRepository } from '@coderax/data-schemas';
 import type { SwarmLeaseDocument } from '@coderax/data-schemas';
 import type { Collection } from 'mongodb';
-import type { SwarmClaimResult, SwarmLease } from './swarm';
+import type { SwarmClaimResult, SwarmLease, SwarmLeaseStore } from './swarm';
 import type { MongoSwarmScope } from './swarmMongoStore';
 import { createMongoSwarmStore } from './swarmMongoStore';
 import { SwarmCoordinator } from './swarm';
@@ -72,6 +72,42 @@ describe('durable Mongo swarm lease store', () => {
     }
     const lease = claimed(winner);
     expect((await storeFor(owner).get(task.id))?.leaseId).toBe(lease.leaseId);
+  });
+
+  it('denies a Mongo claim acknowledged exactly at expiry and permits recovery', async () => {
+    let currentTime = 1_000;
+    const now = () => currentTime;
+    const durable = storeFor(owner);
+    const delayedStore: SwarmLeaseStore = {
+      get: (taskId) => durable.get(taskId),
+      async compareAndSwap(taskId, expected, next) {
+        const accepted = await durable.compareAndSwap(taskId, expected, next);
+        if (accepted && next?.state === 'claimed' && next.attempt === 1) {
+          // Simulate a durable insert acknowledged at the exact expiry boundary.
+          currentTime += 100;
+        }
+        return accepted;
+      },
+    };
+    const first = new SwarmCoordinator({
+      store: delayedStore,
+      allowedTools: ['read'],
+      leaseMs: 100,
+      maxAttempts: 3,
+      now,
+      createLeaseId: () => 'lease-delayed',
+    });
+
+    await expect(first.claim(peerA, task)).resolves.toEqual({
+      ok: false,
+      reason: 'unavailable',
+    });
+    expect(await durable.get(task.id)).toMatchObject({ state: 'claimed', attempt: 1 });
+
+    const second = coordinator(owner, 'second', now);
+    const recovered = await second.claim(peerB, task);
+    expect(claimed(recovered)).toMatchObject({ peerId: 'peer-b', attempt: 2 });
+    expect(recovered.ok && recovered.allowedTools).toEqual(['read']);
   });
 
   it('fences a stale peer after expiry and reassignment across instances', async () => {
