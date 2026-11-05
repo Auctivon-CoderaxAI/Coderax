@@ -85,7 +85,13 @@ export async function listEligibleWorkAgents(input: {
       if (typeof agent.id !== 'string' || !agent.id) {
         continue;
       }
-      const graph = await resolveWorkAgentGraph(agent, models, loadAgent, graphLimit);
+      const graph = await resolveWorkAgentGraph(
+        agent,
+        models,
+        loadAgent,
+        graphLimit,
+        requestedConcurrency,
+      );
       if (!graph.ok) {
         continue;
       }

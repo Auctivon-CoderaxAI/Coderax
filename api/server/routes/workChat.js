@@ -233,6 +233,7 @@ function workContextMiddleware(
         findAgent,
         canViewAgent: (agent) => canViewAgent(req, agent),
         graphLimit: req.config?.work?.agentGraphLimit,
+        graphConcurrency: req.config?.work?.agentGraphConcurrency,
       });
       if (!admission.ok) {
         if (admission.error === 'WORK_AGENT_UNAVAILABLE') {

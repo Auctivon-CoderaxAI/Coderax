@@ -1,4 +1,7 @@
-import { DEFAULT_WORK_AGENT_GRAPH_LIMIT } from 'coderax-data-provider';
+import {
+  DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+  DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+} from 'coderax-data-provider';
 import type { GraphEdge } from 'coderax-data-provider';
 import type { WorkModel } from './models';
 import { collectEdgeAgentIds } from '../agents/edges';
@@ -79,6 +82,7 @@ export async function resolveWorkAgentGraph(
   models: WorkModel[],
   loadAgent: (agentId: string) => Promise<WorkGraphAgent | null | undefined>,
   limit: number = DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+  concurrency: number = DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
 ): Promise<WorkAgentGraph> {
   const rootModel = resolveWorkAgentModel(models, root);
   if (!rootModel) {
@@ -87,31 +91,45 @@ export async function resolveWorkAgentGraph(
   const visited = new Set<string>(root.id ? [root.id] : []);
   const members: WorkAgentMember[] = [];
   let frontier = workAgentReferences(root);
+  const batchSize =
+    Number.isSafeInteger(concurrency) && concurrency > 0
+      ? concurrency
+      : DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY;
   while (frontier.length > 0) {
     const next: string[] = [];
-    for (const agentId of frontier) {
-      if (visited.has(agentId)) {
-        continue;
+    for (let offset = 0; offset < frontier.length; offset += batchSize) {
+      const batchIds: string[] = [];
+      for (const agentId of frontier.slice(offset, offset + batchSize)) {
+        if (visited.has(agentId)) {
+          continue;
+        }
+        visited.add(agentId);
+        if (visited.size > limit) {
+          return { ok: false, reason: 'too_large' };
+        }
+        batchIds.push(agentId);
       }
-      visited.add(agentId);
-      if (visited.size > limit) {
-        return { ok: false, reason: 'too_large' };
+      // Siblings are independent. Bound their ACL/database reads, while keeping
+      // results in reference order and checking every executable model.
+      const loaded = await Promise.all(batchIds.map((agentId) => loadAgent(agentId)));
+      for (let index = 0; index < batchIds.length; index++) {
+        const agentId = batchIds[index];
+        const agent = loaded[index];
+        if (!agent) {
+          continue;
+        }
+        const model = resolveWorkAgentModel(models, { ...agent, id: agentId });
+        if (!model) {
+          return { ok: false, reason: 'member_model_not_allowed', agentId };
+        }
+        members.push({
+          id: agentId,
+          ...(agent.name ? { name: agent.name } : {}),
+          model: model.id,
+          provider: model.provider ?? '',
+        });
+        next.push(...workAgentReferences({ ...agent, id: agentId }));
       }
-      const agent = await loadAgent(agentId);
-      if (!agent) {
-        continue;
-      }
-      const model = resolveWorkAgentModel(models, { ...agent, id: agentId });
-      if (!model) {
-        return { ok: false, reason: 'member_model_not_allowed', agentId };
-      }
-      members.push({
-        id: agentId,
-        ...(agent.name ? { name: agent.name } : {}),
-        model: model.id,
-        provider: model.provider ?? '',
-      });
-      next.push(...workAgentReferences({ ...agent, id: agentId }));
     }
     frontier = next;
   }

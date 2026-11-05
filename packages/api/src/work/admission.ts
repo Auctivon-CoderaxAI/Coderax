@@ -1,3 +1,4 @@
+import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY } from 'coderax-data-provider';
 import type { WorkAgentGraph, WorkGraphAgent } from './graph';
 import type { WorkModelSource } from './models';
 import type { WorkModel } from './models';
@@ -85,6 +86,7 @@ export async function resolveWorkAdmission(input: {
   findAgent: (agentId: string) => Promise<WorkGraphAgent | null | undefined>;
   canViewAgent: (agent: WorkGraphAgent) => Promise<boolean>;
   graphLimit?: number;
+  graphConcurrency?: number;
 }): Promise<WorkAdmissionResult> {
   const {
     sources,
@@ -94,6 +96,7 @@ export async function resolveWorkAdmission(input: {
     findAgent,
     canViewAgent,
     graphLimit = DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+    graphConcurrency = DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   } = input;
 
   if (requestedAgentId != null && !isValidWorkId(requestedAgentId)) {
@@ -134,6 +137,7 @@ export async function resolveWorkAdmission(input: {
         return member && (await canViewAgent(member)) ? member : null;
       },
       graphLimit,
+      graphConcurrency,
     );
   } catch {
     return { ok: false, error: 'WORK_AGENT_UNAVAILABLE' };
