@@ -1109,6 +1109,7 @@ export function createAgentMethods(
     after,
     includeSkillConfig,
     includeExecutionConfig,
+    includeModelConfig,
     sort,
   }: {
     accessibleIds?: Array<Types.ObjectId | string> | null;
@@ -1119,6 +1120,7 @@ export function createAgentMethods(
     after?: string | null;
     includeSkillConfig?: boolean;
     includeExecutionConfig?: boolean;
+    includeModelConfig?: boolean;
     sort?: AgentListSortOption;
   }) => Promise<{
     object: string;
@@ -1994,6 +1996,7 @@ export function createAgentMethods(
     after = null,
     includeSkillConfig = false,
     includeExecutionConfig = false,
+    includeModelConfig = false,
     sort: sortInput = 'recent',
   }: {
     accessibleIds?: Array<Types.ObjectId | string> | null;
@@ -2003,6 +2006,8 @@ export function createAgentMethods(
     after?: string | null;
     includeSkillConfig?: boolean;
     includeExecutionConfig?: boolean;
+    /** The model and provider each agent runs on, for callers that gate runs by cost. */
+    includeModelConfig?: boolean;
     sort?: AgentListSortOption;
   }): Promise<{
     object: string;
@@ -2069,6 +2074,10 @@ export function createAgentMethods(
       projection['subagents.enabled'] = 1;
       projection['subagents.agent_ids'] = 1;
       projection['subagents.graphs.agent_ids'] = 1;
+    }
+    if (includeModelConfig) {
+      projection.model = 1;
+      projection.provider = 1;
     }
 
     const finalizeAgent = (agent: Record<string, unknown>): Record<string, unknown> => {

@@ -28,6 +28,7 @@ import { MESSAGES_QUERY_STALE_TIME, useGetMessagesByConvoId } from '~/data-provi
 import { QueuedTurnPortalProvider } from './Steering/QueuedTurnPortal';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
 import ConversationStarters from './Input/ConversationStarters';
+import { landingBandClass, landingColumnClass } from './layout';
 import { pendingApprovalActionFamily } from './approval/state';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
@@ -203,6 +204,7 @@ function ChatView({
                         <Header
                           parentConversationId={parentConversationId}
                           readOnly={isSubagentThreadReadOnly}
+                          mode={workMode ? 'work' : 'chat'}
                         />
                       </div>
                       {!isLandingPage && chatProjectId && (
@@ -227,7 +229,7 @@ function ChatView({
                                together, so it holds the same band back here. Without
                                it the composer lands 4px right of where a conversation
                                puts it and slides sideways on the way in. */
-                                'scrollbar-gutter-spacer flex-1 items-center justify-end sm:justify-center'
+                                cn('scrollbar-gutter-spacer', landingColumnClass)
                               : 'h-full overflow-y-auto',
                             !isLandingPage && chatProjectId && 'pt-9',
                           )}
@@ -250,7 +252,7 @@ function ChatView({
                             className={cn(
                               'bg-surface-canvas relative z-10 w-full [view-transition-name:chat-form]',
                               !isLandingPage && 'scrollbar-gutter-spacer',
-                              isLandingPage && 'max-w-3xl transition-all duration-200 xl:max-w-4xl',
+                              isLandingPage && cn(landingBandClass, 'transition-all duration-200'),
                             )}
                           >
                             {isLandingPage && <ConversationStarters />}

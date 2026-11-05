@@ -49,6 +49,10 @@ export default function ModelError({ json, message }: ErrorRendererProps) {
     return localize('com_error_illegal_model_request', { 0: model, 1: requestedProvider });
   }
 
+  if (errorKey === ErrorTypes.WORK_MODEL_NOT_ALLOWED) {
+    return localize('com_error_work_model_not_allowed');
+  }
+
   if (errorKey === ErrorTypes.CODE_WORKSPACE_UNAVAILABLE) {
     const reason = readString(json, 'reason');
     return isCodeWorkspaceSelectionErrorReason(reason)

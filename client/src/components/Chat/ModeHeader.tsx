@@ -1,3 +1,4 @@
+import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import ConversationModeNav from './ConversationModeNav';
 import OpenSidebar from './Menus/OpenSidebar';
@@ -8,11 +9,13 @@ export default function ModeHeader() {
   const isSmallScreen = useDrawerViewport();
 
   return (
-    <header className="from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 flex h-[3.25rem] w-full items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent">
-      <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
-        <OpenSidebar />
+    <header className={modeHeaderClass}>
+      <div className={modeHeaderStartClass}>
+        <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
+          <OpenSidebar />
+        </div>
       </div>
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+      <div className="flex min-w-0 items-center justify-center gap-2">
         <ConversationModeNav
           active="work"
           labels={{
@@ -22,6 +25,7 @@ export default function ModeHeader() {
           }}
         />
       </div>
+      <div className={modeHeaderEndClass} />
     </header>
   );
 }

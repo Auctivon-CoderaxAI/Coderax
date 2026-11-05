@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useRecoilValue } from 'recoil';
 import { useLocation, useParams } from 'react-router-dom';
 import {
   ChatTransportContext,
   createWorkChatTransport,
   defaultChatTransport,
 } from '~/Providers/ChatTransportContext';
-import ModeHeader from '~/components/Chat/ModeHeader';
 import NativeWorkHome from './NativeWorkHome';
 import ChatRoute from './ChatRoute';
+import store from '~/store';
+
+/** The Work route owns the global landing preference; the Work feature only consumes it. */
+function WorkLandingHome() {
+  const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
+  return <NativeWorkHome centerFormOnLanding={centerFormOnLanding} />;
+}
 
 /** Work is a first-party mode of the authenticated agent chat experience. Its
  * generation starts pass through the Work model gate; the native stream,
@@ -37,17 +44,14 @@ export default function WorkRoute() {
   const workChatTransport = useMemo(() => createWorkChatTransport(defaultChatTransport), []);
 
   if (!showChat) {
-    return <NativeWorkHome />;
+    return <WorkLandingHome />;
   }
 
+  /** The conversation renders exactly as Chat does — its own landmark, header and
+   * canvas — with the header switch showing Work. */
   return (
-    <main className="bg-surface-canvas text-text-primary relative flex h-full min-h-0 flex-col overflow-hidden">
-      <ModeHeader />
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <ChatTransportContext.Provider value={workChatTransport}>
-          <ChatRoute workMode />
-        </ChatTransportContext.Provider>
-      </div>
-    </main>
+    <ChatTransportContext.Provider value={workChatTransport}>
+      <ChatRoute workMode />
+    </ChatTransportContext.Provider>
   );
 }

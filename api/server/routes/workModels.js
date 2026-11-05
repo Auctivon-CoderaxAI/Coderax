@@ -63,6 +63,11 @@ function toWorkConversation(conversation) {
     isWork: conversation.isWork === true,
     workModel: conversation.workModel,
     workState: conversation.workState,
+    ...(typeof conversation.agent_id === 'string' &&
+    conversation.agent_id !== '' &&
+    conversation.agent_id !== 'ephemeral'
+      ? { agentId: conversation.agent_id }
+      : {}),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };

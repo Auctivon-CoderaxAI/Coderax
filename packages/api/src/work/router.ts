@@ -1,9 +1,16 @@
 import express from 'express';
+import {
+  DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+  DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+} from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
+import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
+import { isValidWorkId } from './ids';
 
 /**
  * Work reads Coderax conversations and models; it never starts a run.
@@ -21,6 +28,14 @@ export type WorkDeps = {
    * also be among the offered free/local models.
    */
   configuredDefaultModel?: () => Promise<string | null>;
+  /**
+   * Agents the caller can view, with the model and provider each runs on and
+   * its handoff, chain and subagent references. Tenant and ACL scope are the
+   * caller's: an agent absent from this list cannot run for them.
+   */
+  listAgents?: () => Promise<WorkGraphAgent[]>;
+  agentGraphLimit?: number;
+  agentGraphConcurrency?: number;
   listConversations: (input: { userId: string; limit: number }) => Promise<WorkConversation[]>;
   getConversation: (input: {
     userId: string;
@@ -33,8 +48,18 @@ export type WorkDeps = {
 };
 
 const HISTORY_LIMIT = 50;
-const ID_PATTERN = /^[A-Za-z0-9_-]{1,120}$/;
 
+/** A default that cannot be read leaves automatic routing to the free/local ranking. */
+async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
+  if (!deps.configuredDefaultModel) {
+    return null;
+  }
+  try {
+    return await deps.configuredDefaultModel();
+  } catch {
+    return null;
+  }
+}
 async function withResolvedRunState(
   conversation: WorkConversation,
   userId: string,
@@ -81,11 +106,42 @@ export function createWorkRouter(deps: WorkDeps): Router {
 
   router.get('/models', async (_req: Request, res: Response) => {
     try {
-      const models = buildWorkModelOptions(await deps.listModels());
+      const [sources, configuredDefault] = await Promise.all([
+        deps.listModels(),
+        readConfiguredDefault(deps),
+      ]);
+      const models = buildWorkModelOptions(sources, configuredDefault);
       res.setHeader('Cache-Control', 'no-store');
       res.json({ models });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * Agents a Work task can run: the whole graph each one can reach executes on
+   * an offered free/local model. Anything else is left out rather than shown
+   * disabled, so the picker never offers a run the server would refuse.
+   */
+  router.get('/agents', async (_req: Request, res: Response) => {
+    if (!deps.listAgents) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ agents: [] });
+      return;
+    }
+    try {
+      const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
+      const models = buildWorkModelOptions(sources);
+      const eligible = await listEligibleWorkAgents({
+        agents,
+        models,
+        graphLimit: deps.agentGraphLimit ?? DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+        concurrency: deps.agentGraphConcurrency ?? DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ agents: eligible });
+    } catch {
+      res.status(503).json({ code: 'WORK_AGENTS_UNAVAILABLE' });
     }
   });
 
@@ -108,7 +164,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
   router.get('/tasks/:conversationId', async (req: Request, res: Response) => {
     const userId = userIdOf(req) as string;
     const { conversationId } = req.params;
-    if (!ID_PATTERN.test(conversationId)) {
+    if (!isValidWorkId(conversationId)) {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }
@@ -131,7 +187,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
   router.post('/tasks/:conversationId/cancel', async (req: Request, res: Response) => {
     const userId = userIdOf(req) as string;
     const { conversationId } = req.params;
-    if (!ID_PATTERN.test(conversationId)) {
+    if (!isValidWorkId(conversationId)) {
       res.status(400).json({ code: 'WORK_INVALID_ID' });
       return;
     }

@@ -1,11 +1,17 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
-const { Constants, EModelEndpoint, PermissionBits } = require('coderax-data-provider');
 const {
-  buildWorkModelOptions,
+  Constants,
+  EModelEndpoint,
+  PermissionBits,
+  ResourceType,
+} = require('coderax-data-provider');
+const {
   createConfiguredDefaultResolver,
-  resolveWorkAgentModel,
-  resolveWorkSelection,
+  hasMalformedWorkAgentId,
+  resolveWorkAdmission,
+  resolveWorkContext,
+  selectedWorkAgentId,
   WORK_AUTO_MODEL_ID,
 } = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
@@ -42,23 +48,19 @@ function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
 }
 
-/** A concrete selected agent; the ephemeral sentinel is not a selection. */
-function selectedAgentId(body) {
-  const agentId = body && typeof body === 'object' ? body.agent_id : undefined;
-  if (typeof agentId !== 'string' || !agentId || agentId === Constants.EPHEMERAL_AGENT_ID) {
-    return null;
+/** The same VIEW check the native runtime applies before a run reaches another agent. */
+function defaultCanViewAgent(req, agent) {
+  const { checkPermission } = require('~/server/services/PermissionService');
+  if (!req?.user?.id || !agent?._id) {
+    return Promise.resolve(false);
   }
-  return /^[A-Za-z0-9_-]{1,200}$/.test(agentId) ? agentId : null;
-}
-
-function hasMalformedSelectedAgentId(body) {
-  const agentId = body && typeof body === 'object' ? body.agent_id : undefined;
-  return (
-    agentId != null &&
-    agentId !== '' &&
-    agentId !== Constants.EPHEMERAL_AGENT_ID &&
-    (typeof agentId !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(agentId))
-  );
+  return checkPermission({
+    userId: req.user.id,
+    role: req.user.role,
+    resourceType: ResourceType.AGENT,
+    resourceId: agent._id,
+    requiredPermission: PermissionBits.VIEW,
+  });
 }
 
 function defaultAuthorizeAgent(req, res, next) {
@@ -68,7 +70,7 @@ function defaultAuthorizeAgent(req, res, next) {
 
 function selectedAgentAuthorizationMiddleware(authorizeAgent = defaultAuthorizeAgent) {
   return (req, res, next) => {
-    if (hasMalformedSelectedAgentId(req.body)) {
+    if (hasMalformedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID)) {
       return fail(
         res,
         400,
@@ -76,48 +78,12 @@ function selectedAgentAuthorizationMiddleware(authorizeAgent = defaultAuthorizeA
         'The selected Work agent identifier is invalid.',
       );
     }
-    if (!selectedAgentId(req.body)) {
+    if (!selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID)) {
       return next();
     }
     req.body.endpoint = EModelEndpoint.agents;
     return authorizeAgent(req, res, next);
   };
-}
-
-/**
- * Resolve the concrete model a Work turn stores and runs on.
- *
- * `auto` is a sentinel, never a model: it resolves through the configured
- * default and only when that exact model is in the offered free/local set.
- * Picking "the first local model" would silently substitute a choice the user
- * did not make, so an absent or paid default fails with an actionable error
- * instead.
- *
- * @returns {{isWork: true, workModel: string} | {error: string}}
- */
-function resolveWorkContext(sources, requested, configuredDefault) {
-  const options = buildWorkModelOptions(sources);
-  const explicit = requested != null && requested !== WORK_AUTO_MODEL_ID;
-  const selection = resolveWorkSelection(
-    options,
-    requested ?? WORK_AUTO_MODEL_ID,
-    configuredDefault,
-  );
-  if (selection.ok) {
-    return {
-      isWork: true,
-      workModel: selection.model.id,
-      workProvider: selection.model.provider,
-    };
-  }
-  /** An explicit pick is answered specifically, even when nothing is offered. */
-  if (explicit) {
-    return { error: 'WORK_MODEL_NOT_ALLOWED' };
-  }
-  if (options.length === 0) {
-    return { error: 'WORK_NO_FREE_MODEL' };
-  }
-  return { error: 'WORK_AUTO_UNRESOLVED' };
 }
 
 /**
@@ -129,7 +95,15 @@ function stripClientWorkFields(body) {
   if (!body || typeof body !== 'object') {
     return body;
   }
-  const { isWork: _isWork, workModel: _workModel, workContext: _workContext, ...rest } = body;
+  /** A model spec can replace the model or attach subagents of its own, so Work
+   *  never takes one from the client: the server-resolved selection is the run. */
+  const {
+    isWork: _isWork,
+    workModel: _workModel,
+    workContext: _workContext,
+    spec: _spec,
+    ...rest
+  } = body;
   return rest;
 }
 
@@ -205,6 +179,12 @@ const MESSAGES = {
     'Work has no default free or locally served model. Choose a model explicitly, or configure a default that is free or local.',
   WORK_NO_FREE_MODEL:
     'Work needs a free or locally served model. Configure a local model, then try again.',
+  WORK_AGENT_GRAPH_NOT_ALLOWED:
+    'This agent can hand work to an agent that does not run on a free or locally served model. Choose another agent.',
+  WORK_AGENT_GRAPH_TOO_LARGE:
+    'This agent coordinates more agents than Work can check. Choose another agent.',
+  WORK_ADDED_CONVERSATION_UNSUPPORTED:
+    'Work runs one task at a time. Remove the added conversation and try again.',
 };
 
 const fail = (res, status, error, message) => res.status(status).json({ error, message });
@@ -218,11 +198,21 @@ function workContextMiddleware(
   configuredDefaultModel = configuredDefaultFromRequest,
   seedConversation = seedWorkConversation,
   findAgent = defaultFindAgent,
+  canViewAgent = defaultCanViewAgent,
 ) {
   return async (req, res, next) => {
     try {
-      if (hasMalformedSelectedAgentId(req.body)) {
+      if (hasMalformedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID)) {
         return fail(res, 400, 'WORK_AGENT_ID_INVALID', MESSAGES.WORK_AGENT_ID_INVALID);
+      }
+      /** A second conversation would run beside the task on a model Work never admitted. */
+      if (req.body?.addedConvo != null) {
+        return fail(
+          res,
+          400,
+          'WORK_ADDED_CONVERSATION_UNSUPPORTED',
+          MESSAGES.WORK_ADDED_CONVERSATION_UNSUPPORTED,
+        );
       }
       const config = await loadModelsForRequest(req);
       /** The source may be sync or async; awaiting covers both. A failure to read it
@@ -234,43 +224,30 @@ function workContextMiddleware(
         configuredDefault = null;
       }
       const sources = flattenModelConfig(config);
-      const requestedAgentId = selectedAgentId(req.body);
-      let selectedModel = null;
-      if (requestedAgentId) {
-        let agent;
-        try {
-          agent = await findAgent(requestedAgentId);
-        } catch {
-          logger.warn('[Work] Failed to read the selected agent.');
-          return fail(res, 503, 'WORK_AGENT_UNAVAILABLE', MESSAGES.WORK_AGENT_UNAVAILABLE);
+      const requestedAgentId = selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID);
+      const admission = await resolveWorkAdmission({
+        sources,
+        requestedModel: req.body?.model,
+        configuredDefaultModel: typeof configuredDefault === 'string' ? configuredDefault : null,
+        requestedAgentId,
+        findAgent,
+        canViewAgent: (agent) => canViewAgent(req, agent),
+        graphLimit: req.config?.work?.agentGraphLimit,
+        graphConcurrency: req.config?.work?.agentGraphConcurrency,
+      });
+      if (!admission.ok) {
+        if (admission.error === 'WORK_AGENT_UNAVAILABLE') {
+          logger.warn('[Work] Failed to read the selected agent graph.');
         }
-        if (!agent) {
-          return fail(res, 404, 'WORK_AGENT_NOT_FOUND', MESSAGES.WORK_AGENT_NOT_FOUND);
-        }
-        selectedModel = resolveWorkAgentModel(buildWorkModelOptions(sources), agent);
-        if (!selectedModel) {
-          return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
-        }
-        const requestedModel = req.body?.model;
-        if (
-          requestedModel != null &&
-          requestedModel !== '' &&
-          requestedModel !== WORK_AUTO_MODEL_ID &&
-          requestedModel !== selectedModel.id
-        ) {
-          return fail(res, 409, 'WORK_MODEL_NOT_ALLOWED', MESSAGES.WORK_MODEL_NOT_ALLOWED);
-        }
+        const status =
+          {
+            WORK_AGENT_ID_INVALID: 400,
+            WORK_AGENT_NOT_FOUND: 404,
+            WORK_AGENT_UNAVAILABLE: 503,
+          }[admission.error] ?? 409;
+        return fail(res, status, admission.error, MESSAGES[admission.error]);
       }
-      const context = selectedModel
-        ? { isWork: true, workModel: selectedModel.id, workProvider: selectedModel.provider }
-        : resolveWorkContext(
-            sources,
-            req.body?.model,
-            typeof configuredDefault === 'string' ? configuredDefault : null,
-          );
-      if (context.error) {
-        return fail(res, 409, context.error, MESSAGES[context.error]);
-      }
+      const context = admission.context;
       req.workContext = context;
       req.body = stripClientWorkFields(req.body);
       /** A seed/read failure must fail closed. Without the persisted-row read we cannot
@@ -367,6 +344,7 @@ function createWorkChatRouter({
   agentsRouter,
   findAgent,
   authorizeAgent,
+  canViewAgent,
 } = {}) {
   const router = express.Router();
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
@@ -378,6 +356,7 @@ function createWorkChatRouter({
       configuredDefaultModel,
       seedConversation,
       findAgent,
+      canViewAgent,
     ),
   );
   router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
@@ -385,6 +364,7 @@ function createWorkChatRouter({
 }
 
 module.exports = {
+  configuredDefaultFromRequest,
   createWorkChatRouter,
   delegateToAgents,
   resolveWorkContext,

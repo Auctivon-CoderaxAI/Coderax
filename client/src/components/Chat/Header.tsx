@@ -8,6 +8,7 @@ import {
   Permissions,
   isForcedTemporaryRetention,
 } from 'coderax-data-provider';
+import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
 import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import { OpenSidebar, NewChat, HeaderMenu } from './Menus';
@@ -29,9 +30,12 @@ const defaultInterface = getConfigDefaults().interface;
 function Header({
   parentConversationId,
   readOnly = false,
+  mode = 'chat',
 }: {
   parentConversationId?: string;
   readOnly?: boolean;
+  /** Work conversations render through this view too; the switch names the mode in use. */
+  mode?: 'chat' | 'work';
 }) {
   const localize = useLocalize();
   const location = useLocation();
@@ -79,20 +83,23 @@ function Header({
     enabled: parentConversationId == null,
   });
 
-  /** The drawer covers the header on mobile; keep its controls out of the tab order. */
-  const hiddenBehindNav = navVisible === true && isSmallScreen && 'hidden';
+  /** The drawer covers the header on mobile; keep its controls out of the tab order.
+   *  `invisible` rather than `hidden`, so each column keeps its grid cell. */
+  const hiddenBehindNav = navVisible === true && isSmallScreen && 'invisible';
 
   return (
     /* The composer review is in a z-10 stacking context. Keep header controls
        above it when a tall review reaches the top of a short viewport. */
-    <div className="from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 flex h-[3.25rem] w-full items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent">
-      <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
-        <OpenSidebar testId="header-open-sidebar-button" />
+    <div className={modeHeaderClass}>
+      <div className={modeHeaderStartClass}>
+        <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
+          <OpenSidebar testId="header-open-sidebar-button" />
+        </div>
       </div>
 
       <div
         className={cn(
-          'flex min-w-0 flex-1 items-center justify-center gap-2',
+          'flex min-w-0 items-center justify-center gap-2',
           !isSmallScreen && 'transition-all duration-200 ease-in-out',
           hiddenBehindNav,
         )}
@@ -102,8 +109,10 @@ function Header({
         )}
         {!readOnly && (
           <ConversationModeNav
-            active="chat"
-            chatPath={`${location.pathname}${location.search}${location.hash}`}
+            active={mode}
+            chatPath={
+              mode === 'chat' ? `${location.pathname}${location.search}${location.hash}` : undefined
+            }
             labels={{
               ariaLabel: localize('com_ui_conversation_mode'),
               chat: localize('com_ui_chat'),
@@ -113,13 +122,14 @@ function Header({
         )}
       </div>
 
-      <div className={cn('flex shrink-0 items-center gap-2', hiddenBehindNav)}>
+      <div className={cn(modeHeaderEndClass, hiddenBehindNav)}>
         {hasAccessToBookmarks === true && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
             <BookmarkMenu />
           </div>
         )}
-        {hasAccessToMultiConvo === true && (
+        {/* Work runs one task per conversation; the server refuses an added one. */}
+        {hasAccessToMultiConvo === true && mode === 'chat' && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
             <AddMultiConvo />
           </div>

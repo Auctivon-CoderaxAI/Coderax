@@ -3541,7 +3541,9 @@ export const memorySchema = z.object({
         provider: z.string(),
         model: z.string(),
         instructions: z.string().optional(),
-        model_parameters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+        model_parameters: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+          .optional(),
       }),
     ])
     .optional(),
@@ -3581,7 +3583,9 @@ export const summarizationConfigSchema = z.object({
   enabled: z.boolean().optional(),
   provider: z.string().optional(),
   model: z.string().optional(),
-  parameters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+  parameters: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+    .optional(),
   trigger: summarizationTriggerSchema.optional(),
   prompt: z.string().optional(),
   updatePrompt: z.string().optional(),
@@ -3885,9 +3889,30 @@ export const toolCallPreviewsConfigSchema = z.object({
 
 export type TToolCallPreviewsConfig = z.infer<typeof toolCallPreviewsConfigSchema>;
 
+export const DEFAULT_WORK_AGENT_GRAPH_LIMIT = 64;
+export const DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY = 8;
+
+export const workConfigSchema = z
+  .object({
+    agentGraphLimit: z
+      .number()
+      .int()
+      .positive()
+      .max(100_000)
+      .default(DEFAULT_WORK_AGENT_GRAPH_LIMIT),
+    agentGraphConcurrency: z
+      .number()
+      .int()
+      .positive()
+      .max(64)
+      .default(DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY),
+  })
+  .prefault({});
+
 export const configSchema = z.object({
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
+  work: workConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   ocr: ocrSchema.optional(),
@@ -4848,6 +4873,10 @@ export enum ErrorTypes {
    * Invalid Agent Provider (excluded by Admin)
    */
   INVALID_AGENT_PROVIDER = 'invalid_agent_provider',
+  /**
+   * A Work run reached an agent outside the free or local models it was admitted with
+   */
+  WORK_MODEL_NOT_ALLOWED = 'work_model_not_allowed',
   /**
    * Missing model selection
    */

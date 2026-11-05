@@ -69,8 +69,10 @@ test.describe('automatic Chat routing and native Work model selection', () => {
     await expect(selector).toBeVisible();
     await expect(page.getByTestId('model-selector-button')).toHaveCount(0);
     await expect(selector.locator('option').filter({ hasText: LOCAL_MODEL_B })).toHaveCount(1);
-    await selector.selectOption(LOCAL_MODEL_B);
-    await expect(selector).toHaveValue(LOCAL_MODEL_B);
+    await selector.selectOption({ label: LOCAL_MODEL_B });
+    await expect(page.getByTestId('work-selection-summary')).toHaveText(
+      `Runs on ${LOCAL_MODEL_B}.`,
+    );
 
     const taskInput = page.locator('#work-task');
     await taskInput.fill('Reply with the mock result.');
@@ -95,8 +97,16 @@ test.describe('automatic Chat routing and native Work model selection', () => {
 
     const conversationId = decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1)!);
     const conversation = await page.evaluate(async (id) => {
+      const refresh = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const { token } = (await refresh.json()) as { token: string };
       const response = await fetch(`/api/convos/${encodeURIComponent(id)}`, {
         credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` },
       });
       return response.ok ? response.json() : { status: response.status };
     }, conversationId);

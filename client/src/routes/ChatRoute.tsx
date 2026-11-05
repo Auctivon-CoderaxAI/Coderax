@@ -10,6 +10,8 @@ import {
   PermissionBits,
   isForcedTemporaryRetention,
   selectAutomaticChatModel,
+  isAssistantsEndpoint,
+  isAgentsEndpoint,
 } from 'coderax-data-provider';
 import type { TPreset, TAgentsMap } from 'coderax-data-provider';
 import {
@@ -292,21 +294,26 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       }
     });
     const parsedQuerySettings = processValidSettings(queryParams);
-    /** Work accepts only an explicit, available agent preset. Chat model specs
-     * and provider selections cannot override its server-side model gate. */
+    /** Work accepts only an agent preset or a provider/model pair; the server
+     * re-checks either against its free/local catalog. Chat model specs and
+     * other settings cannot override that gate. */
     let querySettings: TPreset = parsedQuerySettings;
     if (isWorkMode) {
-      const isExplicitWorkAgent =
-        parsedQuerySettings.endpoint === EModelEndpoint.agents &&
-        typeof parsedQuerySettings.agent_id === 'string' &&
-        typeof parsedQuerySettings.model === 'string';
-      querySettings = isExplicitWorkAgent
-        ? {
-            endpoint: EModelEndpoint.agents,
-            agent_id: parsedQuerySettings.agent_id,
-            model: parsedQuerySettings.model,
-          }
-        : ({} as TPreset);
+      const { endpoint, agent_id, model } = parsedQuerySettings;
+      const hasModel = typeof model === 'string' && model !== '';
+      if (endpoint === EModelEndpoint.agents && typeof agent_id === 'string' && hasModel) {
+        querySettings = { endpoint, agent_id, model };
+      } else if (
+        typeof endpoint === 'string' &&
+        endpoint !== '' &&
+        !isAgentsEndpoint(endpoint) &&
+        !isAssistantsEndpoint(endpoint) &&
+        hasModel
+      ) {
+        querySettings = { endpoint, model };
+      } else {
+        querySettings = {} as TPreset;
+      }
     }
 
     const notFoundConvo =

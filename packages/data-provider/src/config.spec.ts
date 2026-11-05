@@ -6,6 +6,8 @@ import {
   agentsEndpointSchema,
   DEFAULT_RETAINED_ANSWER_TOKENS,
   DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
+  DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+  DEFAULT_WORK_AGENT_GRAPH_LIMIT,
   bedrockModels,
   configSchema,
   chatProjectsConfigSchema,
@@ -31,6 +33,7 @@ import {
   isTwoFactorPolicyProvider,
   resolveEndpointType,
   webSearchSchema,
+  workConfigSchema,
 } from './config';
 import { EModelEndpoint, isDocumentSupportedProvider } from './schemas';
 import { getEndpointFileConfig, mergeFileConfig } from './file-config';
@@ -62,6 +65,19 @@ describe('config schema defaults', () => {
     expect(getSchemaDefaults(schema)).toEqual({
       section: { enabled: true, nested: { count: 2 } },
     });
+  });
+
+  it('defaults and validates Work graph limits in deployment config', () => {
+    expect(configSchema.parse({ version: '1.0' }).work).toEqual({
+      agentGraphLimit: DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+      agentGraphConcurrency: DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+    });
+    expect(workConfigSchema.parse({ agentGraphLimit: 256, agentGraphConcurrency: 4 })).toEqual({
+      agentGraphLimit: 256,
+      agentGraphConcurrency: 4,
+    });
+    expect(workConfigSchema.safeParse({ agentGraphLimit: 0 }).success).toBe(false);
+    expect(workConfigSchema.safeParse({ agentGraphConcurrency: 65 }).success).toBe(false);
   });
 });
 
