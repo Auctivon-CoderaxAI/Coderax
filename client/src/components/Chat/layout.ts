@@ -5,9 +5,18 @@
  * starters, composer tools and hints rather than in a layout of its own.
  */
 
-/** Overlays the top of the canvas; content scrolls beneath its fade. */
+/**
+ * Overlays the top of the canvas; content scrolls beneath its fade. Three
+ * columns keep the mode switch on the canvas centre whatever controls each mode
+ * puts beside it; when those controls outgrow their half, their column widens
+ * instead of overlapping the switch.
+ */
 export const modeHeaderClass =
-  'from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 flex h-[3.25rem] w-full items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent';
+  'from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 grid h-[3.25rem] w-full grid-cols-[1fr_auto_1fr] items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent';
+
+/** A header column keeps its grid cell even when its controls are hidden. */
+export const modeHeaderStartClass = 'flex min-w-0 items-center justify-start';
+export const modeHeaderEndClass = 'flex min-w-0 items-center justify-end gap-2';
 
 /** The welcome column: composer at the viewport floor on phones, centred from `sm` up. */
 export const landingColumnClass = 'flex-1 items-center justify-end sm:justify-center';

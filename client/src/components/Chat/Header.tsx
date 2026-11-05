@@ -8,6 +8,7 @@ import {
   Permissions,
   isForcedTemporaryRetention,
 } from 'coderax-data-provider';
+import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
 import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import { OpenSidebar, NewChat, HeaderMenu } from './Menus';
@@ -20,7 +21,6 @@ import SubagentThreadLink from './SubagentThreadLink';
 import { useHasAccess, useLocalize } from '~/hooks';
 import BookmarkMenu from './Menus/BookmarkMenu';
 import AddMultiConvo from './AddMultiConvo';
-import { modeHeaderClass } from './layout';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -83,20 +83,23 @@ function Header({
     enabled: parentConversationId == null,
   });
 
-  /** The drawer covers the header on mobile; keep its controls out of the tab order. */
-  const hiddenBehindNav = navVisible === true && isSmallScreen && 'hidden';
+  /** The drawer covers the header on mobile; keep its controls out of the tab order.
+   *  `invisible` rather than `hidden`, so each column keeps its grid cell. */
+  const hiddenBehindNav = navVisible === true && isSmallScreen && 'invisible';
 
   return (
     /* The composer review is in a z-10 stacking context. Keep header controls
        above it when a tall review reaches the top of a short viewport. */
     <div className={modeHeaderClass}>
-      <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
-        <OpenSidebar testId="header-open-sidebar-button" />
+      <div className={modeHeaderStartClass}>
+        <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
+          <OpenSidebar testId="header-open-sidebar-button" />
+        </div>
       </div>
 
       <div
         className={cn(
-          'flex min-w-0 flex-1 items-center justify-center gap-2',
+          'flex min-w-0 items-center justify-center gap-2',
           !isSmallScreen && 'transition-all duration-200 ease-in-out',
           hiddenBehindNav,
         )}
@@ -119,7 +122,7 @@ function Header({
         )}
       </div>
 
-      <div className={cn('flex shrink-0 items-center gap-2', hiddenBehindNav)}>
+      <div className={cn(modeHeaderEndClass, hiddenBehindNav)}>
         {hasAccessToBookmarks === true && (
           <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
             <BookmarkMenu />

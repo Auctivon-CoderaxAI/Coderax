@@ -32,7 +32,7 @@ export const workSelectionAtom = createStorageAtom<WorkSelection>(
 );
 
 const selectClassName =
-  'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer truncate rounded-full bg-transparent px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-default disabled:opacity-70';
+  'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer truncate rounded-full bg-transparent py-1.5 pr-8 pl-3 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-default disabled:opacity-70';
 
 /** Work's own catalog: free/local models and the agents whose whole graph runs on them. */
 export function useWorkOptions() {

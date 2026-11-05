@@ -1,7 +1,7 @@
+import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import ConversationModeNav from './ConversationModeNav';
 import OpenSidebar from './Menus/OpenSidebar';
-import { modeHeaderClass } from './layout';
 import { useLocalize } from '~/hooks';
 
 export default function ModeHeader() {
@@ -10,10 +10,12 @@ export default function ModeHeader() {
 
   return (
     <header className={modeHeaderClass}>
-      <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
-        <OpenSidebar />
+      <div className={modeHeaderStartClass}>
+        <div className={isSmallScreen ? 'flex flex-shrink-0 items-center' : 'hidden'}>
+          <OpenSidebar />
+        </div>
       </div>
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+      <div className="flex min-w-0 items-center justify-center gap-2">
         <ConversationModeNav
           active="work"
           labels={{
@@ -23,6 +25,7 @@ export default function ModeHeader() {
           }}
         />
       </div>
+      <div className={modeHeaderEndClass} />
     </header>
   );
 }

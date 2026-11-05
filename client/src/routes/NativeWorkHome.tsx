@@ -239,7 +239,7 @@ export default function NativeWorkHome() {
           <form
             data-testid="work-composer-form"
             className={cn(
-              'mx-auto flex w-full flex-col sm:px-2',
+              'relative mx-auto flex w-full flex-col sm:px-2',
               composerWidthClass,
               landingComposerClearance(centerFormOnLanding),
             )}
@@ -349,14 +349,16 @@ export default function NativeWorkHome() {
                 </div>
               </div>
             </div>
-            {tasks.isLoading && (
-              <p role="status" className="text-text-muted px-3 pt-1.5 text-xs">
-                {localize('com_cyvox_work_history_loading')}
-              </p>
-            )}
-            <p className="text-text-muted hidden px-3 pt-1.5 text-xs sm:block">
-              {localize('com_cyvox_work_policy_note')}
-            </p>
+            {/* Beneath the surface, out of flow, as Chat's hint row is: the surface
+                itself ends exactly where Chat's does. */}
+            <div className="absolute inset-x-0 top-full hidden px-5 pt-1.5 sm:block">
+              {tasks.isLoading && (
+                <p role="status" className="text-text-muted text-xs">
+                  {localize('com_cyvox_work_history_loading')}
+                </p>
+              )}
+              <p className="text-text-muted text-xs">{localize('com_cyvox_work_policy_note')}</p>
+            </div>
           </form>
         </div>
       </div>
