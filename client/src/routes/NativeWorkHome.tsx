@@ -174,7 +174,7 @@ export default function NativeWorkHome() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[46rem] flex-1 flex-col justify-center px-5 py-10">
           <h1 className="text-text-primary text-center text-3xl leading-tight font-normal tracking-tight">
-            {localize('com_cyvox_work_welcome_title')}
+            {localize('com_work_welcome_title')}
           </h1>
           <form
             className="mt-8 w-full"
@@ -191,7 +191,7 @@ export default function NativeWorkHome() {
               )}
             >
               <label htmlFor="work-task" className="sr-only">
-                {localize('com_cyvox_work_description_label')}
+                {localize('com_work_description_label')}
               </label>
               <textarea
                 id="work-task"
@@ -213,7 +213,7 @@ export default function NativeWorkHome() {
                     startTask();
                   }
                 }}
-                placeholder={localize('com_cyvox_work_description_placeholder')}
+                placeholder={localize('com_work_description_placeholder')}
               />
               <div className="flex items-center justify-between gap-2 px-1 pt-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -245,7 +245,7 @@ export default function NativeWorkHome() {
                     size="icon-sm"
                     shape="round"
                     className="size-9 shrink-0"
-                    aria-label={localize('com_cyvox_work_start_task_aria')}
+                    aria-label={localize('com_work_start_task_aria')}
                     disabled={
                       workAgents.isLoading ||
                       workAgents.isError ||
@@ -263,12 +263,12 @@ export default function NativeWorkHome() {
             <div className="mt-3 space-y-1 px-1">
               {tasks.isLoading && (
                 <p role="status" className="text-text-muted text-center text-xs">
-                  {localize('com_cyvox_work_history_loading')}
+                  {localize('com_work_history_loading')}
                 </p>
               )}
               {tasks.isError && (
                 <p role="alert" className="text-text-muted text-center text-xs">
-                  {localize('com_cyvox_tasks_unavailable')}
+                  {localize('com_work_tasks_unavailable')}
                 </p>
               )}
               {workAgents.modelsQuery.isError && (
@@ -302,14 +302,14 @@ export default function NativeWorkHome() {
                 </p>
               )}
               <p className="text-text-muted text-center text-xs">
-                {localize('com_cyvox_work_policy_note')}
+                {localize('com_work_policy_note')}
               </p>
             </div>
           </form>
           {recentTasks.length > 0 && !tasks.isError && (
-            <section aria-label={localize('com_cyvox_work_recent_heading')} className="mt-6 w-full">
+            <section aria-label={localize('com_work_recent_heading')} className="mt-6 w-full">
               <h2 className="text-text-muted px-1 text-xs font-medium">
-                {localize('com_cyvox_work_recent_heading')}
+                {localize('com_work_recent_heading')}
               </h2>
               <ul className="mt-1.5 space-y-0.5">
                 {recentTasks.map((item) => (
@@ -327,10 +327,10 @@ export default function NativeWorkHome() {
                         type="button"
                         className="text-text-secondary hover:bg-surface-hover hover:text-text-primary shrink-0 rounded-lg px-2 py-1 text-xs transition-colors disabled:opacity-60"
                         disabled={cancelTask.isLoading}
-                        aria-label={localize('com_cyvox_cancel') + ' ' + item.title}
+                        aria-label={localize('com_ui_cancel') + ' ' + item.title}
                         onClick={() => void cancel(item)}
                       >
-                        {localize('com_cyvox_cancel')}
+                        {localize('com_ui_cancel')}
                       </button>
                     )}
                   </li>

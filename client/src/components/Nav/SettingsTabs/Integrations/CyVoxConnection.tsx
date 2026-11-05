@@ -38,8 +38,8 @@ function testErrorKey(code: TCyVoxConnectionTestErrorCode): TranslationKeys {
 }
 
 /**
- * Tenant-wide Coderax Work connection. The access token is write-only: the
- * server returns a masked preview and never the stored value.
+ * Tenant-wide CyVox connection. The access token is write-only: the server
+ * returns a masked preview and never the stored value.
  */
 export default function CyVoxConnection() {
   const localize = useLocalize();
