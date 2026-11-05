@@ -31,9 +31,6 @@ export function selectedWorkAgentId(body: unknown, ephemeralAgentId: string): st
 export function hasMalformedWorkAgentId(body: unknown, ephemeralAgentId: string): boolean {
   const agentId = agentIdFromBody(body);
   return (
-    agentId != null &&
-    agentId !== '' &&
-    agentId !== ephemeralAgentId &&
-    !isValidWorkId(agentId)
+    agentId != null && agentId !== '' && agentId !== ephemeralAgentId && !isValidWorkId(agentId)
   );
 }

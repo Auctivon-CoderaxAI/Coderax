@@ -72,9 +72,10 @@ describe('config schema defaults', () => {
       agentGraphLimit: DEFAULT_WORK_AGENT_GRAPH_LIMIT,
       agentGraphConcurrency: DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
     });
-    expect(
-      workConfigSchema.parse({ agentGraphLimit: 256, agentGraphConcurrency: 4 }),
-    ).toEqual({ agentGraphLimit: 256, agentGraphConcurrency: 4 });
+    expect(workConfigSchema.parse({ agentGraphLimit: 256, agentGraphConcurrency: 4 })).toEqual({
+      agentGraphLimit: 256,
+      agentGraphConcurrency: 4,
+    });
     expect(workConfigSchema.safeParse({ agentGraphLimit: 0 }).success).toBe(false);
     expect(workConfigSchema.safeParse({ agentGraphConcurrency: 65 }).success).toBe(false);
   });

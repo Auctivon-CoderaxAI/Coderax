@@ -21,9 +21,7 @@ export type WorkAgentPage<Agent> = {
 export function createWorkAgentPageLoader<Id, Agent>(
   loadPage: (input: WorkAgentPageInput<Id>) => Promise<WorkAgentPage<Agent>>,
 ): (input: Omit<WorkAgentPageInput<Id>, 'after'>) => Promise<Agent[]> {
-  return async function loadAll(
-    input: Omit<WorkAgentPageInput<Id>, 'after'>,
-  ): Promise<Agent[]> {
+  return async function loadAll(input: Omit<WorkAgentPageInput<Id>, 'after'>): Promise<Agent[]> {
     const data: Agent[] = [];
     let after: string | undefined;
     const seenCursors = new Set<string>();

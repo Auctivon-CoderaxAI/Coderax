@@ -56,6 +56,63 @@ function makeDeps(
 }
 
 describe('createWorkDepsFactory', () => {
+  it('reads agents and the configured default through the request-scoped sources', async () => {
+    const seen: unknown[] = [];
+    const depsFor = createWorkDepsFactory({
+      db: { getConvosByCursor: async () => [], getConvo: async () => null },
+      jobs: {
+        getJob: async () => null,
+        getJobStatus: async () => null,
+        abortJob: async () => null,
+      },
+      loadModels: async () => ({}),
+      workStateForJobStatus,
+      projections,
+      listAgents: async (req) => {
+        seen.push(req);
+        return [
+          {
+            id: 'lead',
+            name: 'Lead',
+            model: 'llama3:latest',
+            provider: 'ollama',
+            author: 'user-9',
+            instructions: 'secret prompt',
+            edges: [{ from: 'lead', to: 'writer' }],
+            subagents: { enabled: true, agent_ids: ['sub'], graphs: [{ agent_ids: ['member'] }] },
+          },
+          { name: 'no id' },
+          null,
+        ];
+      },
+      configuredDefaultModel: async (req) => (req.user?.id === 'user-1' ? 'llama3:latest' : null),
+    });
+    const deps = depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } });
+
+    await expect(deps.listAgents?.()).resolves.toEqual([
+      {
+        id: 'lead',
+        name: 'Lead',
+        model: 'llama3:latest',
+        provider: 'ollama',
+        edges: [{ from: 'lead', to: 'writer' }],
+        agent_ids: [],
+        subagents: { enabled: true, agent_ids: ['sub'], graphs: [{ agent_ids: ['member'] }] },
+      },
+    ]);
+    expect(seen).toEqual([{ user: { id: 'user-1', tenantId: 'tenant-a' } }]);
+    await expect(deps.configuredDefaultModel?.()).resolves.toBe('llama3:latest');
+  });
+
+  it('projects the conversation agent onto a Work task, never the ephemeral sentinel', () => {
+    expect(projections.toWorkConversation({ ...WORK_ROW, agent_id: 'agent_lead' })).toMatchObject({
+      agentId: 'agent_lead',
+    });
+    expect(
+      projections.toWorkConversation({ ...WORK_ROW, agent_id: 'ephemeral' }),
+    ).not.toHaveProperty('agentId');
+  });
+
   it('flattens the native catalog through the real Work projections', async () => {
     const { depsFor } = makeDeps();
 
@@ -152,10 +209,14 @@ describe('createWorkDepsFactory', () => {
       limit: 50,
     });
     expect(getConvosByCursor).toHaveBeenNthCalledWith(
-      1, 'user-1', expect.objectContaining({ isWork: true, tenantId: 'tenant-a' }),
+      1,
+      'user-1',
+      expect.objectContaining({ isWork: true, tenantId: 'tenant-a' }),
     );
     expect(getConvosByCursor).toHaveBeenNthCalledWith(
-      2, 'user-1', expect.objectContaining({ isWork: true, tenantId: null }),
+      2,
+      'user-1',
+      expect.objectContaining({ isWork: true, tenantId: null }),
     );
   });
 
@@ -182,9 +243,9 @@ describe('createWorkDepsFactory', () => {
     await expect(
       depsFor({ user: { id: 'user-1', tenantId: 'tenant-a' } }).getConversation(input),
     ).resolves.toBeNull();
-    await expect(
-      depsFor({ user: { id: 'user-1' } }).getConversation(input),
-    ).resolves.toMatchObject({ conversationId: 'c-1', isWork: true });
+    await expect(depsFor({ user: { id: 'user-1' } }).getConversation(input)).resolves.toMatchObject(
+      { conversationId: 'c-1', isWork: true },
+    );
   });
 
   it('takes run state from the native job status', async () => {
@@ -216,9 +277,7 @@ describe('createWorkDepsFactory', () => {
       if (!getRunState) {
         throw new Error('getRunState missing');
       }
-      await expect(
-        getRunState({ userId: 'user-1', conversationId: 'c-1' }),
-      ).resolves.toBeNull();
+      await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBeNull();
       expect(getJobStatus).not.toHaveBeenCalled();
     }
   });
@@ -230,9 +289,9 @@ describe('createWorkDepsFactory', () => {
     if (!getRunState) {
       throw new Error('getRunState missing');
     }
-    await expect(
-      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
-    ).resolves.toBe('completed');
+    await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBe(
+      'completed',
+    );
     expect(getJobStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -244,9 +303,7 @@ describe('createWorkDepsFactory', () => {
       throw new Error('getRunState missing');
     }
 
-    await expect(
-      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
-    ).resolves.toBeNull();
+    await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBeNull();
     expect(getJobStatus).not.toHaveBeenCalled();
   });
 
@@ -263,9 +320,9 @@ describe('createWorkDepsFactory', () => {
       throw new Error('getRunState missing');
     }
 
-    await expect(
-      getRunState({ userId: 'user-1', conversationId: 'c-1' }),
-    ).resolves.toBe('completed');
+    await expect(getRunState({ userId: 'user-1', conversationId: 'c-1' })).resolves.toBe(
+      'completed',
+    );
     expect(getJobStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -310,8 +367,14 @@ describe('createWorkDepsFactory', () => {
         { metadata: { userId: 'user-1', tenantId: 'tenant-b' }, createdAt: 7 },
         { user: { id: 'user-1' }, tenantId: 'tenant-a' },
       ],
-      [{ metadata: { userId: 'user-1' }, createdAt: 7 }, { user: { id: 'user-1', tenantId: 'tenant-a' } }],
-      [{ metadata: { userId: 'user-1', tenantId: 'tenant-a' }, createdAt: 7 }, { user: { id: 'user-1' } }],
+      [
+        { metadata: { userId: 'user-1' }, createdAt: 7 },
+        { user: { id: 'user-1', tenantId: 'tenant-a' } },
+      ],
+      [
+        { metadata: { userId: 'user-1', tenantId: 'tenant-a' }, createdAt: 7 },
+        { user: { id: 'user-1' } },
+      ],
     ] as const) {
       const { depsFor, calls } = makeDeps({ jobs: { getJob: async () => job } });
       const cancelled = await depsFor(req).cancelRun({

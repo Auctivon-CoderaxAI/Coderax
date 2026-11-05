@@ -54,9 +54,7 @@ describe('Work agent catalog helpers', () => {
       provider: 'ollama',
       agent_ids: [`child-${index}`],
     }));
-    const models = buildWorkModelOptions([
-      { id: 'local-model', provider: 'ollama', local: true },
-    ]);
+    const models = buildWorkModelOptions([{ id: 'local-model', provider: 'ollama', local: true }]);
     let active = 0;
     let maximumActive = 0;
 

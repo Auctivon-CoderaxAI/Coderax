@@ -65,6 +65,24 @@ describe('native Work router', () => {
     expect(res.body.code).toBe('WORK_MODELS_UNAVAILABLE');
   });
 
+  it('lists eligible agents across graph-check batches', async () => {
+    const agents = Array.from({ length: 9 }, (_, index) => ({
+      id: `agent-${index}`,
+      model: 'llama3:latest',
+      provider: 'ollama',
+    }));
+    const res = await request(
+      app({
+        listModels: async () => [{ id: 'llama3:latest', provider: 'ollama', local: true }],
+        listAgents: async () => agents,
+      }),
+    ).get('/api/work/agents');
+    expect(res.status).toBe(200);
+    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(
+      agents.map((agent) => agent.id),
+    );
+  });
+
   it('applies the configured graph-size limit to agent listings', async () => {
     const res = await request(
       app({
@@ -235,5 +253,99 @@ describe('native Work router', () => {
     const res = await request(server).get('/api/work/tasks');
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('WORK_HISTORY_UNAVAILABLE');
+  });
+
+  it('names the model the automatic option resolves to', async () => {
+    const res = await request(app()).get('/api/work/models');
+    expect(res.body.models[0]).toEqual({
+      id: 'auto',
+      label: 'Automatic',
+      auto: true,
+      target: { id: 'llama3:latest', label: 'llama3:latest' },
+    });
+  });
+
+  it('keeps automatic routing when the configured default cannot be read', async () => {
+    const res = await request(
+      app({
+        configuredDefaultModel: async () => {
+          throw new Error('config down');
+        },
+      }),
+    ).get('/api/work/models');
+    expect(res.status).toBe(200);
+    expect(res.body.models[0].target.id).toBe('llama3:latest');
+  });
+
+  describe('agents', () => {
+    const catalog = async () => [
+      { id: 'llama3:latest', provider: 'ollama', local: true },
+      { id: 'qwen:7b', provider: 'ollama', local: true },
+      { id: 'gpt-4o', provider: 'openAI' },
+    ];
+
+    it('offers only agents whose whole graph runs on free or local models', async () => {
+      const res = await request(
+        app({
+          listModels: catalog,
+          listAgents: async () => [
+            {
+              id: 'lead',
+              name: 'Lead',
+              model: 'llama3:latest',
+              provider: 'ollama',
+              edges: [{ from: 'lead', to: 'writer', edgeType: 'handoff' }],
+            },
+            { id: 'writer', name: 'Writer', model: 'qwen:7b', provider: 'ollama' },
+            { id: 'paid', name: 'Paid', model: 'gpt-4o', provider: 'openAI' },
+            {
+              id: 'mixed',
+              name: 'Mixed',
+              model: 'llama3:latest',
+              provider: 'ollama',
+              subagents: { enabled: true, agent_ids: ['paid'] },
+            },
+          ],
+        }),
+      ).get('/api/work/agents');
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body.agents).toEqual([
+        {
+          id: 'lead',
+          name: 'Lead',
+          model: 'llama3:latest',
+          provider: 'ollama',
+          members: [{ id: 'writer', name: 'Writer', model: 'qwen:7b', provider: 'ollama' }],
+        },
+        { id: 'writer', name: 'Writer', model: 'qwen:7b', provider: 'ollama', members: [] },
+      ]);
+    });
+
+    it('offers none when the deployment wires no agent source', async () => {
+      const res = await request(app({ listModels: catalog })).get('/api/work/agents');
+      expect(res.status).toBe(200);
+      expect(res.body.agents).toEqual([]);
+    });
+
+    it('reports an agent store failure as unavailable, not as no agents', async () => {
+      const res = await request(
+        app({
+          listModels: catalog,
+          listAgents: async () => {
+            throw new Error('agents down');
+          },
+        }),
+      ).get('/api/work/agents');
+      expect(res.status).toBe(503);
+      expect(res.body.code).toBe('WORK_AGENTS_UNAVAILABLE');
+    });
+
+    it('requires an authenticated user', async () => {
+      const res = await request(app({ user: null, listAgents: async () => [] })).get(
+        '/api/work/agents',
+      );
+      expect(res.status).toBe(401);
+    });
   });
 });

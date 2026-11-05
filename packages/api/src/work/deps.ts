@@ -160,7 +160,9 @@ export function createWorkDepsFactory({
       ...(configuredDefaultModel
         ? { configuredDefaultModel: () => configuredDefaultModel(req) }
         : {}),
-      ...(workConfig?.agentGraphLimit != null ? { agentGraphLimit: workConfig.agentGraphLimit } : {}),
+      ...(workConfig?.agentGraphLimit != null
+        ? { agentGraphLimit: workConfig.agentGraphLimit }
+        : {}),
       ...(workConfig?.agentGraphConcurrency != null
         ? { agentGraphConcurrency: workConfig.agentGraphConcurrency }
         : {}),
