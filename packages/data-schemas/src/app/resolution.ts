@@ -412,7 +412,7 @@ function expandUnionIssues(issues: SchemaIssue[], depth = 0): SchemaIssue[] {
     if (issue.code !== 'invalid_union' || depth >= MAX_MERGE_DEPTH) {
       return [issue];
     }
-    const branches = issue.unionErrors.map((error) => error.issues);
+    const branches = issue.errors;
     const closest = branches.reduce<SchemaIssue[] | undefined>((best, branch) => {
       if (!best || branch.length < best.length) {
         return branch;
@@ -544,7 +544,10 @@ export function getConfigOverrideIssues(
       if (issue.code === 'unrecognized_keys') {
         continue;
       }
-      const issuePath: IssuePath = [section, ...issue.path];
+      const issuePath: IssuePath = [
+        section,
+        ...issue.path.map((segment) => (typeof segment === 'symbol' ? String(segment) : segment)),
+      ];
       const segments = attributeIssue(overrides, merged, issuePath);
       if (
         !segments ||
