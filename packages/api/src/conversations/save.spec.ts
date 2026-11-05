@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { randomUUID } from 'crypto';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { createMethods, createModels } from '@coderax/data-schemas';
+import { createMethods, createModels, tenantStorage } from '@coderax/data-schemas';
 import type { ConversationMethods, MessageMethods } from '@coderax/data-schemas';
 import type { AttachedCodeEnvironmentPolicySettings } from '~/agents/hitl/byom';
 import type { TurnConversationRequest } from './save';
@@ -189,39 +189,43 @@ describe('seedTurnConversation', () => {
 
 describe('persisted tenant scope across turn saves', () => {
   it('does not unset the tenant of a seeded Work or ordinary Chat conversation', async () => {
-    for (const isWork of [false, true]) {
-      const userId = new mongoose.Types.ObjectId().toString();
-      const conversationId = randomUUID();
-      await store.saveConvo(
-        { userId },
-        {
-          conversationId,
-          endpoint: 'agents',
-          model: 'claude-sonnet',
-          tenantId: 'tenant-a',
-          ...(isWork ? { isWork: true, workModel: 'llama3:latest' } : {}),
-        },
-      );
+    /** The tenant-isolation plugin stamps the active request scope; a save outside
+     *  that context has no tenant to persist, so the test must run like a request. */
+    await tenantStorage.run({ tenantId: 'tenant-a' }, async () => {
+      for (const isWork of [false, true]) {
+        const userId = new mongoose.Types.ObjectId().toString();
+        const conversationId = randomUUID();
+        await store.saveConvo(
+          { userId },
+          {
+            conversationId,
+            endpoint: 'agents',
+            model: 'claude-sonnet',
+            tenantId: 'tenant-a',
+            ...(isWork ? { isWork: true, workModel: 'llama3:latest' } : {}),
+          },
+        );
 
-      const req = Object.assign(
-        createRequest(userId),
-        isWork ? { workContext: { isWork: true, workModel: 'llama3:latest' } } : {},
-      );
-      req.resolvedConversation = await store.getConvo(userId, conversationId);
-      expect(req.resolvedConversation?.tenantId).toBe('tenant-a');
+        const req = Object.assign(
+          createRequest(userId),
+          isWork ? { workContext: { isWork: true, workModel: 'llama3:latest' } } : {},
+        );
+        req.resolvedConversation = await store.getConvo(userId, conversationId);
+        expect(req.resolvedConversation?.tenantId).toBe('tenant-a');
 
-      await saveTurnConversation(store, {
-        ...seedFields(req, conversationId),
-        ctx: getConversationWriteContext(req),
-        context: 'save.spec preserve tenant scope',
-      });
+        await saveTurnConversation(store, {
+          ...seedFields(req, conversationId),
+          ctx: getConversationWriteContext(req),
+          context: 'save.spec preserve tenant scope',
+        });
 
-      const persisted = await store.getConvo(userId, conversationId);
-      expect(persisted?.tenantId).toBe('tenant-a');
-      if (isWork) {
-        expect(persisted).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
+        const persisted = await store.getConvo(userId, conversationId);
+        expect(persisted?.tenantId).toBe('tenant-a');
+        if (isWork) {
+          expect(persisted).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
+        }
       }
-    }
+    });
   });
 });
 

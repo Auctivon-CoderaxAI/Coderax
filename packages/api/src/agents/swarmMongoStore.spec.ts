@@ -1,10 +1,12 @@
 import { MongoClient } from 'mongodb';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { createSwarmLeaseRepository } from '@coderax/data-schemas';
+import type { SwarmLeaseDocument } from '@coderax/data-schemas';
 import type { Collection } from 'mongodb';
 import type { SwarmClaimResult, SwarmLease } from './swarm';
-import type { MongoSwarmLeaseDocument, MongoSwarmScope } from './swarmMongoStore';
-import { SwarmCoordinator } from './swarm';
+import type { MongoSwarmScope } from './swarmMongoStore';
 import { createMongoSwarmStore } from './swarmMongoStore';
+import { SwarmCoordinator } from './swarm';
 
 const owner: MongoSwarmScope = { userId: 'owner-a', tenantId: 'tenant-a', runId: 'run-a' };
 const task = { id: 'task-a', requiredTools: ['read'] };
@@ -21,13 +23,13 @@ function claimed(result: SwarmClaimResult): SwarmLease {
 describe('durable Mongo swarm lease store', () => {
   let mongo: MongoMemoryServer;
   let client: MongoClient;
-  let collection: Collection<MongoSwarmLeaseDocument>;
+  let collection: Collection<SwarmLeaseDocument>;
 
   beforeAll(async () => {
     mongo = await MongoMemoryServer.create();
     client = new MongoClient(mongo.getUri());
     await client.connect();
-    collection = client.db('swarm-test').collection<MongoSwarmLeaseDocument>('leases');
+    collection = client.db('swarm-test').collection<SwarmLeaseDocument>('leases');
   }, 60_000);
 
   afterEach(async () => {
@@ -39,9 +41,13 @@ describe('durable Mongo swarm lease store', () => {
     await mongo?.stop();
   });
 
+  function storeFor(scope: MongoSwarmScope) {
+    return createMongoSwarmStore(createSwarmLeaseRepository(collection), scope);
+  }
+
   function coordinator(scope: MongoSwarmScope, peer: string, now: () => number) {
     return new SwarmCoordinator({
-      store: createMongoSwarmStore(collection, scope),
+      store: storeFor(scope),
       allowedTools: ['read'],
       leaseMs: 100,
       maxAttempts: 3,
@@ -65,9 +71,7 @@ describe('durable Mongo swarm lease store', () => {
       throw new Error('Expected one winning Mongo lease claim');
     }
     const lease = claimed(winner);
-    expect((await createMongoSwarmStore(collection, owner).get(task.id))?.leaseId).toBe(
-      lease.leaseId,
-    );
+    expect((await storeFor(owner).get(task.id))?.leaseId).toBe(lease.leaseId);
   });
 
   it('fences a stale peer after expiry and reassignment across instances', async () => {
@@ -92,9 +96,7 @@ describe('durable Mongo swarm lease store', () => {
       ok: true,
       status: 'completed',
     });
-    expect((await createMongoSwarmStore(collection, owner).get(task.id))?.result).toBe(
-      'verified',
-    );
+    expect((await storeFor(owner).get(task.id))?.result).toBe('verified');
   });
 
   it('preserves a completed lease across newly constructed stores', async () => {
@@ -130,15 +132,13 @@ describe('durable Mongo swarm lease store', () => {
     }
     expect(await collection.countDocuments({})).toBe(scopes.length);
     for (const scope of scopes) {
-      expect((await createMongoSwarmStore(collection, scope).get(task.id))?.attempt).toBe(1);
+      expect((await storeFor(scope).get(task.id))?.attempt).toBe(1);
     }
   });
 
   it('fails closed on missing scope and mismatched CAS task IDs', async () => {
-    expect(() => createMongoSwarmStore(collection, { ...owner, userId: '' })).toThrow(
-      /authenticated owner/,
-    );
-    const store = createMongoSwarmStore(collection, owner);
+    expect(() => storeFor({ ...owner, userId: '' })).toThrow(/authenticated owner/);
+    const store = storeFor(owner);
     await expect(
       store.compareAndSwap('expected', null, {
         taskId: 'unexpected',
