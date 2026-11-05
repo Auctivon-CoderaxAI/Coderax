@@ -1,24 +1,21 @@
 import { useMemo } from 'react';
+import { useAtom } from 'jotai';
+import { atomFamily } from 'jotai/utils';
 import { useQuery } from '@tanstack/react-query';
-import { EModelEndpoint, QueryKeys, dataService, getEndpointField } from 'coderax-data-provider';
+import { QueryKeys, dataService } from 'coderax-data-provider';
 import type { TWorkAgent } from 'coderax-data-provider';
-import type { ResolvedWorkSelection, WorkOptions, WorkSelection } from './workSelection';
+import type { WorkOptions, WorkSelection } from './workSelection';
 import {
   workSelectionFromConversation,
-  automaticWorkSelection,
+  sanitizeWorkSelection,
   resolveWorkSelection,
   getWorkModelKey,
   selectWorkAgent,
   WORK_AUTOMATIC,
   toWorkOptions,
 } from './workSelection';
-import {
-  ModelSelectorChatProvider,
-  useModelSelectorChatContext,
-} from '~/components/Chat/Menus/Endpoints/ModelSelectorChatContext';
-import useSelectMention from '~/hooks/Input/useSelectMention';
 import { createStorageAtom } from '~/store/jotai-utils';
-import { useGetEndpointsQuery } from '~/data-provider';
+import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -26,27 +23,28 @@ import { cn } from '~/utils';
 export { getWorkModelKey } from './workSelection';
 
 /** The last Work selection, re-validated against the server's offer on every read. */
-export const workSelectionAtom = createStorageAtom<WorkSelection>(
-  'workSelection',
-  automaticWorkSelection,
+export const workSelectionFamily = atomFamily((key: string) =>
+  createStorageAtom<WorkSelection | null>(`workSelection:${key}`, null),
 );
 
 const selectClassName =
   'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer truncate rounded-full bg-transparent py-1.5 pr-8 pl-3 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-default disabled:opacity-70';
 
 /** Work's own catalog: free/local models and the agents whose whole graph runs on them. */
-export function useWorkOptions() {
+export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
   const modelsQuery = useQuery({
     queryKey: [QueryKeys.workModels],
     queryFn: () => dataService.getWorkModels(),
     retry: false,
     staleTime: 30_000,
+    enabled,
   });
   const agentsQuery = useQuery({
     queryKey: [QueryKeys.workAgents],
     queryFn: () => dataService.getWorkAgents(),
     retry: false,
     staleTime: 30_000,
+    enabled,
   });
   const options = useMemo(
     () => toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents),
@@ -174,95 +172,32 @@ export function WorkAgentSelect({
   );
 }
 
-/** Names exactly what a task will run on before it starts. */
-export function WorkSelectionSummary({
-  resolved,
-  className,
-}: {
-  resolved: ResolvedWorkSelection | null;
-  className?: string;
-}) {
-  const localize = useLocalize();
-  if (!resolved) {
-    return null;
-  }
-  const model = resolved.model.label?.trim() || resolved.model.id;
-  const agentName = resolved.agent ? resolved.agent.name?.trim() || resolved.agent.id : null;
-  const members = resolved.agent?.members.map((member) => member.name?.trim() || member.id) ?? [];
-
-  return (
-    <p
-      data-testid="work-selection-summary"
-      className={cn('text-text-secondary text-xs', className)}
-    >
-      {agentName
-        ? localize('com_work_runs_agent_on_model', { 0: agentName, 1: model })
-        : localize('com_work_runs_on_model', { 0: model })}
-      {members.length > 0 && ` ${localize('com_work_with_agents', { 0: members.join(', ') })}`}
-    </p>
-  );
-}
-
 /** The in-task composer applies a new selection to the open Work conversation. */
 export function WorkAgentConversationSelector() {
-  return (
-    <ModelSelectorChatProvider>
-      <WorkAgentConversationSelectorContent />
-    </ModelSelectorChatProvider>
-  );
-}
-
-function WorkAgentConversationSelectorContent() {
   const localize = useLocalize();
   const { options, isLoading, modelsQuery, agentsQuery } = useWorkOptions();
-  const { conversation, setConversation } = useChatContext();
-  const { getConversation, newConversation } = useModelSelectorChatContext();
-  const { data: endpointsConfig } = useGetEndpointsQuery();
-  const { onSelectEndpoint } = useSelectMention({
-    modelSpecs: [],
-    endpointsConfig: endpointsConfig ?? {},
-    getConversation,
-    newConversation,
-    returnHandlers: true,
-  });
-  const selection = workSelectionFromConversation(conversation, options);
+  const { conversation, isSubmitting } = useChatContext();
+  const { selectionKey } = useConversationMode();
+  const [storedSelection, setSelection] = useAtom(workSelectionFamily(selectionKey));
+  const selection = storedSelection
+    ? sanitizeWorkSelection(storedSelection, options)
+    : workSelectionFromConversation(conversation, options);
 
   const apply = (next: WorkSelection) => {
     const resolved = resolveWorkSelection(next, options);
     if (!resolved) {
       return;
     }
-    if (resolved.agent) {
-      onSelectEndpoint?.(EModelEndpoint.agents, {
-        agent_id: resolved.agent.id,
-        model: resolved.model.id,
-      });
-      return;
-    }
-    /** Without an agent the conversation runs Coderax's default agent on this
-     *  model; any earlier agent is cleared so it cannot ride along. */
-    const { endpoint, model } = resolved.preset;
-    setConversation((previous) =>
-      previous
-        ? {
-            ...previous,
-            endpoint: endpoint as EModelEndpoint,
-            endpointType: getEndpointField(endpointsConfig, endpoint, 'type') ?? null,
-            model,
-            agent_id: undefined,
-            spec: null,
-          }
-        : previous,
-    );
+    setSelection(next);
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-1" data-testid="work-agent-selection">
+    <div className="flex min-w-0 items-center gap-1" data-testid="work-agent-selection">
       <WorkModelSelect
         options={options}
         selection={selection}
         onChange={apply}
-        disabled={isLoading || modelsQuery.isError}
+        disabled={isSubmitting || isLoading || modelsQuery.isError}
         id="work-model-composer"
         className="w-full max-w-full"
       />
@@ -270,7 +205,7 @@ function WorkAgentConversationSelectorContent() {
         options={options}
         selection={selection}
         onChange={apply}
-        disabled={isLoading || modelsQuery.isError || agentsQuery.isError}
+        disabled={isSubmitting || isLoading || modelsQuery.isError || agentsQuery.isError}
         id="work-agent-composer"
         className="w-full max-w-full"
       />
@@ -282,6 +217,11 @@ function WorkAgentConversationSelectorContent() {
       {agentsQuery.isError && (
         <span role="alert" className="text-text-secondary text-xs">
           {localize('com_work_agents_unavailable')}
+        </span>
+      )}
+      {!isLoading && !modelsQuery.isError && options.models.length === 0 && (
+        <span role="alert" className="text-text-secondary text-xs">
+          {localize('com_work_models_empty')}
         </span>
       )}
     </div>

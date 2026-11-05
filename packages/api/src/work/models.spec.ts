@@ -71,10 +71,9 @@ describe('native work model discovery', () => {
   });
 
   it('routes automatic to a free or local model, never to a paid default', () => {
-    /** The deployment default is paid: automatic falls back to the free/local ranking. */
+    /** A paid default cannot enter the offered catalog; automatic stays free/local. */
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      const selection = resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o');
-      expect(selection).toEqual({
+      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toEqual({
         ok: true,
         auto: true,
         model: { id: 'llama3:latest', label: 'llama3:latest' },

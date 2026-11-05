@@ -128,7 +128,7 @@ function ChatView({
   const activeSubagentThread = activeConversation?.subagentThread;
   const chatProjectId = activeConversation?.chatProjectId || undefined;
 
-  useAdaptiveSSE(rootSubmission, chatHelpers, false, index);
+  useAdaptiveSSE(rootSubmission, chatHelpers, false, index, workMode);
 
   // Auto-resume if navigating back to conversation with active job.
   // Wait for messages to load AND the warm-cache background revalidation to

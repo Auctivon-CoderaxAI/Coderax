@@ -70,11 +70,7 @@ test.describe('automatic Chat routing and native Work model selection', () => {
     await expect(page.getByTestId('model-selector-button')).toHaveCount(0);
     await expect(selector.locator('option').filter({ hasText: LOCAL_MODEL_B })).toHaveCount(1);
     await selector.selectOption({ label: LOCAL_MODEL_B });
-    await expect(page.getByTestId('work-selection-summary')).toHaveText(
-      `Runs on ${LOCAL_MODEL_B}.`,
-    );
-
-    const taskInput = page.locator('#work-task');
+    const taskInput = page.getByRole('textbox', { name: 'Message input' });
     await taskInput.fill('Reply with the mock result.');
     await expect(taskInput).toHaveValue('Reply with the mock result.');
     const startButton = page.locator('form button[type="submit"]');

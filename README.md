@@ -81,6 +81,24 @@ The shared execution lifecycle is:
 
 ### Implementation and certification status
 
+Chat and Work now render through the same conversation route, header, canvas and
+composer. The mode buttons update account/conversation-scoped browser state, not
+the pathname, query string or hash. Legacy `/work/:conversationId` links still
+open their existing transcript in that shared interface. Work's agent/model
+choices are scoped separately from Chat settings and revalidated against the
+server's free/local catalog; the native generation and authorization paths are
+unchanged. Entering Work in an owned Chat conversation adds execution metadata
+to that record instead of creating a second history.
+
+Focused component tests cover unchanged router location, composer identity,
+draft/file-input retention and mode restoration. Native Work seed tests cover
+in-place promotion, tenant rejection and failed storage operations. These are
+not production certification: browser lifecycle/screenshot checks, full backend
+validation and deployment verification are still required. Adaptive requirements
+discovery and a durable, server-enforced specification-approval gate are **not
+implemented** by the shared-mode change; existing native action approvals are
+not a substitute for that gate.
+
 This is a **product direction, not a claim of universal production capability**.
 The repository has agent discovery, MCP, subagents, attached code workspaces and
 a workflow engine. The swarm coordination code includes an opt-in, atomic

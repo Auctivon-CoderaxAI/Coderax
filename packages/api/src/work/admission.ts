@@ -36,6 +36,19 @@ export type WorkAdmissionResult =
   | { ok: true; context: WorkAdmissionContext }
   | { ok: false; error: WorkAdmissionFailure };
 
+export function workAdmissionStatus(error: WorkAdmissionFailure): number {
+  switch (error) {
+    case 'WORK_AGENT_ID_INVALID':
+      return 400;
+    case 'WORK_AGENT_NOT_FOUND':
+      return 404;
+    case 'WORK_AGENT_UNAVAILABLE':
+      return 503;
+    default:
+      return 409;
+  }
+}
+
 export function resolveWorkContext(
   sources: WorkModelSource[],
   requested: unknown,

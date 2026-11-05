@@ -46,3 +46,10 @@ it('preserves the Assistants transport and its server abort endpoint', () => {
   expect(useSSE).toHaveBeenLastCalledWith(submission, helpers, false, 0);
   expect(useResumableSSE).toHaveBeenLastCalledWith(null, helpers, false, 0);
 });
+
+it('uses the native resumable lifecycle for Work on an Assistants conversation', () => {
+  const submission = { conversation: { endpoint: EModelEndpoint.assistants } } as TSubmission;
+  renderHook(() => useAdaptiveSSE(submission, helpers, false, 0, true));
+  expect(useSSE).toHaveBeenLastCalledWith(null, helpers, false, 0);
+  expect(useResumableSSE).toHaveBeenLastCalledWith(submission, helpers, false, 0);
+});

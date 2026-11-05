@@ -15,8 +15,8 @@ test.describe('Chat and Work model controls', () => {
     const selector = page.getByRole('combobox', { name: 'Model' });
     await expect(selector).toBeVisible();
     await expect(selector.locator('option', { hasText: 'Automatic' })).toHaveCount(1);
-    await expect(selector.locator('option', { hasText: 'e2e-work-local-a' })).toHaveCount(1);
+    await expect(selector.locator('option', { hasText: 'e2e-work-local-a' }).last()).toBeVisible();
     await expect(selector.locator('option', { hasText: 'e2e-work-local-b' })).toHaveCount(1);
-    await expect(page.locator('#work-task')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
   });
 });

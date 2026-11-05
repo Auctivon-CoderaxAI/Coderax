@@ -294,7 +294,7 @@ const useNewConvo = (index = 0) => {
           if (appTitle) {
             setDocumentTitle(appTitle, true);
           }
-          const routeBase = conversation.isWork === true ? '/work' : '/c';
+          const routeBase = location.pathname.startsWith('/work') ? '/work' : '/c';
           const path = `${routeBase}/${Constants.NEW_CONVO}${getParams(conversation)}`;
           /** Honor disableFocus here too: the transient focus intent survives
            * follow-up navigations (unlike the old location.state), so e.g.
@@ -306,7 +306,7 @@ const useNewConvo = (index = 0) => {
           return;
         }
 
-        const routeBase = conversation.isWork === true ? '/work' : '/c';
+        const routeBase = location.pathname.startsWith('/work') ? '/work' : '/c';
         const path = `${routeBase}/${conversation.conversationId}${getParams(conversation)}`;
         if (!disableFocus) {
           requestChatFocus();
@@ -320,6 +320,7 @@ const useNewConvo = (index = 0) => {
       modelsQuery.data,
       hasAgentAccess,
       searchParams,
+      location.pathname,
     ],
   );
 

@@ -65,6 +65,7 @@ import { shouldResetSubagentAtomsOnConversationChange } from './cleanup';
 import useAttachmentHandler from '~/hooks/SSE/useAttachmentHandler';
 import { useChatTransport } from '~/Providers/ChatTransportContext';
 import useContentHandler from '~/hooks/SSE/useContentHandler';
+import { useConversationMode } from '~/components/Chat/mode';
 import useStepHandler from '~/hooks/SSE/useStepHandler';
 import { useApplyAgentTemplate } from '~/hooks/Agents';
 import { useAuthContext } from '~/hooks/AuthContext';
@@ -659,6 +660,7 @@ export default function useEventHandlers({
   const { conversationId: paramId } = useParams();
   const { token } = useAuthContext();
   const transport = useChatTransport();
+  const { adoptConversation } = useConversationMode();
 
   const { contentHandler, resetContentHandler } = useContentHandler({ setMessages, getMessages });
   /** `refetchType: 'all'` so cached-but-unmounted skill queries refresh too:
@@ -825,6 +827,9 @@ export default function useEventHandlers({
   const syncHandler = useCallback(
     (data: TSyncData, submission: EventSubmission) => {
       const { conversationId, thread_id, responseMessage, requestMessage } = data;
+      if (conversationId && !isAddedRequest) {
+        adoptConversation(conversationId);
+      }
       const { initialResponse, messages: _messages, userMessage, isTemporary = false } = submission;
       /** Swap the optimistic user row for the server-stamped one IN PLACE.
        *  Filtering it out and re-appending at the tail would order any of its
@@ -897,7 +902,15 @@ export default function useEventHandlers({
 
       setShowStopButton(true);
     },
-    [queryClient, setMessages, isAddedRequest, announcePolite, setConversation, setShowStopButton],
+    [
+      queryClient,
+      setMessages,
+      isAddedRequest,
+      announcePolite,
+      setConversation,
+      setShowStopButton,
+      adoptConversation,
+    ],
   );
 
   const focusRegeneratedResponse = useFocusRegeneratedResponse();
@@ -928,6 +941,9 @@ export default function useEventHandlers({
       }
 
       const { conversationId, parentMessageId } = userMessage;
+      if (conversationId && !isAddedRequest) {
+        adoptConversation(conversationId);
+      }
       lastAnnouncementTimeRef.current = Date.now();
       announcePolite({
         message: 'start',
@@ -997,6 +1013,7 @@ export default function useEventHandlers({
       setConversation,
       applyAgentTemplate,
       focusRegeneratedResponse,
+      adoptConversation,
     ],
   );
 
@@ -1050,6 +1067,9 @@ export default function useEventHandlers({
   const finalHandler = useCallback(
     (data: TFinalResData, submission: EventSubmission) => {
       const { requestMessage, responseMessage, conversation, runMessages } = data;
+      if (conversation?.conversationId && !isAddedRequest) {
+        adoptConversation(conversation.conversationId);
+      }
       const {
         messages,
         conversation: submissionConvo,
@@ -1351,6 +1371,7 @@ export default function useEventHandlers({
       setSubmissionStart,
       restorePendingContext,
       reconcileFailedCodeDecision,
+      adoptConversation,
     ],
   );
 

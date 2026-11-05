@@ -26,6 +26,7 @@ import useChatFunctions from '../useChatFunctions';
 import { isPasteSubmitted } from '~/utils';
 
 const mockNavigate = jest.fn();
+let mockPathname = '/c/new';
 const mockSetShowStopButton = jest.fn();
 const mockSetIsSubmitting = jest.fn();
 const mockGetEphemeralAgent = jest.fn((): TEphemeralAgent | null => null);
@@ -58,6 +59,7 @@ const mockCodeWorkspace = {
 
 jest.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
+  useLocation: () => ({ pathname: mockPathname }),
 }));
 
 jest.mock('@tanstack/react-query', () => ({
@@ -164,6 +166,7 @@ function renderAsk(
     endpoint?: TConversation['endpoint'];
     model?: string;
     isSubmitting?: boolean;
+    isWork?: boolean;
     reasoningOverride?: TReasoningOverride;
     agentId?: string;
     files?: Map<string, ExtendedFile>;
@@ -174,6 +177,7 @@ function renderAsk(
   const setSubmission = jest.fn();
   const getMessages = jest.fn(() => messages);
   const immutableConversation = conversation(conversationId);
+  immutableConversation.isWork = options.isWork;
   if ('endpoint' in options) {
     immutableConversation.endpoint = options.endpoint ?? null;
   }
@@ -209,6 +213,7 @@ function renderAsk(
 
 describe('useChatFunctions ask', () => {
   beforeEach(() => {
+    mockPathname = '/c/new';
     mockEndpointsQueryData.current = undefined;
     localStorage.clear();
     jest.clearAllMocks();
@@ -565,6 +570,21 @@ describe('useChatFunctions ask', () => {
     expect(setMessages).toHaveBeenCalled();
     expect(setSubmission).toHaveBeenCalled();
   });
+
+  it.each([
+    ['/c/new', true],
+    ['/work/new', false],
+  ] as const)(
+    'keeps the existing %s route regardless of its Work history marker',
+    (path, isWork) => {
+      mockPathname = path;
+      const { result } = renderAsk(undefined, Constants.NEW_CONVO, { isWork });
+      act(() => {
+        result.current.ask({ text: 'Keep this conversation mode' });
+      });
+      expect(mockNavigate).toHaveBeenCalledWith(path);
+    },
+  );
 
   it('allows explicit override messages before the cache exists', () => {
     const { result, setMessages, setSubmission } = renderAsk(undefined);

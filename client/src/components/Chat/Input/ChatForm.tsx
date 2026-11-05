@@ -271,14 +271,15 @@ const ChatForm = memo(function ChatForm({
   );
   const invalidAssistant = useMemo(
     () =>
+      !workMode &&
       isAssistantsEndpoint(endpoint) &&
       (!(conversation?.assistant_id ?? '') ||
         !assistantMap?.[endpoint ?? '']?.[conversation?.assistant_id ?? '']),
-    [conversation?.assistant_id, endpoint, assistantMap],
+    [conversation?.assistant_id, endpoint, assistantMap, workMode],
   );
   const disableInputs = useMemo(
-    () => requiresKey || invalidAssistant || modelUnavailable,
-    [requiresKey, invalidAssistant, modelUnavailable],
+    () => !workMode && (requiresKey || invalidAssistant || modelUnavailable),
+    [workMode, requiresKey, invalidAssistant, modelUnavailable],
   );
 
   /** Skipped on touchscreens so a tap does not raise the keyboard. */

@@ -20,7 +20,7 @@ export type WorkOptions = {
 };
 
 /** The conversation fields a selection starts a task with. */
-export type WorkPreset = { endpoint: string; model: string; agent_id?: string };
+export type WorkPreset = { endpoint: EModelEndpoint; model: string; agent_id?: string };
 
 export type ResolvedWorkSelection = {
   agent: TWorkAgent | null;
@@ -94,7 +94,7 @@ export function resolveWorkSelection(
     agent: null,
     model,
     automatic: selection.modelKey === WORK_AUTOMATIC,
-    preset: { endpoint: model.provider, model: model.id },
+    preset: { endpoint: model.provider as EModelEndpoint, model: model.id },
   };
 }
 

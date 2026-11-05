@@ -7,11 +7,14 @@ const {
   ResourceType,
 } = require('coderax-data-provider');
 const {
+  canViewWorkAgent,
   createConfiguredDefaultResolver,
   hasMalformedWorkAgentId,
   resolveWorkAdmission,
   resolveWorkContext,
   selectedWorkAgentId,
+  seedNativeWorkConversation,
+  workAdmissionStatus,
   WORK_AUTO_MODEL_ID,
 } = require('@coderax/api');
 const { flattenModelConfig } = require('./workModels');
@@ -51,16 +54,16 @@ function defaultFindAgent(agentId) {
 /** The same VIEW check the native runtime applies before a run reaches another agent. */
 function defaultCanViewAgent(req, agent) {
   const { checkPermission } = require('~/server/services/PermissionService');
-  if (!req?.user?.id || !agent?._id) {
-    return Promise.resolve(false);
-  }
-  return checkPermission({
-    userId: req.user.id,
-    role: req.user.role,
-    resourceType: ResourceType.AGENT,
-    resourceId: agent._id,
-    requiredPermission: PermissionBits.VIEW,
-  });
+  return canViewWorkAgent(
+    {
+      userId: req?.user?.id,
+      role: req?.user?.role,
+      agentId: agent?._id,
+      resourceType: ResourceType.AGENT,
+      requiredPermission: PermissionBits.VIEW,
+    },
+    checkPermission,
+  );
 }
 
 function defaultAuthorizeAgent(req, res, next) {
@@ -117,55 +120,11 @@ function stripClientWorkFields(body) {
  * Ownership and tenant scope come from the authenticated request, never the
  * body. `saveConvo` scopes its write to `{conversationId, user: userId}`;
  * the tenant marker must be stamped on insert so Work history can find it.
- * Existing rows are never re-stamped, and cross-tenant follow-ups fail closed.
+ * Existing Chat rows gain the Work history marker in place; cross-tenant
+ * follow-ups fail closed.
  */
 async function seedWorkConversation(req, context, db) {
-  const userId = req?.user?.id;
-  const conversationId = req?.body?.conversationId;
-  if (
-    !userId ||
-    typeof conversationId !== 'string' ||
-    conversationId === '' ||
-    conversationId === 'new'
-  ) {
-    return { seeded: false, reason: 'no_target' };
-  }
-  /** Resolve the store only when there is a row to verify, so a request with no
-   *  target never depends on the app's `~` module aliases. */
-  const store = db ?? require('~/models');
-  const tenantId = req?.user?.tenantId ?? req?.tenantId ?? null;
-  const existing = await store.getConvo(userId, conversationId);
-  if (existing && (existing.tenantId ?? null) !== tenantId) {
-    return { seeded: false, reason: 'tenant_mismatch' };
-  }
-  if (existing && existing.isWork !== true) {
-    return { seeded: false, reason: 'not_work' };
-  }
-  if (existing) {
-    return { seeded: false, reason: 'exists' };
-  }
-  const saved = await store.saveConvo(
-    { userId, isTemporary: req.body?.isTemporary },
-    {
-      conversationId,
-      isWork: true,
-      workModel: context.workModel,
-      ...(tenantId === null ? {} : { tenantId }),
-    },
-    { context: 'api/server/routes/workChat.js - seed Work conversation' },
-  );
-  /** saveConvo catches storage exceptions and can return { message } or null.
-   *  A successful await alone does not establish a persisted, tenant-safe Work row.
-   *  Also reject a mismatched row returned after a concurrent conversation write. */
-  if (
-    !saved ||
-    saved.conversationId !== conversationId ||
-    saved.isWork !== true ||
-    (saved.tenantId ?? null) !== tenantId
-  ) {
-    throw new Error('Work conversation seed was not verified');
-  }
-  return { seeded: true };
+  return seedNativeWorkConversation(req, context, () => db ?? require('~/models'));
 }
 
 const MESSAGES = {
@@ -232,20 +191,19 @@ function workContextMiddleware(
         requestedAgentId,
         findAgent,
         canViewAgent: (agent) => canViewAgent(req, agent),
-        graphLimit: req.config?.work?.agentGraphLimit,
-        graphConcurrency: req.config?.work?.agentGraphConcurrency,
+        graphLimit: req.config?.config?.work?.agentGraphLimit,
+        graphConcurrency: req.config?.config?.work?.agentGraphConcurrency,
       });
       if (!admission.ok) {
         if (admission.error === 'WORK_AGENT_UNAVAILABLE') {
           logger.warn('[Work] Failed to read the selected agent graph.');
         }
-        const status =
-          {
-            WORK_AGENT_ID_INVALID: 400,
-            WORK_AGENT_NOT_FOUND: 404,
-            WORK_AGENT_UNAVAILABLE: 503,
-          }[admission.error] ?? 409;
-        return fail(res, status, admission.error, MESSAGES[admission.error]);
+        return fail(
+          res,
+          workAdmissionStatus(admission.error),
+          admission.error,
+          MESSAGES[admission.error],
+        );
       }
       const context = admission.context;
       req.workContext = context;
@@ -260,14 +218,6 @@ function workContextMiddleware(
             404,
             'WORK_TASK_NOT_FOUND',
             'The requested Work conversation was not found.',
-          );
-        }
-        if (seedResult?.reason === 'not_work') {
-          return fail(
-            res,
-            409,
-            'WORK_CONVERSATION_REQUIRED',
-            'This conversation belongs to Chat. Start a new Work conversation or open it in Chat.',
           );
         }
       } catch {

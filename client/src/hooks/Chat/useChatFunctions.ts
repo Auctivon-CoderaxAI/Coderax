@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { v4 } from 'uuid';
 import { useStore } from 'jotai';
 import { cloneDeep } from 'lodash';
-import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSetRecoilState, useRecoilValue, useRecoilCallback } from 'recoil';
 import {
   Constants,
@@ -245,6 +245,7 @@ export default function useChatFunctions({
   setConversation: SetterOrUpdater<TConversation | null>;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const reasoningStore = useStore();
   const getSender = useGetSender();
   const { user } = useAuthContext();
@@ -592,7 +593,7 @@ export default function useChatFunctions({
       conversationId = null;
       const projectSearch = chatProjectId ? `?projectId=${encodeURIComponent(chatProjectId)}` : '';
       requestChatFocus();
-      const routeBase = immutableConversation?.isWork === true ? '/work' : '/c';
+      const routeBase = location.pathname.startsWith('/work') ? '/work' : '/c';
       navigate(`${routeBase}/new${projectSearch}`);
     }
 
