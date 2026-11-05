@@ -2,6 +2,7 @@ import type { WorkflowRunRecord } from './types';
 import {
   WorkflowStepInactiveError,
   assertWorkflowStepDeliveryActive,
+  createWorkflowLifecycle,
   createWorkflowSettlementHandler,
   createWorkflowTerminalOutcomeHandler,
   parseWorkflowStepDelivery,
@@ -218,5 +219,45 @@ describe('workflow step delivery admission', () => {
         userId: 'user-1',
       }),
     ).rejects.toBeInstanceOf(WorkflowStepInactiveError);
+  });
+});
+
+describe('workflow engine startup ordering', () => {
+  const makeEngine = () => ({
+    start: jest.fn(),
+    stop: jest.fn(async () => undefined),
+    wake: jest.fn(),
+    runTick: jest.fn(async () => 0),
+  });
+
+  it('defers early wakes and reads until deployment settings initialize the engine', () => {
+    const engine = makeEngine();
+    const createEngine = jest.fn(() => engine);
+    const lifecycle = createWorkflowLifecycle(createEngine);
+    lifecycle.wake();
+    expect(createEngine).not.toHaveBeenCalled();
+    expect(() => lifecycle.getEngine()).toThrow('Workflow engine is not initialized');
+
+    const options = { concurrency: 2, retryBaseMs: 750, stepTimeoutMs: 4_000 };
+    expect(lifecycle.initialize(options)).toBe(true);
+    expect(createEngine).toHaveBeenCalledTimes(1);
+    expect(createEngine).toHaveBeenCalledWith(options);
+    expect(engine.start).toHaveBeenCalledTimes(1);
+
+    lifecycle.wake();
+    expect(engine.wake).toHaveBeenCalledTimes(1);
+    expect(createEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('never wakes a runner after initialization fails', () => {
+    const engine = makeEngine();
+    engine.start.mockImplementation(() => {
+      throw new Error('runner unavailable');
+    });
+    const lifecycle = createWorkflowLifecycle(() => engine);
+    expect(lifecycle.initialize({ concurrency: 2 })).toBe(false);
+    lifecycle.wake();
+    expect(engine.wake).not.toHaveBeenCalled();
+    expect(() => lifecycle.getEngine()).toThrow('Workflow engine is not initialized');
   });
 });

@@ -89,6 +89,8 @@ export const useStartWorkflowRunMutation = (workflowId: string) => {
             runs: [run, ...(current?.runs ?? []).filter((entry) => entry.id !== run.id)],
           }),
         );
+        // Cancel/refetch stale in-flight lists after the optimistic insertion.
+        void queryClient.invalidateQueries([QueryKeys.workflowRuns, workflowId]);
       },
     },
   );

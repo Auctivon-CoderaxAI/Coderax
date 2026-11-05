@@ -707,10 +707,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         res.end();
       };
 
+      let pollPending = false;
       const timer = setInterval(() => {
-        if (closed) {
+        if (closed || pollPending) {
           return;
         }
+        pollPending = true;
         void deps.methods
           .getWorkflowRun(runId, owner)
           .then((run) => {
@@ -731,6 +733,9 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
               runId,
               error: error instanceof Error ? error.message : String(error),
             });
+          })
+          .finally(() => {
+            pollPending = false;
           });
       }, streamPollMs);
       timer.unref?.();

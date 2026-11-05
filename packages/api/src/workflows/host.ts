@@ -358,8 +358,13 @@ export function createWorkflowLifecycle(
 ): WorkflowLifecycle {
   let engine: WorkflowEngine | undefined;
   let options: WorkflowEngineOptions | undefined;
+  let initialized = false;
 
   const getEngine = (): WorkflowEngine => {
+    // A pre-startup wake or engine lookup must not capture default settings.
+    if (!initialized) {
+      throw new Error('Workflow engine is not initialized');
+    }
     if (engine == null) {
       engine = createEngine(options);
     }
@@ -371,15 +376,21 @@ export function createWorkflowLifecycle(
       options = next;
     }
     try {
+      initialized = true;
       getEngine().start();
       return true;
     } catch (error) {
+      initialized = false;
       logger.error('[workflows] engine initialization failed', error);
       return false;
     }
   };
 
   const wake = (): void => {
+    // Pre-initialization events remain in the durable queue for startup recovery.
+    if (!initialized) {
+      return;
+    }
     try {
       const runner = getEngine();
       runner.start();
