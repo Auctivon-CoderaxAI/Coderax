@@ -231,6 +231,11 @@ describe('persisted tenant scope across turn saves', () => {
           expect(persisted).toMatchObject({ isWork: true, workModel: 'llama3:latest' });
         }
       });
+
+      // A matching user ID cannot bypass the tenant boundary after the turn save.
+      await tenantStorage.run({ tenantId: 'tenant-b', userId }, async () => {
+        await expect(store.getConvo(userId, conversationId)).resolves.toBeNull();
+      });
     }
   });
 });
