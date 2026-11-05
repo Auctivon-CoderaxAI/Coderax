@@ -24,7 +24,7 @@ This is an **evidence ledger and executable acceptance plan**, not a claim that 
 
 ## Executed local evidence (2026-11-04)
 
-Baseline `main@bb6227f3286e8e3fdf56a76513de68c4f3e6c93e`, which includes the merged swarm lease work from #133. Commands were run from the repository on the maintainer's Windows workstation with the repository-pinned Node/Jest versions. Counts below are the actual reported results from this baseline; they are **not** CI runs.
+Baseline `main@bb6227f3286e8e3fdf56a76513de68c4f3e6c93e` covers the in-memory swarm, delegation, workflow and portfolio rows; it includes the merged swarm lease work from #133. The durable Mongo store row was executed separately at PR [#153](https://github.com/CoderaxAI/Coderax/pull/153) head `acd9ad3b5454f7ea513b7e17d30ea851be62acb6`, based on `main@1ef8647`, which is the first source containing the adapter, its direct stale-fencing test and the declared test dependency. Commands were run from the repository on the maintainer's Windows workstation with the repository-pinned Node/Jest versions. Counts below are actual local results, not CI runs.
 
 | Capability       | Suite                                                 | Command                                                                          | Result                           |
 | ---------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------- |
