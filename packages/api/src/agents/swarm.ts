@@ -154,10 +154,9 @@ export class SwarmCoordinator {
       return { ok: false, reason: 'invalid_task' };
     }
 
+    const requiredTools = task.requiredTools ?? [];
     const peerTools = new Set(peer.tools ?? []);
-    if (
-      (task.requiredTools ?? []).some((tool) => !this.ceiling.has(tool) || !peerTools.has(tool))
-    ) {
+    if (requiredTools.some((tool) => !this.ceiling.has(tool) || !peerTools.has(tool))) {
       return { ok: false, reason: 'tool_denied' };
     }
 
@@ -191,7 +190,9 @@ export class SwarmCoordinator {
     return {
       ok: true,
       lease,
-      allowedTools: [...this.ceiling].filter((tool) => peerTools.has(tool)),
+      // The task's declared needs are a narrower grant than the peer's
+      // capabilities or the coordinator ceiling. Never pass unused tools.
+      allowedTools: [...new Set(requiredTools)],
     };
   }
 
