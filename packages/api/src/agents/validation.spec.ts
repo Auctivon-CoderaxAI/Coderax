@@ -33,7 +33,7 @@ describe('agent Git identity validation', () => {
 
     const invalid = agentCreateSchema.safeParse({
       ...base,
-      git_identity: { name: 'Invalid\\nName', email: 'not-an-email' },
+      git_identity: { name: 'Invalid\nName', email: 'not-an-email' },
     });
     expect(invalid.success).toBe(false);
     if (!invalid.success) {
