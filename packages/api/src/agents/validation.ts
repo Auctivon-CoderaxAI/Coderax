@@ -582,7 +582,7 @@ export const agentBaseSchema: z.ZodObject<
   instructions: z.string().nullable().optional(),
   instructionsPrompt: agentInstructionsPromptFieldSchema,
   avatar: agentAvatarSchema.nullable().optional(),
-  model_parameters: z.record(z.unknown()).optional(),
+  model_parameters: z.record(z.string(), z.unknown()).optional(),
   tools: z.array(z.string()).optional(),
   skills: z.array(z.string()).optional(),
   skills_enabled: z.boolean().optional(),
