@@ -11,6 +11,7 @@ import {
   projectAgentManagementListResponse,
   projectAgentManagementResponse,
 } from './management';
+import { agentCreateSchema, agentUpdateSchema } from './validation';
 
 const timestamps = {
   createdAt: new Date('2026-09-01T10:00:00.000Z'),
@@ -96,6 +97,38 @@ describe('Agent Management contract', () => {
         code_environment_id: null,
         git_identity: { name: 'Coderax Agent', email: 'agent@example.com' },
       });
+    });
+
+    it('parses arbitrary string-keyed model parameters in browser and management Agent schemas', () => {
+      const model_parameters = {
+        temperature: 0.2,
+        nested: { top_p: 0.9 },
+        enabled: false,
+        nullable: null,
+      };
+      const create = { provider: 'openAI', model: 'gpt-5', model_parameters };
+
+      expect(agentCreateSchema.parse(create).model_parameters).toEqual(model_parameters);
+      expect(agentManagementCreateSchema.parse(create).model_parameters).toEqual(model_parameters);
+      expect(agentUpdateSchema.parse({ model_parameters }).model_parameters).toEqual(
+        model_parameters,
+      );
+      expect(agentManagementUpdateSchema.parse({ model_parameters }).model_parameters).toEqual(
+        model_parameters,
+      );
+
+      for (const invalid of [[], 'not-a-record', 123]) {
+        expect(
+          agentCreateSchema.safeParse({
+            provider: 'openAI',
+            model: 'gpt-5',
+            model_parameters: invalid,
+          }).success,
+        ).toBe(false);
+        expect(agentManagementUpdateSchema.safeParse({ model_parameters: invalid }).success).toBe(
+          false,
+        );
+      }
     });
 
     it.each([agentManagementCreateSchema, agentManagementUpdateSchema])(
