@@ -424,7 +424,8 @@ const agentGitIdentityBridgeSchema: z.ZodEffects<
   }
   return result.data;
 });
-const agentGitIdentityUpdateSchema = agentGitIdentityBridgeSchema.nullable();
+const agentGitIdentityUpdateSchema: z.ZodNullable<typeof agentGitIdentityBridgeSchema> =
+  agentGitIdentityBridgeSchema.nullable();
 
 /** A 24-character hexadecimal Mongo ObjectId string. */
 const objectIdStringSchema = z.string().refine(isValidObjectIdString);
