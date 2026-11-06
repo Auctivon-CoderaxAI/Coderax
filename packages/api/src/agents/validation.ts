@@ -407,10 +407,10 @@ const agentCodeEnvironmentIdsSchema: z.ZodArray<z.ZodString> = z
  * Parse at the package boundary and retain the shared validator's normalized output.
  */
 const agentGitIdentityBridgeSchema: z.ZodEffects<
-  z.ZodUnknown,
+  z.ZodType<AgentGitIdentity>,
   AgentGitIdentity | undefined,
-  unknown
-> = z.unknown().transform((input, ctx): AgentGitIdentity | undefined => {
+  AgentGitIdentity
+> = z.custom<AgentGitIdentity>().transform((input, ctx): AgentGitIdentity | undefined => {
   const result = agentGitIdentitySchema.safeParse(input);
   if (!result.success) {
     for (const issue of result.error.issues) {
