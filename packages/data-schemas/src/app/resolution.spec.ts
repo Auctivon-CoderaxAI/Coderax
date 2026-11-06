@@ -1416,9 +1416,9 @@ describe('getConfigFieldIssues', () => {
       ),
     ).toEqual(['interface.schedules.maxPerUser']);
     expect(getConfigFieldIssues({ 'interface.schedules': { maxPerUser: 2 } })).toEqual([]);
-    expect(
-      getConfigFieldIssues({ 'memory.agent': { id: 5 } }).map((issue) => issue.path),
-    ).toEqual(['memory.agent.id']);
+    expect(getConfigFieldIssues({ 'memory.agent': { id: 5 } }).map((issue) => issue.path)).toEqual([
+      'memory.agent.id',
+    ]);
   });
 
   it('checks each written path the way the stored override would hold it', () => {
