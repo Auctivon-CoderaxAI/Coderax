@@ -21,6 +21,26 @@ const validPromptId = '507f191e810c19729de860ea';
 describe('agent Git identity validation', () => {
   const base = { provider: 'openAI', model: 'gpt-4o-mini', tools: [] };
 
+  it('bridges the shared Git identity validator without cross-version parser exceptions', () => {
+    const valid = agentCreateSchema.safeParse({
+      ...base,
+      git_identity: { name: '  Builder  ', email: '  builder@example.com  ' },
+    });
+    expect(valid.success).toBe(true);
+    if (valid.success) {
+      expect(valid.data.git_identity).toEqual({ name: 'Builder', email: 'builder@example.com' });
+    }
+
+    const invalid = agentCreateSchema.safeParse({
+      ...base,
+      git_identity: { name: 'Invalid\\nName', email: 'not-an-email' },
+    });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.issues.some((issue) => issue.path[0] === 'git_identity')).toBe(true);
+    }
+  });
+
   it('accepts and trims a valid commit identity', () => {
     expect(
       agentCreateSchema.parse({
