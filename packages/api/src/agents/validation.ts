@@ -401,8 +401,31 @@ const agentCodeEnvironmentIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:
 const agentCodeEnvironmentIdsSchema: z.ZodArray<z.ZodString> = z
   .array(agentCodeEnvironmentIdSchema)
   .max(MAX_AGENT_CODE_ENVIRONMENT_CHOICES);
-const agentGitIdentityUpdateSchema: z.ZodType<AgentGitIdentity | null | undefined> =
-  agentGitIdentitySchema.nullable();
+/**
+ * The API's Zod v3 object schemas must not embed a Zod v4 validator from
+ * coderax-data-provider: v3 calls `_parse` on its children and throws at runtime.
+ * Parse at the package boundary and retain the shared validator's normalized output.
+ */
+const agentGitIdentityBridgeSchema: z.ZodEffects<
+  z.ZodType<AgentGitIdentity>,
+  AgentGitIdentity | undefined,
+  AgentGitIdentity
+> = z.custom<AgentGitIdentity>().transform((input, ctx): AgentGitIdentity | undefined => {
+  const result = agentGitIdentitySchema.safeParse(input);
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: issue.path.map((part) => (typeof part === 'symbol' ? part.toString() : part)),
+        message: issue.message,
+      });
+    }
+    return z.NEVER;
+  }
+  return result.data;
+});
+const agentGitIdentityUpdateSchema: z.ZodNullable<typeof agentGitIdentityBridgeSchema> =
+  agentGitIdentityBridgeSchema.nullable();
 
 /** A 24-character hexadecimal Mongo ObjectId string. */
 const objectIdStringSchema = z.string().refine(isValidObjectIdString);
@@ -520,7 +543,7 @@ export const agentBaseSchema: z.ZodObject<
     code_environment_ids: z.ZodOptional<typeof agentCodeEnvironmentIdsSchema>;
     code_workspace_id: z.ZodOptional<typeof agentCodeWorkspaceIdSchema>;
     repositoryInstructions: z.ZodOptional<z.ZodEnum<['prefer', 'defer', 'off']>>;
-    git_identity: typeof agentGitIdentitySchema;
+    git_identity: typeof agentGitIdentityBridgeSchema;
     artifacts: z.ZodOptional<z.ZodString>;
     recursion_limit: z.ZodOptional<z.ZodNumber>;
     conversation_starters: z.ZodOptional<z.ZodArray<z.ZodString, 'many'>>;
@@ -582,7 +605,7 @@ export const agentBaseSchema: z.ZodObject<
   instructions: z.string().nullable().optional(),
   instructionsPrompt: agentInstructionsPromptFieldSchema,
   avatar: agentAvatarSchema.nullable().optional(),
-  model_parameters: z.record(z.unknown()).optional(),
+  model_parameters: z.record(z.string(), z.unknown()).optional(),
   tools: z.array(z.string()).optional(),
   skills: z.array(z.string()).optional(),
   skills_enabled: z.boolean().optional(),
@@ -600,7 +623,7 @@ export const agentBaseSchema: z.ZodObject<
   code_environment_ids: agentCodeEnvironmentIdsSchema.optional(),
   code_workspace_id: agentCodeWorkspaceIdSchema.optional(),
   repositoryInstructions: z.enum(['prefer', 'defer', 'off']).optional(),
-  git_identity: agentGitIdentitySchema,
+  git_identity: agentGitIdentityBridgeSchema,
   artifacts: z.string().optional(),
   recursion_limit: z.number().optional(),
   conversation_starters: z.array(z.string()).optional(),
@@ -701,7 +724,7 @@ export const agentCreateSchema: z.ZodObject<
     stateful_code_environment: z.ZodOptional<z.ZodEnum<['user', 'agent-user', 'conversation']>>;
     code_environment_id: z.ZodOptional<z.ZodString>;
     code_environment_ids: z.ZodOptional<typeof agentCodeEnvironmentIdsSchema>;
-    git_identity: typeof agentGitIdentitySchema;
+    git_identity: typeof agentGitIdentityBridgeSchema;
     code_workspace_id: z.ZodOptional<typeof agentCodeWorkspaceIdSchema>;
     repositoryInstructions: z.ZodOptional<z.ZodEnum<['prefer', 'defer', 'off']>>;
     artifacts: z.ZodOptional<z.ZodString>;
