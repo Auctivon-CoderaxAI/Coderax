@@ -488,7 +488,8 @@ function findUnionDroppedKeys(
       .filter((key) => hasOwn(shape, key))
       .flatMap((key) => findUnionDroppedKeys(shape[key], value[key], [...path, key], depth + 1));
   }
-  const arrayItem = node._def.element ??
+  const arrayItem =
+    node._def.element ??
     (typeof node._def.type === 'object' ? node._def.type : undefined);
   if ((kind === 'ZodArray' || kind === 'array') && arrayItem && Array.isArray(value)) {
     const item = arrayItem;
