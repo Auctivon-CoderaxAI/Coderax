@@ -420,7 +420,18 @@ function expandUnionIssues(issues: SchemaIssue[], depth = 0): SchemaIssue[] {
       const depthOf = (list: SchemaIssue[]) => Math.max(0, ...list.map((i) => i.path.length));
       return branch.length === best.length && depthOf(branch) > depthOf(best) ? branch : best;
     }, undefined);
-    return closest && closest.length > 0 ? expandUnionIssues(closest, depth + 1) : [issue];
+    // Zod 4 reports each union branch's issue path relative to the union itself.
+    // Preserve the enclosing path or nested invalid values can be accepted as valid
+    // config overrides when attribution cannot find the truncated path.
+    return closest && closest.length > 0
+      ? expandUnionIssues(
+          closest.map((branchIssue) => ({
+            ...branchIssue,
+            path: [...issue.path, ...branchIssue.path],
+          })),
+          depth + 1,
+        )
+      : [issue];
   });
 }
 
