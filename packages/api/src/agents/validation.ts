@@ -406,7 +406,11 @@ const agentCodeEnvironmentIdsSchema: z.ZodArray<z.ZodString> = z
  * coderax-data-provider: v3 calls `_parse` on its children and throws at runtime.
  * Parse at the package boundary and retain the shared validator's normalized output.
  */
-const agentGitIdentityBridgeSchema = z.unknown().transform((input, ctx): AgentGitIdentity | undefined => {
+const agentGitIdentityBridgeSchema: z.ZodEffects<
+  z.ZodUnknown,
+  AgentGitIdentity | undefined,
+  unknown
+> = z.unknown().transform((input, ctx): AgentGitIdentity | undefined => {
   const result = agentGitIdentitySchema.safeParse(input);
   if (!result.success) {
     for (const issue of result.error.issues) {
