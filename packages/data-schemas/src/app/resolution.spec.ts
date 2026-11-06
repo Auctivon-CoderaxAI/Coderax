@@ -1409,6 +1409,18 @@ describe('applyConfigTombstones', () => {
 });
 
 describe('getConfigFieldIssues', () => {
+  it('keeps enclosing union paths when rejecting invalid field patches', () => {
+    expect(
+      getConfigFieldIssues({ 'interface.schedules': { maxPerUser: 'x' } }).map(
+        (issue) => issue.path,
+      ),
+    ).toEqual(['interface.schedules.maxPerUser']);
+    expect(getConfigFieldIssues({ 'interface.schedules': { maxPerUser: 2 } })).toEqual([]);
+    expect(
+      getConfigFieldIssues({ 'memory.agent': { id: 5 } }).map((issue) => issue.path),
+    ).toEqual(['memory.agent.id']);
+  });
+
   it('checks each written path the way the stored override would hold it', () => {
     expect(getConfigFieldIssues({ 'registration.oauthStateTtlMs': 120_000 })).toEqual([]);
     expect(
