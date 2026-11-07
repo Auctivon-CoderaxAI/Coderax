@@ -1,7 +1,7 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
 import { useWatch } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
 import { useRecoilState, useRecoilValue } from 'recoil';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   composerSurfaceClasses,
   composerSurfaceShadow,
@@ -118,6 +118,7 @@ interface ChatFormProps {
   routePending: boolean;
   /** Work exposes an agent selector; Chat resolves its model automatically. */
   workMode?: boolean;
+  workCanSubmit?: boolean;
   /** Owned by ChatView: which layout the composer sits in — the welcome screen
    *  floats or bottoms it out, a conversation ends the page with it. */
   isLandingPage: boolean;
@@ -177,6 +178,7 @@ const ChatForm = memo(function ChatForm({
   project,
   routePending,
   workMode = false,
+  workCanSubmit = false,
   isLandingPage,
   enterToSend,
   autoSendText,
@@ -278,8 +280,11 @@ const ChatForm = memo(function ChatForm({
     [conversation?.assistant_id, endpoint, assistantMap, workMode],
   );
   const disableInputs = useMemo(
-    () => !workMode && (requiresKey || invalidAssistant || modelUnavailable),
-    [workMode, requiresKey, invalidAssistant, modelUnavailable],
+    () =>
+      workMode
+        ? !workCanSubmit
+        : requiresKey || invalidAssistant || modelUnavailable,
+    [workMode, workCanSubmit, requiresKey, invalidAssistant, modelUnavailable],
   );
 
   /** Skipped on touchscreens so a tap does not raise the keyboard. */
@@ -412,14 +417,15 @@ const ChatForm = memo(function ChatForm({
     [submitMessage],
   );
   const navigate = useNavigate();
+  const location = useLocation();
   /** A queued message becomes the first message of a fresh chat through the same
    *  `prompt` + `submit` query contract that deep links already use. */
   const startQueuedInNewChat = useCallback(
     (text: string) => {
-      const routeBase = conversation?.isWork === true ? '/work' : '/c';
+      const routeBase = location.pathname.startsWith('/work/') ? '/work' : '/c';
       navigate(`${routeBase}/new?${new URLSearchParams({ prompt: text, submit: 'true' })}`);
     },
-    [conversation?.isWork, navigate],
+    [location.pathname, navigate],
   );
   const { restoreReclaimedSteer, canRestoreToComposer } = useComposerRestore({
     index,
