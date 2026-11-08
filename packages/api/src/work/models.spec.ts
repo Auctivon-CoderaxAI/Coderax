@@ -30,9 +30,21 @@ describe('native work model discovery', () => {
   it('excludes paid gateway models from the picker', () => {
     expect(isWorkSupportedModel({ id: 'openai:gpt-4o' })).toBe(false);
     expect(isWorkSupportedModel({ id: 'anthropic:claude' })).toBe(false);
-    expect(isWorkSupportedModel({ id: 'ollama/llama3' })).toBe(true);
+    expect(isWorkSupportedModel({ id: 'ollama/llama3' })).toBe(false);
+    expect(isWorkSupportedModel({ id: 'ollama/llama3', local: true })).toBe(true);
     expect(isWorkSupportedModel({ id: '' })).toBe(false);
     expect(isWorkSupportedModel({ id: WORK_AUTO_MODEL_ID })).toBe(false);
+  });
+
+  it('does not trust local-looking model names on an unmarked provider', () => {
+    const sources = [
+      { id: 'ollama/llama3', provider: 'gateway' },
+      { id: 'local/model', provider: 'gateway' },
+      { id: 'ollama/llama3', provider: 'ollama', local: true },
+    ];
+    expect(buildWorkModels(sources)).toEqual([
+      { id: 'ollama/llama3', label: 'ollama/llama3', provider: 'ollama' },
+    ]);
   });
 
   it('deduplicates by id and keeps the first label', () => {
