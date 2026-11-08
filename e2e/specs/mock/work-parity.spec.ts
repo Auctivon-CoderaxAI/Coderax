@@ -50,6 +50,24 @@ async function workStart(page: Page, text: string) {
 }
 
 test.describe('continuous Chat and Work conversation', () => {
+  test('idle Chat does not poll Work history at the active cadence', async ({ page }) => {
+    let taskRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/work/tasks') {
+        taskRequests += 1;
+      }
+    });
+    const initialTasks = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/work/tasks',
+    );
+    await page.goto(NEW_CHAT_PATH);
+    await initialTasks;
+    await expect(input(page)).toBeVisible();
+    const baseline = taskRequests;
+    await page.waitForTimeout(12_000);
+    expect(taskRequests - baseline).toBe(0);
+  });
+
   for (const viewport of [
     { name: 'desktop', width: 1440, height: 900 },
     { name: 'mobile', width: 390, height: 844 },

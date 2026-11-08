@@ -5,15 +5,30 @@ import WorkTasksSection from '../WorkTasksSection';
 
 const mockNavigate = jest.fn();
 const mockMutatePinnedOrder = jest.fn();
+const mockInvalidateQueries = jest.fn();
+let mockActiveJobIds: string[];
+let mockQueryOptions: {
+  refetchInterval: (data?: { tasks: Array<{ state: string }> }) => number | false;
+};
 let mockPinnedOrder: string[] | undefined;
 let mockTasksQuery: {
-  data?: { tasks: Array<{ id: string; title: string; state: 'completed' | 'unknown' }> };
+  data?: {
+    tasks: Array<{
+      id: string;
+      title: string;
+      state: 'completed' | 'unknown' | 'running' | 'awaiting_approval';
+    }>;
+  };
   isLoading: boolean;
   isError: boolean;
 };
 
 jest.mock('@tanstack/react-query', () => ({
-  useQuery: () => mockTasksQuery,
+  useQuery: (options: typeof mockQueryOptions) => {
+    mockQueryOptions = options;
+    return mockTasksQuery;
+  },
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }));
 
 jest.mock('react-router-dom', () => ({
@@ -22,6 +37,7 @@ jest.mock('react-router-dom', () => ({
 }));
 
 jest.mock('~/data-provider', () => ({
+  useActiveJobs: () => ({ data: { activeJobIds: mockActiveJobIds } }),
   useGetPinnedOrderQuery: () => ({
     data: mockPinnedOrder,
     isSuccess: mockPinnedOrder !== undefined,
@@ -64,6 +80,8 @@ describe('WorkTasksSection', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockMutatePinnedOrder.mockReset();
+    mockInvalidateQueries.mockReset();
+    mockActiveJobIds = [];
     mockPinnedOrder = [];
     mockTasksQuery = {
       data: {
@@ -102,5 +120,27 @@ describe('WorkTasksSection', () => {
 
     expect(toggleNav).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/work/work-1');
+  });
+
+  it('slows idle refresh and keeps active or pending tasks fresh', () => {
+    const { rerender } = render(
+      <WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />,
+    );
+    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(60_000);
+    expect(mockQueryOptions.refetchInterval({ tasks: [{ state: 'running' }] })).toBe(5_000);
+    expect(mockQueryOptions.refetchInterval({ tasks: [{ state: 'awaiting_approval' }] })).toBe(
+      5_000,
+    );
+
+    mockActiveJobIds = ['new-work'];
+    rerender(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
+    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(5_000);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(['workTasks']);
+
+    mockInvalidateQueries.mockClear();
+    mockActiveJobIds = [];
+    rerender(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(['workTasks']);
+    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(60_000);
   });
 });
