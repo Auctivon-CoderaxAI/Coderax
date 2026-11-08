@@ -52,6 +52,10 @@ async function workStart(page: Page, text: string) {
 test.describe('continuous Chat and Work conversation', () => {
   test('idle Chat does not poll Work history at the active cadence', async ({ page }) => {
     let taskRequests = 0;
+    await page.route('**/api/work/tasks', (route) => route.fulfill({ json: { tasks: [] } }));
+    await page.route('**/api/agents/chat/active', (route) =>
+      route.fulfill({ json: { activeJobIds: [] } }),
+    );
     page.on('request', (request) => {
       if (new URL(request.url()).pathname === '/api/work/tasks') {
         taskRequests += 1;
