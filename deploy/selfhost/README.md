@@ -24,6 +24,10 @@ node scripts/check-selfhost.mjs http://127.0.0.1:3080
 
 `--wait` must observe Docker health. The health endpoint is **/readyz**, not /health: /health is merely HTTP liveness and can report OK before MCP and schedule startup finishes. The smoke probe also checks `/api/config` returns JSON rather than the SPA HTML shell.
 
+For a supported Coderax Vercel deployment origin, `node scripts/verify-coderax-deployment.mjs --live-url <origin> --expected-backend-revision <full-commit>` additionally checks `/api/config`'s backend-reported `buildInfo.commit`. An omitted, malformed or different commit fails this optional gate; if no revision is supplied, output explicitly reports that the revision was not verified. Build metadata can come from environment variables or Git and is not proof of the frontend revision or an immutable image digest.
+
+Release a compatible frontend/backend pair, deploying the backend first only after establishing backward compatibility. Check the post-release backend-reported build info and deployment metadata independently, then verify required routes and an authenticated Chat/Work lifecycle, including resume and cancellation. The unauthenticated smoke check does not verify those routes, model eligibility or real inference.
+
 Public traffic must terminate TLS at a reverse proxy forwarding to `127.0.0.1:3080`. Configure `DOMAIN_CLIENT` and `DOMAIN_SERVER` to the exact external HTTPS origin, and ensure the reverse proxy forwards streaming responses without buffering and forwards `Host` and `X-Forwarded-Proto`. Keep the MongoDB port unexposed. Retain old Vercel aliases until the new HTTPS domain passes health, session, real model discovery, chat, cancellation, MCP and delegation checks.
 
 ## Operator safety
