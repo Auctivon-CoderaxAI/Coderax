@@ -16,10 +16,17 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes an obsolete pull-request run. Main pushes are the
+# post-merge safety net and are never cancelled by a concurrent run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   selfhost-contract:
     name: Full-stack Compose and Express route gate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:

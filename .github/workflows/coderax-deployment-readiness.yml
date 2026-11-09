@@ -28,10 +28,17 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes an obsolete pull-request run. Main pushes are the
+# post-merge safety net and manual live checks are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract:
     name: Validate build and API smoke gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout reviewed source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
