@@ -263,6 +263,60 @@ describe('cooldowns and budgets', () => {
     expect(ledger.snapshot('endpoint').tokensUsed).toBe(0);
   });
 
+  it('reserves estimated tokens before an attempt and reconciles actual usage', async () => {
+    const { router } = routerWith({ maxTokensPerDay: 100, maxRetries: 0 }, [primary]);
+    const firstPlan = router.plan({ estimatedTokens: 80 });
+    const stalePlan = router.plan({ estimatedTokens: 30 });
+    expect(firstPlan.ok).toBe(true);
+    expect(stalePlan.ok).toBe(true);
+
+    let finish!: (value: { ok: true; value: string; tokens: number }) => void;
+    const first = router.run(
+      firstPlan,
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(80);
+
+    const unexpectedAttempt = jest.fn();
+    const stale = await router.run(stalePlan, unexpectedAttempt);
+    expect(stale).toMatchObject({
+      ok: false,
+      reason: 'all_attempts_failed',
+      attempts: 0,
+      errors: ['primary:token_budget'],
+    });
+    expect(unexpectedAttempt).not.toHaveBeenCalled();
+
+    finish({ ok: true, value: 'answer', tokens: 25 });
+    expect(await first).toMatchObject({ ok: true, attempts: 1 });
+    expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(25);
+    expect(router.plan({ estimatedTokens: 75 }).ok).toBe(true);
+    expect(router.plan({ estimatedTokens: 76 }).ok).toBe(false);
+  });
+
+  it('retains the reservation when usage is unknown and blocks further calls after overrun', async () => {
+    const { router } = routerWith({ maxTokensPerDay: 100, maxRetries: 0 }, [primary]);
+    await router.run(router.plan({ estimatedTokens: 70 }), async () => ({
+      ok: true, value: 'unmetered',
+    }));
+    expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(70);
+
+    await router.run(router.plan({ estimatedTokens: 30 }), async () => ({
+      ok: true, value: 'overrun', tokens: 50,
+    }));
+    expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(120);
+    expect(router.plan()).toMatchObject({
+      ok: false, reason: 'free_capacity_exhausted',
+    });
+  });
+
+  it('rejects malformed token estimates rather than bypassing quota', () => {
+    const { router } = routerWith();
+    expect(router.plan({ estimatedTokens: -1 }).ok).toBe(false);
+    expect(router.plan({ estimatedTokens: Number.NaN }).ok).toBe(false);
+    expect(router.plan({ estimatedTokens: Number.POSITIVE_INFINITY }).ok).toBe(false);
+  });
+
   it('rejects a plan when every endpoint is in cooldown', () => {
     const health = createEndpointHealth({ cooldownMs: 60_000, failureThreshold: 1 });
     const router = createFreeRouter({ endpoints: [primary], limits, health });
