@@ -1,28 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1160 470" role="img" aria-labelledby="title desc">
-<title id="title">Coderax to CyVox Work task routing: FAST rejected, AUTO accepted</title>
-<desc id="desc">Before: Coderax sends FAST as routing mode and CyVox rejects it before model selection. After: Coderax sends AUTO, allowing the zero-spend router to select an authorized configured provider. Real end-to-end inference remains unverified.</desc>
+<title id="title">Coderax to CyVox Work task routing: AUTO delegates zero-cost task classification</title>
+<desc id="desc">Before: every Work task forced FAST, pinning the fast alias. After: Coderax sends AUTO so CyVox can classify each task and choose an authorized zero-cost route. FAST remains accepted. Real end-to-end inference remains unverified.</desc>
 <rect width="1160" height="470" fill="#f8fafc"/>
 <text x="40" y="54" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#0f172a">Work task provider routing contract</text>
 <text x="40" y="83" font-family="Arial,sans-serif" font-size="16" fill="#475569">Coderax → optional CyVox bridge · PR #173 · zero external spend</text>
-<rect x="34" y="112" width="530" height="272" rx="14" fill="#fff" stroke="#fecaca" stroke-width="2"/>
+<rect x="34" y="112" width="530" height="272" rx="14" fill="#fff" stroke="#fde68a" stroke-width="2"/>
 <rect x="596" y="112" width="530" height="272" rx="14" fill="#fff" stroke="#bbf7d0" stroke-width="2"/>
-<text x="55" y="150" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#991b1b">BEFORE · invalid mode</text>
-<text x="617" y="150" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#166534">AFTER · valid mode</text>
+<text x="55" y="150" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#92400e">BEFORE · forced fast alias</text>
+<text x="617" y="150" font-family="Arial,sans-serif" font-size="21" font-weight="700" fill="#166534">AFTER · per-task AUTO</text>
 <rect x="55" y="177" width="488" height="58" rx="8" fill="#f1f5f9"/>
 <rect x="617" y="177" width="488" height="58" rx="8" fill="#f1f5f9"/>
 <text x="73" y="200" font-family="monospace" font-size="15" fill="#0f172a">POST /api/tasks</text>
-<text x="73" y="220" font-family="monospace" font-size="15" fill="#991b1b">routing_mode: "FAST"</text>
+<text x="73" y="220" font-family="monospace" font-size="15" fill="#92400e">routing_mode: "FAST"</text>
 <text x="635" y="200" font-family="monospace" font-size="15" fill="#0f172a">POST /api/tasks</text>
 <text x="635" y="220" font-family="monospace" font-size="15" fill="#166534">routing_mode: "AUTO"</text>
 <path d="M298 236 V259 M860 236 V259" stroke="#64748b" stroke-width="3"/>
 <path d="M292 251 L298 261 L304 251 M854 251 L860 261 L866 251" stroke="#64748b" stroke-width="3" fill="none"/>
-<rect x="55" y="268" width="488" height="70" rx="8" fill="#fee2e2"/>
-<text x="73" y="291" font-family="Arial,sans-serif" font-size="15" fill="#7f1d1d">CyVox policy: only AUTO / LOCAL allowed</text>
-<text x="73" y="316" font-family="monospace" font-size="14" fill="#7f1d1d">PROVIDER_POLICY_DENIED</text>
+<rect x="55" y="268" width="488" height="70" rx="8" fill="#fef3c7"/>
+<text x="73" y="291" font-family="Arial,sans-serif" font-size="15" fill="#78350f">CyVox modes: AUTO / LOCAL / FAST — all zero-cost</text>
+<text x="73" y="316" font-family="monospace" font-size="14" fill="#78350f">Every task pinned to cyvox/fast</text>
 <rect x="617" y="268" width="488" height="70" rx="8" fill="#dcfce7"/>
-<text x="635" y="291" font-family="Arial,sans-serif" font-size="15" fill="#14532d">CyVox accepts AUTO → provider selection</text>
-<text x="635" y="316" font-family="Arial,sans-serif" font-size="14" fill="#14532d">Authorized free/local route, if configured</text>
-<text x="55" y="364" font-family="Arial,sans-serif" font-size="14" fill="#991b1b">Task fails before inference.</text>
+<text x="635" y="291" font-family="Arial,sans-serif" font-size="15" fill="#14532d">AUTO → CyVox classifies each task</text>
+<text x="635" y="316" font-family="Arial,sans-serif" font-size="14" fill="#14532d">Configured zero-cost route</text>
+<text x="55" y="364" font-family="Arial,sans-serif" font-size="14" fill="#92400e">Slower tasks lose automatic classification.</text>
 <text x="617" y="364" font-family="Arial,sans-serif" font-size="14" fill="#166534">Actual streamed model output still unverified.</text>
 <rect x="34" y="403" width="1092" height="43" rx="10" fill="#e2e8f0"/>
 <text x="54" y="430" font-family="Arial,sans-serif" font-size="15" fill="#334155">Scope: bridge request and contract tests only. Native Work unchanged. No new model keys, grants or paid fallback.</text>

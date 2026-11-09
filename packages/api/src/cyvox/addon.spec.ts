@@ -309,12 +309,12 @@ describe('CyVox privileged Work and Robot boundary', () => {
 });
 
 // This test remains inside the same privileged bridge suite.
-describe('CyVox provider routing contract', () => {
+describe('CyVox zero-cost routing policy', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  /** CyVox accepts AUTO or LOCAL as a provider mode; FAST is a task class it
-   * classifies internally, and sending it fails the task before inference. */
-  it('sends a provider mode CyVox accepts for a confirmed owner Work task', async () => {
+  /** CyVox accepts AUTO, LOCAL, and FAST. AUTO delegates per-task
+   * classification to CyVox's zero-cost router instead of forcing fast. */
+  it('delegates task classification to CyVox with AUTO for a confirmed owner Work task', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1' }), {
         headers: { 'Content-Type': 'application/json' },

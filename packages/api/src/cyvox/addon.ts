@@ -232,9 +232,9 @@ export function createCyvoxAddonRouter(
         task: body.task.trim(),
         mode,
         max_steps: 15,
-        // CyVox's provider router accepts AUTO or LOCAL only; FAST is a task
-        // class it derives itself. Sending FAST here failed every task before
-        // the first model call with PROVIDER_POLICY_DENIED.
+        // CyVox accepts AUTO, LOCAL, and FAST under ZERO_EXTERNAL_SPEND.
+        // AUTO lets its router classify each Work task instead of pinning
+        // every task to the fast alias; no paid or remote route is available.
         routing_mode: 'AUTO',
         ...selection,
       });
