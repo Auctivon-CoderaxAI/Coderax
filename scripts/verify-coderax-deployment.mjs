@@ -23,8 +23,14 @@ export const validateLiveURL = (value) => {
   assert.equal(url.search, '', 'live URL cannot include query credentials');
   assert.equal(url.hash, '', 'live URL cannot contain a fragment');
   assert.equal(url.pathname, '/', 'live URL must be a deployment origin');
+  const isPreviewAlias =
+    url.hostname.startsWith('coderax-') && url.hostname.endsWith('.vercel.app');
+  // coderaxai.vercel.app is the project's assigned production alias. It does
+  // not match the coderax-<preview> pattern, but it is an owner-controlled
+  // origin, so preflight must be able to verify it.
+  const isProductionAlias = url.hostname === 'coderaxai.vercel.app';
   assert.ok(
-    url.hostname.endsWith('.vercel.app') && url.hostname.startsWith('coderax-'),
+    isPreviewAlias || isProductionAlias,
     'live URL must be a Coderax Vercel deployment',
   );
   return url.origin;
