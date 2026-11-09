@@ -6,7 +6,10 @@ import type {
   ProcessedOrganic,
   TMessageContentParts,
 } from 'coderax-data-provider';
-import useCopyToClipboard, { hasCopyableText } from '~/hooks/Messages/useCopyToClipboard';
+import useCopyToClipboard, {
+  hasCopyableText,
+  preloadRichTextClipboard,
+} from '~/hooks/Messages/useCopyToClipboard';
 
 // Mock the copy-to-clipboard module
 jest.mock('copy-to-clipboard');
@@ -684,7 +687,23 @@ Citations:
     });
   });
 
+  it('copies plain text once in the click task while the rich-text chunk loads', () => {
+    const { result } = renderHook(() =>
+      useCopyToClipboard({ text: '# Title', richText: { variant: 'full', latex: false } }),
+    );
+    let copied: boolean | Promise<boolean> | undefined;
+    act(() => {
+      copied = result.current(mockSetIsCopied);
+    });
+    expect(copied).toBe(true);
+    expect(mockCopy).toHaveBeenCalledTimes(1);
+    expect(mockCopy).toHaveBeenCalledWith('# Title', { format: 'text/plain' });
+  });
+
   describe('Rich text', () => {
+    beforeAll(async () => {
+      await preloadRichTextClipboard();
+    });
     const getClipboardHtml = (): string => {
       const [, options] = mockCopy.mock.calls[0];
       const clipboardData = { setData: jest.fn() };
@@ -721,6 +740,21 @@ Citations:
       expect(options?.format).toBe('text/plain');
       expect(getClipboardHtml()).toBe('<h1>Title</h1>\n<p>Some <strong>bold</strong> text.</p>');
       expect(mockSetIsCopied).toHaveBeenCalledWith(true);
+    });
+
+    it('does not retry a clipboard write that throws after the serializer loads', () => {
+      mockCopy.mockImplementationOnce(() => {
+        throw new Error('clipboard unavailable');
+      });
+      const { result } = renderHook(() =>
+        useCopyToClipboard({
+          text: '# Title',
+          richText: { variant: 'full', latex: false },
+        }),
+      );
+      expect(() => result.current(mockSetIsCopied)).toThrow('clipboard unavailable');
+      expect(mockCopy).toHaveBeenCalledTimes(1);
+      expect(mockSetIsCopied).not.toHaveBeenCalledWith(true);
     });
 
     it('should convert content parts and citations to html', async () => {

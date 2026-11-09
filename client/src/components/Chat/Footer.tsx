@@ -34,6 +34,28 @@ type FooterStartupConfig = Pick<Partial<TStartupConfig>, 'analyticsGtmId' | 'cus
 const shellHasConfiguredFooter =
   typeof window !== 'undefined' && window.__CODERAX_CONFIG__?.hasConfiguredFooter === true;
 
+const footerMarkdownComponents = {
+  a: ({
+    node: _n,
+    href,
+    children,
+    ...otherProps
+  }: React.ComponentPropsWithoutRef<'a'> & { node?: unknown }) => (
+    <a
+      className="text-text-muted underline"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      {...otherProps}
+    >
+      {children}
+    </a>
+  ),
+  p: ({ node: _n, ...props }: React.ComponentPropsWithoutRef<'p'> & { node?: unknown }) => (
+    <span {...props} />
+  ),
+};
+
 /**
  * What a conversation has to render beneath its composer. The conversation
  * renders the footer only for configured content, and the composer above it
@@ -104,30 +126,6 @@ function Footer({ className, startupConfig, configuredOnly = false }: FooterProp
       cancelled = true;
     };
   }, [config?.analyticsGtmId]);
-
-  const footerMarkdownComponents = {
-    a: ({
-      node: _n,
-      href,
-      children,
-      ...otherProps
-    }: React.ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {
-      return (
-        <a
-          className="text-text-muted underline"
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          {...otherProps}
-        >
-          {children}
-        </a>
-      );
-    },
-    p: ({ node: _n, ...props }: React.ComponentPropsWithoutRef<'p'> & { node?: unknown }) => (
-      <span {...props} />
-    ),
-  };
 
   const mainContentRender = mainContentParts.map((text, index) => (
     <React.Fragment key={`main-content-part-${index}`}>

@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { ComponentProps } from 'react';
+import LazyChunkBoundary from '~/lib/assets/LazyChunkBoundary';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
 
 const MarkdownLiteContent = lazyWithRecovery(() => import('./MarkdownLiteContent'));
@@ -12,8 +13,10 @@ function MarkdownLiteFallback({ content }: { content?: string }) {
 
 export default function MarkdownLite(props: MarkdownLiteProps) {
   return (
-    <Suspense fallback={<MarkdownLiteFallback content={props.content} />}>
-      <MarkdownLiteContent {...props} />
-    </Suspense>
+    <LazyChunkBoundary fallback={<MarkdownLiteFallback content={props.content} />}>
+      <Suspense fallback={<MarkdownLiteFallback content={props.content} />}>
+        <MarkdownLiteContent {...props} />
+      </Suspense>
+    </LazyChunkBoundary>
   );
 }

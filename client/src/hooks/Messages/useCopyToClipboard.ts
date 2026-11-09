@@ -14,6 +14,27 @@ import {
 import { parseWakeupMessage } from '~/components/Chat/Messages/Content/Parts/wakeup';
 import store from '~/store';
 
+type RichTextSerializer = (markdown: string, mode?: RichTextMode) => string;
+let richTextSerializer: RichTextSerializer | undefined;
+let richTextLoading: Promise<void> | undefined;
+
+/** Warm the optional serializer before a copy click, without loading it with the shell. */
+export function preloadRichTextClipboard(): Promise<void> {
+  if (richTextSerializer) {
+    return Promise.resolve();
+  }
+  if (!richTextLoading) {
+    richTextLoading = import('~/utils/richtext')
+      .then(({ markdownToHtml }) => {
+        richTextSerializer = markdownToHtml;
+      })
+      .catch(() => {
+        richTextLoading = undefined;
+      });
+  }
+  return richTextLoading;
+}
+
 type Source = {
   link: string;
   title: string;
@@ -218,11 +239,13 @@ export default function useCopyToClipboard({
         return finish({ format: 'text/plain' });
       }
 
-      return import('~/utils/richtext')
-        .then(({ markdownToHtml }) =>
-          finish(buildCopyOptions(clipboardContent, richText, markdownToHtml)),
-        )
-        .catch(() => finish({ format: 'text/plain' }));
+      if (!richTextSerializer) {
+        // Clipboard writes need the click's user activation. Copy once now, then
+        // warm HTML for the next click if the chunk was not ready yet.
+        void preloadRichTextClipboard();
+        return finish({ format: 'text/plain' });
+      }
+      return finish(buildCopyOptions(clipboardContent, richText, richTextSerializer));
     },
     [text, content, searchResults, richText],
   );

@@ -8,7 +8,7 @@
  * Usage: node scripts/measure-initial-js.mjs [distDir] [--json]
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
@@ -32,11 +32,19 @@ function collectInitialJs(document) {
 }
 
 const files = collectInitialJs(html).map((reference) => {
+  if (/^https?:\/\//i.test(reference)) {
+    throw new Error(`Cannot measure external initial JS asset: ${reference}`);
+  }
   const path = join(distDir, reference.replace(/^\.?\//, ''));
-  const bytes = readFileSync(path);
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    throw new Error(`Cannot read initial JS asset ${reference} at ${path}`, { cause: error });
+  }
   return {
     reference,
-    rawBytes: statSync(path).size,
+    rawBytes: bytes.length,
     gzipBytes: gzipSync(bytes, { level: 9 }).length,
     sha256: createHash('sha256').update(bytes).digest('hex').slice(0, 12),
   };

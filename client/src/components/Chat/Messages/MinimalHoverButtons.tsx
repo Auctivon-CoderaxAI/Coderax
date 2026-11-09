@@ -11,6 +11,7 @@ import {
 } from '~/hooks';
 import { revealOnRowHoverClasses } from './styles';
 import { cn } from '~/utils';
+import { preloadRichTextClipboard } from '~/hooks/Messages/useCopyToClipboard';
 
 type THoverButtons = {
   message: TMessage;
@@ -56,6 +57,8 @@ export default function MinimalHoverButtons({ message, searchResults, variant }:
             )}
             disabled={!canCopy}
             onClick={() => copyToClipboard(setIsCopied)}
+            onMouseEnter={() => void preloadRichTextClipboard()}
+            onFocus={() => void preloadRichTextClipboard()}
           >
             <MorphIcon icon={isCopied ? Check : Copy} size="1.1875rem" />
           </Button>

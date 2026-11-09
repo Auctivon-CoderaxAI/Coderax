@@ -10,6 +10,7 @@ import type { TranslationKeys } from '~/hooks/useLocalize';
 import type { Artifact } from '~/common';
 import { MERMAID_ARTIFACT_TYPE } from '~/common/artifacts';
 import { getCodeBlockFilename } from './downloadFile';
+import { scanFenceLine } from './markdownFence';
 
 const artifactFilename = {
   'application/vnd.react': 'App.tsx',
@@ -135,16 +136,9 @@ function findFirstHeading(markdown: string): string | undefined {
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fenceMatch != null) {
-      const marker = fenceMatch[1][0];
-      if (fence == null) {
-        fence = { marker, length: fenceMatch[1].length };
-        continue;
-      }
-      if (marker === fence.marker && fenceMatch[1].length >= fence.length) {
-        fence = null;
-      }
+    const scanned = scanFenceLine(line, fence);
+    fence = scanned.fence;
+    if (scanned.isFenceLine) {
       continue;
     }
     if (fence != null) {

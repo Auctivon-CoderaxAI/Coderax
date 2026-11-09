@@ -1,5 +1,6 @@
 import { ContentTypes } from 'coderax-data-provider';
 import type { TMessage, TMessageContentParts, TextData } from 'coderax-data-provider';
+import { scanFenceLine } from '~/utils/markdownFence';
 
 /** An editable part holds either a bare string or a `{ value, annotations }` object,
  *  which is how the Assistants thread sync stores a response that carries file
@@ -35,16 +36,9 @@ const containsArtifact = (text: string): boolean => {
 
   let fence: { marker: string; length: number } | null = null;
   for (const line of text.split(/\r?\n/)) {
-    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
-    if (fenceMatch != null) {
-      const marker = fenceMatch[1][0];
-      if (fence == null) {
-        fence = { marker, length: fenceMatch[1].length };
-        continue;
-      }
-      if (marker === fence.marker && fenceMatch[1].length >= fence.length) {
-        fence = null;
-      }
+    const scanned = scanFenceLine(line, fence);
+    fence = scanned.fence;
+    if (scanned.isFenceLine) {
       continue;
     }
     if (fence == null && ARTIFACT_DIRECTIVE.test(line)) {
