@@ -33,7 +33,7 @@ type QuotaEntry = {
 
 export type QuotaLedger = {
   reserve: (id: string, options?: { tokens?: number }) => QuotaReservation;
-  settle: (id: string, tokens: number) => void;
+  settle: (id: string, actualTokens: number, reservedTokens?: number) => void;
   /** Non-consuming read used by routing decisions and the status endpoint. */
   snapshot: (id: string) => QuotaSnapshotEntry;
   snapshotAll: () => Record<string, QuotaSnapshotEntry>;
@@ -80,7 +80,10 @@ export function createQuotaLedger({
       if (entry.requests + 1 > limits.requestsPerDay) {
         return { ok: false, reason: 'request_budget', resetAt: entry.resetAt };
       }
-      const requested = Math.max(0, Math.trunc(options.tokens ?? 0));
+      const requested = options.tokens ?? 0;
+      if (!Number.isSafeInteger(requested) || requested < 0) {
+        return { ok: false, reason: 'token_budget', resetAt: entry.resetAt };
+      }
       if (entry.tokens + requested > limits.tokensPerDay) {
         return { ok: false, reason: 'token_budget', resetAt: entry.resetAt };
       }
@@ -88,9 +91,20 @@ export function createQuotaLedger({
       entry.tokens += requested;
       return { ok: true };
     },
-    settle(id, tokens) {
+    settle(id, actualTokens, reservedTokens = 0) {
       const entry = ensure(id);
-      entry.tokens += Math.max(0, Math.trunc(tokens));
+      if (
+        !Number.isSafeInteger(actualTokens) ||
+        actualTokens < 0 ||
+        !Number.isSafeInteger(reservedTokens) ||
+        reservedTokens < 0
+      ) {
+        throw new RangeError('quota settlement requires non-negative safe integer tokens');
+      }
+      // A reservation is already counted. Reconcile it with measured usage
+      // rather than charging the same tokens twice. An actual overrun stays
+      // visible so subsequent requests fail closed.
+      entry.tokens = Math.max(0, entry.tokens + actualTokens - reservedTokens);
     },
     snapshot(id) {
       return toSnapshot(ensure(id));
