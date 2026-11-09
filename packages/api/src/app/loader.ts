@@ -13,11 +13,16 @@ import {
   validateSettingDefinitions,
 } from 'coderax-data-provider';
 import type { TCustomConfig, TEndpoint } from 'coderax-data-provider';
-import type { ZodIssue } from 'zod';
 import { checkConfigTheme } from './theme';
 
 type CustomParams = NonNullable<TEndpoint['customParams']>;
 type CustomParamDefinition = NonNullable<CustomParams['paramDefinitions']>[number];
+
+// Derive issue types from this schema's parser, which may use Zod 4 core issue types.
+type ConfigValidationIssue = Extract<
+  ReturnType<typeof configSchema.safeParse>,
+  { success: false }
+>['error']['issues'][number];
 
 export type CustomConfigLoadMode = 'startup' | 'reload';
 
@@ -33,10 +38,10 @@ export interface CustomConfigLoaderOptions {
 }
 
 export class ConfigReloadError extends Error {
-  readonly validationErrors?: readonly ZodIssue[];
+  readonly validationErrors?: readonly ConfigValidationIssue[];
   override readonly cause?: unknown;
 
-  constructor(message: string, cause?: unknown, validationErrors?: readonly ZodIssue[]) {
+  constructor(message: string, cause?: unknown, validationErrors?: readonly ConfigValidationIssue[]) {
     super(message);
     this.name = 'ConfigReloadError';
     this.cause = cause;
