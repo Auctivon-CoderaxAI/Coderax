@@ -120,7 +120,8 @@ alone.
   check, so a catalog mistake still fails.
 - Trial credits, unverified pricing and any non-zero `promptCostPerMillion` or
   `completionCostPerMillion` are rejection reasons.
-- Budgets are reserved before an attempt, so retries cannot exceed them.
+- A supplied `estimatedTokens` value is reserved again at execution time, even for stale plans and concurrent turns. Measured usage reconciles the reservation (no double counting); unknown usage keeps it reserved, and actual overruns block subsequent attempts.
+- **Limit:** token estimates alone cannot strictly cap a single provider response. A future transport adapter must enforce provider output-token limits, durable atomic quotas across workers/restarts, and authorized credential probes before enabling hosted routing. The in-memory ledger is not a 24/7 distributed spending guarantee.
 - `paidRoutesEnabled` is a literal `false` in every snapshot; there is no field
   that turns a paid provider on.
 - When every free option is exhausted the router returns
