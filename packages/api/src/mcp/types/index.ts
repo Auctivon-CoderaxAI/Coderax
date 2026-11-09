@@ -1,4 +1,5 @@
-import { z } from 'zod';
+// The MCP option schemas are Zod 4 schemas owned by coderax-data-provider; infer their
+// types from the matching Zod 4 namespace instead of the Zod 3 copy this package resolves.
 import {
   Tools,
   SSEOptionsSchema,
@@ -25,6 +26,7 @@ import type {
 } from 'coderax-data-provider';
 import type { TokenMethods, IUser } from '@coderax/data-schemas';
 import type { LCTool } from '@librechat/agents';
+import type { z } from 'zod/v4';
 import type {
   OboTokenResolver,
   OboTrustChecker,
