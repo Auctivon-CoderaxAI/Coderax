@@ -201,6 +201,18 @@ describe('bounded failover', () => {
     expect(attempt).not.toHaveBeenCalled();
   });
 
+  it('fails closed on retryable failure when no safe checkpoint was supplied', async () => {
+    const { router } = routerWith();
+    const seen: string[] = [];
+    const result = await router.run(router.plan(), async (endpoint) => {
+      seen.push(endpoint.id);
+      return { ok: false, code: 'provider_error', retryable: true };
+    });
+    expect(seen).toEqual(['primary']);
+    expect(result).toMatchObject({ ok: false, reason: 'unsafe_checkpoint', attempts: 1 });
+    expect(router.snapshot().endpoints.find((entry) => entry.id === 'fallback-a')?.quota.requestsUsed).toBe(0);
+  });
+
   it('switches to the next free endpoint after a retryable provider failure', async () => {
     const { router } = routerWith();
     const plan = router.plan();
@@ -211,7 +223,7 @@ describe('bounded failover', () => {
         return { ok: false, code: 'provider_error', retryable: true };
       }
       return { ok: true, value: 'answer', tokens: 12 };
-    });
+    }, { checkpoint: 'turn_start' });
 
     expect(seen).toEqual(['primary', 'fallback-a']);
     expect(result).toMatchObject({ ok: true, endpoint: { id: 'fallback-a' }, attempts: 2 });
@@ -237,7 +249,7 @@ describe('bounded failover', () => {
     const result = await router.run(router.plan(), async (endpoint) => {
       seen.push(endpoint.id);
       return { ok: false, code: 'provider_error', retryable: true };
-    });
+    }, { checkpoint: 'turn_start' });
     expect(seen).toEqual(['primary', 'fallback-a']);
     expect(result).toMatchObject({ ok: false, reason: 'all_attempts_failed', attempts: 2 });
   });
@@ -295,6 +307,7 @@ describe('cooldowns and budgets', () => {
       endpoint.id === 'primary'
         ? { ok: false, code: 'rate_limited', retryable: true }
         : { ok: true, value: 'served by the fallback' },
+      { checkpoint: 'turn_start' },
     );
     expect(health.isAvailable('primary')).toBe(false);
     expect(health.isAvailable('fallback-a')).toBe(true);
