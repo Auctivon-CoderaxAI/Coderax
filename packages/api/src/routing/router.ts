@@ -233,7 +233,23 @@ export function createFreeRouter({
       0,
       Math.max(1, 1 + limits.maxRetries),
     );
-    if (candidates.some((endpoint) => !endpoints.includes(endpoint))) {
+    // A plan is caller-supplied data, not an authorization token. Reapply
+    // zero-cost catalog and fallback policy before any quota/provider action.
+    // A stale or forged plan must not route to a configured paid endpoint.
+    const allowed = new Set(
+      selectFreeEndpoints(endpoints).usable.filter(
+        (endpoint) =>
+          FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider) &&
+          (limits.allowFallback || endpoint.kind !== 'fallback'),
+      ),
+    );
+    if (
+      !Number.isSafeInteger(routePlan.estimatedTokens) ||
+      routePlan.estimatedTokens < 0 ||
+      !Array.isArray(routePlan.alternatives) ||
+      new Set(candidates).size !== candidates.length ||
+      candidates.some((endpoint) => !allowed.has(endpoint))
+    ) {
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
     }
     const errors: string[] = [];
