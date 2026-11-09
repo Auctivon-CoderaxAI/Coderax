@@ -295,14 +295,14 @@ export function createFreeRouter({
       if (outcome.ok) {
         tracker.recordSuccess(endpoint.id);
         if (outcome.tokens != null) {
-          ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens);
+          ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens, reservation.resetAt);
         }
         return { ok: true, endpoint, value: outcome.value, attempts };
       }
 
       tracker.recordFailure(endpoint.id, outcome.code);
       if (outcome.tokens != null) {
-        ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens);
+        ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens, reservation.resetAt);
       }
       errors.push(`${endpoint.id}:${outcome.code}`);
       if (!outcome.retryable) {
