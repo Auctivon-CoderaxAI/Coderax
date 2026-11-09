@@ -147,6 +147,60 @@ describe('bounded failover', () => {
     expect(router.snapshot().endpoints.every((e) => e.quota.requestsUsed === 0)).toBe(true);
   });
 
+  it('rejects a configured paid endpoint injected into an otherwise valid plan', async () => {
+    const paid: FreeEndpoint = {
+      ...fallbackA,
+      id: 'configured-paid',
+      promptCostPerMillion: 1,
+    };
+    const { router } = routerWith({}, [primary, paid]);
+    const plan = router.plan();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const attempt = jest.fn();
+    const result = await router.run({ ...plan, alternatives: [paid] }, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+    expect(router.snapshot().endpoints.every((entry) => entry.quota.requestsUsed === 0)).toBe(
+      true,
+    );
+  });
+
+  it('rejects a forged fallback when fallback routing is disabled', async () => {
+    const { router } = routerWith({ allowFallback: false }, [primary, fallbackA]);
+    const plan = router.plan();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const attempt = jest.fn();
+    const result = await router.run({ ...plan, selected: fallbackA, alternatives: [] }, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed and repeated candidates before attempting a provider', async () => {
+    const { router } = routerWith();
+    const plan = router.plan();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const attempt = jest.fn();
+    const malformed = await router.run({ ...plan, estimatedTokens: Number.NaN }, attempt);
+    const duplicate = await router.run(
+      { ...plan, alternatives: [plan.selected, ...plan.alternatives] },
+      attempt,
+    );
+    const missingAlternatives = await router.run(
+      { ...plan, alternatives: undefined } as unknown as typeof plan,
+      attempt,
+    );
+    for (const result of [malformed, duplicate, missingAlternatives]) {
+      expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    }
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
   it('switches to the next free endpoint after a retryable provider failure', async () => {
     const { router } = routerWith();
     const plan = router.plan();
