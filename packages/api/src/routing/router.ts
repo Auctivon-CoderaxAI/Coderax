@@ -265,7 +265,7 @@ export function createFreeRouter({
        * A second endpoint is a model switch. If the run is past a safe
        * checkpoint, stop rather than risk repeating an unrecorded action.
        */
-      if (attempts > 0 && options.checkpoint && !isSafeModelSwitchPoint(options.checkpoint)) {
+      if (attempts > 0 && (!options.checkpoint || !isSafeModelSwitchPoint(options.checkpoint))) {
         return { ok: false, reason: 'unsafe_checkpoint', attempts, errors };
       }
       if (!tracker.isAvailable(endpoint.id)) {
