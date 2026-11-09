@@ -210,7 +210,9 @@ describe('bounded failover', () => {
     });
     expect(seen).toEqual(['primary']);
     expect(result).toMatchObject({ ok: false, reason: 'unsafe_checkpoint', attempts: 1 });
-    expect(router.snapshot().endpoints.find((entry) => entry.id === 'fallback-a')?.quota.requestsUsed).toBe(0);
+    expect(
+      router.snapshot().endpoints.find((entry) => entry.id === 'fallback-a')?.quota.requestsUsed,
+    ).toBe(0);
   });
 
   it('switches to the next free endpoint after a retryable provider failure', async () => {
