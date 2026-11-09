@@ -3441,6 +3441,8 @@
   "com_cyvox_action_accepted": "Request accepted. Refresh to inspect the latest state.",
   "com_work_models_unavailable": "Work could not load the configured models. Check the agent model configuration and try again.",
   "com_work_models_empty": "No verified free or local model is configured for Work.",
+  "com_work_routing_active": "Routed to {{0}} via {{1}}",
+  "com_work_routing_primary_unavailable": "{{0}} is unavailable on a free endpoint",
   "com_work_agent": "Work agent",
   "com_work_agent_coordinates": "{{0}} · coordinates {{1}} agents",
   "com_work_automatic_agent": "Automatic",

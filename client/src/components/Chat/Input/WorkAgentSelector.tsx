@@ -15,6 +15,7 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { createStorageAtom } from '~/store/jotai-utils';
+import { WorkRoutingBadge } from './WorkRoutingBadge';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
@@ -209,6 +210,7 @@ export function WorkAgentConversationSelector() {
         id="work-agent-composer"
         className="w-full max-w-full"
       />
+      <WorkRoutingBadge />
       {modelsQuery.isError && (
         <span role="alert" className="text-text-secondary text-xs">
           {localize('com_work_models_unavailable')}

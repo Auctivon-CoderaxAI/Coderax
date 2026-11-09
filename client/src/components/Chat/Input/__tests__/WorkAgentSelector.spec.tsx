@@ -7,7 +7,7 @@ import { ConversationModeContext } from '../../mode';
 const mockSetConversation = jest.fn();
 jest.mock('coderax-data-provider', () => ({
   ...jest.requireActual('coderax-data-provider'),
-  dataService: { getWorkModels: jest.fn(), getWorkAgents: jest.fn() },
+  dataService: { getWorkModels: jest.fn(), getWorkAgents: jest.fn(), getWorkRouting: jest.fn() },
 }));
 jest.mock('~/Providers', () => ({
   useChatContext: () => ({
@@ -56,6 +56,22 @@ beforeEach(() => {
   });
   jest.mocked(dataService.getWorkAgents).mockResolvedValue({
     agents: [{ id: 'reviewer', name: 'Reviewer', model: 'free', provider: 'Ollama', members: [] }],
+  });
+  jest.mocked(dataService.getWorkRouting).mockResolvedValue({
+    routing: {
+      enabled: false,
+      primary: {
+        available: false,
+        label: 'DeepSeek-R1 671B',
+        modelIds: [],
+        reason: 'no_verified_free_endpoint',
+        checkedAt: '2026-11-08',
+        evidence: [],
+      },
+      activeModel: null,
+      endpoints: [],
+      paidRoutesEnabled: false,
+    },
   });
 });
 
