@@ -13,7 +13,7 @@ export type QuotaLimits = {
 };
 
 export type QuotaReservation =
-  | { ok: true }
+  | { ok: true; resetAt: number }
   | { ok: false; reason: 'request_budget' | 'token_budget'; resetAt: number };
 
 export type QuotaSnapshotEntry = {
@@ -33,7 +33,7 @@ type QuotaEntry = {
 
 export type QuotaLedger = {
   reserve: (id: string, options?: { tokens?: number }) => QuotaReservation;
-  settle: (id: string, actualTokens: number, reservedTokens?: number) => void;
+  settle: (id: string, actualTokens: number, reservedTokens?: number, reservationResetAt?: number) => void;
   /** Non-consuming read used by routing decisions and the status endpoint. */
   snapshot: (id: string) => QuotaSnapshotEntry;
   snapshotAll: () => Record<string, QuotaSnapshotEntry>;
@@ -89,9 +89,9 @@ export function createQuotaLedger({
       }
       entry.requests += 1;
       entry.tokens += requested;
-      return { ok: true };
+      return { ok: true, resetAt: entry.resetAt };
     },
-    settle(id, actualTokens, reservedTokens = 0) {
+    settle(id, actualTokens, reservedTokens = 0, reservationResetAt) {
       const entry = ensure(id);
       if (
         !Number.isSafeInteger(actualTokens) ||
@@ -100,6 +100,19 @@ export function createQuotaLedger({
         reservedTokens < 0
       ) {
         throw new RangeError('quota settlement requires non-negative safe integer tokens');
+      }
+      if (
+        (reservationResetAt !== undefined &&
+          (!Number.isSafeInteger(reservationResetAt) || reservationResetAt <= 0)) ||
+        (reservedTokens > 0 && reservationResetAt === undefined)
+      ) {
+        throw new RangeError('quota settlement requires a valid reservation window');
+      }
+      // An attempt reserved in yesterday's UTC window may finish after midnight.
+      // Its settlement must never refund or charge tokens in today's window,
+      // including tokens reserved by another concurrent request.
+      if (reservationResetAt !== undefined && reservationResetAt !== entry.resetAt) {
+        return;
       }
       // A reservation is already counted. Reconcile it with measured usage
       // rather than charging the same tokens twice. An actual overrun stays
