@@ -273,7 +273,10 @@ describe('cooldowns and budgets', () => {
     let finish!: (value: { ok: true; value: string; tokens: number }) => void;
     const first = router.run(
       firstPlan,
-      () => new Promise((resolve) => { finish = resolve; }),
+      () =>
+        new Promise<{ ok: true; value: string; tokens: number }>((resolve) => {
+          finish = resolve;
+        }),
     );
     expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(80);
 
