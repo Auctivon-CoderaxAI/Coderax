@@ -353,10 +353,42 @@ describe('cooldowns and budgets', () => {
       ok: false,
       reason: 'token_budget',
     });
-    expect(ledger.reserve('endpoint', { tokens: 10 })).toEqual({ ok: true });
+    expect(ledger.reserve('endpoint', { tokens: 10 })).toMatchObject({ ok: true });
 
     clock += 86_400_000;
     expect(ledger.snapshot('endpoint').tokensUsed).toBe(0);
+  });
+
+  it('does not erase new-day reservations when yesterday's in-flight call settles late', () => {
+    let clock = Date.UTC(2026, 10, 9, 23, 59, 59);
+    const ledger = createQuotaLedger({
+      limits: { requestsPerDay: 10, tokensPerDay: 100 },
+      now: () => clock,
+    });
+    const previousDay = ledger.reserve('endpoint', { tokens: 80 });
+    expect(previousDay.ok).toBe(true);
+    if (!previousDay.ok) return;
+
+    clock += 2_000;
+    const currentDay = ledger.reserve('endpoint', { tokens: 80 });
+    expect(currentDay.ok).toBe(true);
+    if (!currentDay.ok) return;
+
+    // The old response must not release 70 tokens belonging to today's
+    // concurrently reserved request or count old usage against today's cap.
+    ledger.settle('endpoint', 10, 80, previousDay.resetAt);
+    expect(ledger.snapshot('endpoint').tokensUsed).toBe(80);
+    expect(ledger.reserve('endpoint', { tokens: 21 })).toMatchObject({
+      ok: false,
+      reason: 'token_budget',
+    });
+
+    // The current-day request can still reconcile its own reservation.
+    ledger.settle('endpoint', 40, 80, currentDay.resetAt);
+    expect(ledger.snapshot('endpoint').tokensUsed).toBe(40);
+    expect(() => ledger.settle('endpoint', 1, 80)).toThrow(
+      'quota settlement requires a valid reservation window',
+    );
   });
 
   it('reserves estimated tokens before an attempt and reconciles actual usage', async () => {
