@@ -2,7 +2,7 @@ import React from 'react';
 import { RecoilRoot } from 'recoil';
 import ReactMarkdown from 'react-markdown';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { getRemarkPlugins, getRehypePlugins, getMarkdownComponents } from '../markdownConfig';
 import { MessageContext, ArtifactProvider, CodeBlockProvider } from '~/Providers';
 import Markdown from '../Markdown';
@@ -61,11 +61,25 @@ const OldMarkdown = ({ content }: { content: string }) => (
   </ArtifactProvider>
 );
 
-const readArtifacts = async () =>
-  (await screen.findAllByTestId('art')).map((el) => ({
+/**
+ * `ArtifactButton` mounts with no artifact until its throttled effect runs, and the
+ * markdown renderer is a lazy chunk, so the two land a frame apart. Wait for every
+ * rendered artifact to settle before reading the attributes the cases compare.
+ */
+const readArtifacts = async () => {
+  await waitFor(() => {
+    const nodes = screen.getAllByTestId('art');
+    expect(nodes.length).toBeGreaterThan(0);
+    for (const node of nodes) {
+      expect(node.getAttribute('data-id')).not.toBe('undefined');
+    }
+  });
+
+  return screen.getAllByTestId('art').map((el) => ({
     idx: el.getAttribute('data-index'),
     id: el.getAttribute('data-id'),
   }));
+};
 
 /** The latest message of a conversation, generating while `submitting` holds. */
 const liveView = (content: string, submitting: boolean) => (
