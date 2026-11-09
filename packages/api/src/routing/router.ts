@@ -48,6 +48,7 @@ export type FreeRoutePlan =
       ok: true;
       selected: FreeEndpoint;
       alternatives: FreeEndpoint[];
+      estimatedTokens: number;
       primary: FreePrimaryStatus;
       rejected: FreeRouteRejection[];
     }
@@ -166,6 +167,10 @@ export function createFreeRouter({
     }
 
     const rejected: FreeRouteRejection[] = [];
+    const estimatedTokens = requirements.estimatedTokens ?? 0;
+    if (!Number.isSafeInteger(estimatedTokens) || estimatedTokens < 0) {
+      return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
+    }
     const requiresTools = requirements.requireTools === true;
     const selection = selectFreeEndpoints(endpoints, {
       requireTools: requiresTools && !limits.allowToolsInFallback,
@@ -191,7 +196,7 @@ export function createFreeRouter({
       const remaining = ledger.snapshot(endpoint.id);
       if (
         remaining.requestsUsed + 1 > remaining.requestsLimit ||
-        remaining.tokensUsed + (requirements.estimatedTokens ?? 0) > remaining.tokensLimit
+        remaining.tokensUsed + estimatedTokens > remaining.tokensLimit
       ) {
         rejected.push({ id: endpoint.id, reason: 'quota' });
         continue;
@@ -203,7 +208,14 @@ export function createFreeRouter({
       return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
     }
     const [selected, ...alternatives] = eligible;
-    return { ok: true, selected: selected as FreeEndpoint, alternatives, primary, rejected };
+    return {
+      ok: true,
+      selected: selected as FreeEndpoint,
+      alternatives,
+      estimatedTokens,
+      primary,
+      rejected,
+    };
   }
 
   async function run<T>(
@@ -234,7 +246,9 @@ export function createFreeRouter({
         errors.push(`${endpoint.id}:cooldown`);
         continue;
       }
-      const reservation = ledger.reserve(endpoint.id, { tokens: 0 });
+      // Recheck and reserve at execution time: a plan can become stale while
+      // another concurrent turn consumes the remaining quota.
+      const reservation = ledger.reserve(endpoint.id, { tokens: routePlan.estimatedTokens });
       if (!reservation.ok) {
         errors.push(`${endpoint.id}:${reservation.reason}`);
         continue;
@@ -255,14 +269,14 @@ export function createFreeRouter({
       if (outcome.ok) {
         tracker.recordSuccess(endpoint.id);
         if (outcome.tokens != null) {
-          ledger.settle(endpoint.id, outcome.tokens);
+          ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens);
         }
         return { ok: true, endpoint, value: outcome.value, attempts };
       }
 
       tracker.recordFailure(endpoint.id, outcome.code);
       if (outcome.tokens != null) {
-        ledger.settle(endpoint.id, outcome.tokens);
+        ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens);
       }
       errors.push(`${endpoint.id}:${outcome.code}`);
       if (!outcome.retryable) {
