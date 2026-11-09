@@ -420,6 +420,9 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
 
 test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () => {
   assert.equal(validateLiveURL('https://coderax-ten.vercel.app'), 'https://coderax-ten.vercel.app');
+  assert.equal(validateLiveURL('https://coderaxai.vercel.app'), 'https://coderaxai.vercel.app');
+  assert.throws(() => validateLiveURL('https://coderaxai.vercel.app.evil.example/'));
+  assert.throws(() => validateLiveURL('https://xcoderaxai.vercel.app/'));
   assert.throws(() => validateLiveURL('https://evil.example/'));
   assert.throws(() => validateLiveURL('http://coderax-ten.vercel.app/'));
   assert.throws(() => validateLiveURL('https://coderax-ten.vercel.app/?token=secret'));
