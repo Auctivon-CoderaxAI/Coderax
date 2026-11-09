@@ -223,7 +223,9 @@ export function createFreeRouter({
     attempt: (endpoint: FreeEndpoint) => Promise<FreeAttemptOutcome<T>>,
     options: { checkpoint?: WorkCheckpoint } = {},
   ): Promise<FreeRunResult<T>> {
-    if (!routePlan.ok) {
+    // A previously computed plan must not bypass a disabled router. Plans are
+    // public data, so reject unknown endpoints before calling any provider.
+    if (!limits.enabled || !routePlan.ok) {
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
     }
 
@@ -231,6 +233,9 @@ export function createFreeRouter({
       0,
       Math.max(1, 1 + limits.maxRetries),
     );
+    if (candidates.some((endpoint) => !endpoints.includes(endpoint))) {
+      return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
+    }
     const errors: string[] = [];
     let attempts = 0;
 
