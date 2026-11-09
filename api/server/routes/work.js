@@ -10,6 +10,7 @@ const {
   GenerationJobManager,
   persistTerminalWorkState,
   workStateForJobStatus,
+  getFreeRouterForConfig,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
@@ -72,9 +73,19 @@ module.exports = createWorkApiRouter({
   createReadRouterForRequest: () => {
     const readRouter = express.Router();
     // Catalog admission needs the authenticated YAML/tenant configuration before
-    // depsFor captures graph limits; unrelated task reads/cancellation do not.
+    // depsFor captures graph limits; routing needs it to resolve its budgets.
+    // Unrelated task reads/cancellation do not.
     readRouter.use('/agents', strictConfigMiddleware);
-    readRouter.use((req, res, next) => createWorkRouter(depsFor(req))(req, res, next));
+    readRouter.use('/routing', strictConfigMiddleware);
+    readRouter.use((req, res, next) => {
+      // The router owns live cooldowns and quota, so it is shared per budget
+      // instead of being rebuilt for each request.
+      const deps = {
+        ...depsFor(req),
+        routing: () => getFreeRouterForConfig(req.config?.config).snapshot(),
+      };
+      createWorkRouter(deps)(req, res, next);
+    });
     return readRouter;
   },
 });
