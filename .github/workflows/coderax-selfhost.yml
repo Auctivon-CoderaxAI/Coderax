@@ -19,7 +19,7 @@ permissions:
 # A newer push supersedes an obsolete pull-request run. Main pushes are the
 # post-merge safety net and are never cancelled by a concurrent run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
