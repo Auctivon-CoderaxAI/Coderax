@@ -232,7 +232,10 @@ export function createCyvoxAddonRouter(
         task: body.task.trim(),
         mode,
         max_steps: 15,
-        routing_mode: 'FAST',
+        // CyVox's provider router accepts AUTO or LOCAL only; FAST is a task
+        // class it derives itself. Sending FAST here failed every task before
+        // the first model call with PROVIDER_POLICY_DENIED.
+        routing_mode: 'AUTO',
         ...selection,
       });
     } else if (action === 'startComputerTask') {
