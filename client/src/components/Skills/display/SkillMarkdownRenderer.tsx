@@ -1,38 +1,12 @@
 import { memo, useMemo } from 'react';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import supersub from 'remark-supersub';
 import { Link } from 'react-router-dom';
-import rehypeHighlight from 'rehype-highlight';
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import type { AnchorHTMLAttributes } from 'react';
-import type { PluggableList } from 'unified';
 import type { Element } from 'hast';
 import { codeNoExecution } from '~/components/Chat/Messages/Content/MarkdownComponents';
-import { langSubset } from '~/utils';
-
-const REMARK_PLUGINS: PluggableList = [
-  supersub,
-  remarkGfm,
-  [remarkMath, { singleDollarTextMath: false }],
-];
-
-const REHYPE_PLUGINS: PluggableList = [
-  [rehypeKatex],
-  [
-    rehypeHighlight,
-    {
-      detect: true,
-      ignoreMissing: true,
-      subset: langSubset,
-    },
-  ],
-];
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
 
 const MARKDOWN_COMPONENTS = { code: codeNoExecution };
 const URI_SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
-const TEL_PROTOCOL_PATTERN = /^tel:/i;
 
 type MarkdownLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: Element };
 
@@ -120,10 +94,6 @@ function SkillMarkdownLink({
   );
 }
 
-function skillUrlTransform(value: string): string {
-  return TEL_PROTOCOL_PATTERN.test(value) ? value : defaultUrlTransform(value);
-}
-
 interface SkillMarkdownRendererProps {
   content: string;
   skillId: string;
@@ -148,20 +118,15 @@ function SkillMarkdownRenderer({
   );
 
   return (
-    <ReactMarkdown
-      /** @ts-ignore - PluggableList vs Pluggable[] shape drift */
-      remarkPlugins={REMARK_PLUGINS}
-      /** @ts-ignore - PluggableList vs Pluggable[] shape drift */
-      rehypePlugins={REHYPE_PLUGINS}
+    <MarkdownLite
+      content={content}
+      codeExecution={false}
       components={components as unknown as Record<string, React.ElementType>}
-      urlTransform={skillUrlTransform}
       className={
         className ??
-        'markdown prose dark:prose-invert light w-full break-words leading-[1.65rem] text-text-primary'
+        'markdown prose dark:prose-invert light text-text-primary w-full leading-[1.65rem] break-words'
       }
-    >
-      {content}
-    </ReactMarkdown>
+    />
   );
 }
 

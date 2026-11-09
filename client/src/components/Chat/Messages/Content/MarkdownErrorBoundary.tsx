@@ -5,9 +5,10 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import type { PluggableList } from 'unified';
 import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
-import { langSubset, remarkApproxTilde } from '~/utils';
 import { reportBoundaryError } from '~/lib/rum/logs';
+import { remarkApproxTilde } from '~/utils/tilde';
 import { CodeBlockProvider } from '~/Providers';
+import { langSubset } from '~/utils/languages';
 
 interface ErrorBoundaryState {
   hasError: boolean;

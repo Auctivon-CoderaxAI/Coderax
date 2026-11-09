@@ -1,4 +1,4 @@
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
+import { Suspense, memo, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useDrop } from 'react-dnd';
 import { useRecoilValue } from 'recoil';
 import * as Ariakit from '@ariakit/react';
@@ -39,9 +39,14 @@ import {
   useActiveJobs,
   useConversationsInfiniteQuery,
 } from '~/data-provider';
-import ProjectCreateDialog from '~/components/Projects/ProjectCreateDialog';
-import ProjectDeleteDialog from '~/components/Projects/ProjectDeleteDialog';
-import ProjectEditDialog from '~/components/Projects/ProjectEditDialog';
+const ProjectCreateDialog = lazyWithRecovery(
+  () => import('~/components/Projects/ProjectCreateDialog'),
+);
+const ProjectDeleteDialog = lazyWithRecovery(
+  () => import('~/components/Projects/ProjectDeleteDialog'),
+);
+const ProjectEditDialog = lazyWithRecovery(() => import('~/components/Projects/ProjectEditDialog'));
+import { lazyWithRecovery } from '~/lib/assets/lazy';
 import { useLocalize, useLocalStorage, useNewConvo } from '~/hooks';
 import { clearMessagesCache, cn, rowActionClasses } from '~/utils';
 import { Collapse } from '~/components/ui';
@@ -380,18 +385,26 @@ const ProjectItem = memo(
             />
           </div>
         </Collapse>
-        <ProjectEditDialog
-          open={isEditOpen}
-          onOpenChange={(open) => closeMenuWith(setIsEditOpen, open)}
-          project={project}
-          triggerRef={editMenuRef}
-        />
-        <ProjectDeleteDialog
-          open={isDeleteOpen}
-          onOpenChange={(open) => closeMenuWith(setIsDeleteOpen, open)}
-          project={project}
-          triggerRef={deleteMenuRef}
-        />
+        {isEditOpen && (
+          <Suspense fallback={null}>
+            <ProjectEditDialog
+              open={isEditOpen}
+              onOpenChange={(open) => closeMenuWith(setIsEditOpen, open)}
+              project={project}
+              triggerRef={editMenuRef}
+            />
+          </Suspense>
+        )}
+        {isDeleteOpen && (
+          <Suspense fallback={null}>
+            <ProjectDeleteDialog
+              open={isDeleteOpen}
+              onOpenChange={(open) => closeMenuWith(setIsDeleteOpen, open)}
+              project={project}
+              triggerRef={deleteMenuRef}
+            />
+          </Suspense>
+        )}
       </li>
     );
   },
@@ -551,14 +564,18 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
         <div className="pt-0.5">{renderProjectsBody()}</div>
       </Collapse>
 
-      <ProjectCreateDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
-        onCreated={(project) => {
-          navigate(`/projects/${project._id}`);
-          toggleNav();
-        }}
-      />
+      {isCreateOpen && (
+        <Suspense fallback={null}>
+          <ProjectCreateDialog
+            open={isCreateOpen}
+            onOpenChange={setIsCreateOpen}
+            onCreated={(project) => {
+              navigate(`/projects/${project._id}`);
+              toggleNav();
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

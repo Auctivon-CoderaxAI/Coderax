@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, startTransition } from 'react';
+import { Suspense, useState, useEffect, useRef, useCallback, startTransition } from 'react';
 import { useRecoilValue } from 'recoil';
 import { Outlet } from 'react-router-dom';
 import { useMediaQuery } from '@coderax/client';
@@ -43,13 +43,17 @@ import useKeyboardShortcuts from '~/hooks/useKeyboardShortcuts';
 import useDrawerDismiss from '~/hooks/Nav/useDrawerDismiss';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
-import { TermsAndConditionsModal } from '~/components/ui';
 import useDrawerSwipe from '~/hooks/Nav/useDrawerSwipe';
+import { lazyWithRecovery } from '~/lib/assets/lazy';
 import ChatSettingsProvider from './ChatSettings';
 import { useHealthCheck } from '~/data-provider';
 import Settings from '~/components/Nav/Settings';
 import { Banner } from '~/components/Banners';
 import store from '~/store';
+
+const TermsAndConditionsModal = lazyWithRecovery(
+  () => import('~/components/ui/TermsAndConditionsModal'),
+);
 
 /** Isolates the unseen-reply subscription so its updates re-render only this node, not `Root`. */
 function ReplyNotifications() {
@@ -252,15 +256,17 @@ function RootLayout() {
               <ReplyNotifications />
               <MessagesRetention />
             </AgentsMapContext.Provider>
-            {config?.interface?.termsOfService?.modalAcceptance === true && (
-              <TermsAndConditionsModal
-                open={showTerms}
-                onOpenChange={setShowTerms}
-                onAccept={handleAcceptTerms}
-                onDecline={handleDeclineTerms}
-                title={config.interface.termsOfService.modalTitle}
-                modalContent={config.interface.termsOfService.modalContent}
-              />
+            {config?.interface?.termsOfService?.modalAcceptance === true && showTerms && (
+              <Suspense fallback={null}>
+                <TermsAndConditionsModal
+                  open={showTerms}
+                  onOpenChange={setShowTerms}
+                  onAccept={handleAcceptTerms}
+                  onDecline={handleDeclineTerms}
+                  title={config.interface.termsOfService.modalTitle}
+                  modalContent={config.interface.termsOfService.modalContent}
+                />
+              </Suspense>
             )}
           </AssistantsMapContext.Provider>
         </FileMapContext.Provider>

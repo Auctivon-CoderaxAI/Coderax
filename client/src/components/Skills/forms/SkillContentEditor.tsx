@@ -1,36 +1,12 @@
 import { memo } from 'react';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import supersub from 'remark-supersub';
 import { Check, SquarePen } from 'lucide';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
 import { Controller, useFormContext } from 'react-hook-form';
 import { TextareaAutosize, Button, MorphIcon, TooltipAnchor } from '@coderax/client';
 import type { RegisterOptions } from 'react-hook-form';
-import type { PluggableList } from 'unified';
 import { codeNoExecution } from '~/components/Chat/Messages/Content/MarkdownComponents';
-import { cn, langSubset } from '~/utils';
-import { useLocalize } from '~/hooks';
-
-const REMARK_PLUGINS: PluggableList = [
-  supersub,
-  remarkGfm,
-  [remarkMath, { singleDollarTextMath: false }],
-];
-
-const REHYPE_PLUGINS: PluggableList = [
-  [rehypeKatex],
-  [
-    rehypeHighlight,
-    {
-      detect: true,
-      ignoreMissing: true,
-      subset: langSubset,
-    },
-  ],
-];
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
+import useLocalize from '~/hooks/useLocalize';
+import cn from '~/utils/cn';
 
 const MARKDOWN_COMPONENTS = { code: codeNoExecution };
 
@@ -122,16 +98,12 @@ const SkillContentEditor: React.FC<SkillContentEditorProps> = ({
                 {!field.value ? (
                   <p className="text-text-secondary italic">{localize('com_ui_click_to_edit')}</p>
                 ) : (
-                  <ReactMarkdown
-                    /** @ts-ignore - PluggableList vs Pluggable[] shape drift */
-                    remarkPlugins={REMARK_PLUGINS}
-                    /** @ts-ignore - PluggableList vs Pluggable[] shape drift */
-                    rehypePlugins={REHYPE_PLUGINS}
+                  <MarkdownLite
+                    content={field.value}
+                    codeExecution={false}
                     components={MARKDOWN_COMPONENTS as unknown as Record<string, React.ElementType>}
                     className="markdown prose dark:prose-invert light text-text-primary w-full break-words"
-                  >
-                    {field.value}
-                  </ReactMarkdown>
+                  />
                 )}
                 <div className="pointer-events-none sticky bottom-1/2 z-10 flex translate-y-1/2 items-center justify-center opacity-0 transition-all duration-200 group-hover/preview:opacity-100">
                   <div className="border-border-light bg-surface-primary flex items-center gap-2 rounded-lg border px-3 py-1.5 shadow-md">

@@ -131,7 +131,7 @@ describe('useCopyToClipboard', () => {
 
       const { result } = renderHook(() => useCopyToClipboard({ content }));
 
-      let copied: boolean | undefined;
+      let copied: boolean | Promise<boolean> | undefined;
       act(() => {
         copied = result.current(mockSetIsCopied);
       });
@@ -144,7 +144,7 @@ describe('useCopyToClipboard', () => {
     it('reports whether the copy reached the clipboard', () => {
       const { result } = renderHook(() => useCopyToClipboard({ text: 'Copy me' }));
 
-      let copied: boolean | undefined;
+      let copied: boolean | Promise<boolean> | undefined;
       act(() => {
         copied = result.current(mockSetIsCopied);
       });
@@ -156,7 +156,7 @@ describe('useCopyToClipboard', () => {
       mockCopy.mockReturnValueOnce(false);
       const { result } = renderHook(() => useCopyToClipboard({ text: 'Copy me' }));
 
-      let copied: boolean | undefined;
+      let copied: boolean | Promise<boolean> | undefined;
       act(() => {
         copied = result.current(mockSetIsCopied);
       });
@@ -244,7 +244,7 @@ describe('useCopyToClipboard', () => {
       const source = { text: '\\ue202turn0search0' };
       const { result } = renderHook(() => useCopyToClipboard(source));
 
-      let copied: boolean | undefined;
+      let copied: boolean | Promise<boolean> | undefined;
       act(() => {
         copied = result.current(mockSetIsCopied);
       });
@@ -704,7 +704,7 @@ Citations:
       expect(mockCopy).toHaveBeenCalledWith('# Title', { format: 'text/plain' });
     });
 
-    it('should copy markdown as html alongside the plain text', () => {
+    it('should copy markdown as html alongside the plain text', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           text: '# Title\n\nSome **bold** text.',
@@ -712,8 +712,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const [plainText, options] = mockCopy.mock.calls[0];
@@ -723,7 +723,7 @@ Citations:
       expect(mockSetIsCopied).toHaveBeenCalledWith(true);
     });
 
-    it('should convert content parts and citations to html', () => {
+    it('should convert content parts and citations to html', async () => {
       const mockSearchResults: { [key: string]: SearchResultData } = {
         '0': { organic: [{ link: 'https://example.com/1', title: 'Source 1' }] },
       };
@@ -739,8 +739,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const html = getClipboardHtml();
@@ -749,7 +749,7 @@ Citations:
       expect(html).toContain('https://example.com/1');
     });
 
-    it('does not let a markdown construct span two content parts', () => {
+    it('does not let a markdown construct span two content parts', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           content: [
@@ -760,8 +760,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const html = getClipboardHtml();
@@ -769,7 +769,7 @@ Citations:
       expect(html).not.toContain('<code>Prose');
     });
 
-    it('does not let a definition capture a generated citation marker', () => {
+    it('does not let a definition capture a generated citation marker', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           text: 'Cited \ue202turn0search0.\n\n[1]: https://other.example',
@@ -780,8 +780,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const html = getClipboardHtml();
@@ -790,7 +790,7 @@ Citations:
       expect(html).toContain('https://example.com/1');
     });
 
-    it('scopes reserved citation labels to the part that generated them', () => {
+    it('scopes reserved citation labels to the part that generated them', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           content: [
@@ -807,8 +807,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const html = getClipboardHtml();
@@ -816,7 +816,7 @@ Citations:
       expect(html).toContain('<a href="https://manual.example">manual</a>');
     });
 
-    it('keeps the citation footer out of an unfinished construct', () => {
+    it('keeps the citation footer out of an unfinished construct', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           text: 'Cited \ue202turn0search0.\n\n```js\nconst a = 1;',
@@ -827,8 +827,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const html = getClipboardHtml();
@@ -839,7 +839,7 @@ Citations:
       expect(html).not.toContain('Citations:</code>');
     });
 
-    it('keeps the part boundary out of the plain text', () => {
+    it('keeps the part boundary out of the plain text', async () => {
       const { result } = renderHook(() =>
         useCopyToClipboard({
           content: [
@@ -853,8 +853,8 @@ Citations:
         }),
       );
 
-      act(() => {
-        result.current(mockSetIsCopied);
+      await act(async () => {
+        await result.current(mockSetIsCopied);
       });
 
       const [plainText] = mockCopy.mock.calls[0];

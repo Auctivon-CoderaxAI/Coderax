@@ -1,11 +1,10 @@
 import React, { useEffect, memo } from 'react';
-import TagManager from 'react-gtm-module';
-import ReactMarkdown from 'react-markdown';
 import { Constants, hasConfiguredFooter } from 'coderax-data-provider';
 import type { TStartupConfig } from 'coderax-data-provider';
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
 import { useGetStartupConfig } from '~/data-provider';
 import { policyUrls } from '~/utils/policies';
-import { useLocalize } from '~/hooks';
+import useLocalize from '~/hooks/useLocalize';
 
 type FooterProps = {
   className?: string;
@@ -85,37 +84,58 @@ function Footer({ className, startupConfig, configuredOnly = false }: FooterProp
   const mainContentParts = mainContent === '' ? [] : mainContent.split('|');
 
   useEffect(() => {
-    if (config?.analyticsGtmId != null && typeof window.google_tag_manager === 'undefined') {
-      const tagManagerArgs = {
-        gtmId: config.analyticsGtmId,
-      };
-      TagManager.initialize(tagManagerArgs);
+    const gtmId = config?.analyticsGtmId;
+    if (gtmId == null || typeof window.google_tag_manager !== 'undefined') {
+      return;
     }
+
+    let cancelled = false;
+    void import('react-gtm-module')
+      .then(({ default: TagManager }) => {
+        if (!cancelled) {
+          TagManager.initialize({ gtmId });
+        }
+      })
+      .catch(() => {
+        /* Analytics is optional; a failed chunk must not affect the footer. */
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [config?.analyticsGtmId]);
+
+  const footerMarkdownComponents = {
+    a: ({
+      node: _n,
+      href,
+      children,
+      ...otherProps
+    }: React.ComponentPropsWithoutRef<'a'> & { node?: unknown }) => {
+      return (
+        <a
+          className="text-text-muted underline"
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          {...otherProps}
+        >
+          {children}
+        </a>
+      );
+    },
+    p: ({ node: _n, ...props }: React.ComponentPropsWithoutRef<'p'> & { node?: unknown }) => (
+      <span {...props} />
+    ),
+  };
 
   const mainContentRender = mainContentParts.map((text, index) => (
     <React.Fragment key={`main-content-part-${index}`}>
-      <ReactMarkdown
-        components={{
-          a: ({ node: _n, href, children, ...otherProps }) => {
-            return (
-              <a
-                className="text-text-muted underline"
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                {...otherProps}
-              >
-                {children}
-              </a>
-            );
-          },
-
-          p: ({ node: _n, ...props }) => <span {...props} />,
-        }}
-      >
-        {text.trim()}
-      </ReactMarkdown>
+      {configuredFooter != null ? (
+        <MarkdownLite content={text.trim()} components={footerMarkdownComponents} />
+      ) : (
+        <span>{text.trim()}</span>
+      )}
     </React.Fragment>
   ));
 

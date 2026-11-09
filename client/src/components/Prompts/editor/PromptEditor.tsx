@@ -1,19 +1,13 @@
 import { useRef, useMemo, memo } from 'react';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import supersub from 'remark-supersub';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
 import { EditIcon, Check } from 'lucide-react';
 import { Controller, useFormContext } from 'react-hook-form';
 import { TextareaAutosize, Button, TooltipAnchor } from '@coderax/client';
-import type { PluggableList } from 'unified';
 import { codeNoExecution } from '~/components/Chat/Messages/Content/MarkdownComponents';
+import MarkdownLite from '~/components/Chat/Messages/Content/MarkdownLite';
 import VariablesDropdown from './VariablesDropdown';
 import { PromptVariableGfm } from './Markdown';
-import { cn, langSubset } from '~/utils';
-import { useLocalize } from '~/hooks';
+import useLocalize from '~/hooks/useLocalize';
+import cn from '~/utils/cn';
 
 type Props = {
   name: string;
@@ -29,18 +23,6 @@ const PromptEditor: React.FC<Props> = ({ name, isEditing, setIsEditing }) => {
   const EditorIcon = useMemo(() => {
     return isEditing ? Check : EditIcon;
   }, [isEditing]);
-
-  const rehypePlugins: PluggableList = [
-    [rehypeKatex],
-    [
-      rehypeHighlight,
-      {
-        detect: true,
-        ignoreMissing: true,
-        subset: langSubset,
-      },
-    ],
-  ];
 
   return (
     <div className="flex max-h-[85vh] flex-col sm:max-h-[85vh]">
@@ -120,21 +102,12 @@ const PromptEditor: React.FC<Props> = ({ name, isEditing, setIsEditing }) => {
                 {!field.value ? (
                   <p className="text-text-tertiary italic">{localize('com_ui_click_to_edit')}</p>
                 ) : (
-                  <ReactMarkdown
-                    remarkPlugins={[
-                      /** @ts-ignore */
-                      supersub,
-                      remarkGfm,
-                      [remarkMath, { singleDollarTextMath: false }],
-                    ]}
-                    /** @ts-ignore */
-                    rehypePlugins={rehypePlugins}
-                    /** @ts-ignore */
+                  <MarkdownLite
+                    content={field.value}
+                    codeExecution={false}
                     components={{ p: PromptVariableGfm, code: codeNoExecution }}
                     className="markdown prose dark:prose-invert light text-text-primary w-full break-words"
-                  >
-                    {field.value}
-                  </ReactMarkdown>
+                  />
                 )}
                 <div className="pointer-events-none sticky bottom-1/2 z-10 flex translate-y-1/2 items-center justify-center opacity-0 transition-all duration-200 group-hover/preview:opacity-100">
                   <div className="border-border-light bg-surface-primary flex items-center gap-2 rounded-lg border px-3 py-1.5 shadow-md">

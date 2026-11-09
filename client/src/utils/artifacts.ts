@@ -1,19 +1,11 @@
 import dedent from 'dedent';
 import filenamify from 'filenamify';
-import { gfm } from 'micromark-extension-gfm';
-import { gfmFromMarkdown } from 'mdast-util-gfm';
-import { fromMarkdown } from 'mdast-util-from-markdown';
-import {
-  excelMimeTypes,
-  shadcnComponents,
-  getDocumentFileExtension,
-} from 'coderax-data-provider';
+import { excelMimeTypes, shadcnComponents, getDocumentFileExtension } from 'coderax-data-provider';
 import type {
   SandpackProviderProps,
   SandpackPredefinedTemplate,
 } from '@codesandbox/sandpack-react';
 import type { TStartupConfig, TAttachment, TFile } from 'coderax-data-provider';
-import type { PhrasingContent } from 'mdast';
 import type { TranslationKeys } from '~/hooks/useLocalize';
 import type { Artifact } from '~/common';
 import { MERMAID_ARTIFACT_TYPE } from '~/common/artifacts';
@@ -92,22 +84,99 @@ export function getArtifactFilename(type: string, language?: string): string {
   return artifactFilename[key] ?? artifactFilename.default;
 }
 
-/** Extract visible heading text without removing literal Markdown punctuation. */
-function headingText(nodes: PhrasingContent[]): string {
-  return nodes
-    .map((node) => {
-      if ('children' in node) {
-        return headingText(node.children);
+const HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+};
+
+function decodeEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
+    if (entity.startsWith('#x') || entity.startsWith('#X')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    if (entity.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return HTML_ENTITIES[entity.toLowerCase()] ?? match;
+  });
+}
+
+/** Extract the visible text of an inline heading, dropping formatting markers. */
+function inlineHeadingText(value: string): string {
+  let text = value;
+  text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
+  text = text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  text = text.replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1');
+  text = text.replace(/`([^`]*)`/g, '$1');
+  text = text.replace(/\*\*([^*]+)\*\*/g, '$1');
+  text = text.replace(/__([^_]+)__/g, '$1');
+  text = text.replace(/~~([^~]+)~~/g, '$1');
+  text = text.replace(/(^|[^\w])\*([^*\n]+)\*(?!\w)/g, '$1$2');
+  text = text.replace(/(^|[^\w])_([^_\n]+)_(?!\w)/g, '$1$2');
+  text = text.replace(/\\([\\`*{}\][()#+\-.!_>~|])/g, '$1');
+  return decodeEntities(text).trim();
+}
+
+/**
+ * The first top-level heading, without parsing the whole document. Fenced code,
+ * frontmatter (already stripped by the caller) and HTML blocks are skipped so a
+ * source comment or hidden heading is never used as a filename.
+ */
+function findFirstHeading(markdown: string): string | undefined {
+  const lines = markdown.split(/\r?\n/);
+  let fence: { marker: string; length: number } | null = null;
+  let htmlBlock = false;
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch != null) {
+      const marker = fenceMatch[1][0];
+      if (fence == null) {
+        fence = { marker, length: fenceMatch[1].length };
+        continue;
       }
-      if (node.type === 'text' || node.type === 'inlineCode') {
-        return node.value;
+      if (marker === fence.marker && fenceMatch[1].length >= fence.length) {
+        fence = null;
       }
-      if (node.type === 'image' || node.type === 'imageReference') {
-        return node.alt ?? '';
+      continue;
+    }
+    if (fence != null) {
+      continue;
+    }
+    if (htmlBlock) {
+      if (line.trim() === '') {
+        htmlBlock = false;
       }
-      return '';
-    })
-    .join('');
+      continue;
+    }
+    if (/^ {0,3}</.test(line)) {
+      htmlBlock = true;
+      continue;
+    }
+
+    const atx = /^ {0,3}#{1,6}(?:[ \t]+(.*?))?[ \t]*#*[ \t]*$/.exec(line);
+    if (atx != null) {
+      return inlineHeadingText(atx[1] ?? '');
+    }
+
+    const next = lines[index + 1];
+    if (
+      next != null &&
+      line.trim() !== '' &&
+      !/^ {0,3}(?:[-+*]\s|\d+[.)]\s|>|\|)/.test(line) &&
+      /^ {0,3}(?:=+|-+)[ \t]*$/.test(next)
+    ) {
+      return inlineHeadingText(line);
+    }
+  }
+  return undefined;
 }
 
 /** Name for bytes fetched from the original attachment, rather than its cached preview. */
@@ -163,12 +232,9 @@ export function getArtifactDownloadFilename(
       /^\uFEFF?---[^\S\r\n]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[^\S\r\n]*(?:\r?\n|$)/,
       '',
     );
-    const heading = fromMarkdown(markdown, {
-      extensions: [gfm()],
-      mdastExtensions: [gfmFromMarkdown()],
-    }).children.find((node) => node.type === 'heading');
-    if (heading?.type === 'heading') {
-      title = headingText(heading.children).trim();
+    const heading = findFirstHeading(markdown);
+    if (heading != null) {
+      title = heading;
     }
   }
   const extension = fallback.slice(fallback.lastIndexOf('.'));

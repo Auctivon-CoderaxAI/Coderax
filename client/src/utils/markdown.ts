@@ -1,29 +1,7 @@
 import { highContrastDarkTheme, highContrastLightTheme } from '@coderax/client';
 import type { IThemeRGB } from '@coderax/client';
 
-const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
-
-/**
- * Allowlist-based URL validator for markdown artifact rendering.
- * The logic body is duplicated verbatim into the generated static HTML
- * template (`EMBEDDED_IS_SAFE_URL` constant below). Any behavioral change
- * here MUST be applied to both copies. A sync-verification test in
- * `markdown.test.ts` enforces this.
- */
-export const isSafeUrl = (url: string): boolean => {
-  const trimmed = url.trim();
-  if (!trimmed) {
-    return false;
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('#') || trimmed.startsWith('.')) {
-    return true;
-  }
-  try {
-    return SAFE_PROTOCOLS.has(new URL(trimmed).protocol);
-  } catch {
-    return false;
-  }
-};
+export { isSafeUrl } from './safeUrl';
 
 const markdownCSS = `
 /* GitHub Markdown CSS - Light theme base */
@@ -254,8 +232,8 @@ const MARKED_SRI = 'sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV
 
 /**
  * Embedded JS copy of `isSafeUrl`. Keep in sync with the exported
- * TypeScript version above — `markdown.test.ts` has a sync-verification
- * test that will break if the two copies diverge.
+ * TypeScript version in `safeUrl.ts` — `markdown.test.ts` has a
+ * sync-verification test that will break if the two copies diverge.
  */
 export const EMBEDDED_IS_SAFE_URL = `const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const isSafeUrl = (url) => {

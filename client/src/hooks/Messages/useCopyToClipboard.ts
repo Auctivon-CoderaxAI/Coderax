@@ -12,7 +12,6 @@ import {
   INVALID_CITATION_REGEX,
 } from '~/utils/citations';
 import { parseWakeupMessage } from '~/components/Chat/Messages/Content/Parts/wakeup';
-import { markdownToHtml } from '~/utils/richtext';
 import store from '~/store';
 
 type Source = {
@@ -145,6 +144,7 @@ const EMPTY_RESERVED: ReadonlySet<string> = new Set();
 function buildCopyOptions(
   segments: ClipboardContent,
   richText: RichTextMode | undefined,
+  markdownToHtml: (markdown: string, mode?: RichTextMode) => string,
 ): Parameters<typeof copy>[1] {
   if (!richText) {
     return { format: 'text/plain' };
@@ -187,7 +187,7 @@ export default function useCopyToClipboard({
   }, []);
 
   const copyToClipboard = useCallback(
-    (setIsCopied: React.Dispatch<React.SetStateAction<boolean>>): boolean => {
+    (setIsCopied: React.Dispatch<React.SetStateAction<boolean>>): boolean | Promise<boolean> => {
       const clipboardContent = buildClipboardContent({ text, content, searchResults });
       const clipboardText = clipboardContent.map((segment) => segment.text).join('\n');
 
@@ -195,20 +195,34 @@ export default function useCopyToClipboard({
         return false;
       }
 
-      if (!copy(clipboardText, buildCopyOptions(clipboardContent, richText))) {
-        return false;
+      const finish = (options: Parameters<typeof copy>[1]): boolean => {
+        if (!copy(clipboardText, options)) {
+          return false;
+        }
+
+        if (copyTimeoutRef.current) {
+          clearTimeout(copyTimeoutRef.current);
+        }
+
+        setIsCopied(true);
+        copyTimeoutRef.current = setTimeout(() => {
+          setIsCopied(false);
+        }, 3000);
+
+        return true;
+      };
+
+      /** The rich-text serializer is only needed for a copy that requests HTML;
+       *  keeping it out of this module keeps Markdown out of the initial shell. */
+      if (!richText) {
+        return finish({ format: 'text/plain' });
       }
 
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-
-      setIsCopied(true);
-      copyTimeoutRef.current = setTimeout(() => {
-        setIsCopied(false);
-      }, 3000);
-
-      return true;
+      return import('~/utils/richtext')
+        .then(({ markdownToHtml }) =>
+          finish(buildCopyOptions(clipboardContent, richText, markdownToHtml)),
+        )
+        .catch(() => finish({ format: 'text/plain' }));
     },
     [text, content, searchResults, richText],
   );

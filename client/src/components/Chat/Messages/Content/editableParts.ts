@@ -1,6 +1,5 @@
 import { ContentTypes } from 'coderax-data-provider';
 import type { TMessage, TMessageContentParts, TextData } from 'coderax-data-provider';
-import { splitMarkdownIntoBlocks } from './splitMarkdown';
 
 /** An editable part holds either a bare string or a `{ value, annotations }` object,
  *  which is how the Assistants thread sync stores a response that carries file
@@ -26,15 +25,33 @@ export const withPartText = (part: TMessageContentParts, text: string): string |
   return value != null && typeof value === 'object' ? { ...value, value: text } : text;
 };
 
+const ARTIFACT_DIRECTIVE = /^ {0,3}:{2,}artifact\b/;
+
+/** Artifact directives inside fenced code are content, not renderable artifacts. */
 const containsArtifact = (text: string): boolean => {
   if (!text.includes('artifact')) {
     return false;
   }
-  try {
-    return splitMarkdownIntoBlocks(text).some((block) => block.artifactCount > 0);
-  } catch {
-    return false;
+
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (fenceMatch != null) {
+      const marker = fenceMatch[1][0];
+      if (fence == null) {
+        fence = { marker, length: fenceMatch[1].length };
+        continue;
+      }
+      if (marker === fence.marker && fenceMatch[1].length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fence == null && ARTIFACT_DIRECTIVE.test(line)) {
+      return true;
+    }
   }
+  return false;
 };
 
 /**
