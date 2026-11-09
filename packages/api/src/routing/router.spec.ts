@@ -120,6 +120,33 @@ describe('free route planning', () => {
 });
 
 describe('bounded failover', () => {
+  it('refuses to execute an old valid plan on a disabled router', async () => {
+    const enabled = routerWith().router;
+    const disabled = routerWith({ enabled: false }).router;
+    const attempt = jest.fn();
+
+    const result = await disabled.run(enabled.plan(), attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('rejects forged endpoints in route plans before any provider call', async () => {
+    const { router } = routerWith();
+    const plan = router.plan();
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+
+    const attempt = jest.fn();
+    const foreignPlan = {
+      ...plan,
+      selected: { ...plan.selected, id: 'foreign-paid-endpoint' },
+    };
+    const result = await router.run(foreignPlan, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+    expect(router.snapshot().endpoints.every((e) => e.quota.requestsUsed === 0)).toBe(true);
+  });
+
   it('switches to the next free endpoint after a retryable provider failure', async () => {
     const { router } = routerWith();
     const plan = router.plan();
