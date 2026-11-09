@@ -3,9 +3,9 @@ name: Validate cloud-only deployment files
 on:
   pull_request:
     paths:
-      - "deploy/cloud/**"
-      - "scripts/probe-cloud-model.mjs"
-      - ".github/workflows/cloud-config.yml"
+      - 'deploy/cloud/**'
+      - 'scripts/probe-cloud-model.mjs'
+      - '.github/workflows/cloud-config.yml'
   workflow_dispatch:
 
 permissions:
