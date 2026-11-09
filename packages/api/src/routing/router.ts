@@ -229,6 +229,14 @@ export function createFreeRouter({
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
     }
 
+    if (
+      !Number.isSafeInteger(routePlan.estimatedTokens) ||
+      routePlan.estimatedTokens < 0 ||
+      !Array.isArray(routePlan.alternatives)
+    ) {
+      return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
+    }
+
     const candidates = [routePlan.selected, ...routePlan.alternatives].slice(
       0,
       Math.max(1, 1 + limits.maxRetries),
@@ -244,9 +252,6 @@ export function createFreeRouter({
       ),
     );
     if (
-      !Number.isSafeInteger(routePlan.estimatedTokens) ||
-      routePlan.estimatedTokens < 0 ||
-      !Array.isArray(routePlan.alternatives) ||
       new Set(candidates).size !== candidates.length ||
       candidates.some((endpoint) => !allowed.has(endpoint))
     ) {
