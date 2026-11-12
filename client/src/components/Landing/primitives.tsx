@@ -53,11 +53,14 @@ export function Reveal({
   );
 }
 
+export const focusRing =
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring-primary';
+
 export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <p
       className={clsx(
-        'text-[11px] font-semibold uppercase tracking-[0.18em] text-[#7c8a6a] dark:text-[#b6f24a]',
+        'text-xs font-semibold uppercase tracking-widest text-accent-primary',
         className,
       )}
     >
@@ -80,11 +83,11 @@ export function SectionHeading({
   return (
     <div className={clsx('max-w-2xl', align === 'center' && 'mx-auto text-center')}>
       <Eyebrow>{eyebrow}</Eyebrow>
-      <h2 className="mt-3 text-balance text-[clamp(1.75rem,3.2vw,2.75rem)] font-medium leading-[1.08] tracking-[-0.03em] text-[#12140f] dark:text-[#f4f6ef]">
+      <h2 className="mt-3 text-balance text-3xl font-medium leading-tight tracking-tight text-text-primary sm:text-4xl lg:text-5xl">
         {title}
       </h2>
       {description ? (
-        <p className="mt-4 text-pretty text-[15px] leading-relaxed text-[#4d5545] dark:text-[#a9b3a0]">
+        <p className="mt-4 text-pretty text-base leading-relaxed text-text-secondary">
           {description}
         </p>
       ) : null}
@@ -93,7 +96,7 @@ export function SectionHeading({
 }
 
 const buttonBase =
-  'inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-[background-color,border-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#7c8a6a] focus-visible:ring-offset-white dark:focus-visible:ring-[#b6f24a] dark:focus-visible:ring-offset-[#08090a] active:translate-y-px';
+  'inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring-primary focus-visible:ring-offset-surface-primary active:translate-y-px touch:min-h-theme-control-touch';
 
 export function ButtonLink({
   href,
@@ -108,8 +111,8 @@ export function ButtonLink({
 }) {
   const styles =
     variant === 'primary'
-      ? 'bg-[#16180f] px-5 py-2.5 text-[#f4f6ef] hover:bg-[#262a1a] dark:bg-[#b6f24a] dark:text-[#0c0e08] dark:hover:bg-[#c9ff63]'
-      : 'border border-[#d8dccd] px-5 py-2.5 text-[#242a1c] hover:border-[#a8b09a] hover:bg-[#f2f4ea] dark:border-white/15 dark:text-[#e8ece0] dark:hover:border-white/30 dark:hover:bg-white/5';
+      ? 'bg-button-primary px-5 py-2.5 text-text-inverted hover:bg-button-primary-hover'
+      : 'border border-border-medium px-5 py-2.5 text-text-primary hover:border-border-heavy hover:bg-surface-hover';
 
   // Router links keep SPA navigation and the deployment basename intact.
   const isInternal = href.startsWith('/');
@@ -129,7 +132,7 @@ export function ButtonLink({
 
 export function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full border border-[#d8dccd] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#5c6650] dark:border-white/15 dark:text-[#9aa891]">
+    <span className="rounded-full border border-border-medium px-2 py-0.5 text-xs font-medium uppercase tracking-wider text-text-secondary">
       {children}
     </span>
   );

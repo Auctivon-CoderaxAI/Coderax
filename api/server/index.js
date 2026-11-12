@@ -450,6 +450,7 @@ const startServer = async () => {
     ),
   );
   app.use('/api/insights', routes.insights);
+  app.use('/api/studio', routes.studio);
   app.use('/api/admin', routes.adminAuth);
   app.use('/api/admin/config', routes.adminConfig);
   app.use('/api/admin/code-environments', routes.adminCodeEnvironments);

@@ -2,7 +2,7 @@ import { useState, memo, useRef } from 'react';
 import { useSetAtom } from 'jotai';
 import { useSetRecoilState } from 'recoil';
 import * as Menu from '@ariakit/react/menu';
-import { GearIcon, DropdownMenuSeparator, Avatar } from '@coderax/client';
+import { GearIcon, Avatar } from '@coderax/client';
 import {
   Archive,
   ChevronRight,
@@ -22,6 +22,10 @@ import { settingsOpenAtom } from './Settings';
 import { openInNewTab } from '~/utils';
 import { useLocalize } from '~/hooks';
 import store from '~/store';
+
+const MenuDivider = () => (
+  <Menu.MenuSeparator className="bg-surface-hover -mx-1 my-1 h-px border-0" />
+);
 
 function HelpSubmenu({
   helpAndFaqURL,
@@ -70,7 +74,7 @@ function HelpSubmenu({
           <Keyboard className="icon-md" aria-hidden="true" />
           {localize('com_shortcut_keyboard_shortcuts')}
         </Menu.MenuItem>
-        {showLegalDivider && (hasTos || hasPrivacy) && <DropdownMenuSeparator />}
+        {showLegalDivider && (hasTos || hasPrivacy) && <MenuDivider />}
         {hasTos && (
           <Menu.MenuItem
             onClick={() => openInNewTab(termsOfServiceURL)}
@@ -142,7 +146,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
         <div className="text-text-secondary mr-2 ml-3 py-2 text-sm" role="note">
           {user?.email ?? localize('com_nav_user')}
         </div>
-        <DropdownMenuSeparator />
+        <MenuDivider />
         <HelpSubmenu
           helpAndFaqURL={startupConfig?.helpAndFaqURL}
           termsOfServiceURL={startupConfig?.interface?.termsOfService?.externalUrl}
@@ -176,7 +180,7 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           <GearIcon className="icon-md" aria-hidden="true" />
           {localize('com_nav_settings')}
         </Menu.MenuItem>
-        <DropdownMenuSeparator />
+        <MenuDivider />
         <Menu.MenuItem onClick={() => logout()} className="select-item text-sm">
           <LogOut className="icon-md" aria-hidden="true" />
           {localize('com_nav_log_out')}

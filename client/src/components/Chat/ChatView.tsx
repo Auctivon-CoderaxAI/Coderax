@@ -1,8 +1,7 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef, useEffect } from 'react';
 import { useAtomValue } from 'jotai';
 import { useRecoilValue } from 'recoil';
 import { useForm } from 'react-hook-form';
-import { Spinner } from '@coderax/client';
 import { useParams } from 'react-router-dom';
 import { Constants, buildTree } from 'coderax-data-provider';
 import type { TChatProject } from 'coderax-data-provider';
@@ -32,8 +31,11 @@ import { landingBandClass, landingColumnClass } from './layout';
 import { pendingApprovalActionFamily } from './approval/state';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
+import { ComposerPreferencesProvider } from './Input/preferences';
+import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { OwnerTextProvider } from './Messages/PrivateText';
 import Footer, { useConfiguredFooter } from './Footer';
+import TranscriptSkeleton from './Messages/Loading';
 import { AskAnswerHostProvider } from './ask/state';
 import MessagesView from './Messages/MessagesView';
 import Presentation from './Presentation';
@@ -44,15 +46,6 @@ import Header from './Header';
 import { cn } from '~/utils';
 import store from '~/store';
 
-function LoadingSpinner() {
-  return (
-    <div className="relative flex-1 overflow-hidden overflow-y-auto">
-      <div className="relative flex h-full items-center justify-center">
-        <Spinner className="text-text-primary" />
-      </div>
-    </div>
-  );
-}
 
 function ChatView({
   index = 0,
@@ -71,13 +64,36 @@ function ChatView({
 }) {
   const { conversationId } = useParams();
   const localize = useLocalize();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousConversationId = useRef(conversationId);
+
+  /** A route change unmounts whatever held focus; land it on the new page's heading so a
+   *  screen reader announces it. Child effects run first, so a composer that took focus
+   *  keeps it. */
+  useEffect(() => {
+    if (previousConversationId.current === conversationId) {
+      return;
+    }
+    previousConversationId.current = conversationId;
+    const active = document.activeElement;
+    if (active == null || active === document.body) {
+      headingRef.current?.focus({ preventScroll: true });
+    }
+  }, [conversationId]);
   const rootSubmission = useRecoilValue(store.submissionByIndex(index));
   const isSubmitting = useRecoilValue(store.isSubmittingFamily(index));
   const saveDrafts = useRecoilValue(store.saveDrafts);
   const enterToSend = useRecoilValue(store.enterToSend);
   const autoSendText = useRecoilValue(store.autoSendText);
   const speechSettingsInitialized = useRecoilValue(store.speechSettingsInitialized);
-  const centerFormOnLanding = useRecoilValue(store.centerFormOnLanding);
+  const centerFormOnLanding = useAtomValue(centerFormOnLandingAtom);
+  const composerPreferences = useMemo(
+    () => ({ enterToSend, autoSendText, speechSettingsInitialized, centerFormOnLanding }),
+    [enterToSend, autoSendText, speechSettingsInitialized, centerFormOnLanding],
+  );
+  /** The same preference `AppChatSurface` hands `MessagesView`, so the skeleton
+   *  occupies the column the transcript will replace it in. */
+  const maximizeChatSpace = useAtomValue(maximizeChatSpaceAtom);
   const pendingAction = useAtomValue(
     pendingApprovalActionFamily(conversationId ?? Constants.NEW_CONVO),
   );
@@ -128,7 +144,8 @@ function ChatView({
       ? chatHelpers.conversation
       : undefined;
   const activeSubagentThread = activeConversation?.subagentThread;
-  const chatProjectId = activeConversation?.chatProjectId || undefined;
+  /** Trimmed so a blank or whitespace-only ID never narrows into `badgeProjectId`. */
+  const chatProjectId = activeConversation?.chatProjectId?.trim() || undefined;
 
   useAdaptiveSSE(rootSubmission, chatHelpers, false, index, workMode);
 
@@ -158,10 +175,13 @@ function ChatView({
   const isNavigating = (!messagesTree || messagesTree.length === 0) && conversationId != null;
   const isProjectLandingPage = isLandingPage && project != null;
 
+  const badgeProjectId = !isLandingPage && chatProjectId ? chatProjectId : undefined;
+  const hasProjectBadge = badgeProjectId != null;
+
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
-    content = <LoadingSpinner />;
+    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
   } else if ((isLoading || isNavigating) && !isLandingPage) {
-    content = <LoadingSpinner />;
+    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} messages={messages} />;
   } else {
@@ -176,11 +196,9 @@ function ChatView({
   }
 
   // Recoil conversation can lag the route during navigation; only announce a
-  // title that belongs to the conversation currently in the URL.
-  const conversationTitle =
-    chatHelpers.conversation?.conversationId === conversationId
-      ? chatHelpers.conversation?.title?.trim()
-      : undefined;
+  // title that belongs to the conversation currently in the URL. Reuses the
+  // same route-matched conversation that gates the project badge and thread.
+  const conversationTitle = activeConversation?.title?.trim() || undefined;
   const pageHeading =
     isLandingPage || !conversationTitle ? localize('com_ui_new_chat') : conversationTitle;
   const parentConversationId = activeSubagentThread?.parentConversationId;
@@ -199,7 +217,9 @@ function ChatView({
                 <ApprovalProvider pendingAction={pendingAction}>
                   <Presentation routePending={routePending}>
                     <TraceSurface conversationId={conversationId}>
-                      <h1 className="sr-only">{pageHeading}</h1>
+                      <h1 ref={headingRef} tabIndex={-1} className="sr-only">
+                        {pageHeading}
+                      </h1>
                       {/* Marks the header's controls as this pane's, so a pane-scoped
                         shortcut pressed from them acts here, not on the first pane. */}
                       <div data-chat-pane-portal={index} className="contents">
@@ -209,9 +229,7 @@ function ChatView({
                           mode={workMode ? 'work' : 'chat'}
                         />
                       </div>
-                      {!isLandingPage && chatProjectId && (
-                        <ProjectBadge projectId={chatProjectId} />
-                      )}
+                      {badgeProjectId && <ProjectBadge projectId={badgeProjectId} />}
                       <>
                         <div
                           data-chat-pane={index}
@@ -233,7 +251,7 @@ function ChatView({
                                puts it and slides sideways on the way in. */
                                 cn('scrollbar-gutter-spacer', landingColumnClass)
                               : 'h-full overflow-y-auto',
-                            !isLandingPage && chatProjectId && 'pt-9',
+                            hasProjectBadge && 'pt-9',
                           )}
                         >
                           <OwnerTextProvider
@@ -266,20 +284,18 @@ function ChatView({
                                 {localize('com_ui_subagent_thread_read_only')}
                               </div>
                             ) : (
-                              <ChatForm
-                                index={index}
-                                routePending={routePending}
-                                workMode={workMode}
-                                workCanSubmit={workCanSubmit}
-                                placeholder={chatFormPlaceholder}
-                                project={isProjectLandingPage ? project : undefined}
-                                isLandingPage={isLandingPage}
-                                enterToSend={enterToSend}
-                                autoSendText={autoSendText}
-                                speechSettingsInitialized={speechSettingsInitialized}
-                                footerBelow={footerBelow}
-                                centerFormOnLanding={centerFormOnLanding}
-                              />
+                              <ComposerPreferencesProvider value={composerPreferences}>
+                                <ChatForm
+                                  index={index}
+                                  routePending={routePending}
+                                  workMode={workMode}
+                                  workCanSubmit={workCanSubmit}
+                                  placeholder={chatFormPlaceholder}
+                                  project={isProjectLandingPage ? project : undefined}
+                                  isLandingPage={isLandingPage}
+                                  footerBelow={footerBelow}
+                                />
+                              </ComposerPreferencesProvider>
                             )}
                             {/* The generic disclaimer and the policy links are the
                               welcome screen's; a deployment's own footer stays

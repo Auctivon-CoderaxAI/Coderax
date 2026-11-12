@@ -1,4 +1,5 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
+import { useAtomValue } from 'jotai';
 import { useWatch } from 'react-hook-form';
 import { useRecoilState, useRecoilValue } from 'recoil';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -81,6 +82,8 @@ import AutoPlayAudio from './AutoPlayAudio';
 import Waveform from './Composer/Waveform';
 import { mainTextareaId } from '~/common';
 import CollapseChat from './CollapseChat';
+import { useComposerPreferences } from './preferences';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import QuoteButton from './QuoteButton';
 import ToolDialogs from './ToolDialogs';
 import StopButton from './StopButton';
@@ -224,7 +227,7 @@ const ChatForm = memo(function ChatForm({
   const TextToSpeech = useRecoilValue(store.textToSpeech);
   const chatDirection = useRecoilValue(store.chatDirection);
   const automaticPlayback = useRecoilValue(store.automaticPlayback);
-  const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
+  const maximizeChatSpace = useAtomValue(maximizeChatSpaceAtom);
   const { isTemporary } = useChatSettings();
 
   const [showStopButton, setShowStopButton] = useRecoilState(store.showStopButtonByIndex(index));
@@ -1148,29 +1151,31 @@ function ChatFormWrapper({
   routePending = false,
   workMode = false,
   isLandingPage,
-  /** Defaults to the atom's own default (`atomWithLocalStorage('enterToSend',
-   *  true)`) so call sites that predate this prop, mainly tests, keep their
-   *  prior behavior without passing it explicitly. */
-  enterToSend = true,
-  /** Same reason, from `atomWithLocalStorage('autoSendText', -1)`. */
-  autoSendText = -1,
-  /** Same reason, from the `speechSettingsInitialized` atom's `false`. */
-  speechSettingsInitialized = false,
+  enterToSend: enterToSendProp,
+  autoSendText: autoSendTextProp,
+  speechSettingsInitialized: speechSettingsInitializedProp,
   footerBelow,
-  centerFormOnLanding,
+  centerFormOnLanding: centerFormOnLandingProp,
 }: {
   index?: number;
   placeholder?: string;
   project?: TChatProject;
   routePending?: boolean;
   workMode?: boolean;
+  /** Each preference overrides the host's `ComposerPreferencesProvider` value. */
   enterToSend?: boolean;
   autoSendText?: number;
   speechSettingsInitialized?: boolean;
   isLandingPage: boolean;
   footerBelow: boolean;
-  centerFormOnLanding: boolean;
+  centerFormOnLanding?: boolean;
 }) {
+  const preferences = useComposerPreferences();
+  const enterToSend = enterToSendProp ?? preferences.enterToSend;
+  const autoSendText = autoSendTextProp ?? preferences.autoSendText;
+  const speechSettingsInitialized =
+    speechSettingsInitializedProp ?? preferences.speechSettingsInitialized;
+  const centerFormOnLanding = centerFormOnLandingProp ?? preferences.centerFormOnLanding;
   const {
     files,
     setFiles,
