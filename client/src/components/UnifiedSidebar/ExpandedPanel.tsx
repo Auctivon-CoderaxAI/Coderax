@@ -1,6 +1,5 @@
 import { memo, useCallback, Suspense } from 'react';
 import { PanelsTopLeft, SquarePen } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
 import { Skeleton, Sidebar, Button, TooltipAnchor } from '@coderax/client';
 import type { NavLink } from '~/common';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
@@ -8,6 +7,7 @@ import { useActivePanel, resolveActivePanel, DEFAULT_PANEL } from '~/Providers';
 import AgentMarketplaceButton from '~/components/Nav/AgentMarketplaceButton';
 import { CLOSE_SIDEBAR_ID } from '~/components/Chat/Menus/OpenSidebar';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
+import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
 import useNewChat from '~/hooks/Chat/useNewChat';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -140,16 +140,9 @@ function ExpandedPanel({
   switchToHistory: boolean;
 }) {
   const localize = useLocalize();
-  const location = useLocation();
   const { active, setActive } = useActivePanel();
   const effectiveActive = resolveActivePanel(active, links);
-  const isInsightsRoute = location.pathname.startsWith('/insights');
-  const isCyVoxRoute = location.pathname.startsWith('/cyvox/');
-  const routeActiveId = isInsightsRoute
-    ? 'insights'
-    : isCyVoxRoute
-      ? `cyvox-${location.pathname.split('/')[2]}`
-      : undefined;
+  const routeActiveId = useRouteActiveId();
 
   const toggleLabel = expanded ? 'com_nav_close_sidebar' : 'com_nav_open_sidebar';
   const toggleClick = expanded ? onCollapse : onExpand;

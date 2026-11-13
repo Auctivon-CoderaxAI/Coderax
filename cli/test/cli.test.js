@@ -118,6 +118,76 @@ test('unknown option exits with the usage code', async () => {
   assert.match(h.stderr, /Unknown option/);
 });
 
+// --- parseArgs coverage (exercised through runCli; parseArgs is not exported) ---
+
+test('parseArgs: inline "=" value is applied to the flag', async () => {
+  // `--base-url=<url>` should behave like `--base-url <url>`.
+  const h = harness();
+  assert.equal(await h.run(['status', '--json', '--base-url=https://example.test']), 0);
+  assert.equal(JSON.parse(h.stdout).baseUrl, 'https://example.test');
+});
+
+test('parseArgs: inline value containing "=" is truncated (known quirk)', async () => {
+  // Documents current behaviour: split('=') keeps only the first segment, so the
+  // query value "=b" is lost. Flip this assertion once the parsing fix lands
+  // (expected: 'https://example.test/x?a=b').
+  const h = harness();
+  assert.equal(await h.run(['status', '--json', '--base-url=https://example.test/x?a=b']), 0);
+  assert.equal(JSON.parse(h.stdout).baseUrl, 'https://example.test/x?a');
+});
+
+test('parseArgs: single-dash value is consumed as the flag value', async () => {
+  // Only "--" prefixes stop value consumption, so "-fast" becomes the model.
+  const h = harness();
+  assert.equal(await h.run(['status', '--json', '--model', '-fast']), 0);
+  assert.equal(JSON.parse(h.stdout).model, '-fast');
+});
+
+test('parseArgs: "-h" after a value-taking flag is a value, not the help alias', async () => {
+  // The flag branch reads argv[index + 1] directly and never reaches the alias check.
+  const h = harness();
+  assert.equal(await h.run(['status', '--json', '--model', '-h']), 0);
+  const parsed = JSON.parse(h.stdout);
+  assert.equal(parsed.model, '-h');
+  assert.doesNotMatch(h.stdout, /Usage: coderax/);
+});
+
+test('parseArgs: a flag followed by another "--" flag becomes boolean true', async () => {
+  // `--model` gets `true`, which buildContext ignores because it is not a string.
+  const h = harness();
+  assert.equal(await h.run(['status', '--model', '--json']), 0);
+  const parsed = JSON.parse(h.stdout);
+  assert.equal(parsed.model, process.env.CODERAX_MODEL ?? null);
+});
+
+test('parseArgs: unknown inline flag is rejected with a hint', async () => {
+  const h = harness();
+  assert.equal(await h.run(['products', '--turbo=1']), 2);
+  assert.match(h.stderr, /error: Unknown option "--turbo"\./);
+  assert.match(h.stderr, /hint: Run `coderax --help`/);
+  assert.equal(h.stdout, '');
+});
+
+test('parseArgs: unknown flag before the command is rejected before dispatch', async () => {
+  const h = harness();
+  assert.equal(await h.run(['--nope', 'products']), 2);
+  assert.match(h.stderr, /Unknown option "--nope"/);
+  assert.equal(h.stdout, '');
+});
+
+test('parseArgs: --no-color is accepted and does not consume the next argument', async () => {
+  // `--no-color` is handled before value consumption, so "status" stays positional.
+  const h = harness();
+  assert.equal(await h.run(['--no-color', 'status', '--json']), 0);
+  assert.equal(JSON.parse(h.stdout).authenticated, false);
+});
+
+test('parseArgs: --no-color works after the command', async () => {
+  const h = harness();
+  assert.equal(await h.run(['products', '--no-color']), 0);
+  assert.match(h.stdout, /PRODUCT/);
+});
+
 test('status reports signed-out state without a token', async () => {
   const h = harness();
   assert.equal(await h.run(['status', '--json']), 0);

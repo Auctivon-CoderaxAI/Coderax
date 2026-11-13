@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
+import { useAtomValue } from 'jotai';
 import { useRecoilCallback, useRecoilValue, useResetRecoilState, useSetRecoilState } from 'recoil';
 import type { ReactNode } from 'react';
 import type { ChatSurface } from '~/components/Chat/Subagents/surface';
 import { ChatSurfaceProvider } from '~/components/Chat/Subagents/surface';
 import useComposerBindings from '~/hooks/Input/useComposerBindings';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import store from '~/store';
 
 /**
@@ -13,7 +15,7 @@ import store from '~/store';
  */
 export default function AppChatSurface({ children }: { children: ReactNode }) {
   const enterToSend = useRecoilValue(store.enterToSend);
-  const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
+  const maximizeChatSpace = useAtomValue(maximizeChatSpaceAtom);
   const showScrollButton = useRecoilValue(store.showScrollButton);
   const composerBindings = useComposerBindings();
   const setArtifactsVisible = useSetRecoilState(store.artifactsVisibility);

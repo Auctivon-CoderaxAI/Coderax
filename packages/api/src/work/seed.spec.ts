@@ -47,7 +47,7 @@ describe('shared conversation Work admission', () => {
     expect(db.saveConvo).toHaveBeenCalledWith(
       { userId: 'owner', isTemporary: undefined },
       { conversationId: 'same-conversation', isWork: true, workModel: 'local' },
-      { context: 'seed native Work execution', noUpsert: true },
+      { context: 'seed native Work execution', noUpsert: true, appendMessageIds: [] },
     );
   });
 

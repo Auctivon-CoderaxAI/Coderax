@@ -19,6 +19,14 @@
         "--query-db",
         "tmp/gold_traces_query.db"
       ]
+    },
+    "M365AgentsToolkit MCP Server": {
+      "command": "npx",
+      "args": [
+        "@microsoft/m365agentstoolkit-mcp@latest",
+        "server",
+        "start"
+      ]
     }
   }
 }

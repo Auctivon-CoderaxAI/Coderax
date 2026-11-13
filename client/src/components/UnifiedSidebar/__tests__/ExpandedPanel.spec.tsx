@@ -103,7 +103,9 @@ function renderPanel({
   onCollapse = jest.fn(),
   onExpand = jest.fn(),
   onNavigate,
+  onLeaveInsights = jest.fn(),
   initialPanel = DEFAULT_PANEL,
+  initialPath = '/c/new',
   switchToHistory = true,
 }: {
   expanded?: boolean;
@@ -111,7 +113,9 @@ function renderPanel({
   onCollapse?: jest.Mock;
   onExpand?: jest.Mock;
   onNavigate?: jest.Mock;
+  onLeaveInsights?: jest.Mock;
   initialPanel?: string;
+  initialPath?: string;
   switchToHistory?: boolean;
 } = {}) {
   if (initialPanel !== DEFAULT_PANEL) {
@@ -119,7 +123,7 @@ function renderPanel({
   }
 
   const result = render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialPath]}>
       <QueryClientProvider client={createQueryClient()}>
         <RecoilRoot>
           <ActivePanelProvider>
@@ -129,6 +133,7 @@ function renderPanel({
               onCollapse={onCollapse}
               onExpand={onExpand}
               onNavigate={onNavigate}
+              onLeaveInsights={onLeaveInsights}
               switchToHistory={switchToHistory}
             />
           </ActivePanelProvider>
@@ -137,7 +142,7 @@ function renderPanel({
     </MemoryRouter>,
   );
 
-  return { ...result, onCollapse, onExpand };
+  return { ...result, onCollapse, onExpand, onLeaveInsights };
 }
 
 describe('ExpandedPanel', () => {
@@ -145,6 +150,134 @@ describe('ExpandedPanel', () => {
     jest.clearAllMocks();
     localStorage.clear();
   });
+
+  /**
+   * Active state: a route-backed link (insights, cyvox-*) wins via routeActiveId;
+   * otherwise the stored panel resolves through resolveActivePanel (effectiveActive),
+   * falling back to the first link when the stored id is unknown.
+   */
+  describe('active state (routeActiveId / effectiveActive)', () => {
+    const routeLinks = (): NavLink[] => [
+      ...createLinks(),
+      { title: 'com_insights_navigation' as const, icon: NotebookPen, id: 'insights', onClick: jest.fn() },
+      { title: 'com_cyvox_robot' as const, icon: NotebookPen, id: 'cyvox-robot', onClick: jest.fn() },
+    ];
+
+    const pressed = (name: string) =>
+      screen.getByRole('button', { name }).getAttribute('aria-pressed');
+
+    it('marks the default panel active when nothing is stored', () => {
+      renderPanel();
+      expect(pressed('com_ui_chat_history')).toBe('true');
+      expect(pressed('com_ui_prompts')).toBe('false');
+    });
+
+    it('marks the stored panel active', () => {
+      renderPanel({ initialPanel: 'prompts' });
+      expect(pressed('com_ui_prompts')).toBe('true');
+      expect(pressed('com_ui_chat_history')).toBe('false');
+    });
+
+    it('falls back to the first link when the stored panel is unavailable', () => {
+      renderPanel({ initialPanel: 'parameters' });
+      expect(pressed('com_ui_chat_history')).toBe('true');
+    });
+
+    it('marks insights active on an /insights route, overriding the stored panel', () => {
+      renderPanel({ links: routeLinks(), initialPanel: 'prompts', initialPath: '/insights' });
+      expect(pressed('com_insights_navigation')).toBe('true');
+      expect(pressed('com_ui_prompts')).toBe('false');
+      expect(pressed('com_ui_chat_history')).toBe('false');
+    });
+
+    it('marks insights active on a nested /insights route', () => {
+      renderPanel({ links: routeLinks(), initialPath: '/insights/reports' });
+      expect(pressed('com_insights_navigation')).toBe('true');
+    });
+
+    it('derives the cyvox link id from the route segment', () => {
+      renderPanel({ links: routeLinks(), initialPath: '/cyvox/robot' });
+      expect(pressed('com_cyvox_robot')).toBe('true');
+      expect(pressed('com_insights_navigation')).toBe('false');
+      expect(pressed('com_ui_chat_history')).toBe('false');
+    });
+
+    it('activates no link for an unknown cyvox segment', () => {
+      renderPanel({ links: routeLinks(), initialPath: '/cyvox/unknown' });
+      ['com_ui_chat_history', 'com_ui_prompts', 'com_insights_navigation', 'com_cyvox_robot'].forEach(
+        (name) => expect(pressed(name)).toBe('false'),
+      );
+    });
+
+    it('does not treat /cyvox without a trailing segment as a route', () => {
+      renderPanel({ links: routeLinks(), initialPath: '/cyvox' });
+      expect(pressed('com_ui_chat_history')).toBe('true');
+    });
+
+    it('leaves the route and switches panel when a panel link is clicked on a route', () => {
+      const { onLeaveInsights, onCollapse } = renderPanel({
+        links: routeLinks(),
+        initialPath: '/insights',
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'com_ui_prompts' }));
+      expect(onLeaveInsights).toHaveBeenCalledTimes(1);
+      expect(onCollapse).not.toHaveBeenCalled();
+      expect(localStorage.getItem('side:active-panel')).toBe('prompts');
+    });
+
+    it('leaves the route when the stored panel link is clicked on a route', () => {
+      const { onLeaveInsights, onCollapse } = renderPanel({
+        links: routeLinks(),
+        initialPath: '/cyvox/robot',
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'com_ui_chat_history' }));
+      expect(onLeaveInsights).toHaveBeenCalledTimes(1);
+      expect(onCollapse).not.toHaveBeenCalled();
+    });
+
+    it('does not call onLeaveInsights off a route', () => {
+      const { onLeaveInsights } = renderPanel({ links: routeLinks() });
+      fireEvent.click(screen.getByRole('button', { name: 'com_ui_prompts' }));
+      expect(onLeaveInsights).not.toHaveBeenCalled();
+      expect(localStorage.getItem('side:active-panel')).toBe('prompts');
+    });
+
+    /**
+     * Collapsed on a route: the panel link stores the panel and expands. Leaving
+     * the route is the host's onExpand responsibility, so onLeaveInsights is not called.
+     */
+    it('expands instead of leaving the route when collapsed on a route', () => {
+      const { onLeaveInsights, onExpand } = renderPanel({
+        links: routeLinks(),
+        expanded: false,
+        initialPath: '/insights',
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'com_ui_prompts' }));
+      expect(onExpand).toHaveBeenCalledTimes(1);
+      expect(onLeaveInsights).not.toHaveBeenCalled();
+      expect(localStorage.getItem('side:active-panel')).toBe('prompts');
+    });
+
+    /** The active route link delegates to its own onClick rather than collapsing. */
+    it('runs the route link handler instead of collapsing when it is active', () => {
+      const links = routeLinks();
+      const insights = links.find((l) => l.id === 'insights') as NavLink;
+      const { onCollapse, onLeaveInsights } = renderPanel({ links, initialPath: '/insights' });
+      expect(pressed('com_insights_navigation')).toBe('true');
+      fireEvent.click(screen.getByRole('button', { name: 'com_insights_navigation' }));
+      expect(insights.onClick).toHaveBeenCalledTimes(1);
+      expect(onCollapse).not.toHaveBeenCalled();
+      expect(onLeaveInsights).not.toHaveBeenCalled();
+    });
+
+    /** The route wins over the stored panel even when the stored panel is unknown. */
+    it('ignores an unavailable stored panel on a route', () => {
+      renderPanel({ links: routeLinks(), initialPanel: 'parameters', initialPath: '/cyvox/robot' });
+      expect(pressed('com_cyvox_robot')).toBe('true');
+      expect(pressed('com_ui_chat_history')).toBe('false');
+    });
+  });
+
 
   describe('NavIconButton collapse toggle', () => {
     it('collapses sidebar when clicking the active icon while expanded', () => {

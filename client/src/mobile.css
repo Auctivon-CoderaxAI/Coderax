@@ -8,35 +8,9 @@
   visibility: visible;
 }
 
-.nav {
-  position: fixed;
-  z-index: 110;
-  top: 0;
-
-  /* max-width: 260px; */
-
-  bottom: 0;
-  opacity: 0;
-}
-
-.nav.active {
-  position: relative;
-  left: 0;
-  opacity: 1;
-}
-
-@media (max-width: 767px) {
-  .nav {
-    width: calc(100% - 10px);
-    transition: all 0.15s;
-  }
-
-  .nav.active {
-    position: fixed;
-  }
-}
-
-@media (max-width: 1024px) {
+/* Layout breakpoints live in `~/utils/breakpoints` (they track `--ui-scale`, which a CSS
+ * media query cannot). This one is the `touch:` variant's query: a finger cannot hover. */
+@media (any-pointer: coarse) {
   .hover-button {
     display: block;
     visibility: visible;
@@ -182,20 +156,15 @@
  * v4's layers it would beat every utility instead — `no-underline` on a link inside a list stopped
  * working. Layered, it loses to a utility again and still styles an unclassed list link. */
 p.whitespace-pre-wrap a {
-  color: #0066cc;
+  color: rgb(var(--link));
   text-decoration: underline;
   font-weight: bold;
 }
 
 @layer base {
   li a {
-    color: #0066cc;
+    color: rgb(var(--link));
     text-decoration: underline;
     font-weight: bold;
   }
-}
-
-.dark p.whitespace-pre-wrap a,
-.dark li a {
-  color: #52a0ff;
 }
