@@ -1,0 +1,131 @@
+# Oracle Always Free A1 backend. Place app.env and origin.env beside this file
+# on the VM; both are created by prepare-env.sh and must remain untracked.
+name: coderax-oci
+
+services:
+  model-setup:
+    image: ollama/ollama:latest
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        ollama serve >/tmp/ollama-setup.log 2>&1 &
+        server_pid=$$!;
+        trap 'kill "$$server_pid" 2>/dev/null || true' EXIT;
+        for attempt in $$(seq 1 90); do
+          ollama list >/dev/null 2>&1 && break;
+          sleep 2;
+        done;
+        ollama pull qwen3.5:4b &&
+        ollama pull qwen3.5:9b
+    environment:
+      OLLAMA_HOST: 127.0.0.1:11434
+      OLLAMA_NO_CLOUD: "1"
+    dns:
+      - 169.254.169.254
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - internet
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    command: ["serve"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NO_CLOUD: "1"
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    volumes:
+      - ollama-models:/root/.ollama
+    depends_on:
+      model-setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 20s
+    networks:
+      - model
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: coderax:oci-always-free
+    restart: unless-stopped
+    env_file:
+      - ./app.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3080"
+      SCHEDULES_SINGLE_PROCESS: "true"
+      TRUST_PROXY: "1"
+      DOMAIN_CLIENT: https://coderaxai.vercel.app
+      DOMAIN_SERVER: https://coderaxai.vercel.app
+      SESSION_COOKIE_SECURE: "true"
+      ALLOW_REGISTRATION: "false"
+      ALLOW_SOCIAL_REGISTRATION: "false"
+      ENABLE_GUEST_ACCESS: "true"
+      REGISTER_WINDOW: "60"
+      REGISTER_MAX: "5"
+      NO_INDEX: "true"
+      CONFIG_PATH: /app/deploy/oci/coderax.yaml
+      MEILI_HOST: ""
+    volumes:
+      - ./coderax.oci.yaml:/app/deploy/oci/coderax.yaml:ro
+      - coderax-data:/app/data
+      - uploads:/app/uploads
+      - images:/app/client/public/images
+      - logs:/app/logs
+      - skills:/app/skill
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 8s
+      retries: 24
+      start_period: 180s
+    networks:
+      - internet
+      - model
+
+  web:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    env_file:
+      - ./origin.env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - internet
+
+networks:
+  internet: {}
+  model:
+    internal: true
+
+volumes:
+  coderax-data: {}
+  ollama-models: {}
+  uploads: {}
+  images: {}
+  logs: {}
+  skills: {}
+  caddy-data: {}
+  caddy-config: {}

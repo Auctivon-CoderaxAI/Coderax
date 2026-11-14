@@ -1,0 +1,4 @@
+
+{{ if hasKey .Values.env }}
+  {{ fail "The Value env has been renamed and moved to coderax.configEnv. Refer to https://www.coderax/docs/local/helm_chart#migrate for more information" }}
+{{ end }}

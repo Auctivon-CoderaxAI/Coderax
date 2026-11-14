@@ -95,6 +95,7 @@ api/data/
 owner.yml
 archive
 .vscode/settings.json
+.vscode/mcp.json
 src/style - official.css
 /e2e/specs/.test-results/
 /e2e/benchmarks/.test-results/

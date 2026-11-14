@@ -1,0 +1,567 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAtom } from 'jotai';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRecoilCallback, useRecoilValue } from 'recoil';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { Button, Spinner, useToastContext } from '@coderax/client';
+import { useGetModelsQuery } from 'coderax-data-provider/react-query';
+import {
+  Constants,
+  EModelEndpoint,
+  PermissionBits,
+  isForcedTemporaryRetention,
+  selectAutomaticChatModel,
+  isAssistantsEndpoint,
+  isAgentsEndpoint,
+} from 'coderax-data-provider';
+import type { TPreset, TAgentsMap } from 'coderax-data-provider';
+import {
+  defaultSpecAwaitsAgents,
+  mergeQuerySettingsWithSpec,
+  processValidSettings,
+  getDefaultModelSpec,
+  getModelSpecPreset,
+  hasModelSelection,
+  isNotFoundError,
+  isTemporaryConversation,
+  logger,
+  clearMessagesCache,
+} from '~/utils';
+import {
+  useGetConvoIdQuery,
+  useGetMessagesByConvoId,
+  MESSAGES_QUERY_STALE_TIME,
+  useGetStartupConfig,
+  useGetEndpointsQuery,
+  useListAgentsQuery,
+  useProjectQuery,
+  useTokenConfigQuery,
+} from '~/data-provider';
+import {
+  resolveWorkSelection,
+  sanitizeWorkSelection,
+  workSelectionFromConversation,
+} from '~/components/Chat/Input/workSelection';
+import {
+  buildChatModelSources,
+  getConfiguredDefaultModel,
+  toChatModelPreset,
+} from '~/hooks/Chat/chatModelRouting';
+import {
+  useChatTransport,
+  ChatTransportContext,
+  createWorkChatTransport,
+} from '~/Providers/ChatTransportContext';
+import {
+  useAssistantListMap,
+  useIdChangeEffect,
+  useAppStartup,
+  useNewConvo,
+  useLocalize,
+} from '~/hooks';
+import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
+import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
+import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
+import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
+import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
+import ChatView from '~/components/Chat/ChatView';
+import { NotificationSeverity } from '~/common';
+import useAuthRedirect from './useAuthRedirect';
+import temporaryStore from '~/store/temporary';
+import store from '~/store';
+
+const isValidChatProjectId = (projectId: string | null): projectId is string =>
+  projectId != null && /^[a-f\d]{24}$/i.test(projectId);
+
+export default function ChatRoute({ workMode = false }: { workMode?: boolean }) {
+  const { data: startupConfig } = useGetStartupConfig();
+  const { isAuthenticated, user, roles } = useAuthRedirect();
+  const queryClient = useQueryClient();
+
+  const defaultTemporaryChat = useRecoilValue(temporaryStore.defaultTemporaryChat);
+  const setIsTemporary = useRecoilCallback(
+    ({ set }) =>
+      (value: boolean) => {
+        set(temporaryStore.isTemporary, value);
+      },
+    [],
+  );
+  const index = 0;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { conversationId = Constants.NEW_CONVO } = useParams();
+  const projectIdParam = searchParams.get('projectId');
+  const chatProjectId = isValidChatProjectId(projectIdParam) ? projectIdParam : null;
+  useIdChangeEffect(conversationId);
+  const { hasSetConversation, conversation } = store.useCreateConversationAtom(index);
+  const [routeState, setRouteState] = useState({
+    conversationId,
+    pending: conversation != null && conversation.conversationId !== conversationId,
+  });
+  /** History navigation changes the route without running the sidebar's conversation setter.
+   * Only a route change may request reconciliation: a newly submitted conversation can acquire
+   * its server id before the URL catches up, and must not be reset to a new chat. */
+  if (routeState.conversationId !== conversationId) {
+    setRouteState({ conversationId, pending: conversation?.conversationId !== conversationId });
+  } else if (routeState.pending && conversation?.conversationId === conversationId) {
+    setRouteState({ conversationId, pending: false });
+  }
+  useAppStartup({ startupConfig, user });
+  const { newConversation } = useNewConvo();
+  const { showToast } = useToastContext();
+  const localize = useLocalize();
+  const projectQuery = useProjectQuery(chatProjectId, {
+    enabled: isAuthenticated && Boolean(chatProjectId),
+    retry: false,
+    staleTime: 30000,
+    cacheTime: 300000,
+  });
+  /**
+   * The scoped project is *confirmed gone* — a not-found/not-owned (404) response,
+   * or a success that resolved to a different/empty project. Transient failures
+   * (500, network, auth refresh race) are deliberately excluded: this query runs with
+   * `retry: false`, so treating any error as "gone" would unscope a valid project on
+   * a single blip.
+   */
+  const projectNotFound = projectQuery.isError && isNotFoundError(projectQuery.error);
+  /**
+   * Trust the scope when the project resolves to itself, and keep showing it through
+   * transient errors via React Query's retained data — but never for a project that
+   * is confirmed gone (otherwise the deleted project's chip lingers).
+   */
+  const verifiedChatProjectId =
+    !projectNotFound && projectQuery.data?._id === chatProjectId ? chatProjectId : null;
+  const projectTemplate = useMemo(
+    () => (verifiedChatProjectId ? { chatProjectId: verifiedChatProjectId } : {}),
+    [verifiedChatProjectId],
+  );
+
+  /**
+   * The scoped project is gone even though the URL still carries `?projectId`. Drop
+   * the param so the new-chat landing reverts to an unscoped chat — otherwise the
+   * stale chip lingers and sends target a dead project.
+   */
+  const projectScopeMissing =
+    Boolean(chatProjectId) &&
+    conversationId === Constants.NEW_CONVO &&
+    (projectNotFound || (projectQuery.isSuccess && projectQuery.data?._id !== chatProjectId));
+
+  useEffect(() => {
+    if (!projectScopeMissing) {
+      return;
+    }
+    setSearchParams(
+      (params) => {
+        const next = new URLSearchParams(params);
+        next.delete('projectId');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [projectScopeMissing, setSearchParams]);
+
+  const modelsQuery = useGetModelsQuery({
+    enabled: isAuthenticated,
+    refetchOnMount: 'always',
+  });
+  /**
+   * Start the transcript read with the conversation metadata request. ChatView mounts only after
+   * route setup resolves the record, model catalog, and endpoints; sharing this query lets it
+   * render from cache instead of starting the message request after that setup has finished.
+   * The messages endpoint still enforces user-scoped conversation access before returning data.
+   * This observer only primes the cache, so it does not notify the route when the transcript loads.
+   */
+  useGetMessagesByConvoId(conversationId, {
+    enabled:
+      isAuthenticated &&
+      Boolean(conversationId) &&
+      conversationId !== Constants.NEW_CONVO &&
+      conversationId !== Constants.SEARCH,
+    staleTime: MESSAGES_QUERY_STALE_TIME,
+    notifyOnChangeProps: [],
+  });
+  const initialConvoQuery = useGetConvoIdQuery(conversationId, {
+    enabled:
+      isAuthenticated &&
+      conversationId !== Constants.NEW_CONVO &&
+      (!hasSetConversation.current || routeState.pending),
+  });
+  const modeState = useStoredConversationMode({
+    userId: user?.id ?? '',
+    conversationId,
+    initialMode:
+      workMode ||
+      initialConvoQuery.data?.isWork === true ||
+      (conversation?.conversationId === conversationId && conversation.isWork === true)
+        ? 'work'
+        : 'chat',
+  });
+  const isWorkMode = modeState.mode === 'work';
+  const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
+  const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
+  const [newConversationWorkSelection] = useAtom(
+    workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
+  );
+  const previousConversationId = useRef(conversationId);
+  useEffect(() => {
+    if (
+      previousConversationId.current === Constants.NEW_CONVO &&
+      conversationId !== Constants.NEW_CONVO &&
+      newConversationWorkSelection != null
+    ) {
+      setWorkSelection((current) => current ?? newConversationWorkSelection);
+    }
+    previousConversationId.current = conversationId;
+  }, [conversationId, newConversationWorkSelection, setWorkSelection]);
+  const resolvedWorkSelection = resolveWorkSelection(
+    workSelection
+      ? sanitizeWorkSelection(workSelection, workOptions.options)
+      : workSelectionFromConversation(conversation, workOptions.options),
+    workOptions.options,
+  );
+  const workCanSubmit =
+    !workOptions.isLoading &&
+    !workOptions.modelsQuery.isError &&
+    resolvedWorkSelection != null;
+  const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
+  const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
+  const baseChatTransport = useChatTransport();
+  const assistantListMap = useAssistantListMap();
+  /** The map comes from Root's shared context (one mapping pass app-wide); the
+   * select-less observer only tracks settle state. Only a loaded list may
+   * invalidate a stored agent pick: on a transient catalog failure after retries,
+   * the map stays unknown, the pick stays trusted, and the gate below
+   * releases so the landing never hangs on the error. */
+  const agentsMap: TAgentsMap | undefined = useAgentsMapContext();
+  const agentsQuery = useListAgentsQuery(
+    { requiredPermission: PermissionBits.VIEW },
+    { enabled: isAuthenticated },
+  );
+  /** Chat has no model picker: its model is derived from the server's configured
+   * catalog, preferring free/local models. Work keeps its own explicit selector. */
+  const automaticChatSelection = useMemo(
+    () =>
+      selectAutomaticChatModel(
+        buildChatModelSources(modelsQuery.data, endpointsQuery.data, tokenConfigQuery.data),
+        {
+          preferredPaidModel: getConfiguredDefaultModel(startupConfig),
+        },
+      ),
+    [modelsQuery.data, endpointsQuery.data, tokenConfigQuery.data, startupConfig],
+  );
+  const automaticChatPreset = useMemo(() => {
+    if (isWorkMode) {
+      return undefined;
+    }
+    const candidate = automaticChatSelection.ok
+      ? automaticChatSelection.model
+      : automaticChatSelection.paid;
+    return candidate ? toChatModelPreset(candidate, endpointsQuery.data) : undefined;
+  }, [isWorkMode, automaticChatSelection, endpointsQuery.data]);
+  const chatRoutingController = useMemo(
+    () =>
+      createAutomaticChatTransport({
+        transport: baseChatTransport,
+        selection: automaticChatSelection,
+        endpointsConfig: endpointsQuery.data,
+      }),
+    [baseChatTransport, automaticChatSelection, endpointsQuery.data],
+  );
+  const chatModelRouting = useMemo(
+    () => ({
+      ...chatRoutingController,
+      selection: automaticChatSelection,
+      consentModel: automaticChatSelection.ok ? null : automaticChatSelection.paid,
+      unavailable: !automaticChatSelection.ok && automaticChatSelection.paid == null,
+    }),
+    [chatRoutingController, automaticChatSelection],
+  );
+  const workTransport = useMemo(
+    () => createWorkChatTransport(baseChatTransport, workOptions.options, workSelection),
+    [baseChatTransport, workOptions.options, workSelection],
+  );
+
+  const isTemporaryChat = isTemporaryConversation(conversation);
+  const forceTemporaryChat = isForcedTemporaryRetention(startupConfig?.interface?.retentionMode);
+
+  useEffect(() => {
+    if (conversationId === Constants.NEW_CONVO) {
+      setIsTemporary(forceTemporaryChat || defaultTemporaryChat);
+    } else if (forceTemporaryChat || isTemporaryChat) {
+      setIsTemporary(true);
+    } else {
+      setIsTemporary(false);
+    }
+  }, [conversationId, isTemporaryChat, setIsTemporary, defaultTemporaryChat, forceTemporaryChat]);
+
+  /** This effect is mainly for the first conversation state change on first load of the page.
+   *  Adjusting this may have unintended consequences on the conversation state.
+   */
+  useEffect(() => {
+    // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
+    const rolesLoaded = roles?.USER != null;
+    const isNewConvo = conversationId === Constants.NEW_CONVO;
+    const isDraftNewConvo = conversation?.conversationId === Constants.NEW_CONVO;
+    const draftProjectMismatch = verifiedChatProjectId
+      ? conversation?.chatProjectId !== verifiedChatProjectId
+      : conversation?.chatProjectId != null;
+    const newConvoNeedsInit =
+      isNewConvo && (!conversation || (isDraftNewConvo && draftProjectMismatch));
+    const shouldSetConvo =
+      (startupConfig &&
+        rolesLoaded &&
+        (!hasSetConversation.current || newConvoNeedsInit || routeState.pending) &&
+        !modelsQuery.data?.initial) ??
+      false;
+    /* Early exit if startupConfig is not loaded and conversation is already set and only initial models have loaded */
+    if (!shouldSetConvo) {
+      return;
+    }
+
+    if (isNewConvo && chatProjectId && projectQuery.isLoading) {
+      return;
+    }
+
+    const queryParams: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      if (key !== 'prompt' && key !== 'q' && key !== 'submit' && key !== 'projectId') {
+        queryParams[key] = value;
+      }
+    });
+    const parsedQuerySettings = processValidSettings(queryParams);
+    /** Work accepts only an agent preset or a provider/model pair; the server
+     * re-checks either against its free/local catalog. Chat model specs and
+     * other settings cannot override that gate. */
+    let querySettings: TPreset = parsedQuerySettings;
+    if (isWorkMode) {
+      const { endpoint, agent_id, model } = parsedQuerySettings;
+      const hasModel = typeof model === 'string' && model !== '';
+      if (endpoint === EModelEndpoint.agents && typeof agent_id === 'string' && hasModel) {
+        querySettings = { endpoint, agent_id, model };
+      } else if (
+        typeof endpoint === 'string' &&
+        endpoint !== '' &&
+        !isAgentsEndpoint(endpoint) &&
+        !isAssistantsEndpoint(endpoint) &&
+        hasModel
+      ) {
+        querySettings = { endpoint, model };
+      } else {
+        querySettings = {} as TPreset;
+      }
+    }
+
+    const notFoundConvo =
+      Boolean(conversationId) &&
+      !isNewConvo &&
+      initialConvoQuery.isError &&
+      isNotFoundError(initialConvoQuery.error);
+
+    /** A stored agent pick can only be validated against the loaded agent list
+     * (it may name an agent since deleted, or one from another org sharing this
+     * browser storage). Defer the first conversation until the list settles.
+     * A URL naming its own selection skips the wait only on the new-chat branch,
+     * where it takes precedence over the stored pick; the 404 fallback never
+     * applies query settings, so it always waits. */
+    const awaitsAgentList =
+      agentsMap == null &&
+      !agentsQuery.isError &&
+      defaultSpecAwaitsAgents(startupConfig, endpointsQuery.data);
+    if (awaitsAgentList && (notFoundConvo || (isNewConvo && !hasModelSelection(querySettings)))) {
+      return;
+    }
+
+    const getNewConvoPreset = () => {
+      /** A spec named in the URL is an explicit selection: it must resolve to its own
+       * full preset, or stale last-selection state (endpoint/agent) fills the gaps.
+       * Names absent from the client config (e.g. `showInMenu: false`) stay in the
+       * query settings untouched, since they remain resolvable server-side by name. */
+      const urlSpec = querySettings.spec
+        ? startupConfig?.modelSpecs?.list?.find((spec) => spec.name === querySettings.spec)
+        : undefined;
+
+      /** An empty Chat selection is automatic: pin the highest-ranked free/local
+       * model, or the configured paid fallback that the composer will gate behind
+       * explicit cost consent. Explicit URL/settings selections still win. */
+      const automatic =
+        !urlSpec && Object.keys(querySettings).length === 0 ? automaticChatPreset : undefined;
+      const result =
+        isWorkMode || urlSpec || automatic
+          ? undefined
+          : getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
+      const spec = urlSpec ?? result?.default ?? result?.last ?? result?.softDefault;
+      const specPreset = spec ? getModelSpecPreset(spec) : automatic;
+
+      if (Object.keys(querySettings).length > 0) {
+        return mergeQuerySettingsWithSpec(specPreset, querySettings);
+      }
+      return specPreset;
+    };
+
+    if (isNewConvo && endpointsQuery.data && modelsQuery.data) {
+      const preset = getNewConvoPreset();
+
+      logger.log('conversation', 'ChatRoute, new convo effect', conversation);
+      clearMessagesCache(queryClient, conversation?.conversationId);
+      newConversation({
+        modelsData: modelsQuery.data,
+        template: {
+          ...projectTemplate,
+          ...(isWorkMode ? { isWork: true } : {}),
+        },
+        ...(preset ? { preset } : {}),
+      });
+
+      hasSetConversation.current = true;
+    } else if (initialConvoQuery.data && endpointsQuery.data && modelsQuery.data) {
+      logger.log('conversation', 'ChatRoute initialConvoQuery', initialConvoQuery.data);
+      newConversation({
+        template: initialConvoQuery.data,
+        /* this is necessary to load all existing settings */
+        preset: initialConvoQuery.data as TPreset,
+        modelsData: modelsQuery.data,
+      });
+      hasSetConversation.current = true;
+    } else if (
+      conversationId &&
+      endpointsQuery.data &&
+      modelsQuery.data &&
+      initialConvoQuery.isError &&
+      isNotFoundError(initialConvoQuery.error)
+    ) {
+      const result = isWorkMode
+        ? undefined
+        : getDefaultModelSpec(startupConfig, endpointsQuery.data, agentsMap);
+      const spec = result?.default ?? result?.last ?? result?.softDefault;
+      showToast({
+        message: localize('com_ui_conversation_not_found'),
+        severity: NotificationSeverity.WARNING,
+      });
+      logger.log(
+        'conversation',
+        'ChatRoute initialConvoQuery isNotFoundError',
+        initialConvoQuery.error,
+      );
+      newConversation({
+        template: isWorkMode ? { isWork: true } : {},
+        modelsData: modelsQuery.data,
+        ...(spec ? { preset: getModelSpecPreset(spec) } : {}),
+      });
+      hasSetConversation.current = true;
+    } else if (
+      isNewConvo &&
+      assistantListMap[EModelEndpoint.assistants] &&
+      assistantListMap[EModelEndpoint.azureAssistants]
+    ) {
+      const preset = getNewConvoPreset();
+
+      logger.log('conversation', 'ChatRoute new convo, assistants effect', conversation);
+      clearMessagesCache(queryClient, conversation?.conversationId);
+      newConversation({
+        modelsData: modelsQuery.data,
+        template: projectTemplate,
+        ...(preset ? { preset } : {}),
+      });
+      hasSetConversation.current = true;
+    } else if (
+      initialConvoQuery.data &&
+      assistantListMap[EModelEndpoint.assistants] &&
+      assistantListMap[EModelEndpoint.azureAssistants]
+    ) {
+      logger.log('conversation', 'ChatRoute convo, assistants effect', initialConvoQuery.data);
+      newConversation({
+        template: initialConvoQuery.data,
+        preset: initialConvoQuery.data as TPreset,
+        modelsData: modelsQuery.data,
+      });
+      hasSetConversation.current = true;
+    }
+    /* Creates infinite render if all dependencies included due to newConversation invocations exceeding call stack before hasSetConversation.current becomes truthy */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    conversationId,
+    isWorkMode,
+    routeState.pending,
+    roles,
+    agentsMap,
+    agentsQuery.isError,
+    startupConfig,
+    initialConvoQuery.data,
+    initialConvoQuery.isError,
+    endpointsQuery.data,
+    modelsQuery.data,
+    assistantListMap,
+    chatProjectId,
+    projectQuery.data?._id,
+    projectQuery.isLoading,
+    projectTemplate,
+    queryClient,
+    conversation?.chatProjectId,
+    conversation?.conversationId,
+    automaticChatPreset,
+  ]);
+
+  if (endpointsQuery.isLoading || modelsQuery.isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center" aria-live="polite" role="status">
+        <Spinner className="text-text-primary" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // if not a conversation
+  if (conversation?.conversationId === Constants.SEARCH) {
+    return null;
+  }
+  // if conversationId not match
+  if (conversation?.conversationId !== conversationId && !conversation) {
+    return null;
+  }
+  // if conversationId is null
+  if (!conversationId) {
+    return null;
+  }
+
+  const chatView = (
+    <ChatView
+      index={index}
+      project={verifiedChatProjectId ? projectQuery.data : undefined}
+      routePending={routeState.pending}
+      workMode={isWorkMode}
+      workCanSubmit={workCanSubmit}
+    />
+  );
+
+  return (
+    <ToolCallsMapProvider conversationId={conversation.conversationId ?? ''}>
+      {routeState.pending && (
+        <div className="flex h-screen items-center justify-center" aria-live="polite" role="status">
+          {initialConvoQuery.isError && !initialConvoQuery.isFetching ? (
+            <div className="flex flex-col items-center gap-3" role="alert">
+              <p>{localize('com_ui_conversation_load_error')}</p>
+              <Button onClick={() => initialConvoQuery.refetch()}>
+                {localize('com_ui_retry')}
+              </Button>
+            </div>
+          ) : (
+            <Spinner className="text-text-primary" />
+          )}
+        </div>
+      )}
+      <div hidden={routeState.pending} className={routeState.pending ? 'hidden' : 'contents'}>
+        <ConversationModeContext.Provider value={modeState}>
+          <ChatModelRoutingContext.Provider value={isWorkMode ? null : chatModelRouting}>
+            <ChatTransportContext.Provider
+              value={isWorkMode ? workTransport : chatRoutingController.transport}
+            >
+              {chatView}
+            </ChatTransportContext.Provider>
+          </ChatModelRoutingContext.Provider>
+        </ConversationModeContext.Provider>
+      </div>
+    </ToolCallsMapProvider>
+  );
+}

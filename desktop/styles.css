@@ -1,0 +1,164 @@
+/* Mirrors the app's semantic roles and default values in packages/client/src/theme/defaults.css;
+ * this page loads before a server is chosen, so it cannot read the app's stylesheet. */
+:root {
+  --surface-primary: 255 255 255;
+  --surface-secondary: 247 247 248;
+  --text-primary: 33 33 33;
+  --text-secondary: 66 66 66;
+  --text-inverted: 255 255 255;
+  --text-destructive: 220 38 38;
+  --border-light: 227 227 227;
+  --border-medium: 205 205 205;
+  --accent-primary: 18 110 107;
+  --accent-primary-hover: 10 79 83;
+  --focus-outline: 0 0 0;
+
+  color-scheme: light dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  background: rgb(var(--surface-secondary));
+  color: rgb(var(--text-primary));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  display: grid;
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  padding: 40px 24px;
+  place-items: center;
+}
+
+.card {
+  width: min(100%, 500px);
+  padding: 38px;
+  border: 1px solid rgb(var(--border-light));
+  border-radius: 18px;
+  background: rgb(var(--surface-primary));
+  box-shadow: 0 18px 52px rgb(0 0 0 / 9%);
+}
+
+.mark {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--text-inverted));
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1;
+  place-items: center;
+}
+
+.eyebrow {
+  margin: 26px 0 8px;
+  color: rgb(var(--accent-primary));
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(25px, 4vw, 31px);
+  line-height: 1.2;
+}
+
+.intro,
+.help,
+.privacy {
+  color: rgb(var(--text-secondary));
+  line-height: 1.55;
+}
+
+.intro {
+  margin: 14px 0 28px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 13px;
+  border: 1px solid rgb(var(--border-medium));
+  border-radius: 8px;
+  background: rgb(var(--surface-primary));
+  color: rgb(var(--text-primary));
+  font: inherit;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid rgb(var(--focus-outline));
+  outline-offset: 2px;
+}
+
+.help {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.message {
+  min-height: 22px;
+  margin: 12px 0 0;
+  color: rgb(var(--text-destructive));
+  font-size: 13px;
+}
+
+button {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--text-inverted));
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: rgb(var(--accent-primary-hover));
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.privacy {
+  margin: 22px 0 0;
+  font-size: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-primary: 13 13 13;
+    --surface-secondary: 33 33 33;
+    --text-primary: 236 236 236;
+    --text-secondary: 205 205 205;
+    --text-inverted: 23 23 23;
+    --text-destructive: 248 113 113;
+    --border-light: 33 33 33;
+    --border-medium: 57 57 57;
+    --accent-primary: 65 167 157;
+    --accent-primary-hover: 109 200 185;
+    --focus-outline: 255 255 255;
+  }
+
+  .card {
+    box-shadow: 0 18px 52px rgb(0 0 0 / 25%);
+  }
+}

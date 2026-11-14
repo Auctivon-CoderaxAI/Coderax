@@ -1,0 +1,58 @@
+{
+  "name": "coderax-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coderax desktop client for self-hosted deployments",
+  "author": "CoderaxAI",
+  "main": "main.cjs",
+  "scripts": {
+    "typecheck": "node --check main.cjs && node --check preload.cjs && node --check server-url.cjs && node --check setup.js",
+    "desktop:test": "node --test",
+    "desktop:package": "pwsh -NoProfile -File package.ps1"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "ai.coderax.desktop",
+    "productName": "Coderax",
+    "artifactName": "Coderax-Windows-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "server-url.cjs",
+      "setup.html",
+      "setup.js",
+      "styles.css",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/Coderax.ico",
+        "to": "Coderax.ico"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/Coderax.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createStartMenuShortcut": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Coderax"
+    }
+  },
+  "allowScripts": {
+    "electron@45.1.0": true
+  }
+}

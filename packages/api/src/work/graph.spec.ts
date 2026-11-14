@@ -1,0 +1,370 @@
+import {
+  enforceWorkRunAllowance,
+  collectWorkRunTargets,
+  findWorkRunViolation,
+  resolveWorkAgentGraph,
+  workAgentReferences,
+} from './graph';
+import type { WorkGraphAgent, WorkRunConfig } from './graph';
+import { buildWorkModelOptions } from './models';
+import { toWorkGraphAgent } from './deps';
+
+const MODELS = buildWorkModelOptions([
+  { id: 'llama3:latest', provider: 'ollama', local: true },
+  { id: 'qwen:7b', provider: 'ollama', local: true },
+  { id: 'gpt-4o', provider: 'openAI' },
+]);
+
+const agent = (
+  id: string,
+  model: string,
+  provider: string,
+  extra: Partial<WorkGraphAgent> = {},
+) => ({
+  id,
+  name: id,
+  model,
+  provider,
+  ...extra,
+});
+
+function loader(agents: WorkGraphAgent[]) {
+  const byId = new Map(agents.map((entry) => [entry.id, entry]));
+  return jest.fn(async (id: string) => byId.get(id));
+}
+
+describe('Work agent graph', () => {
+  it('collects every route one agent can hand work to, without itself', () => {
+    const root = agent('lead', 'llama3:latest', 'ollama', {
+      edges: [
+        { from: 'lead', to: 'writer', edgeType: 'handoff' },
+        { from: ['lead', 'writer'], to: ['checker'], edgeType: 'handoff' },
+      ],
+      agent_ids: ['chain'],
+      subagents: {
+        enabled: true,
+        agent_ids: ['sub', 'lead'],
+        graphs: [{ agent_ids: ['member'] }, null],
+      },
+    });
+    expect(workAgentReferences(root).sort()).toEqual([
+      'chain',
+      'checker',
+      'member',
+      'sub',
+      'writer',
+    ]);
+  });
+
+  it('admits a free/local agent and names the agents it coordinates', async () => {
+    const writer = agent('writer', 'qwen:7b', 'ollama');
+    const root = agent('lead', 'llama3:latest', 'ollama', {
+      edges: [{ from: 'lead', to: 'writer', edgeType: 'handoff' }],
+    });
+    const graph = await resolveWorkAgentGraph(root, MODELS, loader([writer]));
+    expect(graph).toEqual({
+      ok: true,
+      model: { id: 'llama3:latest', label: 'llama3:latest', provider: 'ollama' },
+      members: [{ id: 'writer', name: 'writer', model: 'qwen:7b', provider: 'ollama' }],
+    });
+  });
+
+  it('refuses a root agent on a paid model', async () => {
+    const graph = await resolveWorkAgentGraph(
+      agent('paid', 'gpt-4o', 'openAI'),
+      MODELS,
+      loader([]),
+    );
+    expect(graph).toEqual({ ok: false, reason: 'model_not_allowed', agentId: 'paid' });
+  });
+
+  it('refuses a graph that reaches a paid agent through any route, however deep', async () => {
+    const paid = agent('paid', 'gpt-4o', 'openAI');
+    const middle = agent('middle', 'qwen:7b', 'ollama', {
+      subagents: { enabled: true, agent_ids: ['paid'] },
+    });
+    const root = agent('lead', 'llama3:latest', 'ollama', { agent_ids: ['middle'] });
+    expect(await resolveWorkAgentGraph(root, MODELS, loader([middle, paid]))).toEqual({
+      ok: false,
+      reason: 'member_model_not_allowed',
+      agentId: 'paid',
+    });
+  });
+
+  it('treats a provider mismatch as a paid route even when the model id collides', async () => {
+    const lookalike = agent('lookalike', 'llama3:latest', 'openAI');
+    const root = agent('lead', 'llama3:latest', 'ollama', {
+      edges: [{ from: 'lead', to: 'lookalike', edgeType: 'handoff' }],
+    });
+    expect(await resolveWorkAgentGraph(root, MODELS, loader([lookalike]))).toMatchObject({
+      ok: false,
+      reason: 'member_model_not_allowed',
+    });
+  });
+
+  it('ignores references the caller cannot view, as the native runtime skips them', async () => {
+    const root = agent('lead', 'llama3:latest', 'ollama', { agent_ids: ['hidden'] });
+    expect(await resolveWorkAgentGraph(root, MODELS, loader([]))).toMatchObject({
+      ok: true,
+      members: [],
+    });
+  });
+
+  it('visits each agent once in a cycle and bounds the graph size', async () => {
+    const a = agent('a', 'qwen:7b', 'ollama', { agent_ids: ['b'] });
+    const b = agent('b', 'qwen:7b', 'ollama', { agent_ids: ['a', 'lead'] });
+    const root = agent('lead', 'llama3:latest', 'ollama', { agent_ids: ['a'] });
+    const load = loader([a, b]);
+    expect(await resolveWorkAgentGraph(root, MODELS, load)).toMatchObject({ ok: true });
+    expect(load).toHaveBeenCalledTimes(2);
+
+    const wide = agent('lead', 'llama3:latest', 'ollama', { agent_ids: ['x1', 'x2', 'x3'] });
+    expect(await resolveWorkAgentGraph(wide, MODELS, loader([]), 2)).toEqual({
+      ok: false,
+      reason: 'too_large',
+    });
+  });
+});
+
+describe('native Work graph admission', () => {
+  it('does not apply prepared-run admission outside Work mode', () => {
+    expect(() =>
+      enforceWorkRunAllowance(
+        { isWork: false },
+        [{ id: 'paid', model: 'gpt-4o', provider: 'openAI' }],
+        'WORK_MODEL_NOT_ALLOWED',
+        jest.fn(),
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects prepared models outside the admitted Work allowance', () => {
+    const reportViolation = jest.fn();
+    expect(() =>
+      enforceWorkRunAllowance(
+        {
+          isWork: true,
+          allowedModels: [{ id: 'local', provider: 'ollama' }],
+        },
+        [{ id: 'paid', model: 'gpt-4o', provider: 'openAI' }],
+        'WORK_MODEL_NOT_ALLOWED',
+        reportViolation,
+      ),
+    ).toThrow('{ "type": "WORK_MODEL_NOT_ALLOWED" }');
+    expect(reportViolation).toHaveBeenCalledWith({
+      id: 'paid',
+      model: 'gpt-4o',
+      provider: 'openAI',
+    });
+  });
+
+  const models = buildWorkModelOptions([{ id: 'qwen3.5:4b', provider: 'ollama', local: true }]);
+
+  const root = {
+    id: 'local-root',
+    model: 'qwen3.5:4b',
+    provider: 'ollama',
+    subagents: {
+      enabled: false,
+      agent_ids: ['paid-child'],
+      graphs: [{ agent_ids: ['paid-graph-child'] }],
+    },
+  };
+
+  it('ignores saved subagent references when delegation is disabled', async () => {
+    expect(workAgentReferences(root)).toEqual([]);
+    let loaded = 0;
+    const graph = await resolveWorkAgentGraph(root, models, async () => {
+      loaded += 1;
+      return { id: 'paid-child', model: 'gpt-4o', provider: 'openAI' };
+    });
+    expect(graph).toMatchObject({ ok: true, members: [] });
+    expect(loaded).toBe(0);
+  });
+
+  it('preserves the enabled flag through the ACL-scoped catalog projection', async () => {
+    const projected = toWorkGraphAgent(root);
+    expect(projected?.subagents?.enabled).toBe(false);
+    if (!projected) {
+      throw new Error('Expected a projected Work agent');
+    }
+    let loaded = 0;
+    const graph = await resolveWorkAgentGraph(projected, models, async () => {
+      loaded += 1;
+      return { id: 'paid-child', model: 'gpt-4o', provider: 'openAI' };
+    });
+    expect(graph).toMatchObject({ ok: true, members: [] });
+    expect(loaded).toBe(0);
+
+    const enabled = toWorkGraphAgent({
+      ...root,
+      subagents: { ...root.subagents, enabled: true },
+    });
+    expect(enabled?.subagents?.enabled).toBe(true);
+    expect(enabled && workAgentReferences(enabled)).toEqual(['paid-child', 'paid-graph-child']);
+  });
+
+  it('does not traverse subagents without an explicit enabled flag', () => {
+    expect(
+      workAgentReferences({
+        ...root,
+        subagents: { agent_ids: ['paid-child'], graphs: [{ agent_ids: ['paid-graph-child'] }] },
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects a reachable paid child when delegation is enabled', async () => {
+    const enabled = { ...root, subagents: { ...root.subagents, enabled: true } };
+    expect(workAgentReferences(enabled)).toEqual(['paid-child', 'paid-graph-child']);
+    const graph = await resolveWorkAgentGraph(enabled, models, async (id) => ({
+      id,
+      model: 'gpt-4o',
+      provider: 'openAI',
+    }));
+    expect(graph).toMatchObject({
+      ok: false,
+      reason: 'member_model_not_allowed',
+      agentId: 'paid-child',
+    });
+  });
+
+  it('loads independent siblings concurrently without exceeding the configured cap', async () => {
+    let active = 0;
+    let maximumActive = 0;
+    const graph = await resolveWorkAgentGraph(
+      { ...root, agent_ids: ['one', 'two', 'three', 'four', 'five'] },
+      models,
+      async (id) => {
+        active += 1;
+        maximumActive = Math.max(maximumActive, active);
+        await Promise.resolve();
+        active -= 1;
+        return { id, model: 'qwen3.5:4b', provider: 'ollama' };
+      },
+      10,
+      2,
+    );
+    expect(graph).toMatchObject({ ok: true });
+    if (!graph.ok) {
+      throw new Error('Expected an allowed graph');
+    }
+    expect(graph.members.map((member) => member.id)).toEqual([
+      'one',
+      'two',
+      'three',
+      'four',
+      'five',
+    ]);
+    expect(maximumActive).toBe(2);
+    expect(active).toBe(0);
+  });
+
+  it('fails closed on a paid sibling even when member reads run concurrently', async () => {
+    const graph = await resolveWorkAgentGraph(
+      { ...root, agent_ids: ['local-child', 'paid-child'] },
+      models,
+      async (id) => ({
+        id,
+        model: id === 'paid-child' ? 'gpt-4o' : 'qwen3.5:4b',
+        provider: id === 'paid-child' ? 'openAI' : 'ollama',
+      }),
+      10,
+      2,
+    );
+    expect(graph).toEqual({
+      ok: false,
+      reason: 'member_model_not_allowed',
+      agentId: 'paid-child',
+    });
+  });
+
+  it('rejects an oversized frontier before dispatching excess reads', async () => {
+    let loads = 0;
+    const graph = await resolveWorkAgentGraph(
+      { ...root, agent_ids: ['one', 'two', 'three'] },
+      models,
+      async (id) => {
+        loads += 1;
+        return { id, model: 'qwen3.5:4b', provider: 'ollama' };
+      },
+      2,
+      2,
+    );
+    expect(graph).toEqual({ ok: false, reason: 'too_large' });
+    expect(loads).toBe(0);
+  });
+});
+
+describe('Work run guard', () => {
+  const allowance = [
+    { id: 'llama3:latest', provider: 'ollama' },
+    { id: 'qwen:7b', provider: 'ollama' },
+  ];
+
+  it('collects nested subagents, lazy descriptors and graph members once each', () => {
+    const shared: WorkRunConfig = { id: 'shared', model: 'qwen:7b', provider: 'ollama' };
+    const primary: WorkRunConfig = {
+      id: 'lead',
+      model: 'llama3:latest',
+      endpoint: 'ollama',
+      provider: 'openAI',
+      subagentAgentConfigs: [shared],
+      lazySubagentConfigs: [
+        { id: 'lazy', model: 'qwen:7b', provider: 'ollama', lazySubagentConfigs: [shared] },
+      ],
+      subagentGraphConfigs: [
+        { memberConfigs: [{ id: 'member', model: 'qwen:7b', endpoint: 'ollama' }] },
+      ],
+      subagentGraphMemberMetadata: [{ id: 'meta', model: 'qwen:7b', provider: 'ollama' }],
+    };
+    const targets = collectWorkRunTargets([primary, null]);
+    expect(targets.map((target) => target.id).sort()).toEqual([
+      'lazy',
+      'lead',
+      'member',
+      'meta',
+      'shared',
+    ]);
+    /** A full config is judged by the provider it was saved with, not its client family. */
+    expect(targets.find((target) => target.id === 'lead')?.provider).toBe('ollama');
+  });
+
+  it('allows a run whose every prepared agent is inside the allowance', () => {
+    expect(
+      findWorkRunViolation(allowance, [
+        { id: 'lead', model: 'llama3:latest', endpoint: 'ollama' },
+        { id: 'writer', model: 'qwen:7b', endpoint: 'ollama' },
+      ]),
+    ).toBeNull();
+  });
+
+  it('stops a run that prepared a paid handoff, added or nested agent', () => {
+    expect(
+      findWorkRunViolation(allowance, [
+        { id: 'lead', model: 'llama3:latest', endpoint: 'ollama' },
+        { id: 'added', model: 'gpt-4o', endpoint: 'openAI' },
+      ]),
+    ).toEqual({ id: 'added', model: 'gpt-4o', provider: 'openAI' });
+    expect(
+      findWorkRunViolation(allowance, [
+        {
+          id: 'lead',
+          model: 'llama3:latest',
+          endpoint: 'ollama',
+          lazySubagentConfigs: [{ id: 'deep', model: 'gpt-4o', provider: 'openAI' }],
+        },
+      ]),
+    ).toMatchObject({ id: 'deep' });
+  });
+
+  it('fails closed without an allowance or a model', () => {
+    expect(
+      findWorkRunViolation(undefined, [{ id: 'lead', model: 'llama3:latest', endpoint: 'ollama' }]),
+    ).toMatchObject({
+      id: 'lead',
+    });
+    expect(findWorkRunViolation(allowance, [{ id: 'lead', endpoint: 'ollama' }])).toMatchObject({
+      id: 'lead',
+    });
+  });
+});

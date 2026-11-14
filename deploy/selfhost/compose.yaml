@@ -1,0 +1,70 @@
+name: coderax-selfhost
+
+# Full-stack single-host installation, independent of Vercel.
+# Supply environment with: docker compose --env-file .env -f deploy/selfhost/compose.yaml ...
+services:
+  mongodb:
+    image: mongo:8.0.20
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${CODERAX_DB_USER:?Set CODERAX_DB_USER in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${CODERAX_DB_PASSWORD:?Set a URL-safe CODERAX_DB_PASSWORD in .env}
+    volumes:
+      - coderax-mongodb:/data/db
+    networks:
+      - database
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME" --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "db.adminCommand({ping:1}).ok" | grep -qx 1'
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: coderax:selfhost
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    env_file:
+      - ../../.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3080"
+      MONGO_URI: mongodb://${CODERAX_DB_USER:?}:${CODERAX_DB_PASSWORD:?}@mongodb:27017/Coderax?authSource=admin
+      MEILI_HOST: ""
+    ports:
+      # Keep raw HTTP private. Put an HTTPS reverse proxy/tunnel in front.
+      - "127.0.0.1:${CODERAX_BIND_PORT:-3080}:3080"
+    volumes:
+      - coderax-app-data:/app/data
+      - coderax-uploads:/app/uploads
+      - coderax-skills:/app/skill
+      - coderax-images:/app/client/public/images
+    networks:
+      - database
+      - application
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 6s
+      retries: 24
+      start_period: 120s
+
+networks:
+  database:
+    internal: true
+  application: {}
+
+volumes:
+  coderax-mongodb: {}
+  coderax-app-data: {}
+  coderax-uploads: {}
+  coderax-skills: {}
+  coderax-images: {}

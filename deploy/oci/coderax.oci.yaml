@@ -1,0 +1,18 @@
+# API-only configuration for the Oracle Always Free A1 backend.
+# Ollama is reachable only on the private Docker model network.
+version: 1.3.17
+cache: true
+endpoints:
+  custom:
+    - name: Ollama
+      apiKey: internal-ollama-placeholder
+      baseURL: http://ollama:11434/v1/
+      models:
+        default:
+          - qwen3.5:9b
+          - qwen3.5:4b
+        fetch: false
+      titleConvo: true
+      titleModel: current_model
+      summarize: false
+      modelDisplayLabel: Ollama
