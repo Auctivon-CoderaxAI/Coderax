@@ -1,0 +1,149 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const scriptsDir = dirname(fileURLToPath(import.meta.url));
+const script = join(scriptsDir, 'retarget-prs.sh');
+
+function bashPath(path) {
+  if (process.platform !== 'win32') return path;
+  const normalized = path.replaceAll('\\', '/');
+  const drivePath = normalized.match(/^([A-Za-z]):(\/.*)$/);
+  return drivePath ? `/${drivePath[1].toLowerCase()}${drivePath[2]}` : normalized;
+}
+
+function runRetarget(t, prs, overrides = {}, expectedStatus = 0) {
+  const scratch = mkdtempSync(join(scriptsDir, '.retarget-prs-test-'));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const callsPath = join(scratch, 'calls');
+  const fakeGh = join(scratch, 'gh');
+  writeFileSync(
+    fakeGh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "$CALLS_PATH"
+case "$1:$2" in
+  api:*/branches/*) exit "\${GH_BRANCH_STATUS:-0}" ;;
+  api:*/pulls/*) cat "$FIXTURE_DIR/\${2##*/}.json" ;;
+  api:*/comments) printf '%s\\n' '[]' ;;
+  'pr:edit') exit 0 ;;
+  'pr:comment') cat >/dev/null ;;
+  *) echo "unexpected gh call: $*" >&2; exit 1 ;;
+esac
+`,
+    { mode: 0o700 },
+  );
+  for (const [number, { base, head = 'topic' }] of Object.entries(prs)) {
+    writeFileSync(
+      join(scratch, `${number}.json`),
+      JSON.stringify({
+        state: 'open',
+        base: { ref: base },
+        head: { ref: head, repo: { full_name: 'contributor/fork' } },
+        labels: [],
+      }),
+    );
+  }
+  const result = spawnSync('bash', [bashPath(script), ...Object.keys(prs)], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: [scratch, process.env.PATH].join(delimiter),
+      FIXTURE_DIR: bashPath(scratch),
+      CALLS_PATH: bashPath(callsPath),
+      REPO: 'CoderaxAI/Coderax',
+      RELEASE_BASE: 'main',
+      TARGET_BASE: 'dev',
+      DRY_RUN: 'false',
+      EXPLAIN_MISSING: 'false',
+      ...overrides,
+    },
+  });
+  assert.equal(result.status, expectedStatus, `${result.stdout}\n${result.stderr}`);
+  return {
+    output: `${result.stdout}\n${result.stderr}`,
+    calls: readFileSync(callsPath, 'utf8').trim().split('\n'),
+  };
+}
+
+function writes(calls) {
+  return calls.filter((call) => call.startsWith('pr edit ') || call.startsWith('pr comment '));
+}
+
+test('a numbered manual sweep leaves canary alone while main still retargets to dev', (t) => {
+  const { output, calls } = runRetarget(t, {
+    101: { base: 'canary' },
+    102: { base: 'main' },
+  });
+  assert.match(output, /#101: skipped/);
+  assert.deepEqual(writes(calls), [
+    'pr edit 102 --repo CoderaxAI/Coderax --base dev',
+    'pr comment 102 --repo CoderaxAI/Coderax --body-file -',
+  ]);
+});
+
+test('canary stays protected even if a caller misconfigures the release base', (t) => {
+  const { output, calls } = runRetarget(t, { 103: { base: 'canary' } }, { RELEASE_BASE: 'canary' });
+  assert.match(output, /#103: skipped/);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('explanation recovery never posts a dev-target message on a canary PR', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 104: { base: 'canary' } },
+    { TARGET_BASE: 'canary', EXPLAIN_MISSING: 'true' },
+  );
+  assert.match(output, /#104: skipped/);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('a dry run cannot propose retargeting canary', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 105: { base: 'canary' } },
+    { RELEASE_BASE: 'canary', DRY_RUN: 'true' },
+  );
+  assert.match(output, /would_retarget=0 skipped=1/);
+  assert.deepEqual(writes(calls), []);
+});
+
+
+test('missing dev fails closed before reading or changing a main-based PR', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 106: { base: 'main' } },
+    { GH_BRANCH_STATUS: '1' },
+    1,
+  );
+  assert.match(output, /cannot verify target branch 'dev'/);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('missing dev also refuses dry-run proposals and explanatory comments', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 107: { base: 'dev' } },
+    { GH_BRANCH_STATUS: '1', DRY_RUN: 'true', EXPLAIN_MISSING: 'true' },
+    1,
+  );
+  assert.match(output, /no PRs were modified/);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
+  assert.deepEqual(writes(calls), []);
+});
+
+test('GitHub branch API permission failure refuses all PR reads and writes', (t) => {
+  const { output, calls } = runRetarget(
+    t,
+    { 108: { base: 'main' } },
+    { GH_BRANCH_STATUS: '22' },
+    1,
+  );
+  assert.match(output, /cannot verify target branch 'dev'/);
+  assert.deepEqual(calls, ['api repos/CoderaxAI/Coderax/branches/dev']);
+  assert.deepEqual(writes(calls), []);
+});

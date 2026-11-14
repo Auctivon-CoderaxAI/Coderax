@@ -1,0 +1,25 @@
+name: Copilot Code Review
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/copilot-code-review.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-code-review.yml
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false

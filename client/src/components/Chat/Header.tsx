@@ -1,0 +1,164 @@
+import { memo, useMemo } from 'react';
+import { useRecoilValue } from 'recoil';
+import { useParams } from 'react-router-dom';
+import {
+  getConfigDefaults,
+  Constants,
+  PermissionTypes,
+  Permissions,
+  isForcedTemporaryRetention,
+} from 'coderax-data-provider';
+import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
+import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
+import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import { OpenSidebar, NewChat, HeaderMenu } from './Menus';
+import { BackgroundTasksButton } from './BackgroundTasks';
+import ConversationModeNav from './ConversationModeNav';
+import { TraceButton, useTraceControl } from './Trace';
+import { useGetStartupConfig } from '~/data-provider';
+import ExportAndShareMenu from './ExportAndShareMenu';
+import SubagentThreadLink from './SubagentThreadLink';
+import { useHasAccess, useLocalize } from '~/hooks';
+import BookmarkMenu from './Menus/BookmarkMenu';
+import AddMultiConvo from './AddMultiConvo';
+import { cn } from '~/utils';
+import store from '~/store';
+
+const defaultInterface = getConfigDefaults().interface;
+
+/** Keep one DOM order while sharing the sidebar's scaled drawer breakpoint. */
+function Header({
+  parentConversationId,
+  readOnly = false,
+  mode = 'chat',
+}: {
+  parentConversationId?: string;
+  readOnly?: boolean;
+  /** Work conversations render through this view too; the switch names the mode in use. */
+  mode?: 'chat' | 'work';
+}) {
+  const localize = useLocalize();
+  const { data: startupConfig } = useGetStartupConfig();
+  const navVisible = useRecoilValue(store.sidebarExpanded);
+  const isSubmitting = useRecoilValue(store.isSubmittingFamily(0));
+  const isSmallScreen = useDrawerViewport();
+
+  /** The mobile row only offers a new chat when there is one to leave. Read
+   *  from the route rather than the context conversation, which still holds the
+   *  previous chat for a render after a history or link navigation. An unsaved
+   *  conversation has no id in the route yet, so absence counts as new too. */
+  const { conversationId: routeConversationId } = useParams();
+  const isNewChat = routeConversationId == null || routeConversationId === Constants.NEW_CONVO;
+
+  const interfaceConfig = useMemo(
+    () => startupConfig?.interface ?? defaultInterface,
+    [startupConfig],
+  );
+
+  const hasAccessToBookmarks = useHasAccess({
+    permissionType: PermissionTypes.BOOKMARKS,
+    permission: Permissions.USE,
+  });
+
+  const hasAccessToMultiConvo = useHasAccess({
+    permissionType: PermissionTypes.MULTI_CONVO,
+    permission: Permissions.USE,
+  });
+
+  const hasAccessToTemporaryChat = useHasAccess({
+    permissionType: PermissionTypes.TEMPORARY_CHAT,
+    permission: Permissions.USE,
+  });
+  /** An administrator-enforced mode is not a role grant, so it is overlaid here rather than
+   *  written into the role's stored permissions; the control is read-only either way. */
+  const showTemporaryChat =
+    hasAccessToTemporaryChat === true || isForcedTemporaryRetention(interfaceConfig.retentionMode);
+
+  /** Child threads are view-only records of their parent's run and have no trace of their own. */
+  const trace = useTraceControl({
+    conversationId: isNewChat ? null : routeConversationId,
+    traceViewer: interfaceConfig.traceViewer,
+    isSubmitting,
+    enabled: parentConversationId == null,
+  });
+
+  /** The drawer covers the header on mobile; keep its controls out of the tab order.
+   *  `invisible` rather than `hidden`, so each column keeps its grid cell. */
+  const hiddenBehindNav = navVisible === true && isSmallScreen && 'invisible';
+
+  return (
+    /* The composer review is in a z-10 stacking context. Keep header controls
+       above it when a tall review reaches the top of a short viewport. */
+    <div className={modeHeaderClass}>
+      <div className={modeHeaderStartClass}>
+        <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
+          <OpenSidebar testId="header-open-sidebar-button" />
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          'flex min-w-0 items-center justify-center gap-2',
+          !isSmallScreen && 'transition-all duration-200 ease-in-out',
+          hiddenBehindNav,
+        )}
+      >
+        {parentConversationId != null && (
+          <SubagentThreadLink threadId={parentConversationId} labelClassName="hidden lg:inline" />
+        )}
+        {!readOnly && (
+          <ConversationModeNav
+            active={mode}
+            labels={{
+              ariaLabel: localize('com_ui_conversation_mode'),
+              chat: localize('com_ui_chat'),
+              work: localize('com_ui_work'),
+            }}
+          />
+        )}
+      </div>
+
+      <div className={cn(modeHeaderEndClass, hiddenBehindNav)}>
+        {hasAccessToBookmarks === true && (
+          <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
+            <BookmarkMenu />
+          </div>
+        )}
+        {/* Work runs one task per conversation; the server refuses an added one. */}
+        {hasAccessToMultiConvo === true && mode === 'chat' && (
+          <div className={cn('items-center', isSmallScreen ? 'hidden' : 'flex')}>
+            <AddMultiConvo />
+          </div>
+        )}
+        {showTemporaryChat && <TemporaryChatIndicator />}
+        {!isNewChat && <NewChat className={isSmallScreen ? undefined : 'hidden'} />}
+        {!isNewChat && parentConversationId == null && (
+          <BackgroundTasksButton
+            key={routeConversationId}
+            conversationId={routeConversationId}
+            isSubmitting={isSubmitting}
+          />
+        )}
+        <HeaderMenu
+          startupConfig={startupConfig}
+          trace={trace}
+          readOnly={readOnly}
+          className={isSmallScreen ? undefined : 'hidden'}
+        />
+        <div className={cn('items-center gap-2', isSmallScreen ? 'hidden' : 'flex')}>
+          {trace.show && <TraceButton onClick={trace.open} />}
+          <ExportAndShareMenu
+            isSharedButtonEnabled={startupConfig?.sharedLinksEnabled ?? false}
+            readOnly={readOnly}
+          />
+          {showTemporaryChat && <TemporaryChat />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const MemoizedHeader = memo(Header);
+MemoizedHeader.displayName = 'Header';
+
+export default MemoizedHeader;

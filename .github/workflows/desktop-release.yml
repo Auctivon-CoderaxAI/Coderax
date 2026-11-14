@@ -1,0 +1,97 @@
+name: Coderax Desktop Release
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-release.yml"
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coderax-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Confirm release tag matches desktop version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $expected = "desktop-v$version"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Tag $env:GITHUB_REF_NAME does not match package version $expected"
+          }
+
+      - name: Build and test installer
+        working-directory: desktop
+        run: npm run desktop:package
+
+      - name: Verify installer and create checksum
+        shell: pwsh
+        run: |
+          $installer = Get-Item desktop\release\Coderax-Windows-x64.exe -ErrorAction SilentlyContinue
+          if (-not $installer -or $installer.Length -lt 10MB) { throw 'Windows installer is missing or unexpectedly small' }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($installer.Name)" | Set-Content desktop\release\SHA256SUMS.txt
+
+      - name: Upload tested installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: coderax-desktop-windows-x64
+          path: |
+            desktop/release/Coderax-Windows-x64.exe
+            desktop/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish desktop release
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested installer
+        uses: actions/download-artifact@v4
+        with:
+          name: coderax-desktop-windows-x64
+          path: release-assets
+
+      - name: Set desktop release version
+        shell: bash
+        run: echo "CODERAX_DESKTOP_VERSION=${GITHUB_REF_NAME#desktop-v}" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: Coderax Desktop ${{ env.CODERAX_DESKTOP_VERSION }}
+          files: |
+            release-assets/Coderax-Windows-x64.exe
+            release-assets/SHA256SUMS.txt
+          generate_release_notes: true
+          prerelease: false
+          make_latest: true

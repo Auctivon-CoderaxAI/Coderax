@@ -1,0 +1,75 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "frontend": {
+      "root": "client",
+      "framework": "vite",
+      "installCommand": "cd .. && npm ci --include=dev",
+      "buildCommand": "cd .. && npm run frontend && cd client && npm run test:ci -- --runInBand --coverage=false src/routes/__tests__/ChatRoute.spec.tsx src/components/Chat/__tests__/mode.spec.tsx",
+      "outputDirectory": "dist",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    "backend": {
+      "root": ".",
+      "entrypoint": "api/proxy.js",
+      "framework": "express",
+      "installCommand": "npm ci --include=dev",
+      "buildCommand": "npm run build:data-provider && npm run build:data-schemas && npm run build:api && cd packages/api && npm run test:ci -- --runInBand --coverage=false src/work/models.spec.ts src/work/task.spec.ts src/work/router.spec.ts src/work/state.spec.ts src/conversations/workMarker.spec.ts && cd ../.. && node scripts/verify-coderax-deployment.mjs --repo-only && node --test api/server/routes/__tests__/workModels.test.js api/server/routes/__tests__/workChat.test.js scripts/verify-coderax-deployment.test.mjs packages/api/proxy.test.mjs scripts/verify-oci-deployment.test.mjs",
+      "functions": {
+        "api/proxy.js": {
+          "includeFiles": "{api/proxy.js,packages/api/dist/proxy.cjs,packages/api/dist/proxy.bundle.cjs,packages/api/dist/rolldown-runtime-*.cjs}",
+          "maxDuration": 300
+        }
+      }
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/oauth/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/health",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/livez",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/readyz",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "frontend"
+      }
+    }
+  ]
+}
