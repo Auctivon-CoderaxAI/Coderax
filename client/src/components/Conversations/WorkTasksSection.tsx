@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { buttonVariants, cn, useToastContext } from '@coderax/client';
@@ -29,11 +29,8 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
   const queryClient = useQueryClient();
   const { data: activeJobs } = useActiveJobs(isAuthenticated);
   const activeJobIds = activeJobs?.activeJobIds;
-  const activeJobKey = activeJobIds ? JSON.stringify([...activeJobIds].sort()) : undefined;
-  const previousActiveJobKey = useRef<string | undefined>();
   const [isExpanded, setIsExpanded] = useLocalStorage('workTasksExpanded', true);
   const { showToast } = useToastContext();
-  const queryClient = useQueryClient();
   const tasksQuery = useQuery<TWorkTasksResponse>({
     queryKey: [QueryKeys.workTasks],
     queryFn: ({ signal }) => dataService.getWorkTasks(signal),
