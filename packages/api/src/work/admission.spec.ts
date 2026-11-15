@@ -111,6 +111,17 @@ describe('Work admission', () => {
     });
   });
 
+  it('rejects a local-looking model on an unmarked provider', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [{ id: 'ollama/llama3', provider: 'gateway' }],
+        requestedModel: 'ollama/llama3',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({ ok: false, error: 'WORK_MODEL_NOT_ALLOWED' });
+  });
+
   it('passes the configured concurrency cap through selected-agent admission', async () => {
     const root: WorkGraphAgent = {
       id: 'root',

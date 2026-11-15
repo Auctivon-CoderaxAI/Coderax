@@ -38,6 +38,7 @@ jest.mock('react-router-dom', () => ({
 }));
 
 jest.mock('~/data-provider', () => ({
+  useActiveJobs: () => ({ data: { activeJobIds: mockActiveJobIds } }),
   useGetPinnedOrderQuery: () => ({
     data: mockPinnedOrder,
     isSuccess: mockPinnedOrder !== undefined,

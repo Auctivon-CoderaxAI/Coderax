@@ -16,6 +16,12 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes an obsolete pull-request run. Main pushes are the
+# post-merge safety net and manual dispatches are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   registry-contract:
     name: Validate repository-agent registry contracts
