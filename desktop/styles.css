@@ -1,10 +1,24 @@
+/* Mirrors the app's semantic roles and default values in packages/client/src/theme/defaults.css;
+ * this page loads before a server is chosen, so it cannot read the app's stylesheet. */
 :root {
+  --surface-primary: 255 255 255;
+  --surface-secondary: 247 247 248;
+  --text-primary: 33 33 33;
+  --text-secondary: 66 66 66;
+  --text-inverted: 255 255 255;
+  --text-destructive: 220 38 38;
+  --border-light: 227 227 227;
+  --border-medium: 205 205 205;
+  --accent-primary: 18 110 107;
+  --accent-primary-hover: 10 79 83;
+  --focus-outline: 0 0 0;
+
   color-scheme: light dark;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  background: #f4f7f7;
-  color: #192524;
+  background: rgb(var(--surface-secondary));
+  color: rgb(var(--text-primary));
 }
 
 * {
@@ -23,10 +37,10 @@ body {
 .card {
   width: min(100%, 500px);
   padding: 38px;
-  border: 1px solid #d8e2e0;
+  border: 1px solid rgb(var(--border-light));
   border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 18px 52px rgb(31 66 62 / 9%);
+  background: rgb(var(--surface-primary));
+  box-shadow: 0 18px 52px rgb(0 0 0 / 9%);
 }
 
 .mark {
@@ -34,8 +48,8 @@ body {
   width: 50px;
   height: 50px;
   border-radius: 14px;
-  background: #009688;
-  color: #fff;
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--text-inverted));
   font-size: 38px;
   font-weight: 700;
   line-height: 1;
@@ -44,7 +58,7 @@ body {
 
 .eyebrow {
   margin: 26px 0 8px;
-  color: #08796f;
+  color: rgb(var(--accent-primary));
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -59,7 +73,7 @@ h1 {
 .intro,
 .help,
 .privacy {
-  color: #526360;
+  color: rgb(var(--text-secondary));
   line-height: 1.55;
 }
 
@@ -78,16 +92,16 @@ input {
   width: 100%;
   min-height: 48px;
   padding: 0 13px;
-  border: 1px solid #aebfbb;
+  border: 1px solid rgb(var(--border-medium));
   border-radius: 8px;
-  background: #fff;
-  color: #192524;
+  background: rgb(var(--surface-primary));
+  color: rgb(var(--text-primary));
   font: inherit;
 }
 
 input:focus-visible,
 button:focus-visible {
-  outline: 3px solid #33b8aa;
+  outline: 3px solid rgb(var(--focus-outline));
   outline-offset: 2px;
 }
 
@@ -99,7 +113,7 @@ button:focus-visible {
 .message {
   min-height: 22px;
   margin: 12px 0 0;
-  color: #a12424;
+  color: rgb(var(--text-destructive));
   font-size: 13px;
 }
 
@@ -108,15 +122,15 @@ button {
   min-height: 48px;
   border: 0;
   border-radius: 8px;
-  background: #087f75;
-  color: #fff;
+  background: rgb(var(--accent-primary));
+  color: rgb(var(--text-inverted));
   font: inherit;
   font-weight: 650;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  background: #066d65;
+  background: rgb(var(--accent-primary-hover));
 }
 
 button:disabled {
@@ -131,25 +145,20 @@ button:disabled {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    background: #111817;
-    color: #e6efed;
+    --surface-primary: 13 13 13;
+    --surface-secondary: 33 33 33;
+    --text-primary: 236 236 236;
+    --text-secondary: 205 205 205;
+    --text-inverted: 23 23 23;
+    --text-destructive: 248 113 113;
+    --border-light: 33 33 33;
+    --border-medium: 57 57 57;
+    --accent-primary: 65 167 157;
+    --accent-primary-hover: 109 200 185;
+    --focus-outline: 255 255 255;
   }
 
   .card {
-    border-color: #324541;
-    background: #192321;
     box-shadow: 0 18px 52px rgb(0 0 0 / 25%);
-  }
-
-  .intro,
-  .help,
-  .privacy {
-    color: #b4c3bf;
-  }
-
-  input {
-    border-color: #51625e;
-    background: #101614;
-    color: #e6efed;
   }
 }

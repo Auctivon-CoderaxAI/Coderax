@@ -9,7 +9,6 @@ export * from './SeriesLabel';
 export * from './Checkbox';
 export * from './DisclosureChevron';
 export * from './Dialog';
-export * from './DropdownMenu';
 export * from './HoverCard';
 export * from './Field';
 export * from './Focus';

@@ -1,7 +1,5 @@
 import { useState, useRef, useMemo, useEffect, useId } from 'react';
 import { Plus } from 'lucide-react';
-import { useRecoilValue } from 'recoil';
-import { useLocation } from 'react-router-dom';
 import { SystemRoles, PermissionTypes, Permissions } from 'coderax-data-provider';
 import { Button, FilterInput, OGDialogTrigger, TooltipAnchor } from '@coderax/client';
 import {
@@ -9,6 +7,7 @@ import {
   useMCPServerManager,
   useHasAccess,
   useAuthContext,
+  usePanelActive,
   activateCatalog,
 } from '~/hooks';
 import { PanelFooter, PanelContent, PanelHeader } from '~/components/ui';
@@ -18,17 +17,14 @@ import { useMCPRefresh } from '~/hooks/MCP/useMCPRefresh';
 import MCPAdminSettings from './MCPAdminSettings';
 import MCPServerDialog from './MCPServerDialog';
 import MCPServerList from './MCPServerList';
-import store from '~/store';
 
 export default function MCPBuilderPanel() {
   const localize = useLocalize();
   const headingId = useId();
-  const location = useLocation();
   /** The panel stays mounted while the sidebar is hidden (collapsed, mobile
-   * drawer, or the insights route collapsing it), so only a visible panel
+   * drawer, or a workspace route collapsing it), so only a visible panel
    * releases its catalog ahead of the background warmup schedule */
-  const sidebarExpanded = useRecoilValue(store.sidebarExpanded);
-  const panelVisible = sidebarExpanded && !location.pathname.startsWith('/insights');
+  const panelVisible = usePanelActive('mcp-builder');
   useEffect(() => {
     if (panelVisible) {
       activateCatalog('mcpServers');
