@@ -12,9 +12,9 @@ import {
 } from '~/data-provider';
 import WorkTaskRow, { workTaskPinKey } from './WorkTaskRow';
 import { useLocalize, useLocalStorage } from '~/hooks';
+import { workTasksRefetchInterval } from './polling';
 import { NotificationSeverity } from '~/common';
 import { Collapse } from '~/components/ui';
-import { workTasksRefetchInterval } from './polling';
 
 type WorkTasksSectionProps = {
   isAuthenticated: boolean;
