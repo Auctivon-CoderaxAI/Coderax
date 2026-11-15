@@ -294,19 +294,6 @@ function ChatView({
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}
                                   footerBelow={footerBelow}
-                                  enterToSend={enterToSend}
-                                  autoSendText={autoSendText}
-                                  speechSettingsInitialized={speechSettingsInitialized}
-                                  centerFormOnLanding={centerFormOnLanding}
-                                  files={chatHelpers.files}
-                                  setFiles={chatHelpers.setFiles}
-                                  conversation={chatHelpers.conversation}
-                                  setConversation={chatHelpers.setConversation}
-                                  isSubmitting={chatHelpers.isSubmitting}
-                                  setFilesLoading={chatHelpers.setFilesLoading}
-                                  newConversation={chatHelpers.newConversation}
-                                  handleStopGenerating={chatHelpers.handleStopGenerating}
-                                  stopGenerating={chatHelpers.stopGenerating}
                                 />
                               </ComposerPreferencesProvider>
                             )}
