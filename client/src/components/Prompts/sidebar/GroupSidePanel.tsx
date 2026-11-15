@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
-import { useRecoilValue } from 'recoil';
 import { useLocation } from 'react-router-dom';
 import { Button, Sidebar, Spinner, TooltipAnchor } from '@coderax/client';
 import type { PromptGroupListResponse } from 'coderax-data-provider';
-import { useLocalize, useNavScrolling, activateCatalog } from '~/hooks';
+import {
+  useLocalize,
+  useNavScrolling,
+  activateCatalog,
+  useOptionalPanelActive,
+} from '~/hooks';
 import PromptGroupSkeleton from '../lists/PromptGroupSkeleton';
 import { usePromptGroupsContext } from '~/Providers';
 import { PanelContent } from '~/components/ui';
 import List from '../lists/List';
 import { cn } from '~/utils';
-import store from '~/store';
 
 export default function GroupSidePanel({
   children,
@@ -33,25 +36,25 @@ export default function GroupSidePanel({
 
   const context = usePromptGroupsContext();
 
-  /** A collapsed sidebar keeps this panel mounted, so stop draining pages into it */
-  const sidebarExpanded = useRecoilValue(store.sidebarExpanded);
-  /** Mirrors UnifiedSidebar's panelExpanded: the insights route collapses the
-   * panel while the atom stays true, so visibility is atom AND route */
-  const panelVisible = sidebarExpanded && !location.pathname.startsWith('/insights');
+  /** Selected AND visible: the panel stays mounted while the sidebar is
+   * collapsed, another panel is selected, or a workspace route (insights,
+   * cyvox-*) hides it. Outside an ActivePanelProvider (standalone layout) the
+   * panel is the page, so it counts as visible. */
+  const panelVisible = useOptionalPanelActive('prompts');
 
-  /** The panel stays mounted while hidden, so only a visible panel releases
-   * its catalog ahead of the background warmup schedule */
+  /** Only a visible panel releases its catalog ahead of the background warmup schedule */
   useEffect(() => {
     if (panelVisible) {
       activateCatalog('prompts');
     }
   }, [panelVisible]);
 
+  /** A hidden panel must not keep draining pages into its list */
   const { containerRef } = useNavScrolling<PromptGroupListResponse>({
     nextCursor: context?.nextCursor,
     isFetchingNext: context?.isFetchingNextPage ?? false,
     fetchNextPage: context?.fetchNextPage,
-    enabled: sidebarExpanded,
+    enabled: panelVisible,
   });
 
   if (!context) {

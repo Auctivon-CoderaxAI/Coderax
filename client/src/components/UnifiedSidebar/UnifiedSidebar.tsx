@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect, useRef, memo } from 'react';
 import { useAtom } from 'jotai';
 import { useForm } from 'react-hook-form';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { pxToRem, useRemScale, useMediaQuery } from '@coderax/client';
 import type { ReactNode } from 'react';
 import type { ChatFormValues } from '~/common';
@@ -22,17 +22,14 @@ import { MobileHeader, MobileBottomBar, MobileShortcutTargets } from './mobile';
 import AgentMarketplaceButton from '~/components/Nav/AgentMarketplaceButton';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
 import useUnifiedSidebarLinks from '~/hooks/Nav/useUnifiedSidebarLinks';
+import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import { useChatHelpers, useLocalize } from '~/hooks';
 import SidePanelNav from '~/components/SidePanel/Nav';
+import { getInitialWidth } from './width';
 import Sidebar from './Sidebar';
 import { cn } from '~/utils';
-
-function getInitialWidth(): number {
-  const saved = localStorage.getItem('side:width');
-  return saved ? Math.max(Number(saved), EXPANDED_MIN) : EXPANDED_MIN;
-}
 
 /**
  * Isolates useChatHelpers Recoil subscriptions from the sidebar layout.
@@ -60,28 +57,25 @@ function UnifiedSidebar({
   switchToHistory: boolean;
 }) {
   const localize = useLocalize();
-  const location = useLocation();
   const navigate = useNavigate();
   const { isSmallScreen, expanded } = useSidebarState();
   const [showFiles, setShowFiles] = useAtom(showFilesDialogAtom);
   const [filesDialogTrigger, setFilesDialogTrigger] = useAtom(filesDialogTriggerAtom);
   const { setSidebarOpen } = useSidebarToggle();
   const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const [sidebarWidth, setSidebarWidth] = useState(getInitialWidth);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const remScale = useRemScale();
+  const [sidebarWidth, setSidebarWidth] = useState(() => getInitialWidth(remScale));
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [isResizing, setIsResizing] = useState(false);
-  const resizeHandlers = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
+  /** `stop` tears down an active drag (pending frame, listeners, text selection)
+   *  without touching state, so it is safe from both mouseup and unmount. */
+  const resizeHandlers = useRef<{
+    stop: () => void;
+  } | null>(null);
 
   const links = useUnifiedSidebarLinks();
-  const isInsightsRoute = location.pathname.startsWith('/insights');
-  const isCyVoxRoute = location.pathname.startsWith('/cyvox/');
-  const isWorkspaceRoute = isInsightsRoute || isCyVoxRoute;
-  const routeActiveId = isInsightsRoute
-    ? 'insights'
-    : isCyVoxRoute
-      ? `cyvox-${location.pathname.split('/')[2]}`
-      : undefined;
+  const routeActiveId = useRouteActiveId();
+  const isWorkspaceRoute = routeActiveId != null;
   const panelExpanded = expanded && !isWorkspaceRoute;
 
   /** The aside's max width is a viewport percentage, so the announced range has to track
@@ -91,6 +85,17 @@ function UnifiedSidebar({
     window.addEventListener('resize', handleViewportResize);
     return () => window.removeEventListener('resize', handleViewportResize);
   }, []);
+
+  /** Re-derive the width from the stored preference whenever the allowed range moves,
+   *  so a narrower viewport or larger rem scale shrinks the panel, and widening again
+   *  restores what the user chose. Skipped mid-drag: the drag owns the width and
+   *  persists it on release. */
+  useEffect(() => {
+    if (isResizing) {
+      return;
+    }
+    setSidebarWidth(getInitialWidth(remScale));
+  }, [remScale, viewportWidth, isResizing]);
 
   /** Keep the handle's announced range in the same baseline units as stored widths. */
   const resizeMax = (viewportWidth * 0.4) / remScale;
@@ -140,23 +145,27 @@ function UnifiedSidebar({
       });
     };
 
-    const up = () => {
+    const stop = () => {
       if (rafId != null) {
         cancelAnimationFrame(rafId);
         rafId = null;
       }
       document.body.style.userSelect = '';
-      setIsResizing(false);
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
       resizeHandlers.current = null;
+    };
+
+    function up() {
+      stop();
+      setIsResizing(false);
       setSidebarWidth((w) => {
         localStorage.setItem('side:width', String(Math.round(w)));
         return w;
       });
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
-    };
+    }
 
-    resizeHandlers.current = { move, up };
+    resizeHandlers.current = { stop };
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
   }, [remScale]);
@@ -181,10 +190,7 @@ function UnifiedSidebar({
 
   useEffect(() => {
     return () => {
-      if (resizeHandlers.current) {
-        document.removeEventListener('mousemove', resizeHandlers.current.move);
-        document.removeEventListener('mouseup', resizeHandlers.current.up);
-      }
+      resizeHandlers.current?.stop();
     };
   }, []);
 

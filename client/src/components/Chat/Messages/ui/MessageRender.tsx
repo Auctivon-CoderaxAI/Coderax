@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, memo } from 'react';
-import { useRecoilValue } from 'recoil';
+import { useAtomValue } from 'jotai';
 import type { TMessage } from 'coderax-data-provider';
 import type { TMessageProps, TMessageIcon, TMessageChatContext } from '~/common';
 import {
@@ -22,9 +22,9 @@ import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
 import Wakeup from '~/components/Chat/Messages/Content/Wakeup';
 import SubRow from '~/components/Chat/Messages/SubRow';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { MessageContext } from '~/Providers';
 import WakeupRow from './WakeupRow';
-import store from '~/store';
 
 type MessageRenderProps = {
   message?: TMessage;
@@ -109,7 +109,7 @@ const MessageRender = memo(function MessageRender({
     setCurrentEditId,
     chatContext,
   });
-  const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
+  const maximizeChatSpace = useAtomValue(maximizeChatSpaceAtom);
 
   const handleRegenerateMessage = useCallback(() => regenerateMessage(), [regenerateMessage]);
   const getLatestMessageId = useCallback(() => chatContext.latestMessageId, [chatContext]);

@@ -1,8 +1,10 @@
-import { z } from 'zod';
+// `openAISchema` is a Zod 4 schema from coderax-data-provider; infer its type from the
+// matching Zod 4 namespace instead of the Zod 3 copy this package resolves by default.
 import { openAISchema } from 'coderax-data-provider';
 import type { BindToolsInput } from '@librechat/agents/langchain/language_models/chat_models';
 import type { OpenAIClientOptions, Providers } from '@librechat/agents';
 import type { TConfig } from 'coderax-data-provider';
+import type { z } from 'zod/v4';
 import type { AzureOptions } from './azure';
 
 export type OpenAIParameters = z.infer<typeof openAISchema>;

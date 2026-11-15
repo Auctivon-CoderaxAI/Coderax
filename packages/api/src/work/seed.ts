@@ -15,7 +15,7 @@ export type WorkSeedStore = {
   saveConvo: (
     context: { userId: string; isTemporary?: boolean },
     fields: SeedConversation & { workModel: string },
-    options: { context: string; noUpsert?: boolean },
+    options: { context: string; noUpsert?: boolean; appendMessageIds: [] },
   ) => Promise<SeedConversation | null>;
 };
 
@@ -63,6 +63,7 @@ export async function seedNativeWorkConversation(
     {
       context: 'seed native Work execution',
       ...(existing ? { noUpsert: true } : {}),
+      appendMessageIds: [],
     },
   );
   if (

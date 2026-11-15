@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useAtomValue } from 'jotai';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { useParams, useSearchParams } from 'react-router-dom';
@@ -37,6 +37,11 @@ import {
   useProjectQuery,
   useTokenConfigQuery,
 } from '~/data-provider';
+import {
+  resolveWorkSelection,
+  sanitizeWorkSelection,
+  workSelectionFromConversation,
+} from '~/components/Chat/Input/workSelection';
 import {
   buildChatModelSources,
   getConfiguredDefaultModel,
@@ -192,7 +197,31 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   });
   const isWorkMode = modeState.mode === 'work';
   const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
-  const workSelection = useAtomValue(workSelectionFamily(modeState.selectionKey));
+  const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
+  const [newConversationWorkSelection] = useAtom(
+    workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
+  );
+  const previousConversationId = useRef(conversationId);
+  useEffect(() => {
+    if (
+      previousConversationId.current === Constants.NEW_CONVO &&
+      conversationId !== Constants.NEW_CONVO &&
+      newConversationWorkSelection != null
+    ) {
+      setWorkSelection((current) => current ?? newConversationWorkSelection);
+    }
+    previousConversationId.current = conversationId;
+  }, [conversationId, newConversationWorkSelection, setWorkSelection]);
+  const resolvedWorkSelection = resolveWorkSelection(
+    workSelection
+      ? sanitizeWorkSelection(workSelection, workOptions.options)
+      : workSelectionFromConversation(conversation, workOptions.options),
+    workOptions.options,
+  );
+  const workCanSubmit =
+    !workOptions.isLoading &&
+    !workOptions.modelsQuery.isError &&
+    resolvedWorkSelection != null;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
   const baseChatTransport = useChatTransport();
@@ -502,6 +531,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       project={verifiedChatProjectId ? projectQuery.data : undefined}
       routePending={routeState.pending}
       workMode={isWorkMode}
+      workCanSubmit={workCanSubmit}
     />
   );
 

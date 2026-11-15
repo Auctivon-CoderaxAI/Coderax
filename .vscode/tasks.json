@@ -1,0 +1,84 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "UI: Frontend Dev Server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"frontend:dev"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "UI: Vite Localhost",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"node_modules/vite/bin/vite.js",
+				"--config",
+				"client/vite.config.ts",
+				"--host",
+				"127.0.0.1"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "UI: Vite Localhost CMD",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm.cmd run dev --prefix client -- --host 127.0.0.1"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "UI: Direct Vite",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"client/node_modules/vite/bin/vite.js",
+				"--host",
+				"127.0.0.1"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "UI: Direct Vite Localhost",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"node_modules/vite/bin/vite.js",
+				"--config",
+				"client/vite.config.ts",
+				"--host",
+				"127.0.0.1"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Install Locked Dependencies",
+			"type": "shell",
+			"command": "npm.cmd",
+			"args": [
+				"ci"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

@@ -1,5 +1,6 @@
 import {
   MCPOptionsSchema,
+  StdioOptionsSchema,
   SSEOptionsSchema,
   StreamableHTTPOptionsSchema,
   MCPServerUserInputSchema,
@@ -920,5 +921,46 @@ describe('OAuth coordination rollout configuration', () => {
     });
     expect(user).not.toHaveProperty('oauthRefreshCoordination');
     expect(user).not.toHaveProperty('oauthPersistenceWaitTimeout');
+  });
+});
+
+describe('stdio environment output contract', () => {
+  it('keeps env optional in the inferred parsed config type', () => {
+    const withoutEnv: ReturnType<typeof StdioOptionsSchema.parse> = {
+      type: 'stdio',
+      command: 'node',
+      args: [],
+    };
+
+    expect(StdioOptionsSchema.parse(withoutEnv)).toEqual(withoutEnv);
+    expect(MCPOptionsSchema.parse(withoutEnv)).toEqual(withoutEnv);
+  });
+
+  it('resolves explicitly configured environment placeholders', () => {
+    const key = 'CODERAX_STDIO_ENV_SCHEMA_TEST';
+    process.env[key] = 'safe-test-value';
+    try {
+      expect(
+        StdioOptionsSchema.parse({
+          type: 'stdio',
+          command: 'node',
+          args: [],
+          env: { TEST_VALUE: '${CODERAX_STDIO_ENV_SCHEMA_TEST}' },
+        }).env,
+      ).toEqual({ TEST_VALUE: 'safe-test-value' });
+    } finally {
+      delete process.env[key];
+    }
+  });
+
+  it('rejects non-string environment values', () => {
+    expect(
+      StdioOptionsSchema.safeParse({
+        type: 'stdio',
+        command: 'node',
+        args: [],
+        env: { INVALID: 123 },
+      }).success,
+    ).toBe(false);
   });
 });

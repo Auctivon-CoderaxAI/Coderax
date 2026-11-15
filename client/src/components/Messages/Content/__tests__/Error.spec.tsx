@@ -204,6 +204,18 @@ describe('Error — reader-facing provider and fallback copy', () => {
     expectReadable();
   });
 
+  it.each([
+    ['WORK_AGENT_GRAPH_NOT_ALLOWED', 'com_error_work_agent_graph_not_allowed'],
+    ['WORK_AGENT_GRAPH_TOO_LARGE', 'com_error_work_agent_graph_too_large'],
+    ['WORK_ADDED_CONVERSATION_UNSUPPORTED', 'com_error_work_added_conversation_unsupported'],
+  ])('localizes Work admission error %s without exposing server details', (type, key) => {
+    renderError({ type, message: 'internal admission details' });
+
+    expect(screen.getByText(catalog[key])).toBeInTheDocument();
+    expect(screen.queryByText('internal admission details')).not.toBeInTheDocument();
+    expectReadable();
+  });
+
   it('renders the localized copy for a rejected Google video', () => {
     renderError({ type: ErrorTypes.GOOGLE_VIDEO_UNPROCESSABLE });
 

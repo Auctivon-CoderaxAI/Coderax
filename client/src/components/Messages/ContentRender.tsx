@@ -25,6 +25,7 @@ import HoverButtons from '~/components/Chat/Messages/HoverButtons';
 import MessageRow from '~/components/Chat/Messages/ui/MessageRow';
 import MessageIcon from '~/components/Chat/Messages/MessageIcon';
 import { showThinkingAtom } from '~/store/showThinking';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import SubRow from '~/components/Chat/Messages/SubRow';
 import { AuthorContext } from '~/Providers';
 import store from '~/store';
@@ -121,7 +122,7 @@ const ContentRender = memo(function ContentRender({
     setCurrentEditId,
     chatContext,
   });
-  const maximizeChatSpace = useRecoilValue(store.maximizeChatSpace);
+  const maximizeChatSpace = useAtomValue(maximizeChatSpaceAtom);
   const autoExpandTools = useRecoilValue(store.autoExpandTools);
   const showThinking = useAtomValue(showThinkingAtom);
 

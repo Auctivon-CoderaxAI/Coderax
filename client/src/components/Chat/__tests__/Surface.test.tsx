@@ -1,8 +1,10 @@
 import React from 'react';
 import { act, render } from '@testing-library/react';
+import { Provider as JotaiProvider, useSetAtom } from 'jotai';
 import { RecoilRoot, useRecoilValue, useSetRecoilState } from 'recoil';
 import type { ChatSurface } from '~/components/Chat/Subagents/surface';
 import { useChatSurface } from '~/components/Chat/Subagents/surface';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import AppChatSurface from '../Surface';
 import store from '~/store';
 
@@ -30,7 +32,7 @@ describe('AppChatSurface', () => {
     };
     const Preferences = () => {
       const setEnterToSend = useSetRecoilState(store.enterToSend);
-      const setMaximize = useSetRecoilState(store.maximizeChatSpace);
+      const setMaximize = useSetAtom(maximizeChatSpaceAtom);
       const setScrollButton = useSetRecoilState(store.showScrollButton);
       const setCurrentArtifactId = useSetRecoilState(store.currentArtifactId);
       React.useEffect(() => {
@@ -43,13 +45,15 @@ describe('AppChatSurface', () => {
     };
 
     render(
-      <RecoilRoot>
-        <AppObserver />
-        <Preferences />
-        <AppChatSurface>
-          <Consumer />
-        </AppChatSurface>
-      </RecoilRoot>,
+      <JotaiProvider>
+        <RecoilRoot>
+          <AppObserver />
+          <Preferences />
+          <AppChatSurface>
+            <Consumer />
+          </AppChatSurface>
+        </RecoilRoot>
+      </JotaiProvider>,
     );
     return { seen, app };
   };

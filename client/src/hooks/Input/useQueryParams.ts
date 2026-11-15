@@ -186,6 +186,7 @@ export default function useQueryParams({
     const params = new URLSearchParams(originRouteRef.current.search);
     params.delete(PROJECT_ID_SEARCH_PARAM);
     const projectId = conversationId === 'new' ? template.chatProjectId || null : null;
+    const routeBase = originRouteRef.current.pathname.startsWith('/work/') ? '/work' : '/c';
     if (projectId) {
       params.set(PROJECT_ID_SEARCH_PARAM, projectId);
     }
@@ -193,7 +194,7 @@ export default function useQueryParams({
     destinationRef.current = {
       conversationId,
       chatProjectId: template.chatProjectId ?? null,
-      route: { pathname: `/c/${conversationId}`, search: params.toString(), projectId },
+      route: { pathname: `${routeBase}/${conversationId}`, search: params.toString(), projectId },
     };
   }, []);
 
@@ -544,7 +545,7 @@ export default function useQueryParams({
       }
 
       const currentConversation = conversationRef.current;
-      const routeBase = currentConversation?.isWork === true ? '/work' : '/c';
+      const routeBase = routeRef.current.pathname.startsWith('/work/') ? '/work' : '/c';
       if (
         routePendingRef.current ||
         !currentConversation ||

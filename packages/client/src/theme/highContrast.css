@@ -94,3 +94,41 @@ html.high-contrast ::placeholder {
   color: rgb(var(--text-secondary));
   opacity: 1;
 }
+
+/* `@tailwindcss/typography` hard-codes its palette, and several of its rules and borders sit
+ * under the 3:1 non-text floor in one mode or the other, so both the light and invert sets
+ * are remapped onto the palette's roles. */
+html.high-contrast .prose {
+  --tw-prose-body: rgb(var(--text-primary));
+  --tw-prose-headings: rgb(var(--text-primary));
+  --tw-prose-lead: rgb(var(--text-primary));
+  --tw-prose-links: rgb(var(--link));
+  --tw-prose-bold: rgb(var(--text-primary));
+  --tw-prose-counters: rgb(var(--text-primary));
+  --tw-prose-bullets: rgb(var(--text-primary));
+  --tw-prose-hr: rgb(var(--border-medium));
+  --tw-prose-quotes: rgb(var(--text-primary));
+  --tw-prose-quote-borders: rgb(var(--border-medium));
+  --tw-prose-captions: rgb(var(--text-primary));
+  --tw-prose-code: rgb(var(--text-primary));
+  --tw-prose-pre-code: rgb(var(--text-primary));
+  --tw-prose-pre-bg: rgb(var(--surface-code));
+  --tw-prose-th-borders: rgb(var(--border-medium));
+  --tw-prose-td-borders: rgb(var(--border-medium));
+  --tw-prose-invert-body: var(--tw-prose-body);
+  --tw-prose-invert-headings: var(--tw-prose-headings);
+  --tw-prose-invert-lead: var(--tw-prose-lead);
+  --tw-prose-invert-links: var(--tw-prose-links);
+  --tw-prose-invert-bold: var(--tw-prose-bold);
+  --tw-prose-invert-counters: var(--tw-prose-counters);
+  --tw-prose-invert-bullets: var(--tw-prose-bullets);
+  --tw-prose-invert-hr: var(--tw-prose-hr);
+  --tw-prose-invert-quotes: var(--tw-prose-quotes);
+  --tw-prose-invert-quote-borders: var(--tw-prose-quote-borders);
+  --tw-prose-invert-captions: var(--tw-prose-captions);
+  --tw-prose-invert-code: var(--tw-prose-code);
+  --tw-prose-invert-pre-code: var(--tw-prose-pre-code);
+  --tw-prose-invert-pre-bg: var(--tw-prose-pre-bg);
+  --tw-prose-invert-th-borders: var(--tw-prose-th-borders);
+  --tw-prose-invert-td-borders: var(--tw-prose-td-borders);
+}
