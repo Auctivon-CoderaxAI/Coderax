@@ -232,7 +232,10 @@ export function createCyvoxAddonRouter(
         task: body.task.trim(),
         mode,
         max_steps: 15,
-        routing_mode: 'FAST',
+        // CyVox accepts AUTO, LOCAL, and FAST under ZERO_EXTERNAL_SPEND.
+        // AUTO lets its router classify each Work task instead of pinning
+        // every task to the fast alias; no paid or remote route is available.
+        routing_mode: 'AUTO',
         ...selection,
       });
     } else if (action === 'startComputerTask') {
