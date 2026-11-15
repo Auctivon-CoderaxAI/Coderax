@@ -241,6 +241,7 @@ const {
 const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
+const { buildAgentDbMethods } = require('~/server/services/Endpoints/agents/dbMethodsFactory');
 const {
   getLinkedInstructionsResolver,
 } = require('~/server/services/Endpoints/agents/linkedInstructions');
@@ -3418,19 +3419,9 @@ class AgentClient extends BaseClient {
         resolveLinkedInstructions: getLinkedInstructionsResolver(),
         recordLinkedPromptUsage: false,
       },
-      {
-        getProjectFiles: db.getProjectFiles,
-        getFiles: db.getFiles,
-        getUserKey: db.getUserKey,
-        getConvoFiles: db.getConvoFiles,
-        getAccessibleMcpServerNames,
-        updateFilesUsage: db.updateFilesUsage,
-        getUserKeyValues: db.getUserKeyValues,
-        getToolFilesByIds: db.getToolFilesByIds,
-        getCodeGeneratedFiles: db.getCodeGeneratedFiles,
-        filterFilesByAgentAccess,
-        getRoleByName: db.getRoleByName,
-      },
+      // Memory-agent init needs no site-specific overrides — it uses the
+      // full shared default set from buildAgentDbMethods verbatim.
+      buildAgentDbMethods(),
     );
 
     if (!agent) {

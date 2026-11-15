@@ -345,10 +345,42 @@ const getSSEErrorText = (payload: unknown): string | null => {
   return typeof text === 'string' && text.length > 0 ? text : null;
 };
 
+const WORK_ADMISSION_ERROR_CODES = new Set([
+  'WORK_AGENT_GRAPH_NOT_ALLOWED',
+  'WORK_AGENT_GRAPH_TOO_LARGE',
+  'WORK_ADDED_CONVERSATION_UNSUPPORTED',
+]);
+
+const getWorkAdmissionErrorCode = (payload: unknown): string | null => {
+  let value = payload;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (value == null || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const code = typeof record.error === 'string' ? record.error : record.code;
+  return typeof code === 'string' && WORK_ADMISSION_ERROR_CODES.has(code) ? code : null;
+};
+
 const getStreamStartFailureText = (errorData?: unknown): string => {
+  const workErrorCode = getWorkAdmissionErrorCode(errorData);
+  if (workErrorCode != null) {
+    return JSON.stringify({ type: workErrorCode });
+  }
+
   if (typeof errorData === 'string') {
     const sseErrorData = parseSSEErrorData(errorData);
     if (sseErrorData != null) {
+      const workCode = getWorkAdmissionErrorCode(sseErrorData);
+      if (workCode != null) {
+        return JSON.stringify({ type: workCode });
+      }
       return getSSEErrorText(sseErrorData) ?? JSON.stringify(sseErrorData);
     }
 

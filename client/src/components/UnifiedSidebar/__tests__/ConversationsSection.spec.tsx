@@ -268,7 +268,7 @@ describe('ConversationsSection section order', () => {
     expect(pinned.compareDocumentPosition(chats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps Work conversations out of Chat recents and pinned Chat rows', async () => {
+  it('keeps promoted Work conversations in Chat recents and pinned Chat rows', async () => {
     const previousChats = mockConversationsResult.data;
     const previousPins = mockPinnedResult.data;
     mockConversationsResult.data = {
@@ -294,12 +294,15 @@ describe('ConversationsSection section order', () => {
       expect(
         (mockConversationsRender.mock.calls.at(-1)?.[0] as { conversations: unknown[] })
           .conversations,
-      ).toEqual([{ conversationId: 'chat-1', title: 'Chat recent' }]);
+      ).toEqual([
+        { conversationId: 'chat-1', title: 'Chat recent' },
+        { conversationId: 'work-1', title: 'Work recent', isWork: true },
+      ]);
       expect(
         (mockPinnedConversationsRender.mock.calls.at(-1)?.[0] as {
           conversations: Array<{ isWork?: boolean }>;
         }).conversations,
-      ).toEqual([]);
+        ).toEqual([{ conversationId: 'work-2', title: 'Pinned Work', isWork: true }]);
     } finally {
       mockConversationsResult.data = previousChats;
       mockPinnedResult.data = previousPins;

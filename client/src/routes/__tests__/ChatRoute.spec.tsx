@@ -1,10 +1,15 @@
 import React from 'react';
+import { getDefaultStore } from 'jotai';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
+import type { PrimitiveAtom } from 'jotai';
+import type { WorkSelection } from '~/components/Chat/Input/workSelection';
+import { workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
 import ChatRoute from '../ChatRoute';
 
+const mockWorkSelectionAtoms = new Map<string, PrimitiveAtom<WorkSelection | null>>();
 const mockSetConversation = jest.fn();
 const mockFetchConversation = jest.fn();
 const mockUseGetMessagesByConvoId = jest.fn();
@@ -34,10 +39,17 @@ jest.mock('~/store', () => ({
 }));
 jest.mock('~/store/temporary', () => ({ __esModule: true, default: {} }));
 jest.mock('~/components/Chat/Input/WorkAgentSelector', () => {
-  const selection = jest.requireActual('jotai').atom(null);
+  const { atom } = jest.requireActual('jotai');
   return {
     useWorkOptions: () => ({ options: { models: [], agents: [], auto: null } }),
-    workSelectionFamily: () => selection,
+    workSelectionFamily: (key: string) => {
+      let selection = mockWorkSelectionAtoms.get(key);
+      if (!selection) {
+        selection = atom(null) as PrimitiveAtom<WorkSelection | null>;
+        mockWorkSelectionAtoms.set(key, selection);
+      }
+      return selection;
+    },
   };
 });
 jest.mock('../useAuthRedirect', () => ({
@@ -132,6 +144,10 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
 
 beforeEach(() => {
   localStorage.clear();
+  for (const atom of mockWorkSelectionAtoms.values()) {
+    getDefaultStore().set(atom, null);
+  }
+  mockWorkSelectionAtoms.clear();
   mockConversation = { conversationId: 'chat-a' };
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
@@ -177,6 +193,30 @@ it('does not redirect a stored Work transcript away from its existing Chat deep 
   await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-a'));
   expect(router.state.location.pathname).toBe('/c/chat-a');
   expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+it('copies a new Work selection to the acknowledged conversation without replacing a saved one', async () => {
+  const store = getDefaultStore();
+  const newSelectionKey = JSON.stringify(['', 'new']);
+  const targetSelectionKey = JSON.stringify(['', 'work-id']);
+  const selection = { agentId: 'agent-local', modelKey: 'local-model' };
+  const existingSelection = { agentId: 'agent-saved', modelKey: 'saved-model' };
+  store.set(workSelectionFamily(newSelectionKey), selection);
+
+  const { router } = setup(['/work/new']);
+  await act(() => router.navigate('/work/work-id'));
+
+  await waitFor(() => {
+    expect(store.get(workSelectionFamily(targetSelectionKey))).toEqual(selection);
+  });
+
+  store.set(workSelectionFamily(targetSelectionKey), existingSelection);
+  await act(() => router.navigate('/work/new'));
+  await act(() => router.navigate('/work/work-id'));
+
+  await waitFor(() => {
+    expect(store.get(workSelectionFamily(targetSelectionKey))).toEqual(existingSelection);
+  });
 });
 
 it('starts the authenticated transcript query while route metadata is still pending', async () => {

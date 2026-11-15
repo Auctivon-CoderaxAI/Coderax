@@ -8,11 +8,11 @@ const {
   loadAddedAgent: loadAddedAgentFn,
 } = require('@coderax/api');
 const { isEphemeralAgentId } = require('coderax-data-provider');
-const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { getMCPServerTools } = require('~/server/services/Config');
-const { getAccessibleMcpServerNames, getAccessibleMCPServers } = require('~/server/services/MCP');
+const { getAccessibleMCPServers } = require('~/server/services/MCP');
 const { isFatalAgentInitializationError } = require('~/server/services/ToolService');
 const { getSkillDbMethods, canAuthorSkillFiles } = require('./skillDeps');
+const { buildAgentDbMethods } = require('./dbMethodsFactory');
 const db = require('~/models');
 
 const loadAddedAgent = (params) =>
@@ -212,24 +212,11 @@ const processAddedConvo = async ({
         defaultActiveOnShare,
         signal,
       },
-      {
-        getProjectFiles: db.getProjectFiles,
-        getFiles: db.getFiles,
-        getUserKey: db.getUserKey,
-        getMessages: db.getMessages,
-        getConvoFiles: db.getConvoFiles,
-        getAccessibleMcpServerNames,
-        updateFilesUsage: db.updateFilesUsage,
-        getUserCodeFiles: db.getUserCodeFiles,
-        getUserKeyValues: db.getUserKeyValues,
-        getToolFilesByIds: db.getToolFilesByIds,
-        getCodeGeneratedFiles: db.getCodeGeneratedFiles,
-        filterFilesByAgentAccess,
+      buildAgentDbMethods({
         listSkillsByAccess: skillDbMethods.listSkillsByAccess,
         listAlwaysApplySkills: skillDbMethods.listAlwaysApplySkills,
         getSkillByName: skillDbMethods.getSkillByName,
-        getRoleByName: db.getRoleByName,
-      },
+      }),
     );
 
     if (userMCPAuthMap != null) {

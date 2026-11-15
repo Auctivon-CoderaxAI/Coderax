@@ -210,7 +210,11 @@ export function WorkAgentConversationSelector() {
         id="work-agent-composer"
         className="w-full max-w-full"
       />
-      <WorkRoutingBadge />
+      {isLoading && (
+        <span role="status" className="text-text-secondary text-xs">
+          {localize('com_work_models_loading')}
+        </span>
+      )}
       {modelsQuery.isError && (
         <span role="alert" className="text-text-secondary text-xs">
           {localize('com_work_models_unavailable')}

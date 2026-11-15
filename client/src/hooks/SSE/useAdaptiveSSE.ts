@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { isAssistantsEndpoint } from 'coderax-data-provider';
 import type { TSubmission } from 'coderax-data-provider';
 import type { EventHandlerParams } from './useEventHandlers';
@@ -23,10 +24,18 @@ export default function useAdaptiveSSE(
   runIndex = 0,
   forceResumable = false,
 ) {
+  const submissionKey = submission
+    ? `${submission.userMessage.messageId}:${submission.clientTimestamp ?? ''}`
+    : null;
+  const transportModeRef = useRef({ submissionKey, forceResumable });
+  if (submissionKey == null || transportModeRef.current.submissionKey !== submissionKey) {
+    transportModeRef.current = { submissionKey, forceResumable };
+  }
+  const pinnedForceResumable = transportModeRef.current.forceResumable;
   const endpoint = submission?.conversation?.endpoint;
   const endpointType = submission?.conversation?.endpointType;
   const actualEndpoint = endpointType ?? endpoint;
-  const isAssistants = !forceResumable && isAssistantsEndpoint(actualEndpoint);
+  const isAssistants = !pinnedForceResumable && isAssistantsEndpoint(actualEndpoint);
   const resumableEnabled = !isAssistants;
 
   useSSE(resumableEnabled ? null : submission, chatHelpers, isAddedRequest, runIndex);
