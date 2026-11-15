@@ -3,13 +3,19 @@ name: Validate cloud-only deployment files
 on:
   pull_request:
     paths:
-      - "deploy/cloud/**"
-      - "scripts/probe-cloud-model.mjs"
-      - ".github/workflows/cloud-config.yml"
+      - 'deploy/cloud/**'
+      - 'scripts/probe-cloud-model.mjs'
+      - '.github/workflows/cloud-config.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push supersedes an obsolete pull-request run. Manual dispatches are
+# never cancelled by a concurrent run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:

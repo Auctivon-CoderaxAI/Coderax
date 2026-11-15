@@ -24,9 +24,16 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes an obsolete pull-request run. Main pushes are the
+# post-merge safety net and are never cancelled by a concurrent run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out reviewed source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
