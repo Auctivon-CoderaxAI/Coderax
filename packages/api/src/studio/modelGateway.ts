@@ -1,5 +1,5 @@
 import { STUDIO_ALLOWED_EXTENSIONS, STUDIO_LIMITS, StudioGenerationError } from './types';
-import type { StudioGenerationResult, StudioGenerator } from './types';
+import type { StudioGenerationRequest, StudioGenerationResult, StudioGenerator } from './types';
 
 /** Upper bound on the raw gateway response, before JSON parsing. */
 const DEFAULT_MAX_RESPONSE_BYTES = STUDIO_LIMITS.maxTotalBytes * 2;
@@ -26,58 +26,106 @@ export type ModelGatewayStudioOptions = {
   maxResponseBytes?: number;
 };
 
-/** Accepts plain JSON or a single ```json fenced block. */
-function parseModelJson(content: string): unknown {
-  const trimmed = content.trim();
-  const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
+function chatCompletionsUrl(rawBaseUrl: string): string {
+  let url: URL;
   try {
-    return JSON.parse(match?.[1] ?? trimmed);
+    url = new URL(rawBaseUrl);
   } catch {
-    throw new StudioGenerationError('INVALID_OUTPUT');
+    throw new StudioGenerationError('NOT_CONFIGURED', 'Invalid ModelGateway URL');
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.hash
+  ) {
+    throw new StudioGenerationError('NOT_CONFIGURED', 'Invalid ModelGateway URL');
+  }
+
+  const path = url.pathname.replace(/\/+$/, '');
+  url.pathname = /\/chat\/completions$/i.test(path) ? path : `${path}/chat/completions`;
+  return url.toString();
+}
+
+/** Accepts plain JSON or one fenced JSON block; output validation stays in the handler. */
+function parseModelJson(content: string): unknown {
+  const fenced = content.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  try {
+    return JSON.parse(fenced?.[1] ?? content);
+  } catch {
+    throw new StudioGenerationError('INVALID_OUTPUT', 'Model response was not valid JSON');
   }
 }
 
 async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
-  const contentLength = Number(response.headers.get('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new StudioGenerationError('INVALID_OUTPUT');
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new StudioGenerationError('INVALID_OUTPUT', 'Model response exceeded the size limit');
   }
 
-  if (!response.body) {
+  const reader = response.body?.getReader();
+  if (!reader) {
     const text = await response.text();
     if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-      throw new StudioGenerationError('INVALID_OUTPUT');
+      throw new StudioGenerationError('INVALID_OUTPUT', 'Model response exceeded the size limit');
     }
     return text;
   }
 
-  const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
-  let bytes = 0;
+  let totalBytes = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      bytes += value.byteLength;
-      if (bytes > maxBytes) {
-        await reader.cancel();
-        throw new StudioGenerationError('INVALID_OUTPUT');
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new StudioGenerationError('INVALID_OUTPUT', 'Model response exceeded the size limit');
       }
       chunks.push(value);
     }
   } finally {
     reader.releaseLock();
   }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8');
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
-/** Creates a server-side generator for an OpenAI-compatible chat-completions gateway. */
+function responseContent(rawResponse: string): string {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(rawResponse);
+  } catch {
+    throw new StudioGenerationError('UPSTREAM_ERROR', 'ModelGateway returned an invalid response');
+  }
+  const choices = (envelope as { choices?: unknown } | null)?.choices;
+  const firstChoice = Array.isArray(choices) ? choices[0] : undefined;
+  const message = (firstChoice as { message?: unknown } | undefined)?.message;
+  const content = (message as { content?: unknown } | null)?.content;
+  if (typeof content !== 'string') {
+    throw new StudioGenerationError('INVALID_OUTPUT', 'Model response did not contain text');
+  }
+  return content;
+}
+
 export function createModelGatewayStudioGenerator(
   options: ModelGatewayStudioOptions,
 ): StudioGenerator {
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const endpoint = chatCompletionsUrl(options.baseUrl);
+  const model = options.model.trim();
+  if (!model) throw new StudioGenerationError('NOT_CONFIGURED', 'Model is required');
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
-  const endpoint = `${options.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes <= 0) {
+    throw new RangeError('maxResponseBytes must be a positive safe integer');
+  }
+  const fetcher = options.fetch ?? fetch;
 
   return {
     async generate(request: StudioGenerationRequest): Promise<StudioGenerationResult> {
@@ -90,42 +138,42 @@ export function createModelGatewayStudioGenerator(
       const abortFromRequest = () => controller.abort();
       if (request.signal.aborted) controller.abort();
       else request.signal.addEventListener('abort', abortFromRequest, { once: true });
-
       try {
         const headers: Record<string, string> = { 'content-type': 'application/json' };
-        if (options.apiKey) headers.authorization = `Bearer ${options.apiKey}`;
-        const response = await fetcher(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model: options.model,
-            messages: [
-              { role: 'system', content: STUDIO_SYSTEM_PROMPT },
-              { role: 'user', content: request.prompt },
-            ],
-            temperature: 0.2,
-          }),
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new StudioGenerationError('UPSTREAM_ERROR');
+        if (options.apiKey?.trim()) headers.authorization = `Bearer ${options.apiKey.trim()}`;
 
-        let envelope: unknown;
+        let response: Response;
         try {
-          envelope = JSON.parse(await readBoundedText(response, maxResponseBytes));
-        } catch (error) {
-          if (error instanceof StudioGenerationError) throw error;
+          response = await fetcher(endpoint, {
+            method: 'POST',
+            headers,
+            signal: controller.signal,
+            body: JSON.stringify({
+              model,
+              messages: [
+                { role: 'system', content: STUDIO_SYSTEM_PROMPT },
+                { role: 'user', content: request.prompt },
+              ],
+              temperature: 0.2,
+            }),
+          });
+        } catch {
+          if (timedOut) throw new StudioGenerationError('TIMEOUT');
           throw new StudioGenerationError('UPSTREAM_ERROR');
         }
 
-        const content = (envelope as {
-          choices?: Array<{ message?: { content?: unknown } }>;
-        } | null)?.choices?.[0]?.message?.content;
-        if (typeof content !== 'string') throw new StudioGenerationError('INVALID_OUTPUT');
-        return validateStudioOutput(parseModelJson(content));
-      } catch (error) {
-        if (error instanceof StudioGenerationError) throw error;
-        if (timedOut) throw new StudioGenerationError('TIMEOUT');
-        throw new StudioGenerationError('UPSTREAM_ERROR');
+        if (!response.ok) throw new StudioGenerationError('UPSTREAM_ERROR');
+
+        let rawResponse: string;
+        try {
+          rawResponse = await readBoundedText(response, maxResponseBytes);
+        } catch (error) {
+          if (error instanceof StudioGenerationError) throw error;
+          if (timedOut) throw new StudioGenerationError('TIMEOUT');
+          throw new StudioGenerationError('UPSTREAM_ERROR');
+        }
+
+        return parseModelJson(responseContent(rawResponse)) as StudioGenerationResult;
       } finally {
         clearTimeout(timeout);
         request.signal.removeEventListener('abort', abortFromRequest);
@@ -134,18 +182,21 @@ export function createModelGatewayStudioGenerator(
   };
 }
 
-/** Returns null until both the private gateway URL and model are configured. */
 export function createModelGatewayStudioGeneratorFromEnv(
-  env: Record<string, string | undefined> = process.env,
+  env: NodeJS.ProcessEnv = process.env,
 ): StudioGenerator | null {
   const baseUrl = env.STUDIO_MODEL_GATEWAY_URL?.trim();
   const model = env.STUDIO_MODEL?.trim();
   if (!baseUrl || !model) return null;
 
-  const apiKey = env.STUDIO_MODEL_GATEWAY_API_KEY?.trim();
-  return createModelGatewayStudioGenerator({
-    baseUrl,
-    model,
-    ...(apiKey ? { apiKey } : {}),
-  });
+  try {
+    return createModelGatewayStudioGenerator({
+      baseUrl,
+      model,
+      apiKey: env.STUDIO_MODEL_GATEWAY_API_KEY?.trim() || undefined,
+    });
+  } catch (error) {
+    if (error instanceof StudioGenerationError && error.code === 'NOT_CONFIGURED') return null;
+    throw error;
+  }
 }
