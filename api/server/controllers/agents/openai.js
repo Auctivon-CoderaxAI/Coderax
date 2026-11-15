@@ -103,18 +103,16 @@ const {
 } = require('~/server/services/Endpoints/agents/skillDeps');
 const { createProvisionFilesCallback } = require('~/server/services/Files/provisionCallback');
 const { checkSessionsAlive, loadCodeApiKey } = require('~/server/services/Files/provision');
+const { buildAgentDbMethods } = require('~/server/services/Endpoints/agents/dbMethodsFactory');
 const {
   getLinkedInstructionsResolver,
 } = require('~/server/services/Endpoints/agents/linkedInstructions');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
-const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
+const { filterFilesByAgentAccess: filterFilesByRemoteAgentAccess } = require('~/server/services/Files/permissions');
 const { resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPManager } = require('~/config');
 const { logViolation } = require('~/cache');
 const db = require('~/models');
-
-const filterFilesByRemoteAgentAccess = (params) =>
-  filterFilesByAgentAccess({ ...params, resourceType: ResourceType.REMOTE_AGENT });
 
 /**
  * Creates a tool loader function for the agent.
@@ -535,27 +533,14 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
       };
       const skillDbMethods = getSkillDbMethods();
 
-      const dbMethods = {
-        getProjectFiles: db.getProjectFiles,
-        getConvoFiles: db.getConvoFiles,
-        getFiles: db.getFiles,
+      const dbMethods = buildAgentDbMethods({
         filterFilesByAgentAccess: filterFilesByRemoteAgentAccess,
-        getUserKey: db.getUserKey,
-        getMessages: db.getMessages,
-        getAccessibleMcpServerNames,
-        updateFilesUsage: db.updateFilesUsage,
-        getUserKeyValues: db.getUserKeyValues,
-        getUserCodeFiles: db.getUserCodeFiles,
-        getDeferredProvisionFiles: db.getDeferredProvisionFiles,
         checkSessionsAlive,
         loadCodeApiKey,
-        getToolFilesByIds: db.getToolFilesByIds,
-        getCodeGeneratedFiles: db.getCodeGeneratedFiles,
         listSkillsByAccess: skillDbMethods.listSkillsByAccess,
         listAlwaysApplySkills: skillDbMethods.listAlwaysApplySkills,
         getSkillByName: skillDbMethods.getSkillByName,
-        getRoleByName: db.getRoleByName,
-      };
+      });
 
       const enabledCapabilities = new Set(agentsEConfig?.capabilities);
       const codeCapabilityEnabled = enabledCapabilities.has(AgentCapabilities.execute_code);

@@ -539,6 +539,30 @@ describe('useQueryParams', () => {
     expect(hook.mockSetSearchParams).not.toHaveBeenCalled();
   });
 
+  it('keeps URL prompts alive while a Work conversation route loads', () => {
+    (useLocation as jest.Mock).mockReturnValue({ pathname: '/work/new', key: 'origin' });
+    const hook = mountQuery({ agent_id: 'agent_test', q: 'hi', submit: 'true' });
+    let finishValidation: (() => void) | undefined;
+    const methods = (useChatFormContext as jest.Mock).mock.results.at(-1)?.value;
+    methods.handleSubmit.mockImplementation((callback) => () => {
+      finishValidation = () => callback({ text: 'hi' });
+    });
+    hook.updateConversation({ endpoint: EModelEndpoint.agents, agent_id: 'agent_test' });
+    hook.rerender();
+    expect(finishValidation).toBeDefined();
+    hook.updateRoute('/work/new');
+    hook.updateConversation({
+      conversationId: 'new',
+      isWork: false,
+      endpoint: EModelEndpoint.agents,
+      agent_id: 'agent_test',
+    });
+    hook.rerender();
+    act(() => finishValidation?.());
+    expect(hook.mockSubmitMessage).toHaveBeenCalledWith({ text: 'hi' });
+    expect(hook.mockSetSearchParams).toHaveBeenCalledTimes(1);
+  });
+
   it.each(['valid', 'invalid'])(
     'ignores superseded %s validation callbacks after a new prompt URL',
     (outcome) => {

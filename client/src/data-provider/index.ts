@@ -6,6 +6,7 @@ export * from './Files';
 export * from './Langfuse';
 export * from './CyVox';
 export * from './Insights';
+export * from './Studio';
 /* Memories */
 export * from './Memories';
 export * from './Messages';

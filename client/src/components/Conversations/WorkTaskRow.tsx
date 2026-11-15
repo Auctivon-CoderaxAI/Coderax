@@ -1,4 +1,4 @@
-import { Pin } from 'lucide-react';
+import { Pin, X } from 'lucide-react';
 import { Button } from '@coderax/client';
 import type { TWorkTask } from 'coderax-data-provider';
 import { useLocalize } from '~/hooks';
@@ -11,6 +11,8 @@ type WorkTaskRowProps = {
   onSelect: () => void;
   onTogglePin?: () => void;
   pinDisabled?: boolean;
+  onCancel?: () => void;
+  cancelDisabled?: boolean;
 };
 
 export default function WorkTaskRow({
@@ -19,9 +21,13 @@ export default function WorkTaskRow({
   onSelect,
   onTogglePin,
   pinDisabled = false,
+  onCancel,
+  cancelDisabled = false,
 }: WorkTaskRowProps) {
   const localize = useLocalize();
   const pinLabel = localize(pinned ? 'com_ui_unpin' : 'com_ui_pin');
+  const cancelLabel = localize('com_work_cancel_task');
+  const canCancel = task.state === 'running' || task.state === 'awaiting_approval';
 
   return (
     <div
@@ -49,6 +55,20 @@ export default function WorkTaskRow({
           onClick={onTogglePin}
         >
           <Pin className="icon-sm" aria-hidden="true" />
+        </Button>
+      )}
+      {canCancel && onCancel && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-9 shrink-0"
+          aria-label={`${cancelLabel} ${task.title}`}
+          title={`${cancelLabel} ${task.title}`}
+          disabled={cancelDisabled}
+          onClick={onCancel}
+        >
+          <X className="icon-sm" aria-hidden="true" />
         </Button>
       )}
     </div>
