@@ -1,63 +1,22 @@
-import { memo } from 'react';
-import remarkGfm from 'remark-gfm';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
-import supersub from 'remark-supersub';
-import ReactMarkdown from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
-import type { PluggableList } from 'unified';
-import { code, codeNoExecution, a, p, img, table } from './MarkdownComponents';
-import { CodeBlockProvider, ArtifactProvider } from '~/Providers';
-import MarkdownErrorBoundary from './MarkdownErrorBoundary';
-import { langSubset, remarkApproxTilde } from '~/utils';
+import { Suspense } from 'react';
+import type { ComponentProps } from 'react';
+import LazyChunkBoundary from '~/lib/assets/LazyChunkBoundary';
+import { lazyWithRecovery } from '~/lib/assets/lazy';
 
-const MarkdownLite = memo(
-  ({ content = '', codeExecution = true }: { content?: string; codeExecution?: boolean }) => {
-    const rehypePlugins: PluggableList = [
-      [rehypeKatex],
-      [
-        rehypeHighlight,
-        {
-          detect: true,
-          ignoreMissing: true,
-          subset: langSubset,
-        },
-      ],
-    ];
+const MarkdownLiteContent = lazyWithRecovery(() => import('./MarkdownLiteContent'));
 
-    return (
-      <MarkdownErrorBoundary content={content} codeExecution={codeExecution}>
-        <ArtifactProvider>
-          <CodeBlockProvider>
-            <ReactMarkdown
-              remarkPlugins={[
-                remarkApproxTilde,
-                /** @ts-ignore */
-                supersub,
-                remarkGfm,
-                [remarkMath, { singleDollarTextMath: false }],
-              ]}
-              /** @ts-ignore */
-              rehypePlugins={rehypePlugins}
-              components={
-                {
-                  code: codeExecution ? code : codeNoExecution,
-                  a,
-                  p,
-                  img,
-                  table,
-                } as {
-                  [nodeType: string]: React.ElementType;
-                }
-              }
-            >
-              {content}
-            </ReactMarkdown>
-          </CodeBlockProvider>
-        </ArtifactProvider>
-      </MarkdownErrorBoundary>
-    );
-  },
-);
+type MarkdownLiteProps = ComponentProps<typeof MarkdownLiteContent>;
 
-export default MarkdownLite;
+function MarkdownLiteFallback({ content }: { content?: string }) {
+  return <span className="whitespace-pre-wrap">{content}</span>;
+}
+
+export default function MarkdownLite(props: MarkdownLiteProps) {
+  return (
+    <LazyChunkBoundary fallback={<MarkdownLiteFallback content={props.content} />}>
+      <Suspense fallback={<MarkdownLiteFallback content={props.content} />}>
+        <MarkdownLiteContent {...props} />
+      </Suspense>
+    </LazyChunkBoundary>
+  );
+}

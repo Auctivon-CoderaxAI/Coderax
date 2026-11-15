@@ -22,6 +22,7 @@ import MessageAudio from './MessageAudio';
 import Feedback from './Feedback';
 import { cn } from '~/utils';
 import store from '~/store';
+import { preloadRichTextClipboard } from '~/hooks/Messages/useCopyToClipboard';
 
 type THoverButtons = {
   isEditing: boolean;
@@ -53,6 +54,8 @@ type HoverButtonProps = {
   buttonStyle?: string;
   dataTestId?: string;
   disabled?: boolean;
+  onMouseEnter?: () => void;
+  onFocus?: () => void;
 };
 
 const HoverButton = memo(
@@ -66,6 +69,8 @@ const HoverButton = memo(
     className = '',
     dataTestId,
     disabled = false,
+    onMouseEnter,
+    onFocus,
   }: HoverButtonProps) => {
     const buttonStyle = hoverButtonClasses({ isActive, isLast, className });
 
@@ -81,6 +86,8 @@ const HoverButton = memo(
             aria-label={title}
             className={buttonStyle}
             onClick={onClick}
+            onMouseEnter={onMouseEnter}
+            onFocus={onFocus}
             disabled={disabled}
           >
             {icon}
@@ -222,6 +229,8 @@ const HoverButtons = ({
       {!isActiveStreamingMessage && (
         <HoverButton
           onClick={handleCopy}
+          onMouseEnter={() => void preloadRichTextClipboard()}
+          onFocus={() => void preloadRichTextClipboard()}
           title={
             isCopied ? localize('com_ui_copied_to_clipboard') : localize('com_ui_copy_to_clipboard')
           }

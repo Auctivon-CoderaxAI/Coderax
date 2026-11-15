@@ -2,18 +2,15 @@ import React, { memo, useMemo, useRef, useEffect } from 'react';
 import { useRecoilValue } from 'recoil';
 import { useToastContext } from '@coderax/client';
 import { PermissionTypes, Permissions, apiBaseUrl } from 'coderax-data-provider';
-import {
-  handleDoubleClick,
-  triggerDownload,
-  resolveInlineMedia,
-  toAbsoluteFilePath,
-} from '~/utils';
 import Mermaid, { MermaidErrorBoundary } from '~/components/Messages/Content/Mermaid';
+import { resolveInlineMedia, toAbsoluteFilePath } from '~/utils/media';
 import { useCodeBlockContext, useMediaContext } from '~/Providers';
 import CodeBlock from '~/components/Messages/Content/CodeBlock';
+import { handleDoubleClick } from '~/utils/handleDoubleClick';
+import { triggerDownload } from '~/utils/downloadFile';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import { useFileDownload } from '~/data-provider';
-import { useLocalize } from '~/hooks';
+import useLocalize from '~/hooks/useLocalize';
 import store from '~/store';
 
 type TCodeProps = {

@@ -23,10 +23,15 @@ function renderMarkdown(content: string, currentFilePath = 'SKILL.md') {
 }
 
 describe('SkillMarkdownRenderer', () => {
-  it('routes relative links from SKILL.md to the skill file viewer', () => {
+  /* MarkdownLite is a lazy chunk. Compile it before the timed test. */
+  beforeAll(async () => {
+    await import('~/components/Chat/Messages/Content/MarkdownLiteContent');
+  }, 120000);
+
+  it('routes relative links from SKILL.md to the skill file viewer', async () => {
     renderMarkdown('[source selection](references/source-selection.md)');
 
-    const link = screen.getByRole('link', { name: 'source selection' });
+    const link = await screen.findByRole('link', { name: 'source selection' }, { timeout: 15000 });
     expect(link).toHaveAttribute('href', '/skills/skill-id?file=references%2Fsource-selection.md');
 
     fireEvent.click(link);
@@ -34,9 +39,9 @@ describe('SkillMarkdownRenderer', () => {
     expect(screen.getByTestId('location')).toHaveTextContent(
       '/skills/skill-id?file=references%2Fsource-selection.md',
     );
-  });
+  }, 30000);
 
-  it('normalizes relative links from a nested markdown file', () => {
+  it('normalizes relative links from a nested markdown file', async () => {
     renderMarkdown(
       [
         '[sibling](./source.md)',
@@ -46,18 +51,16 @@ describe('SkillMarkdownRenderer', () => {
       'references/guides/current.md',
     );
 
-    expect(screen.getByRole('link', { name: 'sibling' })).toHaveAttribute(
-      'href',
-      '/skills/skill-id?file=references%2Fguides%2Fsource.md',
-    );
-    expect(screen.getByRole('link', { name: 'parent' })).toHaveAttribute(
+    expect(
+      await screen.findByRole('link', { name: 'sibling' }, { timeout: 15000 }),
+    ).toHaveAttribute('href', '/skills/skill-id?file=references%2Fguides%2Fsource.md');
+    expect(await screen.findByRole('link', { name: 'parent' }, { timeout: 15000 })).toHaveAttribute(
       'href',
       '/skills/skill-id?file=references%2Foverview.md',
     );
-    expect(screen.getByRole('link', { name: 'encoded' })).toHaveAttribute(
-      'href',
-      '/skills/skill-id?file=references%2Fsource%20selection.md#details',
-    );
+    expect(
+      await screen.findByRole('link', { name: 'encoded' }, { timeout: 15000 }),
+    ).toHaveAttribute('href', '/skills/skill-id?file=references%2Fsource%20selection.md#details');
   });
 
   it.each([
@@ -67,15 +70,21 @@ describe('SkillMarkdownRenderer', () => {
     ['page anchor', '#section'],
     ['absolute app path', '/settings'],
     ['protocol-relative URL', '//cdn.example.com/file.md'],
-  ])('leaves %s unchanged', (label, href) => {
+  ])('leaves %s unchanged', async (label, href) => {
     renderMarkdown(`[${label}](${href})`);
 
-    expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', href);
+    expect(await screen.findByRole('link', { name: label }, { timeout: 15000 })).toHaveAttribute(
+      'href',
+      href,
+    );
   });
 
-  it('continues to sanitize unsafe URL protocols', () => {
+  it('continues to sanitize unsafe URL protocols', async () => {
     renderMarkdown('[unsafe](javascript:alert(1))');
 
-    expect(screen.getByRole('link', { name: 'unsafe' })).toHaveAttribute('href', '');
+    expect(await screen.findByRole('link', { name: 'unsafe' }, { timeout: 15000 })).toHaveAttribute(
+      'href',
+      '',
+    );
   });
 });

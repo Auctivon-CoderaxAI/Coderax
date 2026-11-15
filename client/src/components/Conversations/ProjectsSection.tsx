@@ -1,4 +1,4 @@
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react';
+import { Suspense, memo, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useDrop } from 'react-dnd';
 import { useRecoilValue } from 'recoil';
 import * as Ariakit from '@ariakit/react';
@@ -39,9 +39,14 @@ import {
   useActiveJobs,
   useConversationsInfiniteQuery,
 } from '~/data-provider';
-import ProjectCreateDialog from '~/components/Projects/ProjectCreateDialog';
-import ProjectDeleteDialog from '~/components/Projects/ProjectDeleteDialog';
-import ProjectEditDialog from '~/components/Projects/ProjectEditDialog';
+import { lazyWithRecovery } from '~/lib/assets/lazy';
+const ProjectCreateDialog = lazyWithRecovery(
+  () => import('~/components/Projects/ProjectCreateDialog'),
+);
+const ProjectDeleteDialog = lazyWithRecovery(
+  () => import('~/components/Projects/ProjectDeleteDialog'),
+);
+const ProjectEditDialog = lazyWithRecovery(() => import('~/components/Projects/ProjectEditDialog'));
 import { useLocalize, useLocalStorage, useNewConvo } from '~/hooks';
 import { clearMessagesCache, cn, rowActionClasses } from '~/utils';
 import { Collapse } from '~/components/ui';
@@ -198,6 +203,8 @@ const ProjectItem = memo(
     };
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
+    const [hasDeleteOpened, setHasDeleteOpened] = useState(false);
+    const [hasEditOpened, setHasEditOpened] = useState(false);
     const editMenuRef = useRef<HTMLButtonElement>(null);
     const deleteMenuRef = useRef<HTMLButtonElement>(null);
     const projectChatPath = `/c/${Constants.NEW_CONVO}?projectId=${encodeURIComponent(project._id)}`;
@@ -282,7 +289,10 @@ const ProjectItem = memo(
           id: `${menuId}-rename`,
           label: localize('com_ui_edit_project'),
           icon: <Pencil className="text-text-secondary size-4" aria-hidden="true" />,
-          onClick: () => setIsEditOpen(true),
+          onClick: () => {
+            setHasEditOpened(true);
+            setIsEditOpen(true);
+          },
           hideOnClick: false,
           ref: editMenuRef,
           render: (props) => <button {...props} />,
@@ -291,7 +301,10 @@ const ProjectItem = memo(
           id: `${menuId}-delete`,
           label: localize('com_ui_delete'),
           icon: <Trash2 className="text-text-secondary size-4" aria-hidden="true" />,
-          onClick: () => setIsDeleteOpen(true),
+          onClick: () => {
+            setHasDeleteOpened(true);
+            setIsDeleteOpen(true);
+          },
           hideOnClick: false,
           ref: deleteMenuRef,
           render: (props) => <button {...props} />,
@@ -380,18 +393,26 @@ const ProjectItem = memo(
             />
           </div>
         </Collapse>
-        <ProjectEditDialog
-          open={isEditOpen}
-          onOpenChange={(open) => closeMenuWith(setIsEditOpen, open)}
-          project={project}
-          triggerRef={editMenuRef}
-        />
-        <ProjectDeleteDialog
-          open={isDeleteOpen}
-          onOpenChange={(open) => closeMenuWith(setIsDeleteOpen, open)}
-          project={project}
-          triggerRef={deleteMenuRef}
-        />
+        {hasEditOpened && (
+          <Suspense fallback={null}>
+            <ProjectEditDialog
+              open={isEditOpen}
+              onOpenChange={(open) => closeMenuWith(setIsEditOpen, open)}
+              project={project}
+              triggerRef={editMenuRef}
+            />
+          </Suspense>
+        )}
+        {hasDeleteOpened && (
+          <Suspense fallback={null}>
+            <ProjectDeleteDialog
+              open={isDeleteOpen}
+              onOpenChange={(open) => closeMenuWith(setIsDeleteOpen, open)}
+              project={project}
+              triggerRef={deleteMenuRef}
+            />
+          </Suspense>
+        )}
       </li>
     );
   },
@@ -423,6 +444,7 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
     false,
   );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [hasCreateOpened, setHasCreateOpened] = useState(false);
   const conversation = useRecoilValue(store.conversationByIndex(0));
   const conversationProjectId = conversation?.chatProjectId ?? null;
   /** A project workspace route wins so a leftover conversation scope cannot
@@ -469,7 +491,10 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
           type="button"
           variant="section-action"
           size="sm"
-          onClick={() => setIsCreateOpen(true)}
+          onClick={() => {
+            setHasCreateOpened(true);
+            setIsCreateOpen(true);
+          }}
           className="flex w-full justify-start"
         >
           <FolderPlus className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -551,14 +576,18 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
         <div className="pt-0.5">{renderProjectsBody()}</div>
       </Collapse>
 
-      <ProjectCreateDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
-        onCreated={(project) => {
-          navigate(`/projects/${project._id}`);
-          toggleNav();
-        }}
-      />
+      {hasCreateOpened && (
+        <Suspense fallback={null}>
+          <ProjectCreateDialog
+            open={isCreateOpen}
+            onOpenChange={setIsCreateOpen}
+            onCreated={(project) => {
+              navigate(`/projects/${project._id}`);
+              toggleNav();
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, {
+  Suspense,
   memo,
   useRef,
   useMemo,
@@ -27,16 +28,19 @@ import FilePreview from '~/components/Chat/Input/Files/FilePreview';
 import { SharePointPickerDialog } from '~/components/SharePoint';
 import useReducedMotion from '~/hooks/Generic/useReducedMotion';
 import { getFileType, isUnifiedUploadMode, cn } from '~/utils';
+import LazyChunkBoundary from '~/lib/assets/LazyChunkBoundary';
 import useToolFavorites from '~/hooks/Input/useToolFavorites';
 import useElementSize from '~/hooks/Generic/useElementSize';
 import useRecentFiles from '~/hooks/Input/useRecentFiles';
 import useAttachItems from '~/hooks/Input/useAttachItems';
 import { useMCPRefresh } from '~/hooks/MCP/useMCPRefresh';
+import { lazyWithRecovery } from '~/lib/assets/lazy';
 import { isMacPlatform } from '~/utils/shortcuts';
 import { useBadgeRowContext } from '~/Providers';
 import { composerLiftFamily } from './state';
 import { useLocalize } from '~/hooks';
-import Catalog from './Catalog';
+
+const Catalog = lazyWithRecovery(() => import('./Catalog'));
 
 const HEADER_HEIGHT = 26;
 /** A header carrying its section's "Show all" button, which is taller than the
@@ -239,6 +243,9 @@ function Palette({
   const [showAllAttach, setShowAllAttach] = useState(false);
   /** The section whose "Show all" dialog is open, if any. */
   const [catalog, setCatalog] = useState<CatalogSection | null>(null);
+  /* Keep the catalog mounted after its first open so its close transition can
+   * finish even though the section prop becomes null. */
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   /** Set while the palette closes to hand over to a dialog, so its close does
    *  not pull focus back into the composer from under the dialog. */
   const openingCatalogRef = useRef(false);
@@ -736,6 +743,7 @@ function Palette({
         catalogReturnRef.current =
           anchorRef.current?.querySelector<HTMLElement>('[data-testid="text-input"]') ?? null;
         popover.hide();
+        setCatalogLoaded(true);
         setCatalog(row.showAll);
         return;
       }
@@ -1413,16 +1421,28 @@ function Palette({
         downloadProgress={attach.downloadProgress}
         maxSelectionCount={attach.maxSelectionCount}
       />
-      <Catalog
-        section={catalog}
-        onClose={() => setCatalog(null)}
-        entries={entries}
-        returnFocusRef={catalogReturnRef}
-        onAttach={(file) => {
-          setCatalog(null);
-          recent.attach(file);
-        }}
-      />
+      {catalogLoaded && (
+        <LazyChunkBoundary
+          fallback={null}
+          onError={() => {
+            setCatalog(null);
+            setCatalogLoaded(false);
+          }}
+        >
+          <Suspense fallback={null}>
+            <Catalog
+              section={catalog}
+              onClose={() => setCatalog(null)}
+              entries={entries}
+              returnFocusRef={catalogReturnRef}
+              onAttach={(file) => {
+                setCatalog(null);
+                recent.attach(file);
+              }}
+            />
+          </Suspense>
+        </LazyChunkBoundary>
+      )}
     </>
   );
 }

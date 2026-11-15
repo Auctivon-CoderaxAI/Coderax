@@ -23,19 +23,25 @@ jest.mock('~/hooks', () => ({
 }));
 
 describe('Footer', () => {
+  /* The custom footer renders through a lazy Markdown chunk. Compiling that chunk's
+   * module graph can starve the test's timers on a cold cache, so load it first. */
+  beforeAll(async () => {
+    await import('../Messages/Content/MarkdownLiteContent');
+  }, 120000);
+
   test('shows Coderax branding without an unconfigured site link', () => {
     render(<Footer startupConfig={null} />);
     expect(screen.getByText(/Coderax/)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Coderax/ })).not.toBeInTheDocument();
   });
 
-  test('opens custom footer markdown links in a new tab', () => {
+  test('opens custom footer markdown links in a new tab', async () => {
     render(<Footer startupConfig={{ customFooter: '[Docs](https://example.com/docs)' }} />);
-    const link = screen.getByRole('link', { name: 'Docs' });
+    const link = await screen.findByRole('link', { name: 'Docs' }, { timeout: 15000 });
     expect(link).toHaveAttribute('href', 'https://example.com/docs');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-  });
+  }, 30000);
 
   test('keeps privacy policy and terms of service links in the same tab', () => {
     render(
