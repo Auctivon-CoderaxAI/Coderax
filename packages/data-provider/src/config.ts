@@ -3909,10 +3909,72 @@ export const workConfigSchema = z
   })
   .prefault({});
 
+export const DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY = 200;
+export const DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY = 400_000;
+export const DEFAULT_FREE_INFERENCE_MAX_RETRIES = 2;
+export const DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD = 2;
+export const DEFAULT_FREE_INFERENCE_COOLDOWN_MS = 60_000;
+export const DEFAULT_FREE_INFERENCE_REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Zero-cost hosted inference routing. Disabled by default, which reproduces the
+ * behavior before routing existed: nothing calls a hosted free endpoint until
+ * an operator turns it on. There is deliberately no paid-provider field — a
+ * chargeable route cannot be configured into existence here.
+ */
+export const freeInferenceConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** A turn may continue on another verified free endpoint after a failure. */
+    allowFallback: z.boolean().default(true),
+    /**
+     * A Work turn prefers an endpoint with native tool calling; when true a
+     * text-only endpoint may still serve it as a last resort. The run is told
+     * the tools are unavailable rather than silently dropping them.
+     */
+    allowToolsInFallback: z.boolean().default(false),
+    maxRequestsPerDay: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000)
+      .default(DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY),
+    maxTokensPerDay: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000_000)
+      .default(DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY),
+    /** Extra attempts after the first, so at most `maxRetries + 1` calls per turn. */
+    maxRetries: z.number().int().min(0).max(3).default(DEFAULT_FREE_INFERENCE_MAX_RETRIES),
+    failureThreshold: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .default(DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD),
+    cooldownMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(3_600_000)
+      .default(DEFAULT_FREE_INFERENCE_COOLDOWN_MS),
+    requestTimeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(DEFAULT_FREE_INFERENCE_REQUEST_TIMEOUT_MS),
+  })
+  .prefault({});
+
+export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
+
 export const configSchema = z.object({
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,
+  freeInference: freeInferenceConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   ocr: ocrSchema.optional(),

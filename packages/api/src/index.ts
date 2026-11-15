@@ -88,6 +88,8 @@ export * from './prompts';
 export * from './projects';
 /* Conversations */
 export * from './conversations';
+/* Zero-cost inference routing */
+export * from './routing';
 /* Work */
 export * from './work/admission';
 export * from './work/configuredDefault';

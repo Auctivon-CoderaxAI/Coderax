@@ -61,3 +61,42 @@ export type TWorkAgent = {
 export type TWorkAgentsResponse = { agents: TWorkAgent[] };
 export type TWorkTasksResponse = { tasks: TWorkTask[] };
 export type TWorkTaskResponse = { task: TWorkTask };
+
+/** The preferred model and why it is or is not serving, without credentials. */
+export type TWorkRoutingPrimary = {
+  available: boolean;
+  label: string;
+  modelIds: readonly string[];
+  reason?: string;
+  checkedAt: string;
+  evidence: ReadonlyArray<{ url: string; detail: string }>;
+};
+
+export type TWorkRoutingEndpoint = {
+  id: string;
+  provider: string;
+  modelId: string;
+  label: string;
+  kind: 'primary' | 'fallback';
+  available: boolean;
+  cooldownUntil: number | null;
+  tools: boolean;
+  quota: {
+    requestsUsed: number;
+    requestsLimit: number;
+    tokensUsed: number;
+    tokensLimit: number;
+    resetAt: number;
+  };
+};
+
+/** What a new Work turn would run on, and the free budget behind it. */
+export type TWorkRoutingSnapshot = {
+  enabled: boolean;
+  primary: TWorkRoutingPrimary;
+  activeModel: { provider: string; modelId: string; label: string } | null;
+  endpoints: TWorkRoutingEndpoint[];
+  paidRoutesEnabled: false;
+};
+
+export type TWorkRoutingResponse = { routing: TWorkRoutingSnapshot };

@@ -6,6 +6,10 @@ import {
   agentsEndpointSchema,
   DEFAULT_RETAINED_ANSWER_TOKENS,
   DEFAULT_MAX_RETAINED_TOOL_COUNT_CHARS,
+  DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
+  DEFAULT_FREE_INFERENCE_MAX_RETRIES,
+  DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
+  freeInferenceConfigSchema,
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
   bedrockModels,
@@ -78,6 +82,30 @@ describe('config schema defaults', () => {
     });
     expect(workConfigSchema.safeParse({ agentGraphLimit: 0 }).success).toBe(false);
     expect(workConfigSchema.safeParse({ agentGraphConcurrency: 65 }).success).toBe(false);
+  });
+
+  it('keeps hosted free inference off until an operator opts in', () => {
+    expect(configSchema.parse({ version: '1.0' }).freeInference).toEqual({
+      enabled: false,
+      allowFallback: true,
+      allowToolsInFallback: false,
+      maxRequestsPerDay: DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
+      maxTokensPerDay: DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
+      maxRetries: DEFAULT_FREE_INFERENCE_MAX_RETRIES,
+      failureThreshold: 2,
+      cooldownMs: 60_000,
+      requestTimeoutMs: 60_000,
+    });
+  });
+
+  it('bounds retries and budgets so a bad config cannot retry forever', () => {
+    expect(freeInferenceConfigSchema.safeParse({ maxRetries: 4 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ maxRetries: -1 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ maxRequestsPerDay: 0 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ maxTokensPerDay: 0 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ cooldownMs: 999 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ requestTimeoutMs: 999 }).success).toBe(false);
+    expect(freeInferenceConfigSchema.safeParse({ allowFallback: 'yes' }).success).toBe(false);
   });
 });
 

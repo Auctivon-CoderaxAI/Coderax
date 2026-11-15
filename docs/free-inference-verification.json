@@ -1,0 +1,115 @@
+{
+  "checkedAt": "2026-11-09T03:46:18.708Z",
+  "primary": {
+    "label": "DeepSeek-R1 671B",
+    "available": false,
+    "reason": "no_verified_free_endpoint",
+    "checkedAt": "2026-11-08",
+    "evidence": [
+      {
+        "url": "https://openrouter.ai/api/v1/models",
+        "detail": "The only full R1 checkpoint listed, deepseek/deepseek-r1-0528, is priced $0.50/M input and $2.15/M output. No :free variant of it is offered."
+      },
+      {
+        "url": "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+        "detail": "Workers AI lists only @cf/deepseek-ai/deepseek-r1-distill-qwen-32b, a distilled 32B model, not the 671B checkpoint."
+      },
+      {
+        "url": "https://console.groq.com/docs/rate-limits",
+        "detail": "Groq currently serves openai/gpt-oss and qwen models on its base limits; no DeepSeek-R1 671B endpoint is listed."
+      }
+    ]
+  },
+  "publicCatalog": {
+    "ok": true,
+    "status": 200,
+    "modelCount": 461,
+    "freeModelCount": 12,
+    "fullR1Endpoints": [
+      {
+        "id": "deepseek/deepseek-r1-0528",
+        "prompt": "0.0000005",
+        "completion": "0.00000215"
+      }
+    ],
+    "freeFullR1": [],
+    "listed": [
+      {
+        "id": "openrouter-nemotron-ultra-free",
+        "modelId": "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "listedFree": true,
+        "tools": true
+      },
+      {
+        "id": "openrouter-nemotron-lightning-free",
+        "modelId": "nvidia/nemotron-3.5-lightning:free",
+        "listedFree": true,
+        "tools": true
+      },
+      {
+        "id": "openrouter-gemma-4-31b-free",
+        "modelId": "google/gemma-4-31b-it:free",
+        "listedFree": true,
+        "tools": true
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "id": "openrouter-nemotron-ultra-free",
+      "provider": "openrouter",
+      "modelId": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "credentialEnv": "OPENROUTER_API_KEY",
+      "pricingBasis": "free-model",
+      "status": "blocked",
+      "blocker": "missing_credential",
+      "errorCode": null
+    },
+    {
+      "id": "groq-gpt-oss-120b",
+      "provider": "groq",
+      "modelId": "openai/gpt-oss-120b",
+      "credentialEnv": "GROQ_API_KEY",
+      "pricingBasis": "free-tier",
+      "status": "blocked",
+      "blocker": "missing_credential",
+      "errorCode": null
+    },
+    {
+      "id": "openrouter-nemotron-lightning-free",
+      "provider": "openrouter",
+      "modelId": "nvidia/nemotron-3.5-lightning:free",
+      "credentialEnv": "OPENROUTER_API_KEY",
+      "pricingBasis": "free-model",
+      "status": "blocked",
+      "blocker": "missing_credential",
+      "errorCode": null
+    },
+    {
+      "id": "cloudflare-llama-3-3-70b-free",
+      "provider": "cloudflare",
+      "modelId": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      "credentialEnv": "CLOUDFLARE_API_TOKEN",
+      "pricingBasis": "free-daily-allocation",
+      "status": "blocked",
+      "blocker": "missing_credential",
+      "errorCode": null
+    },
+    {
+      "id": "openrouter-gemma-4-31b-free",
+      "provider": "openrouter",
+      "modelId": "google/gemma-4-31b-it:free",
+      "credentialEnv": "OPENROUTER_API_KEY",
+      "pricingBasis": "free-model",
+      "status": "blocked",
+      "blocker": "missing_credential",
+      "errorCode": null
+    }
+  ],
+  "summary": {
+    "verified": 0,
+    "blocked": 5,
+    "failed": 0
+  },
+  "paidRoutesEnabled": false
+}

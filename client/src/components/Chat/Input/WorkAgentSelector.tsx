@@ -15,6 +15,7 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { createStorageAtom } from '~/store/jotai-utils';
+import { WorkRoutingBadge } from './WorkRoutingBadge';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
 import { useLocalize } from '~/hooks';
