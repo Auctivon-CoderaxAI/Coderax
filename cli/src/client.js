@@ -120,6 +120,9 @@ export class CoderaxClient {
           break;
         }
         buffer += decoder.decode(value, { stream: true });
+        // SSE permits CRLF line endings. Normalise them after appending each
+        // chunk so even a CRLF split across reads can terminate a frame.
+        buffer = buffer.replace(/\r\n/g, '\n');
 
         let boundary = buffer.indexOf('\n\n');
         while (boundary !== -1) {
