@@ -1,15 +1,20 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { buttonVariants, cn, useToastContext } from '@coderax/client';
 import { dataService, MutationKeys, QueryKeys } from 'coderax-data-provider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TWorkTasksResponse } from 'coderax-data-provider';
-import { useGetPinnedOrderQuery, useUpdatePinnedOrderMutation } from '~/data-provider';
+import {
+  useActiveJobs,
+  useGetPinnedOrderQuery,
+  useUpdatePinnedOrderMutation,
+} from '~/data-provider';
 import WorkTaskRow, { workTaskPinKey } from './WorkTaskRow';
 import { useLocalize, useLocalStorage } from '~/hooks';
 import { NotificationSeverity } from '~/common';
 import { Collapse } from '~/components/ui';
+import { workTasksRefetchInterval } from './polling';
 
 type WorkTasksSectionProps = {
   isAuthenticated: boolean;
@@ -21,6 +26,11 @@ const MAX_RECENT_WORK_TASKS = 12;
 export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTasksSectionProps) {
   const localize = useLocalize();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: activeJobs } = useActiveJobs(isAuthenticated);
+  const activeJobIds = activeJobs?.activeJobIds;
+  const activeJobKey = activeJobIds ? JSON.stringify([...activeJobIds].sort()) : undefined;
+  const previousActiveJobKey = useRef<string | undefined>();
   const [isExpanded, setIsExpanded] = useLocalStorage('workTasksExpanded', true);
   const { showToast } = useToastContext();
   const queryClient = useQueryClient();
@@ -30,7 +40,7 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
     enabled: isAuthenticated,
     retry: false,
     staleTime: 5_000,
-    refetchInterval: 5_000,
+    refetchInterval: (data) => workTasksRefetchInterval(data, activeJobIds),
     refetchIntervalInBackground: false,
   });
   const cancelTask = useMutation(
