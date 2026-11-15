@@ -24,15 +24,15 @@ import {
   ComposerRestoreProvider,
 } from '~/Providers';
 import { MESSAGES_QUERY_STALE_TIME, useGetMessagesByConvoId } from '~/data-provider';
+import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { QueuedTurnPortalProvider } from './Steering/QueuedTurnPortal';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
+import { ComposerPreferencesProvider } from './Input/preferences';
 import ConversationStarters from './Input/ConversationStarters';
 import { landingBandClass, landingColumnClass } from './layout';
 import { pendingApprovalActionFamily } from './approval/state';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
-import { ComposerPreferencesProvider } from './Input/preferences';
-import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { OwnerTextProvider } from './Messages/PrivateText';
 import Footer, { useConfiguredFooter } from './Footer';
 import TranscriptSkeleton from './Messages/Loading';
@@ -294,6 +294,19 @@ function ChatView({
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}
                                   footerBelow={footerBelow}
+                                  enterToSend={enterToSend}
+                                  autoSendText={autoSendText}
+                                  speechSettingsInitialized={speechSettingsInitialized}
+                                  centerFormOnLanding={centerFormOnLanding}
+                                  files={chatHelpers.files}
+                                  setFiles={chatHelpers.setFiles}
+                                  conversation={chatHelpers.conversation}
+                                  setConversation={chatHelpers.setConversation}
+                                  isSubmitting={chatHelpers.isSubmitting}
+                                  setFilesLoading={chatHelpers.setFilesLoading}
+                                  newConversation={chatHelpers.newConversation}
+                                  handleStopGenerating={chatHelpers.handleStopGenerating}
+                                  stopGenerating={chatHelpers.stopGenerating}
                                 />
                               </ComposerPreferencesProvider>
                             )}
