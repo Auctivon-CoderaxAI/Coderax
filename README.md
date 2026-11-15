@@ -90,6 +90,11 @@ server's free/local catalog; the native generation and authorization paths are
 unchanged. Entering Work in an owned Chat conversation adds execution metadata
 to that record instead of creating a second history.
 
+Work does not consider a model eligible solely because its identifier has a
+local-looking prefix. It trusts the server catalog's existing free/local flags,
+including local endpoint classifications; these are not independently verified
+proof that the configured inference endpoint costs $0.
+
 Focused component tests cover unchanged router location, composer identity,
 draft/file-input retention and mode restoration. Native Work seed tests cover
 in-place promotion, tenant rejection and failed storage operations. These are

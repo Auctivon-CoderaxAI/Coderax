@@ -39,7 +39,11 @@ const {
   stampCommandExecutor,
 } = require('@coderax/api');
 const { processFileCitations } = require('~/server/services/Files/Citations');
-const { processCodeOutput, runPreviewFinalize } = require('~/server/services/Files/Code/process');
+const {
+  processCodeOutput,
+  runPreviewFinalize,
+  buildPreviewUpdatePayload,
+} = require('~/server/services/Files/Code/process');
 const { preflightCodeOutputBatch } = require('~/server/services/Files/Code/preflight');
 const { saveBase64Image } = require('~/server/services/Files/process');
 
@@ -1203,7 +1207,7 @@ function createToolEndCallback({ req, res, artifactPromises, streamId = null, jo
               streamId,
               {
                 ...updated,
-                messageId: metadata.run_id,
+                messageId: metadata.run_id, // overlay current run id, NOT updated.messageId
                 toolCallId,
                 ...(fileMetadata.workspaceChange
                   ? { workspaceChange: fileMetadata.workspaceChange }

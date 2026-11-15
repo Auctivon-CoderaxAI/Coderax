@@ -5,15 +5,31 @@ import WorkTasksSection from '../WorkTasksSection';
 
 const mockNavigate = jest.fn();
 const mockMutatePinnedOrder = jest.fn();
+const mockCancelWorkTask = jest.fn();
+const mockInvalidateQueries = jest.fn();
 let mockPinnedOrder: string[] | undefined;
 let mockTasksQuery: {
-  data?: { tasks: Array<{ id: string; title: string; state: 'completed' | 'unknown' }> };
+  data?: {
+    tasks: Array<{
+      id: string;
+      title: string;
+      state: 'running' | 'awaiting_approval' | 'completed' | 'unknown';
+    }>;
+  };
   isLoading: boolean;
   isError: boolean;
 };
 
 jest.mock('@tanstack/react-query', () => ({
   useQuery: () => mockTasksQuery,
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  useMutation: (mutationFn: (id: string) => unknown, options: { onSuccess: () => void }) => ({
+    mutate: (id: string) => {
+      mutationFn(id);
+      options.onSuccess();
+    },
+    isLoading: false,
+  }),
 }));
 
 jest.mock('react-router-dom', () => ({
@@ -22,6 +38,7 @@ jest.mock('react-router-dom', () => ({
 }));
 
 jest.mock('~/data-provider', () => ({
+  useActiveJobs: () => ({ data: { activeJobIds: mockActiveJobIds } }),
   useGetPinnedOrderQuery: () => ({
     data: mockPinnedOrder,
     isSuccess: mockPinnedOrder !== undefined,
@@ -31,7 +48,8 @@ jest.mock('~/data-provider', () => ({
 }));
 
 jest.mock('coderax-data-provider', () => ({
-  dataService: { getWorkTasks: jest.fn() },
+  dataService: { getWorkTasks: jest.fn(), cancelWorkTask: mockCancelWorkTask },
+  MutationKeys: { cancelWorkTask: 'cancelWorkTask' },
   QueryKeys: { workTasks: 'workTasks' },
 }));
 
@@ -64,6 +82,8 @@ describe('WorkTasksSection', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockMutatePinnedOrder.mockReset();
+    mockCancelWorkTask.mockReset();
+    mockInvalidateQueries.mockReset();
     mockPinnedOrder = [];
     mockTasksQuery = {
       data: {
@@ -102,5 +122,19 @@ describe('WorkTasksSection', () => {
 
     expect(toggleNav).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/work/work-1');
+  });
+
+  it('cancels active tasks and refreshes the task list', () => {
+    mockTasksQuery.data?.tasks.push({
+      id: 'work-running',
+      title: 'Run checks',
+      state: 'running',
+    });
+    render(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'com_work_cancel_task Run checks' }));
+
+    expect(mockCancelWorkTask).toHaveBeenCalledWith('work-running');
+    expect(mockInvalidateQueries).toHaveBeenCalledWith(['workTasks']);
   });
 });

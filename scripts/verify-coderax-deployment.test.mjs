@@ -465,4 +465,22 @@ test('accepts a real-shaped Express readiness, startup config and Vite shell', a
   const result = await verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch);
   assert.equal(result.apiConfig, 'JSON');
   assert.equal(result.appTitle, 'Coderax');
+  assert.equal(result.backendRevisionVerified, false);
+});
+
+test('requires a matching backend-reported revision when the gate is requested', async () => {
+  const expected = '6673992ff2e08664f2869da4fda822c964ea58f1';
+  const old = '71fbdbaa2dfed54055b92357d375db41e593a90f';
+  const fakeFetch = (commit) => async (url) => ({
+    status: 200,
+    headers: headers(url.endsWith('/api/config') ? 'application/json' : url.endsWith('/login') ? 'text/html' : 'text/plain'),
+    text: async () => url.endsWith('/readyz') ? 'OK' : url.endsWith('/api/config')
+      ? JSON.stringify({ appTitle: 'Coderax', ...(commit === undefined ? {} : { buildInfo: { commit } }) })
+      : '<html><body>Coderax</body></html>',
+  });
+  await assert.rejects(verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch(old), expected), /does not match expected revision/);
+  await assert.rejects(verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch(), expected), /missing a full backend-reported buildInfo.commit/);
+  await assert.rejects(verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch('6673992f'), expected), /missing a full backend-reported buildInfo.commit/);
+  await assert.rejects(verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch(expected), '6673992f'), /expected backend revision must be a full 40-character commit/);
+  assert.equal((await verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch(expected), expected)).backendRevisionVerified, true);
 });

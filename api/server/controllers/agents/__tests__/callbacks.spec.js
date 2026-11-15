@@ -1795,3 +1795,50 @@ describe('isStreamWritable', () => {
     expect(isStreamWritable({ headersSent: true, writableEnded: false }, null)).toBe(true);
   });
 });
+
+describe('code execution deferred-preview messageId regression (PR #12957)', () => {
+  it('uses the current run messageId on the resolved emit, not the persisted DB messageId', async () => {
+    res.headersSent = true;
+    const finalize = jest.fn().mockResolvedValue({
+      file_id: 'fid-shared',
+      filename: 'output.csv',
+      messageId: 'turn-1-original-msg', // stale, persisted id
+      status: 'ready',
+    });
+    processCodeOutput.mockResolvedValue({
+      file: { file_id: 'fid-shared', filename: 'output.csv', messageId: 'turn-2-msg', status: 'pending' },
+      finalize,
+    });
+
+    const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
+    const event = makeCodeExecutionEvent({ runId: 'turn-2-msg', fileId: 'fid-shared', name: 'output.csv' });
+    await toolEndCallback({ output: event.output }, event.metadata);
+    await Promise.all(artifactPromises);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const phase2 = parseSseAttachment(res.write.mock.calls[1]);
+    expect(phase2.messageId).toBe('turn-2-msg');
+    expect(phase2.messageId).not.toBe('turn-1-original-msg');
+  });
+
+  it('does not downgrade the record to failed when onResolved throws', async () => {
+    const finalize = jest.fn().mockResolvedValue({ file_id: 'fid-x', status: 'ready' });
+    const onResolved = jest.fn(() => { throw new Error('SSE write after close'); });
+
+    runPreviewFinalize({ finalize, fileId: 'fid-x', onResolved });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(updateFile).not.toHaveBeenCalled(); // no defensive-failed downgrade
+  });
+
+  it('skips the preview update emit when finalize resolves null', async () => {
+    const finalize = jest.fn().mockResolvedValue(null);
+    const onResolved = jest.fn();
+
+    runPreviewFinalize({ finalize, fileId: 'fid-null', onResolved });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(onResolved).not.toHaveBeenCalled();
+  });
+});
