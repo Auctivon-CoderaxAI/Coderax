@@ -2,7 +2,6 @@
 // packages/client/src/theme/tokens.css, which src/style.css imports. The radius scale and the
 // sans and mono families are theme-owned properties mapped in src/style.css.
 const libreChatTailwindPreset = require('../packages/client/tailwind.preset.cjs');
-const compatibilityColors = require('../packages/client/tailwind.compat.cjs');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -16,7 +15,6 @@ module.exports = {
   presets: [libreChatTailwindPreset],
   theme: {
     extend: {
-      colors: compatibilityColors,
       width: {
         authPageWidth: '370px',
       },

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { dataService, QueryKeys } from 'coderax-data-provider';
 import { buttonVariants, cn, useToastContext } from '@coderax/client';
+import { dataService, MutationKeys, QueryKeys } from 'coderax-data-provider';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TWorkTasksResponse } from 'coderax-data-provider';
 import {
   useActiveJobs,
@@ -33,6 +33,7 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
   const previousActiveJobKey = useRef<string | undefined>();
   const [isExpanded, setIsExpanded] = useLocalStorage('workTasksExpanded', true);
   const { showToast } = useToastContext();
+  const queryClient = useQueryClient();
   const tasksQuery = useQuery<TWorkTasksResponse>({
     queryKey: [QueryKeys.workTasks],
     queryFn: ({ signal }) => dataService.getWorkTasks(signal),
@@ -42,15 +43,19 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
     refetchInterval: (data) => workTasksRefetchInterval(data, activeJobIds),
     refetchIntervalInBackground: false,
   });
-  useEffect(() => {
-    if (activeJobKey === undefined) {
-      return;
-    }
-    if (previousActiveJobKey.current !== undefined && previousActiveJobKey.current !== activeJobKey) {
-      void queryClient.invalidateQueries([QueryKeys.workTasks]);
-    }
-    previousActiveJobKey.current = activeJobKey;
-  }, [activeJobKey, queryClient]);
+  const cancelTask = useMutation(
+    (conversationId: string) => dataService.cancelWorkTask(conversationId),
+    {
+      mutationKey: [MutationKeys.cancelWorkTask],
+      onSuccess: () => queryClient.invalidateQueries([QueryKeys.workTasks]),
+      onError: () =>
+        showToast({
+          message: localize('com_work_cancel_failed'),
+          severity: NotificationSeverity.ERROR,
+          showIcon: true,
+        }),
+    },
+  );
   const {
     data: pinnedOrder,
     isSuccess: isOrderFetched,
@@ -142,6 +147,8 @@ export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTas
                     }
                     onTogglePin={() => pinTask(task.id)}
                     pinDisabled={!orderLoaded || updatePinnedOrder.isLoading}
+                    onCancel={() => cancelTask.mutate(task.id)}
+                    cancelDisabled={cancelTask.isLoading && cancelTask.variables === task.id}
                   />
                 </li>
               ))}

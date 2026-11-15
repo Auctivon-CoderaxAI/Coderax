@@ -5,18 +5,15 @@ import WorkTasksSection from '../WorkTasksSection';
 
 const mockNavigate = jest.fn();
 const mockMutatePinnedOrder = jest.fn();
+const mockCancelWorkTask = jest.fn();
 const mockInvalidateQueries = jest.fn();
-let mockActiveJobIds: string[];
-let mockQueryOptions: {
-  refetchInterval: (data?: { tasks: Array<{ state: string }> }) => number | false;
-};
 let mockPinnedOrder: string[] | undefined;
 let mockTasksQuery: {
   data?: {
     tasks: Array<{
       id: string;
       title: string;
-      state: 'completed' | 'unknown' | 'running' | 'awaiting_approval';
+      state: 'running' | 'awaiting_approval' | 'completed' | 'unknown';
     }>;
   };
   isLoading: boolean;
@@ -24,11 +21,15 @@ let mockTasksQuery: {
 };
 
 jest.mock('@tanstack/react-query', () => ({
-  useQuery: (options: typeof mockQueryOptions) => {
-    mockQueryOptions = options;
-    return mockTasksQuery;
-  },
+  useQuery: () => mockTasksQuery,
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  useMutation: (mutationFn: (id: string) => unknown, options: { onSuccess: () => void }) => ({
+    mutate: (id: string) => {
+      mutationFn(id);
+      options.onSuccess();
+    },
+    isLoading: false,
+  }),
 }));
 
 jest.mock('react-router-dom', () => ({
@@ -47,7 +48,8 @@ jest.mock('~/data-provider', () => ({
 }));
 
 jest.mock('coderax-data-provider', () => ({
-  dataService: { getWorkTasks: jest.fn() },
+  dataService: { getWorkTasks: jest.fn(), cancelWorkTask: mockCancelWorkTask },
+  MutationKeys: { cancelWorkTask: 'cancelWorkTask' },
   QueryKeys: { workTasks: 'workTasks' },
 }));
 
@@ -80,8 +82,8 @@ describe('WorkTasksSection', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
     mockMutatePinnedOrder.mockReset();
+    mockCancelWorkTask.mockReset();
     mockInvalidateQueries.mockReset();
-    mockActiveJobIds = [];
     mockPinnedOrder = [];
     mockTasksQuery = {
       data: {
@@ -122,25 +124,17 @@ describe('WorkTasksSection', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/work/work-1');
   });
 
-  it('slows idle refresh and keeps active or pending tasks fresh', () => {
-    const { rerender } = render(
-      <WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />,
-    );
-    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(60_000);
-    expect(mockQueryOptions.refetchInterval({ tasks: [{ state: 'running' }] })).toBe(5_000);
-    expect(mockQueryOptions.refetchInterval({ tasks: [{ state: 'awaiting_approval' }] })).toBe(
-      5_000,
-    );
+  it('cancels active tasks and refreshes the task list', () => {
+    mockTasksQuery.data?.tasks.push({
+      id: 'work-running',
+      title: 'Run checks',
+      state: 'running',
+    });
+    render(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
 
-    mockActiveJobIds = ['new-work'];
-    rerender(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
-    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(5_000);
-    expect(mockInvalidateQueries).toHaveBeenCalledWith(['workTasks']);
+    fireEvent.click(screen.getByRole('button', { name: 'com_work_cancel_task Run checks' }));
 
-    mockInvalidateQueries.mockClear();
-    mockActiveJobIds = [];
-    rerender(<WorkTasksSection isAuthenticated toggleNav={(afterSlide) => afterSlide?.()} />);
+    expect(mockCancelWorkTask).toHaveBeenCalledWith('work-running');
     expect(mockInvalidateQueries).toHaveBeenCalledWith(['workTasks']);
-    expect(mockQueryOptions.refetchInterval(mockTasksQuery.data)).toBe(60_000);
   });
 });

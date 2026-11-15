@@ -13,7 +13,11 @@ interface ActivePanelContextType {
   setActive: (id: string) => void;
 }
 
-const ActivePanelContext = createContext<ActivePanelContextType | undefined>(undefined);
+/**
+ * Exported for optional consumers (e.g. `useOptionalPanelActive`) that must not
+ * throw outside a provider. Prefer `useActivePanel` everywhere else.
+ */
+export const ActivePanelContext = createContext<ActivePanelContextType | undefined>(undefined);
 
 export function ActivePanelProvider({ children }: { children: ReactNode }) {
   const [active, _setActive] = useState<string>(getInitialActivePanel);

@@ -55,6 +55,7 @@ import SharedLinks from '../SettingsTabs/Data/SharedLinks';
 import ImageResize from '../SettingsTabs/Chat/ImageResize';
 import Passkeys from '../SettingsTabs/Account/Passkeys';
 import { showThinkingAtom } from '~/store/showThinking';
+import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import ProviderKeys from '../SettingsTabs/ProviderKeys';
 import { autoScrollAtom } from '~/store/autoScroll';
 import Avatar from '../SettingsTabs/Account/Avatar';
@@ -140,7 +141,7 @@ export const registry: SettingEntry[] = [
     section: 'layout',
     labelKey: 'com_nav_maximize_chat_space',
     Component: toggleControl({
-      stateAtom: store.maximizeChatSpace,
+      stateAtom: maximizeChatSpaceAtom,
       localizationKey: 'com_nav_maximize_chat_space',
       switchId: 'maximizeChatSpace',
     }),
@@ -151,7 +152,7 @@ export const registry: SettingEntry[] = [
     section: 'layout',
     labelKey: 'com_nav_center_chat_input',
     Component: toggleControl({
-      stateAtom: store.centerFormOnLanding,
+      stateAtom: centerFormOnLandingAtom,
       localizationKey: 'com_nav_center_chat_input',
       switchId: 'centerFormOnLanding',
     }),
