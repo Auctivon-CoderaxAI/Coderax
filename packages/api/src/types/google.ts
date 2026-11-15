@@ -1,5 +1,7 @@
-import { z } from 'zod';
+// `googleBaseSchema` is a Zod 4 schema from coderax-data-provider; infer its type from the
+// matching Zod 4 namespace instead of the Zod 3 copy this package resolves by default.
 import { AuthKeys, googleBaseSchema } from 'coderax-data-provider';
+import type { z } from 'zod/v4';
 
 export type GoogleParameters = z.infer<typeof googleBaseSchema>;
 

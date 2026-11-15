@@ -39,6 +39,8 @@ const pendingBackgroundToolCompletions = createPendingBackgroundCompletions({
   retire: retireAgentTrigger,
 });
 
+const { runPreviewFinalize, buildPreviewUpdatePayload } = require('~/server/services/Files/Code/process');
+
 function createBackgroundToolResultPersistence({ req, updateToolCallResult }) {
   return createBackgroundToolResultHandler({ req, updateToolCallResult });
 }

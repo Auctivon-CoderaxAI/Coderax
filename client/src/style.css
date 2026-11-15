@@ -11,25 +11,22 @@
   --color-green-*: initial;
 }
 
-/* Tailwind v4 changed two preflight defaults this app was built against. Each rule below
- * restores the v3 default rather than adopting the new one, so the upgrade carries no visual
- * change; drop one only as a deliberate design decision.
- *   - border-color: v3 used gray-200, v4 uses currentColor.
- *   - ::placeholder: v3 used gray-400, v4 uses currentColor at 50% opacity.
- * Both read the repository compatibility palette through `theme()` instead of pinning a hex here.
- * `button { cursor: pointer }` below already covers v4's third change. */
+/* Tailwind v4 changed two preflight defaults: border-color became currentColor and
+ * ::placeholder became currentColor at 50%. Both are pinned to semantic roles so themes and
+ * the high-contrast modes control them. `button { cursor: pointer }` below covers v4's third
+ * change. */
 @layer base {
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border-color: theme(colors.gray.200);
+    border-color: rgb(var(--border-light) / var(--border-light-alpha, 1));
   }
 
   input::placeholder,
   textarea::placeholder {
-    color: theme(colors.gray.400);
+    color: rgb(var(--text-tertiary));
   }
 }
 
@@ -251,47 +248,8 @@ html[data-input-modality='keyboard'].high-contrast
 /* The WCAG 1.4.1 link treatment moved to
  * `packages/client/src/theme/highContrast.css` with the other rules that
  * complete the exported palettes: `text-link` is a shared role, so a package
- * primitive rendering a link needs the same non-colour cue. */
-/* The whole `@tailwindcss/typography` variable block is hard-coded hex, and
- * message content carries `prose dark:prose-invert`, so the invert half is what
- * dark mode reads. Both halves are remapped: the light set puts prose links at
- * #0066cc, which is 3.77:1 on a black canvas and 5.40:1 on a white one, and
- * every rule and border in the set (#cdcdcd, #e5e7eb, #424242, #4b5563) sits
- * below the 3:1 non-text floor in one mode or the other. */
-html.high-contrast .prose {
-  --tw-prose-body: rgb(var(--text-primary));
-  --tw-prose-headings: rgb(var(--text-primary));
-  --tw-prose-lead: rgb(var(--text-primary));
-  --tw-prose-links: rgb(var(--link));
-  --tw-prose-bold: rgb(var(--text-primary));
-  --tw-prose-counters: rgb(var(--text-primary));
-  --tw-prose-bullets: rgb(var(--text-primary));
-  --tw-prose-hr: rgb(var(--border-medium));
-  --tw-prose-quotes: rgb(var(--text-primary));
-  --tw-prose-quote-borders: rgb(var(--border-medium));
-  --tw-prose-captions: rgb(var(--text-primary));
-  --tw-prose-code: rgb(var(--text-primary));
-  --tw-prose-pre-code: rgb(var(--text-primary));
-  --tw-prose-pre-bg: rgb(var(--surface-code));
-  --tw-prose-th-borders: rgb(var(--border-medium));
-  --tw-prose-td-borders: rgb(var(--border-medium));
-  --tw-prose-invert-body: rgb(var(--text-primary));
-  --tw-prose-invert-headings: rgb(var(--text-primary));
-  --tw-prose-invert-lead: rgb(var(--text-primary));
-  --tw-prose-invert-links: rgb(var(--link));
-  --tw-prose-invert-bold: rgb(var(--text-primary));
-  --tw-prose-invert-counters: rgb(var(--text-primary));
-  --tw-prose-invert-bullets: rgb(var(--text-primary));
-  --tw-prose-invert-hr: rgb(var(--border-medium));
-  --tw-prose-invert-quotes: rgb(var(--text-primary));
-  --tw-prose-invert-quote-borders: rgb(var(--border-medium));
-  --tw-prose-invert-captions: rgb(var(--text-primary));
-  --tw-prose-invert-code: rgb(var(--text-primary));
-  --tw-prose-invert-pre-code: rgb(var(--text-primary));
-  --tw-prose-invert-pre-bg: rgb(var(--surface-code));
-  --tw-prose-invert-th-borders: rgb(var(--border-medium));
-  --tw-prose-invert-td-borders: rgb(var(--border-medium));
-}
+ * primitive rendering a link needs the same non-colour cue. The `.prose`
+ * remap lives there too. */
 /* Markdown structure borders are drawn from the raw grey palette, which lands
  * at 1.6:1 on white and 2.1:1 on black, under the 3:1 non-text floor. */
 html.high-contrast .markdown blockquote,
@@ -377,8 +335,9 @@ html.high-contrast.dark .btn-neutral:hover {
     background-repeat: no-repeat;
     background-size: 1.5em 1.5em;
     padding-right: 2.5rem;
-    background-color: #fff;
-    border-color: #8e8ea0;
+    background-color: rgb(var(--field-fill, var(--surface-primary)));
+    border-color: rgb(var(--border-medium) / var(--border-medium-alpha, 1));
+    color: rgb(var(--field-text, var(--text-primary)));
     border-radius: 0;
     border-width: 1px;
     font-size: 1rem;

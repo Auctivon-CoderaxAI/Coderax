@@ -108,3 +108,43 @@ test('Attach and tools palette should be accessible when open', async ({ page })
 
   expect(accessibilityScanResults.violations).toEqual([]);
 });
+
+for (const appearance of ['high-contrast-light', 'high-contrast-dark'] as const) {
+  test(`Landing page should be accessible in ${appearance}`, async ({ page }) => {
+    await page.addInitScript((value) => localStorage.setItem('color-theme', value), appearance);
+    await loadApp(page);
+    await expect(page.locator('html')).toHaveClass(/\bhigh-contrast\b/);
+
+    const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
+
+    expect(accessibilityScanResults.violations).toEqual([]);
+  });
+}
+
+test('Mobile navigation drawer should be accessible when open', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loadApp(page);
+
+  const closeButton = page.getByTestId('close-sidebar-button');
+  if (!(await closeButton.isVisible())) {
+    await page.getByTestId('header-open-sidebar-button').click();
+  }
+  await expect(closeButton).toBeVisible({ timeout: 10000 });
+
+  const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
+
+  expect(accessibilityScanResults.violations).toEqual([]);
+});
+
+test('Opening a conversation never leaves focus on the document body', async ({ page }) => {
+  await loadApp(page);
+
+  const row = page.getByTestId('convo-item').first();
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await row.click();
+  await page.waitForURL(/\/c\//);
+
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement?.tagName ?? 'BODY'))
+    .not.toBe('BODY');
+});

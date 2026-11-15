@@ -1653,6 +1653,37 @@ async function writeSandboxFile({
   }
 }
 
+/**
+ * Builds the SSE update payload for a resolved (ready/failed) code-execution
+ * preview, overlaying the CURRENT run's `messageId`/`toolCallId` onto the
+ * persisted DB record.
+ *
+ * The persisted record (`updated`) intentionally keeps the ORIGINAL
+ * `messageId` across cross-turn filename reuse (needed by
+ * `getCodeGeneratedFiles` for prior-turn priming). Routing the SSE patch by
+ * `updated.messageId` would land it on a stale message slot and leave the
+ * current turn's pending chip stuck (Codex P1 review, PR #12957).
+ *
+ * @param {Object} updated - resolved DB record from `finalize()`
+ * @param {Object} context
+ * @param {string} context.runMessageId - current run's messageId
+ * @param {string} [context.toolCallId] - current run's toolCallId, if any
+ * @param {number} [context.previewRevision] - monotonically increasing revision for ordering
+ * @returns {Object} SSE-ready payload
+ */
+function buildPreviewUpdatePayload(updated, { runMessageId, toolCallId, previewRevision } = {}) {
+  if (!updated) {
+    return null;
+  }
+
+  return {
+    ...updated,
+    messageId: runMessageId ?? updated.messageId,
+    ...(toolCallId != null ? { toolCallId } : {}),
+    ...(previewRevision != null ? { previewRevision } : {}),
+  };
+}
+
 module.exports = {
   CodeResourceRecoveryError,
   primeFiles,
@@ -1673,4 +1704,5 @@ module.exports = {
   readSandboxImage,
   writeSandboxFile,
   runPreviewFinalize,
+  buildPreviewUpdatePayload,
 };

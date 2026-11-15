@@ -1046,6 +1046,10 @@ export function getWorkAgents(): Promise<t.TWorkAgentsResponse> {
   return request.get(endpoints.workAgents());
 }
 
+export function getWorkRouting(): Promise<t.TWorkRoutingResponse> {
+  return request.get(endpoints.workRouting());
+}
+
 export function getWorkTasks(signal?: AbortSignal): Promise<t.TWorkTasksResponse> {
   return request.get(endpoints.workTasks(), signal ? { signal } : undefined);
 }

@@ -133,7 +133,7 @@ const ConversationsSection = memo(() => {
 
   const conversations = useMemo(() => {
     return data
-      ? data.pages.flatMap((page) => page.conversations).filter((conversation) => !conversation.isWork)
+      ? data.pages.flatMap((page) => page.conversations)
       : [];
   }, [data]);
 
@@ -155,7 +155,7 @@ const ConversationsSection = memo(() => {
   const pinnedConversations = useMemo(
     () =>
       collectPinnedConversations(
-        pinnedData?.conversations.filter((conversation) => !conversation.isWork),
+        pinnedData?.conversations,
         isArchivedView ? [] : conversations,
       ),
     [pinnedData?.conversations, conversations, isArchivedView],

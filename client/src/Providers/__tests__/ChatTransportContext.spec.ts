@@ -1,6 +1,7 @@
 import { EModelEndpoint } from 'coderax-data-provider';
 import type { ChatTransportRequest } from 'coderax-data-provider';
 import type { WorkOptions } from '~/components/Chat/Input/workSelection';
+import { toWorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
 import { toWorkChatServer } from '../workTransport';
 
@@ -80,6 +81,20 @@ describe('createWorkChatTransport', () => {
       undefined,
     );
     expect(chatRequest.payload.model).toBe('paid-model');
+  });
+
+  it('uses automatic local inference even when no saved agents are accessible', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const catalog = toWorkOptions([options.auto!, ...options.models], []);
+    const transport = createWorkChatTransport({ start } as never, catalog);
+
+    await transport.start(chatRequest);
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      conversationId: 'same-conversation',
+      endpoint: 'ollama',
+      model: 'local-free',
+      agent_id: undefined,
+    });
   });
 
   it('applies the selected agent and its concrete model only to the new Work request', async () => {

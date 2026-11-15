@@ -3346,6 +3346,36 @@ describe('useResumableSSE', () => {
     unmount();
   });
 
+  it.each([
+    'WORK_AGENT_GRAPH_NOT_ALLOWED',
+    'WORK_AGENT_GRAPH_TOO_LARGE',
+    'WORK_ADDED_CONVERSATION_UNSUPPORTED',
+  ])('localizes a safe Work admission error for %s', async (code) => {
+    (request.post as jest.Mock).mockRejectedValueOnce({
+      response: {
+        status: 400,
+        data: { error: code, message: 'server detail that must not be shown' },
+      },
+    });
+    const submission = buildSubmission();
+    const chatHelpers = buildChatHelpers();
+
+    const { unmount } = renderHook(() => useResumableSSE(submission, chatHelpers));
+
+    await waitFor(() => {
+      expect(mockErrorHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: {
+            text: JSON.stringify({ type: code }),
+            metadata: { streamStartFailed: true },
+          },
+          submission,
+        }),
+      );
+    });
+    unmount();
+  });
+
   it.each(['RECOVERY_PAYLOAD_MISMATCH', 'INVALID_RECOVERY_REQUEST'])(
     'holds a rejected recovery (%s) without changing its words or binding',
     async (code) => {

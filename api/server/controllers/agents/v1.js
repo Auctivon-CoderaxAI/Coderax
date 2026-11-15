@@ -99,6 +99,21 @@ const { getMCPServersRegistry } = require('~/config');
 const { getLogStores } = require('~/cache');
 const db = require('~/models');
 
+/**
+ * Validation errors can come from more than one Zod major version: the shared
+ * data-provider schemas are built with Zod 4 while @coderax/api still ships
+ * schemas built with Zod 3. `instanceof` only recognises the copy that created
+ * the error, so classify validation failures structurally instead. Both majors
+ * expose `name === 'ZodError'` and an `issues` array, and both lack a stable
+ * shared constructor identity across duplicated installs.
+ */
+function isZodValidationError(error) {
+  return (
+    error instanceof z.ZodError ||
+    (error != null && error.name === 'ZodError' && Array.isArray(error.issues))
+  );
+}
+
 const systemTools = {
   [Tools.execute_code]: true,
   [Tools.file_search]: true,
@@ -905,9 +920,9 @@ const createAgentHandler = async (req, res) => {
 
     res.status(201).json(agent);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      logger.error('[/Agents] Validation error', error.errors);
-      return res.status(400).json({ error: 'Invalid request data', details: error.errors });
+    if (isZodValidationError(error)) {
+      logger.error('[/Agents] Validation error', error.issues);
+      return res.status(400).json({ error: 'Invalid request data', details: error.issues });
     }
     logger.error('[/Agents] Error creating agent', error);
     if (error?.statusCode === 409) {
@@ -1411,9 +1426,9 @@ const updateAgentHandler = async (req, res) => {
 
     return res.json(presentedAgent);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      logger.error('[/Agents/:id] Validation error', error.errors);
-      return res.status(400).json({ error: 'Invalid request data', details: error.errors });
+    if (isZodValidationError(error)) {
+      logger.error('[/Agents/:id] Validation error', error.issues);
+      return res.status(400).json({ error: 'Invalid request data', details: error.issues });
     }
 
     logger.error('[/Agents/:id] Error updating Agent', error);

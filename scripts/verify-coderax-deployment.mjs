@@ -6,6 +6,7 @@
  * Usage:
  *   node scripts/verify-coderax-deployment.mjs --repo-only
  *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app
+ *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app --expected-backend-revision <full-commit>
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -23,8 +24,14 @@ export const validateLiveURL = (value) => {
   assert.equal(url.search, '', 'live URL cannot include query credentials');
   assert.equal(url.hash, '', 'live URL cannot contain a fragment');
   assert.equal(url.pathname, '/', 'live URL must be a deployment origin');
+  const isPreviewAlias =
+    url.hostname.startsWith('coderax-') && url.hostname.endsWith('.vercel.app');
+  // coderaxai.vercel.app is the project's assigned production alias. It does
+  // not match the coderax-<preview> pattern, but it is an owner-controlled
+  // origin, so preflight must be able to verify it.
+  const isProductionAlias = url.hostname === 'coderaxai.vercel.app';
   assert.ok(
-    url.hostname.endsWith('.vercel.app') && url.hostname.startsWith('coderax-'),
+    isPreviewAlias || isProductionAlias,
     'live URL must be a Coderax Vercel deployment',
   );
   return url.origin;
@@ -383,7 +390,10 @@ const check = async (origin, route, checkResponse, fetcher = fetch) => {
   return checkResponse(response, await readBounded(response));
 };
 
-export async function verifyLiveBackend(value, fetcher = fetch) {
+export async function verifyLiveBackend(value, fetcher = fetch, expectedBackendRevision) {
+  if (expectedBackendRevision !== undefined) {
+    assert.match(expectedBackendRevision, /^[a-f0-9]{40}$/i, 'expected backend revision must be a full 40-character commit');
+  }
   const origin = validateLiveURL(value);
   await check(origin, '/readyz', (_response, body) => {
     assert.equal(body.trim(), 'OK', '/readyz must confirm Express startup');
@@ -394,11 +404,23 @@ export async function verifyLiveBackend(value, fetcher = fetch) {
     assert.equal(typeof payload.appTitle, 'string', 'missing application startup configuration');
     return payload;
   }, fetcher);
+  if (expectedBackendRevision !== undefined) {
+    const actual = config.buildInfo?.commit;
+    assert.ok(typeof actual === 'string' && /^[a-f0-9]{40}$/i.test(actual), '/api/config is missing a full backend-reported buildInfo.commit');
+    assert.equal(actual.toLowerCase(), expectedBackendRevision.toLowerCase(), 'backend-reported buildInfo.commit does not match expected revision');
+  }
   await check(origin, '/login', (response, body) => {
     assert.match(response.headers.get('content-type') || '', /text[/]html/i);
     assert.match(body, /<html/i, 'login SPA is not served');
   }, fetcher);
-  return { origin, readiness: 'OK', apiConfig: 'JSON', spa: 'HTML', appTitle: config.appTitle };
+  return {
+    origin,
+    readiness: 'OK',
+    apiConfig: 'JSON',
+    spa: 'HTML',
+    appTitle: config.appTitle,
+    backendRevisionVerified: expectedBackendRevision !== undefined,
+  };
 }
 
 async function main() {
@@ -409,10 +431,15 @@ async function main() {
       console.log(JSON.stringify({ ok: true, repo: result }));
       return;
     }
-    if (flag !== '--live-url' || !process.argv[3] || process.argv.length !== 4) {
-      throw new Error('Use --repo-only or --live-url https://coderax-*.vercel.app');
+    if (
+      flag !== '--live-url' ||
+      !process.argv[3] ||
+      (process.argv.length !== 4 &&
+        !(process.argv.length === 6 && process.argv[4] === '--expected-backend-revision'))
+    ) {
+      throw new Error('Use --repo-only or --live-url https://coderax-*.vercel.app [--expected-backend-revision <full-commit>]');
     }
-    const live = await verifyLiveBackend(process.argv[3]);
+    const live = await verifyLiveBackend(process.argv[3], fetch, process.argv[5]);
     console.log(JSON.stringify({ ok: true, repo: result, live }));
   } catch (error) {
     console.error('[Coderax release gate] FAILED:', error instanceof Error ? error.message : String(error));

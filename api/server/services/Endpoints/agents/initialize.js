@@ -98,6 +98,7 @@ const {
   resolveMemoryAvailability,
   enrichLoadedToolsWithAgentContext,
 } = require('./skillDeps');
+const { buildAgentDbMethods } = require('./dbMethodsFactory');
 const {
   loadCodeApiKey,
   provisionToCodeEnv,
@@ -819,15 +820,17 @@ const initializeClientWithProvider = async ({
       getToolFilesByIds: db.getToolFilesByIds,
       getCodeGeneratedFiles: db.getCodeGeneratedFiles,
       filterFilesByAgentAccess,
-      listSkillsByAccess: skillDbMethods.listSkillsByAccess,
-      listAlwaysApplySkills: skillDbMethods.listAlwaysApplySkills,
-      getSkillByName: skillDbMethods.getSkillByName,
-      provisionToCodeEnv,
-      provisionToVectorDB,
-      checkSessionsAlive,
-      loadCodeApiKey,
-      updateFile: db.updateFile,
       getRoleByName: db.getRoleByName,
+      ...buildAgentDbMethods({
+        listSkillsByAccess: skillDbMethods.listSkillsByAccess,
+        listAlwaysApplySkills: skillDbMethods.listAlwaysApplySkills,
+        getSkillByName: skillDbMethods.getSkillByName,
+        provisionToCodeEnv,
+        provisionToVectorDB,
+        checkSessionsAlive,
+        loadCodeApiKey,
+        updateFile: db.updateFile,
+      }),
     },
   );
 

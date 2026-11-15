@@ -52,17 +52,15 @@ export function isLocalModelId(id: string): boolean {
 }
 
 /**
- * Work offers models Coderax can run without charging the user: explicitly
- * free, explicitly local, or a local-runtime identifier. Paid gateway models
- * are excluded rather than silently filtered at execution time, so the picker
- * never advertises something the run would reject.
+ * A model identifier alone cannot establish where inference runs. Work accepts
+ * only sources explicitly marked free or local by the server's model catalog.
  */
 export function isWorkSupportedModel(source: WorkModelSource): boolean {
   const id = (source.id ?? source.name ?? '').trim();
   if (!id || id === WORK_AUTO_MODEL_ID) {
     return false;
   }
-  return source.free === true || source.local === true || isLocalModelId(id);
+  return source.free === true || source.local === true;
 }
 
 /** Deduplicate by id, keep the first label, and sort for a stable picker. */

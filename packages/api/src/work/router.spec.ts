@@ -44,6 +44,65 @@ describe('native Work router', () => {
     expect(res.body.code).toBe('WORK_UNAUTHENTICATED');
   });
 
+  it('reports hosted routing as disabled until the deployment opts in', async () => {
+    const res = await request(app()).get('/api/work/routing');
+    expect(res.status).toBe(200);
+    expect(res.body.routing).toMatchObject({
+      enabled: false,
+      activeModel: null,
+      endpoints: [],
+      paidRoutesEnabled: false,
+    });
+    expect(res.body.routing.primary.available).toBe(false);
+  });
+
+  it('names the provider and model a turn would use, and the fallback reason', async () => {
+    const res = await request(
+      app({
+        routing: async () => ({
+          enabled: true,
+          primary: {
+            available: false,
+            label: 'DeepSeek-R1 671B',
+            modelIds: ['deepseek/deepseek-r1-0528'],
+            reason: 'no_verified_free_endpoint',
+            checkedAt: '2026-11-08',
+            evidence: [],
+          },
+          activeModel: {
+            provider: 'groq',
+            modelId: 'openai/gpt-oss-120b',
+            label: 'OpenAI GPT-OSS 120B on Groq',
+          },
+          endpoints: [],
+          paidRoutesEnabled: false,
+        }),
+      }),
+    ).get('/api/work/routing');
+
+    expect(res.status).toBe(200);
+    expect(res.body.routing.activeModel).toEqual({
+      provider: 'groq',
+      modelId: 'openai/gpt-oss-120b',
+      label: 'OpenAI GPT-OSS 120B on Groq',
+    });
+    expect(res.body.routing.primary.reason).toBe('no_verified_free_endpoint');
+  });
+
+  it('reports an unusable router without leaking its error text', async () => {
+    const res = await request(
+      app({
+        routing: async () => {
+          throw new Error('provider payload with ghp_secret_token');
+        },
+      }),
+    ).get('/api/work/routing');
+
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('WORK_ROUTING_UNAVAILABLE');
+    expect(JSON.stringify(res.body)).not.toContain('ghp_secret_token');
+  });
+
   it('serves native models with the automatic choice first', async () => {
     const res = await request(app()).get('/api/work/models');
     expect(res.status).toBe(200);

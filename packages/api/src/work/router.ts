@@ -7,6 +7,8 @@ import type { NextFunction, Request, Response, Router } from 'express';
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
+import type { FreeRoutingSnapshot } from '../routing/router';
+import { createDisabledRoutingSnapshot } from '../routing/router';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
 import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
@@ -45,6 +47,12 @@ export type WorkDeps = {
   getRunState?: (input: { userId: string; conversationId: string }) => Promise<string | null>;
   /** Aborts the native generation for this conversation. */
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
+  /**
+   * The live zero-cost routing state: which provider and model a new turn would
+   * use, why the preferred model is unavailable, and the remaining budget.
+   * Absent means the deployment has not opted into hosted free routing.
+   */
+  routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
 };
 
 const HISTORY_LIMIT = 50;
@@ -102,6 +110,20 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
     next();
+  });
+
+  /**
+   * The model a new turn would actually use, named with its provider. The
+   * snapshot carries no credentials, no prompts and no provider error text.
+   */
+  router.get('/routing', async (_req: Request, res: Response) => {
+    try {
+      const routing = deps.routing ? await deps.routing() : createDisabledRoutingSnapshot();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ routing });
+    } catch {
+      res.status(503).json({ code: 'WORK_ROUTING_UNAVAILABLE' });
+    }
   });
 
   router.get('/models', async (_req: Request, res: Response) => {
