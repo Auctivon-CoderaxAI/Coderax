@@ -209,3 +209,119 @@ Run focused Jest tests from the owning workspace, not the entire monorepo. Prefe
 spies over mocked internals; use `mongodb-memory-server` for database queries and the real MCP SDK
 for MCP behavior. Mock only external HTTP APIs or uncontrollable services. For frontend tests use
 the component's colocated `__tests__` and `test/layout-test-utils` where applicable.
+
+<!-- BEGIN freebuff-pr-policy (canonical: ~/AGENTS.md sections 1-8) -->
+## Mandatory Pull Request Review & Automated Remediation
+
+**This policy applies to every Freebuff CLI session and every authorized repository.**
+
+### 1. Pull Requests Must Be Ready for Review
+
+- NEVER push directly to `main`, `master`, or another protected branch.
+- ALWAYS create or update a feature branch and open a pull request.
+- NEVER create draft pull requests.
+- Existing draft PRs must be converted to **Ready for review** when their changes are ready for validation.
+- Run applicable tests, linting, builds, and security checks before submitting the PR.
+- Reuse existing PRs instead of creating duplicate branches or pull requests.
+
+### 2. Mandatory AI Reviewer Workflow
+
+- Request reviews from authorized, configured AI reviewers, including GitHub Copilot, CodeRabbit, and Greptile where available.
+- Do not assume that opening a PR automatically triggers reviewers.
+- Confirm that review requests were accepted and actual reviews were submitted.
+- Never fabricate approvals, impersonate reviewers, or bypass required human approval.
+- If a reviewer is unavailable, report the exact blocker.
+
+### 3. Read ALL Pull Request Feedback
+
+Freebuff CLI MUST retrieve and inspect:
+
+- PR conversation comments.
+- Inline code-review comments.
+- Review summaries and requested changes.
+- Unresolved review threads.
+- CI failures and security findings.
+- Comments added after subsequent commits.
+
+Retrieve all pages of feedback through GitHub CLI or authenticated GitHub APIs. Do not rely exclusively on `gh pr view --comments`.
+
+### 4. Automatically Implement Review Fixes
+
+For every actionable comment:
+
+1. Inspect the referenced code and understand the requested change.
+2. Implement the appropriate fix on the EXISTING PR branch.
+3. Run relevant tests, builds, and security validation.
+4. Commit and push the correction to the same branch.
+5. Reply to the original comment with the fix and commit reference.
+6. Resolve review threads only after the underlying issue has genuinely been addressed.
+
+If a suggestion is incorrect or unsafe, explain why on the PR rather than blindly applying it.
+
+### 5. Mandatory Re-Review
+
+- After every corrective push, request a new review unless automatic review of new pushes is confirmed enabled.
+- Check review decisions against the latest commit SHA.
+- Repeat the review -> fix -> test -> push -> re-review cycle until all actionable comments are addressed.
+- Never count an old, dismissed, or stale approval as approval of the latest commit when current-head approval is required.
+
+### 6. Automated Merge Gates
+
+Where the repository owner has authorized auto-merge:
+
+- Merge only when all required current-HEAD checks, builds, tests, security checks, reviews, approvals, and branch-protection rules pass.
+- All required review threads must be resolved.
+- Never bypass protection, use administrator override, self-approve, or force-merge.
+- After merging, verify the merged SHA, deployment status where relevant, and required runtime checks.
+
+If merging is not authorized or any gate remains blocked, keep the PR unmerged and report the exact blocker.
+
+### 7. Continuation Across Sessions
+
+At the beginning of every Freebuff CLI session:
+
+- Identify the current GitHub account, repository, and active PRs.
+- Check for outstanding review feedback before starting duplicate work.
+- Continue authorized unfinished remediation on the existing PR.
+- Revalidate the repository, branch, and latest SHA before writing.
+- Report the PR URL, review status, fixes completed, remaining blockers, and merge status.
+
+**Opening a PR is not completion. Freebuff is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
+
+### 8. Command Reference (use these exact commands)
+
+Run from the repository root with `gh` authenticated (`gh auth status`). `gh` resolves `{owner}/{repo}` itself; replace `PR_NUMBER` with the numeric PR number.
+
+```bash
+# Check whether the PR is a draft and inspect reviews/checks
+gh pr view --json number,url,isDraft,headRefOid,reviewDecision,reviews,statusCheckRollup
+
+# Convert an existing draft PR to ready for review
+gh pr ready
+
+# Read conversation comments and general reviews
+gh pr view --comments
+
+# Read ALL inline code-review comments
+gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/comments" --paginate
+
+# Read submitted reviews
+gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/reviews" --paginate
+
+# Read general PR conversation comments
+gh api "repos/{owner}/{repo}/issues/PR_NUMBER/comments" --paginate
+
+# Inspect CI status
+gh pr checks
+```
+
+- Keep `--paginate` on every `gh api` call. One page is not "all feedback" (section 3).
+- `gh pr checks` and `headRefOid` describe the current head. Re-check them after every corrective
+  push, and compare approvals against that SHA (section 5).
+- `isDraft` must be `false` before review is requested (section 1). `gh pr ready` targets the PR for
+  the branch you are on; pass the PR number explicitly when you are elsewhere.
+- An empty `reviews` or comment list is a result to report, not proof that reviewers accepted the
+  request. Confirm the review was actually submitted (section 2).
+
+
+<!-- END freebuff-pr-policy -->
