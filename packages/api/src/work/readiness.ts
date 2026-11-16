@@ -3,10 +3,10 @@ import type { WorkAgentOption } from './agents';
 import type { WorkModel } from './models';
 
 /**
- * Work runs when at least one free or local model is offered and an accessible
- * agent is pinned to it. Hosted free inference is one way to satisfy the model
- * check; a local endpoint is another, so its opt-in flag is reported as context
- * rather than being required.
+ * Work runs when at least one free or local model is offered. A saved agent is
+ * optional because automatic Work can run directly on an offered model. Hosted
+ * free inference is one way to satisfy the model check; a local endpoint is
+ * another, so its opt-in flag is reported as context rather than being required.
  */
 export type WorkReadinessCheckId =
   | 'free_inference_enabled'
@@ -80,12 +80,12 @@ export function describeWorkReadiness(input: {
     },
     {
       id: 'eligible_agent',
-      required: true,
+      required: false,
       ok: input.agents.length > 0,
       detail:
         input.agents.length > 0
           ? `${input.agents.length} accessible agent(s) run entirely on an offered model.`
-          : 'No accessible agent is pinned to an offered model.',
+          : 'No saved agent is pinned to an offered model; automatic Work can run directly on an offered model.',
     },
   ];
 
