@@ -11,7 +11,7 @@ import GroupSidePanel from '../GroupSidePanel';
  * - page draining (useNavScrolling `enabled`) only while the panel is visible
  * isChatRoute is still derived from the route (or the prop), independent of visibility.
  */
-const mockPanelActive = jest.fn(() => true);
+const mockPanelActive = jest.fn((_panelId: string) => true);
 const mockActivateCatalog = jest.fn();
 const mockUseNavScrolling = jest.fn((_options?: object) => ({ containerRef: { current: null } }));
 const mockListProps = jest.fn();

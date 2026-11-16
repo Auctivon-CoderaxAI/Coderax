@@ -63,10 +63,12 @@ import useAskAnswerMode from '~/hooks/Input/useAskAnswerMode';
 import AskUserQuestionPopover from './AskUserQuestionPopover';
 import useComposerItems from '~/hooks/Input/useComposerItems';
 import useAttachTarget from '~/hooks/Input/useAttachTarget';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import Hints, { composerHintId } from './Composer/Hints';
 import PastedTextDialog from './Files/PastedTextDialog';
 import DuringRunSendButton from './DuringRunSendButton';
 import ProjectLandingChip from '../ProjectLandingChip';
+import { useComposerPreferences } from './preferences';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import useDictation from '~/hooks/Input/useDictation';
 import { useGetStartupConfig } from '~/data-provider';
@@ -82,8 +84,6 @@ import AutoPlayAudio from './AutoPlayAudio';
 import Waveform from './Composer/Waveform';
 import { mainTextareaId } from '~/common';
 import CollapseChat from './CollapseChat';
-import { useComposerPreferences } from './preferences';
-import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import QuoteButton from './QuoteButton';
 import ToolDialogs from './ToolDialogs';
 import StopButton from './StopButton';
@@ -1150,6 +1150,7 @@ function ChatFormWrapper({
   project,
   routePending = false,
   workMode = false,
+  workCanSubmit = false,
   isLandingPage,
   enterToSend: enterToSendProp,
   autoSendText: autoSendTextProp,
@@ -1162,6 +1163,7 @@ function ChatFormWrapper({
   project?: TChatProject;
   routePending?: boolean;
   workMode?: boolean;
+  workCanSubmit?: boolean;
   /** Each preference overrides the host's `ComposerPreferencesProvider` value. */
   enterToSend?: boolean;
   autoSendText?: number;
@@ -1255,6 +1257,7 @@ function ChatFormWrapper({
       project={project}
       routePending={routePending}
       workMode={workMode}
+      workCanSubmit={workCanSubmit}
       isLandingPage={isLandingPage}
       footerBelow={footerBelow}
       centerFormOnLanding={centerFormOnLanding}
