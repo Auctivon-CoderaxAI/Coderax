@@ -149,6 +149,35 @@ describe('native work model discovery', () => {
     });
   });
 
+  it('keeps an eligible provider when the configured default shares its id', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'shared', provider: 'ollama', local: true },
+        { id: 'shared', provider: 'gateway' },
+      ],
+      { id: 'shared', provider: 'gateway' },
+    );
+    expect(
+      options.filter((model) => model.id === 'shared').map((model) => model.provider),
+    ).toEqual(['ollama', 'gateway']);
+    expect(options[0].target).toEqual({ id: 'shared', label: 'shared', provider: 'gateway' });
+    expect(
+      resolveWorkAgentModel(options, { id: 'agent', model: 'shared', provider: 'ollama' }),
+    ).toMatchObject({ id: 'shared', provider: 'ollama' });
+  });
+
+  it('does not invent a configured pair the catalog does not advertise', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'shared', provider: 'other' },
+        { id: 'local', provider: 'ollama', local: true },
+      ],
+      { id: 'shared', provider: 'gateway' },
+    );
+    expect(options.map((model) => model.id)).toEqual([WORK_AUTO_MODEL_ID, 'local']);
+    expect(options[0].target).toEqual({ id: 'local', label: 'local', provider: 'ollama' });
+  });
+
   it('resolves the configured default on its own endpoint when the id is shared', () => {
     const options = buildWorkModelOptions(
       [

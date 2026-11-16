@@ -50,6 +50,24 @@ function readConfiguredDefault(input: WorkConfiguredDefaultInput): {
   return { ...(id ? { id } : {}), ...(provider ? { provider } : {}) };
 }
 
+/**
+ * Accepts a resolver result of unknown shape (the route layer passes its
+dependency through) and keeps only a usable default.
+ */
+export function normalizeConfiguredDefault(input: unknown): WorkConfiguredDefaultInput {
+  if (typeof input === 'string') {
+    return input.trim() || null;
+  }
+  if (input == null || typeof input !== 'object') {
+    return null;
+  }
+  const { id, provider } = readConfiguredDefault(input as WorkConfiguredDefault);
+  if (!id) {
+    return null;
+  }
+  return provider ? { id, provider } : { id };
+}
+
 export type WorkModel = {
   id: string;
   label: string;
@@ -160,31 +178,32 @@ function withConfiguredDefault(
   if (!id || id === WORK_AUTO_MODEL_ID) {
     return models;
   }
-  const offered = models.find((model) => model.id === id);
-  if (offered) {
-    /**
-     * The catalog deduplicates by id, so a model advertised by two endpoints keeps
-     * whichever came first. The deployment's configured endpoint is the one the run
-     * must use: match the provider/model pair rather than the id alone.
-     */
-    if (!provider || offered.provider === provider) {
-      return models;
-    }
-    return models.map((model) => (model.id === id ? { ...model, provider } : model));
+  const alreadyOffered = models.some(
+    (model) => model.id === id && (!provider || model.provider === provider),
+  );
+  if (alreadyOffered) {
+    return models;
   }
-  const source =
-    sources.find(
-      (item) =>
-        (item.id ?? item.name ?? '').trim() === id &&
-        (!provider || (item.provider ?? '').trim() === provider),
-    ) ?? sources.find((item) => (item.id ?? item.name ?? '').trim() === id);
-  const resolvedProvider = provider ?? source?.provider?.trim();
-  if (!source || !resolvedProvider) {
+  /**
+   * An endpoint the operator configured must actually advertise the model. An
+   * id-only fallback would fabricate a provider/model pair the catalog lacks and
+   * send inference to an endpoint that cannot serve it.
+   */
+  const source = sources.find(
+    (item) =>
+      (item.id ?? item.name ?? '').trim() === id &&
+      (!provider || (item.provider ?? '').trim() === provider),
+  );
+  if (!source) {
+    return models;
+  }
+  const resolvedProvider = provider ?? source.provider?.trim();
+  if (!resolvedProvider) {
     return models;
   }
   const label = (source.label ?? id).trim() || id;
-  return [...models, { id, label, provider: resolvedProvider }].sort((a, b) =>
-    a.id.localeCompare(b.id),
+  return [...models, { id, label, provider: resolvedProvider }].sort(
+    (a, b) => a.id.localeCompare(b.id) || (a.provider ?? '').localeCompare(b.provider ?? ''),
   );
 }
 

@@ -10,6 +10,9 @@ const {
   canViewWorkAgent,
   createConfiguredDefaultResolver,
   hasMalformedWorkAgentId,
+  normalizeConfiguredDefault,
+  resolveConfiguredDefault,
+  resolveConfiguredDefaultModel,
   resolveWorkAdmission,
   resolveWorkContext,
   selectedWorkAgentId,
@@ -20,41 +23,9 @@ const {
 const { flattenModelConfig } = require('./workModels');
 
 /**
- * The deployment's default model, read from the app config Coderax already
- * loads. `req.config` is the app config, and its default-selection data is
- * `modelSpecs.list`: a spec marked `default` is the hard default, and one marked
- * `softDefault` is the fallback. The concrete model id lives on the spec's
- * `preset`, so a spec that only names an agent yields no model id.
- *
- * Returning null is deliberate: it lets the resolver fail with an actionable
- * message instead of guessing.
+ * The default resolver lives in `@coderax/api`; this route only loads the app
+ * config it reads, keeping backend behavior in the TypeScript workspace.
  */
-/**
- * The same default with its endpoint, so Work resolves the provider/model pair
- * rather than whichever catalog entry happens to carry the id first.
- */
-function resolveConfiguredDefault(config) {
-  const specs = config?.modelSpecs?.list;
-  if (!Array.isArray(specs)) {
-    return null;
-  }
-  const chosen =
-    specs.find((spec) => spec?.default === true) ??
-    specs.find((spec) => spec?.softDefault === true);
-  const model = chosen?.preset?.model;
-  if (typeof model !== 'string' || model.trim() === '') {
-    return null;
-  }
-  const id = model.trim();
-  const endpoint = chosen?.preset?.endpoint;
-  const provider = typeof endpoint === 'string' && endpoint.trim() !== '' ? endpoint.trim() : '';
-  return provider ? { id, provider } : { id };
-}
-
-function resolveConfiguredDefaultModel(config) {
-  return resolveConfiguredDefault(config)?.id ?? null;
-}
-
 const configuredDefaultFromRequest = createConfiguredDefaultResolver(async (req) => {
   const { getAppConfigOptionsFromUser } = require('@coderax/api');
   const { getAppConfig } = require('~/server/services/Config');
@@ -196,17 +167,12 @@ function workContextMiddleware(
       } catch {
         configuredDefault = null;
       }
-      const defaultModel =
-        typeof configuredDefault === 'string' ||
-        (configuredDefault != null && typeof configuredDefault === 'object')
-          ? configuredDefault
-          : null;
       const sources = flattenModelConfig(config);
       const requestedAgentId = selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID);
       const admission = await resolveWorkAdmission({
         sources,
         requestedModel: req.body?.model,
-        configuredDefaultModel: defaultModel,
+        configuredDefaultModel: normalizeConfiguredDefault(configuredDefault),
         requestedAgentId,
         findAgent,
         canViewAgent: (agent) => canViewAgent(req, agent),
