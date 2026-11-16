@@ -23,10 +23,12 @@ export function useStoredConversationMode({
   userId,
   conversationId,
   initialMode,
+  forceInitialMode = false,
 }: {
   userId: string;
   conversationId: string;
   initialMode: ConversationMode;
+  forceInitialMode?: boolean;
 }) {
   const modesAtom = useMemo(
     () => createStorageAtom<Record<string, ConversationMode>>(`conversationModes:${userId}`, {}),
@@ -34,7 +36,11 @@ export function useStoredConversationMode({
   );
   const [modes, setModes] = useAtom(modesAtom);
   const saved = modes?.[conversationId];
-  const mode = saved === 'chat' || saved === 'work' ? saved : initialMode;
+  const mode = forceInitialMode
+    ? initialMode
+    : saved === 'chat' || saved === 'work'
+      ? saved
+      : initialMode;
 
   return useMemo(
     () => ({
