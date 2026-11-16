@@ -3,6 +3,7 @@ import {
   persistRedirectToSession,
   clearPostLoginRedirect,
   getPostLoginRedirect,
+  getPostLoginFallback,
   peekPostLoginRedirect,
   isSafeRedirect,
   withBasePath,
@@ -421,5 +422,29 @@ describe('blocked session storage', () => {
     sessionStorage.clear();
 
     expect(getPostLoginRedirect(new URLSearchParams())).toBeNull();
+  });
+});
+
+describe('getPostLoginFallback', () => {
+  it('canonicalizes a bare Work route to the new Work conversation', () => {
+    expect(getPostLoginFallback({ pathname: '/work' })).toBe('/work/new');
+  });
+
+  it('canonicalizes a trailing-slash Work route', () => {
+    expect(getPostLoginFallback({ pathname: '/work/' })).toBe('/work/new');
+  });
+
+  it('preserves a Work conversation deep link with its query and hash', () => {
+    expect(getPostLoginFallback({ pathname: '/work/abc123', search: '?x=1', hash: '#top' })).toBe(
+      '/work/abc123?x=1#top',
+    );
+  });
+
+  it('keeps the chat default for non-Work routes', () => {
+    expect(getPostLoginFallback({ pathname: '/c/abc123' })).toBe('/c/new');
+  });
+
+  it('does not send an auth route back to itself', () => {
+    expect(getPostLoginFallback({ pathname: '/login/2fa' })).toBe('/c/new');
   });
 });

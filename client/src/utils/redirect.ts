@@ -116,6 +116,34 @@ export function getPostLoginRedirect(searchParams: URLSearchParams): string | nu
   return target;
 }
 
+/**
+ * Fallback destination when no post-login redirect was requested.
+ *
+ * A Work deep link is an explicit destination: a guest who lands on /work must
+ * bootstrap into Work instead of having the session hand-off replace the URL
+ * with the chat default. Bare /work canonicalizes to the new-Work route; a
+ * specific Work conversation keeps its id, query and hash.
+ */
+export function getPostLoginFallback(
+  {
+    pathname,
+    search = '',
+    hash = '',
+  }: {
+    pathname: string;
+    search?: string;
+    hash?: string;
+  } = window.location,
+): string {
+  if (pathname === '/work' || pathname === '/work/') {
+    return `/work/new${search}${hash}`;
+  }
+  if (pathname.startsWith('/work/')) {
+    return `${pathname}${search}${hash}`;
+  }
+  return '/c/new';
+}
+
 /** Drops a pending destination, so a later sign-in starts from a clean slate. */
 export function clearPostLoginRedirect(): void {
   dropStoredRedirect();
