@@ -97,7 +97,6 @@ it('selects an eligible agent and pins its model without resetting Chat settings
   expect(screen.queryByRole('option', { name: 'paid' })).not.toBeInTheDocument();
 });
 
-
 it('localizes a readiness action instead of rendering the server English string', async () => {
   jest.mocked(dataService.getWorkModels).mockResolvedValue({ models: [] });
   jest.mocked(dataService.getWorkAgents).mockResolvedValue({ agents: [] });
