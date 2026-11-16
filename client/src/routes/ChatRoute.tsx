@@ -215,7 +215,11 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     const returnPath = location.pathname.startsWith('/work/')
       ? location.pathname
       : `/work/${conversationId}`;
-    const redirectTo = `${returnPath}${redirectSearch ? `?${redirectSearch}` : ''}${location.hash}`;
+    const redirectTo = [
+      returnPath,
+      redirectSearch ? `?${redirectSearch}` : '',
+      location.hash,
+    ].join('');
     const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
     navigate(`/login?${loginParams.toString()}`, { replace: true });
   }, [conversationId, location.hash, location.pathname, location.search, navigate, ownerSignInRequired]);
