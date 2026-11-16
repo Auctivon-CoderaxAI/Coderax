@@ -227,7 +227,6 @@ it('copies a new Work selection to the acknowledged conversation without replaci
   });
 });
 
-
 it('redirects a guest Work task to owner sign-in and preserves the draft without auto-submitting', async () => {
   mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
   const { router } = setup(['/work/new?prompt=Fix+the+Work+start+flow&submit=true']);
