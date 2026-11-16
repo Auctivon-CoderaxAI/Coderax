@@ -222,7 +222,14 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     ].join('');
     const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
     navigate(`/login?${loginParams.toString()}`, { replace: true });
-  }, [conversationId, location.hash, location.pathname, location.search, navigate, ownerSignInRequired]);
+  }, [
+    conversationId,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+    ownerSignInRequired,
+  ]);
   const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
   const [newConversationWorkSelection] = useAtom(
     workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
