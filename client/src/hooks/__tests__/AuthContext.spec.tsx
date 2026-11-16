@@ -761,9 +761,10 @@ describe('AuthContextProvider — passwordless guest bootstrap', () => {
   it('does not replace a completed sign-in with a delayed guest response', async () => {
     let resolveGuest!: (response: Response) => void;
     const guestFetch = jest.spyOn(globalThis, 'fetch').mockImplementation(
-      () => new Promise<Response>((resolve) => {
-        resolveGuest = resolve;
-      }),
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveGuest = resolve;
+        }),
     );
     const { getByTestId } = renderProviderLive();
     const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
@@ -815,6 +816,25 @@ describe('AuthContextProvider — passwordless guest bootstrap', () => {
     expect(getByTestId('consumer')).toHaveAttribute('data-authenticated', 'true');
     expect(capturedAuthContext?.user?.id).toBe('guest-user');
     expect(mockNavigate).toHaveBeenCalledWith('/c/new', { replace: true });
+  });
+
+  it('keeps a guest arriving on /work in Work mode', async () => {
+    window.history.replaceState({}, '', '/work');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'guest-token', user: { id: 'guest-user' } }),
+    } as Response);
+    renderProviderLive();
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: Error) => void },
+    ];
+
+    await act(async () => {
+      refreshOptions.onError(new Error('No existing session'));
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/work/new', { replace: true });
   });
 });
 
