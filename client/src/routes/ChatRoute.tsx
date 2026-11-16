@@ -196,6 +196,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       (conversation?.conversationId === conversationId && conversation.isWork === true)
         ? 'work'
         : 'chat',
+    forceInitialMode: workMode,
   });
   const isWorkMode = modeState.mode === 'work';
   const isGuestSession = user?.provider === 'guest';
@@ -211,10 +212,13 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     // Owner sign-in must confirm a prepared task before it runs.
     redirectParams.delete('submit');
     const redirectSearch = redirectParams.toString();
-    const redirectTo = `${location.pathname}${redirectSearch ? `?${redirectSearch}` : ''}${location.hash}`;
+    const returnPath = location.pathname.startsWith('/work/')
+      ? location.pathname
+      : `/work/${conversationId}`;
+    const redirectTo = `${returnPath}${redirectSearch ? `?${redirectSearch}` : ''}${location.hash}`;
     const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
     navigate(`/login?${loginParams.toString()}`, { replace: true });
-  }, [location.hash, location.pathname, location.search, navigate, ownerSignInRequired]);
+  }, [conversationId, location.hash, location.pathname, location.search, navigate, ownerSignInRequired]);
   const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
   const [newConversationWorkSelection] = useAtom(
     workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
