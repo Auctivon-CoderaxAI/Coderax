@@ -1,4 +1,4 @@
-import { readTwoFactorSetupToken } from 'coderax-data-provider';
+import { apiBaseUrl, readTwoFactorSetupToken } from 'coderax-data-provider';
 
 export const REDIRECT_PARAM = 'redirect_to';
 export const SESSION_KEY = 'post_login_redirect_to';
@@ -124,22 +124,38 @@ export function getPostLoginRedirect(searchParams: URLSearchParams): string | nu
  * with the chat default. Bare /work canonicalizes to the new-Work route; a
  * specific Work conversation keeps its id, query and hash.
  */
+/** Strips the deployment basename so the router-relative route can be matched. */
+function stripBasePath(pathname: string, basePath: string): string {
+  const base = basePath.replace(/\/+$/, '');
+  if (!base) {
+    return pathname;
+  }
+  if (pathname === base) {
+    return '/';
+  }
+  return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
+}
+
 export function getPostLoginFallback(
   {
     pathname,
     search = '',
     hash = '',
+    basePath = apiBaseUrl(),
   }: {
     pathname: string;
     search?: string;
     hash?: string;
+    /** Deployment basename; defaults to the same base the API and router use. */
+    basePath?: string;
   } = window.location,
 ): string {
-  if (pathname === '/work' || pathname === '/work/') {
+  const route = stripBasePath(pathname, basePath);
+  if (route === '/work' || route === '/work/') {
     return `/work/new${search}${hash}`;
   }
-  if (pathname.startsWith('/work/')) {
-    return `${pathname}${search}${hash}`;
+  if (route.startsWith('/work/')) {
+    return `${route}${search}${hash}`;
   }
   return '/c/new';
 }

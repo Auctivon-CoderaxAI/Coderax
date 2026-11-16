@@ -447,4 +447,23 @@ describe('getPostLoginFallback', () => {
   it('does not send an auth route back to itself', () => {
     expect(getPostLoginFallback({ pathname: '/login/2fa' })).toBe('/c/new');
   });
+
+  it('strips a deployment basename before matching a bare Work route', () => {
+    expect(getPostLoginFallback({ pathname: '/app/work', basePath: '/app' })).toBe('/work/new');
+  });
+
+  it('keeps a basename-prefixed Work deep link root-relative', () => {
+    expect(
+      getPostLoginFallback({
+        pathname: '/app/work/abc123',
+        search: '?x=1',
+        hash: '#top',
+        basePath: '/app',
+      }),
+    ).toBe('/work/abc123?x=1#top');
+  });
+
+  it('keeps non-Work routes on the chat default under a basename', () => {
+    expect(getPostLoginFallback({ pathname: '/app/c/abc123', basePath: '/app' })).toBe('/c/new');
+  });
 });
