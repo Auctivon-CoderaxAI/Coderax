@@ -1,4 +1,7 @@
-import type { FreeInferenceCatalogState } from 'coderax-data-provider';
+import type {
+  FreeInferenceCatalogState,
+  TWorkReadinessAction,
+} from 'coderax-data-provider';
 import type { WorkAgentOption } from './agents';
 import type { WorkModel } from './models';
 
@@ -28,6 +31,8 @@ export type WorkReadiness = {
   checks: WorkReadinessCheck[];
   /** The single next step, or null when every required check passes. */
   nextAction: string | null;
+  /** Stable action data for clients to localize. */
+  nextActionDescriptor: TWorkReadinessAction | null;
 };
 
 const DISABLED_CATALOG: FreeInferenceCatalogState = {
@@ -90,10 +95,12 @@ export function describeWorkReadiness(input: {
   ];
 
   const failing = checks.find((check) => check.required && !check.ok);
+  const nextActionDescriptor = failing ? nextActionFor(failing, catalog, missing) : null;
   return {
     ready: failing == null,
     checks,
-    nextAction: failing ? nextActionFor(failing, catalog, concrete, missing) : null,
+    nextAction: nextActionDescriptor ? describeNextAction(nextActionDescriptor) : null,
+    nextActionDescriptor,
   };
 }
 
@@ -123,33 +130,47 @@ function describeCredentialDetail(
 function nextActionFor(
   check: WorkReadinessCheck,
   catalog: FreeInferenceCatalogState,
-  models: WorkModel[],
   missing: string[],
-): string {
+): TWorkReadinessAction {
   switch (check.id) {
     case 'free_inference_enabled':
-      return 'Set freeInference.enabled: true in coderax.yaml, then restart the server.';
+      return { id: 'enable_free_inference' };
     case 'provider_credential':
-      return `Set ${missing[0] ?? 'a free-provider key'} on the server, then restart so the catalog is rebuilt.`;
+      return { id: 'set_provider_credential', envName: missing[0] ?? null };
     case 'eligible_model':
       if (!catalog.enabled) {
-        return 'Configure a local endpoint (for example Ollama) or enable freeInference with a credential.';
+        return { id: 'configure_local_or_free_model' };
       }
       if (missing.length > 0) {
-        return `Set ${missing[0]} on the server, then restart so the catalog is rebuilt.`;
+        return { id: 'set_provider_credential', envName: missing[0] };
       }
       if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'endpoint_name_conflict')) {
-        return 'Rename or correct the existing reserved free-provider endpoint, then restart the server.';
+        return { id: 'correct_endpoint_name_conflict' };
       }
       if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'billing_plan_unverified')) {
-        return 'Use a verified $0 model endpoint or a local model; account-plan-based free tiers stay blocked.';
+        return { id: 'use_verified_free_or_local_model' };
       }
+      return { id: 'inspect_rejected_free_endpoint' };
+    case 'eligible_agent':
+      return { id: 'create_agent_after_model_available' };
+  }
+}
+
+function describeNextAction(action: TWorkReadinessAction): string {
+  switch (action.id) {
+    case 'enable_free_inference':
+      return 'Set freeInference.enabled: true in coderax.yaml, then restart the server.';
+    case 'set_provider_credential':
+      return 'Set ' + (action.envName ?? 'a free-provider key') + ' on the server, then restart so the catalog is rebuilt.';
+    case 'configure_local_or_free_model':
+      return 'Configure a local endpoint (for example Ollama) or enable freeInference with a credential.';
+    case 'correct_endpoint_name_conflict':
+      return 'Rename or correct the existing reserved free-provider endpoint, then restart the server.';
+    case 'use_verified_free_or_local_model':
+      return 'Use a verified $0 model endpoint or a local model; account-plan-based free tiers stay blocked.';
+    case 'inspect_rejected_free_endpoint':
       return 'Check the server log for a rejected free endpoint, then restart so the catalog is rebuilt.';
-    case 'eligible_agent': {
-      const target = models[0];
-      return target
-        ? `Create an agent with provider "${target.provider}" and model "${target.id}".`
-        : 'Create an agent after a free or local model is offered.';
-    }
+    case 'create_agent_after_model_available':
+      return 'Create an agent after a free or local model is offered.';
   }
 }
