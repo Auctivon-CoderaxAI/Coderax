@@ -27,6 +27,7 @@ import type { ReactNode } from 'react';
 import {
   isSafeRedirect,
   getPostLoginRedirect,
+  getPostLoginFallback,
   clearPostLoginRedirect,
   persistRedirectToSession,
   clearComposerDraftStorage,
@@ -184,7 +185,7 @@ const AuthContextProvider = ({
       }
       setError(undefined);
       const redirect =
-        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? '/c/new';
+        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
       setUserContext({ token, isAuthenticated: true, user, redirect });
     },
     onError: (error: TResError | unknown) => {
@@ -252,7 +253,7 @@ const AuthContextProvider = ({
     (authenticatedToken: string, authenticatedUser: t.TUser) => {
       guestAttemptRef.current += 1;
       const redirect =
-        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? '/c/new';
+        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
       /** The enrollment credential has done its job; do not leave it live in the tab. */
       clearTwoFactorSetupToken();
       setUser(authenticatedUser);
@@ -385,7 +386,11 @@ const AuthContextProvider = ({
         }
         console.log('Token is not present. Attempting passwordless guest entry.');
         endSessionClientState();
-        if (authConfig?.test === true || isRequiredTwoFactorSetupRoute() || authConfig?.optional === true) {
+        if (
+          authConfig?.test === true ||
+          isRequiredTwoFactorSetupRoute() ||
+          authConfig?.optional === true
+        ) {
           setIsAuthReady(true);
           return;
         }
@@ -411,7 +416,11 @@ const AuthContextProvider = ({
         }
         console.log('refreshToken mutation error:', error);
         endSessionClientState();
-        if (authConfig?.test === true || isRequiredTwoFactorSetupRoute() || authConfig?.optional === true) {
+        if (
+          authConfig?.test === true ||
+          isRequiredTwoFactorSetupRoute() ||
+          authConfig?.optional === true
+        ) {
           setIsAuthReady(true);
           return;
         }
