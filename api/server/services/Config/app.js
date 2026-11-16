@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { CacheKeys } = require('coderax-data-provider');
+const { CacheKeys, mergeFreeInferenceCustomEndpoints } = require('coderax-data-provider');
 const { AppService, logger } = require('@coderax/data-schemas');
 const {
   createAppConfigService,
@@ -35,7 +35,10 @@ async function invalidateCodeEnvironmentConfigCache(tenantId) {
 
 const loadBaseConfig = async (mode) => {
   /** @type {TCustomConfig} */
-  const config = (await loadCustomConfig(true, { mode })) ?? {};
+  const rawConfig = (await loadCustomConfig(true, { mode })) ?? {};
+  /** Opted-in, credentialed $0 providers become ordinary custom endpoints, so the
+   *  native runner executes them; without a credential this is a no-op. */
+  const config = mergeFreeInferenceCustomEndpoints(rawConfig, process.env);
   /** @type {Record<string, FunctionTool>} */
   const systemTools = loadAndFormatTools({
     adminFilter: config.filteredTools,

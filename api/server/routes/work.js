@@ -1,7 +1,11 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
 const { strictConfigMiddleware } = require('~/server/middleware/config/app');
-const { PermissionBits } = require('coderax-data-provider');
+const {
+  PermissionBits,
+  buildFreeInferenceWorkSources,
+  describeFreeInferenceCatalog,
+} = require('coderax-data-provider');
 const {
   createWorkDepsFactory,
   createWorkRouter,
@@ -55,7 +59,7 @@ async function listViewableAgents(req) {
  * A Work request carries its own authenticated context: model discovery is
  * per-user, reads are owner-scoped, and abort re-checks the native job owner.
  */
-const depsFor = createWorkDepsFactory({
+const baseDepsFor = createWorkDepsFactory({
   db,
   jobs: GenerationJobManager,
   loadModels,
@@ -66,15 +70,36 @@ const depsFor = createWorkDepsFactory({
   configuredDefaultModel: configuredDefaultFromRequest,
 });
 
+/** Verified free endpoints join the same catalog Work admits runs from, so a
+ *  model the picker offers is one the server will actually execute. */
+const freeSourcesFor = (req) =>
+  buildFreeInferenceWorkSources(req.config?.config ?? null, process.env);
+
+const depsFor = (req) => {
+  const deps = baseDepsFor(req);
+  const configuredListModels = deps.listModels;
+  deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
+  deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
+  return deps;
+};
+
+const workChatRouter = getWorkChatRouter({
+  findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
+  freeModelSources: freeSourcesFor,
+});
+const chatRouter = express.Router();
+chatRouter.use('/chat', strictConfigMiddleware);
+chatRouter.use(workChatRouter);
+
 module.exports = createWorkApiRouter({
-  chatRouter: getWorkChatRouter({
-    findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
-  }),
+  chatRouter,
   createReadRouterForRequest: () => {
     const readRouter = express.Router();
-    // Catalog admission needs the authenticated YAML/tenant configuration before
-    // depsFor captures graph limits; routing needs it to resolve its budgets.
+    // Model and readiness catalogs need the authenticated YAML/tenant config;
+    // agent admission needs it for graph limits, and routing needs its budgets.
     // Unrelated task reads/cancellation do not.
+    readRouter.use('/models', strictConfigMiddleware);
+    readRouter.use('/readiness', strictConfigMiddleware);
     readRouter.use('/agents', strictConfigMiddleware);
     readRouter.use('/routing', strictConfigMiddleware);
     readRouter.use((req, res, next) => {

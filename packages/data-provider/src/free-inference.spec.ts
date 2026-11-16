@@ -103,12 +103,20 @@ describe('zero-cost endpoint enforcement', () => {
     });
   });
 
-  it('publishes only endpoints that pass the allowlist', () => {
+  it('routes only model-priced endpoints and rejects plan-dependent free tiers', () => {
     expect(FREE_ENDPOINTS.length).toBeGreaterThan(0);
-    for (const endpoint of FREE_ENDPOINTS) {
-      expect(assertZeroCostEndpoint(endpoint)).toEqual({ ok: true });
-      expect(endpoint.promptCostPerMillion ?? 0).toBe(0);
-    }
+    const selection = selectFreeEndpoints(FREE_ENDPOINTS);
+    expect(selection.usable.every((endpoint) => assertZeroCostEndpoint(endpoint).ok)).toBe(true);
+    expect(selection.usable.every((endpoint) => endpoint.pricing.basis === 'free-model')).toBe(
+      true,
+    );
+    expect(selection.rejected).toEqual([
+      { id: 'groq-gpt-oss-120b', reason: 'billing_plan_unverified' },
+      { id: 'cloudflare-llama-3-3-70b-free', reason: 'billing_plan_unverified' },
+    ]);
+    expect(selection.usable.every((endpoint) => (endpoint.promptCostPerMillion ?? 0) === 0)).toBe(
+      true,
+    );
   });
 
   it('excludes endpoints that cannot call tools when a turn needs them', () => {

@@ -4,12 +4,12 @@ import {
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
-import type { WorkModelSource } from './models';
+import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
-import type { FreeRoutingSnapshot } from '../routing/router';
-import { createDisabledRoutingSnapshot } from '../routing/router';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { createDisabledRoutingSnapshot } from '../routing/router';
+import { describeWorkReadiness } from './readiness';
 import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
 import { isValidWorkId } from './ids';
@@ -29,7 +29,7 @@ export type WorkDeps = {
    * automatic choice. It is never trusted blindly: the resolved model must
    * also be among the offered free/local models.
    */
-  configuredDefaultModel?: () => Promise<string | null>;
+  configuredDefaultModel?: () => Promise<WorkConfiguredDefaultInput>;
   /**
    * Agents the caller can view, with the model and provider each runs on and
    * its handoff, chain and subagent references. Tenant and ACL scope are the
@@ -53,12 +53,14 @@ export type WorkDeps = {
    * Absent means the deployment has not opted into hosted free routing.
    */
   routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
+  /** Why free inference is or is not usable, from the server credential state. */
+  freeInference?: () => FreeInferenceCatalogState;
 };
 
 const HISTORY_LIMIT = 50;
 
 /** A default that cannot be read leaves automatic routing to the free/local ranking. */
-async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
+async function readConfiguredDefault(deps: WorkDeps): Promise<WorkConfiguredDefaultInput> {
   if (!deps.configuredDefaultModel) {
     return null;
   }
@@ -126,6 +128,35 @@ export function createWorkRouter(deps: WorkDeps): Router {
     }
   });
 
+  /**
+   * One answer to "why can't Work run?" that names the missing prerequisite:
+   * opt-in, credential, offered model, or agent. Never returns a key or value.
+   */
+  router.get('/readiness', async (_req: Request, res: Response) => {
+    try {
+      const [sources, agents] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents ? deps.listAgents() : Promise.resolve([]),
+      ]);
+      const models = buildWorkModelOptions(sources);
+      const eligible = await listEligibleWorkAgents({
+        agents,
+        models,
+        graphLimit: deps.agentGraphLimit ?? DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+        concurrency: deps.agentGraphConcurrency ?? DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+      });
+      const readiness = describeWorkReadiness({
+        catalog: deps.freeInference ? deps.freeInference() : null,
+        models,
+        agents: eligible,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ readiness });
+    } catch {
+      res.status(503).json({ code: 'WORK_READINESS_UNAVAILABLE' });
+    }
+  });
+
   router.get('/models', async (_req: Request, res: Response) => {
     try {
       const [sources, configuredDefault] = await Promise.all([
@@ -152,8 +183,12 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
     try {
-      const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
-      const models = buildWorkModelOptions(sources);
+      const [sources, agents, configuredDefault] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents(),
+        readConfiguredDefault(deps),
+      ]);
+      const models = buildWorkModelOptions(sources, configuredDefault);
       const eligible = await listEligibleWorkAgents({
         agents,
         models,
