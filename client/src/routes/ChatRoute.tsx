@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
 import {
@@ -76,6 +76,8 @@ const isValidChatProjectId = (projectId: string | null): projectId is string =>
 export default function ChatRoute({ workMode = false }: { workMode?: boolean }) {
   const { data: startupConfig } = useGetStartupConfig();
   const { isAuthenticated, user, roles } = useAuthRedirect();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const defaultTemporaryChat = useRecoilValue(temporaryStore.defaultTemporaryChat);
@@ -196,7 +198,23 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         : 'chat',
   });
   const isWorkMode = modeState.mode === 'work';
-  const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
+  const isGuestSession = user?.provider === 'guest';
+  const ownerSignInRequired = isWorkMode && isGuestSession;
+  const workOptions = useWorkOptions({
+    enabled: isAuthenticated && !isGuestSession && isWorkMode,
+  });
+  useEffect(() => {
+    if (!ownerSignInRequired) {
+      return;
+    }
+    const redirectParams = new URLSearchParams(location.search);
+    // A guest can prepare a task, but must confirm it again after owner sign-in.
+    redirectParams.delete('submit');
+    const redirectSearch = redirectParams.toString();
+    const redirectTo = `${location.pathname}${redirectSearch ? `?${redirectSearch}` : ''}${location.hash}`;
+    const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
+    navigate(`/login?${loginParams.toString()}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate, ownerSignInRequired]);
   const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
   const [newConversationWorkSelection] = useAtom(
     workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
@@ -219,6 +237,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     workOptions.options,
   );
   const workCanSubmit =
+    isAuthenticated &&
+    !isGuestSession &&
     !workOptions.isLoading &&
     !workOptions.modelsQuery.isError &&
     resolvedWorkSelection != null;
@@ -297,6 +317,10 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
+    // Private Work must not create a task or conversation for an isolated guest identity.
+    if (ownerSignInRequired) {
+      return;
+    }
     // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
     const rolesLoaded = roles?.USER != null;
     const isNewConvo = conversationId === Constants.NEW_CONVO;
@@ -480,6 +504,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   }, [
     conversationId,
     isWorkMode,
+    ownerSignInRequired,
     routeState.pending,
     roles,
     agentsMap,
@@ -499,6 +524,14 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     conversation?.conversationId,
     automaticChatPreset,
   ]);
+
+  if (ownerSignInRequired) {
+    return (
+      <div className="flex h-screen items-center justify-center px-6 text-center" aria-live="polite" role="status">
+        {localize('com_work_owner_signin_required')}
+      </div>
+    );
+  }
 
   if (endpointsQuery.isLoading || modelsQuery.isLoading) {
     return (
