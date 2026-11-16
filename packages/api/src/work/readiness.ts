@@ -161,7 +161,11 @@ function describeNextAction(action: TWorkReadinessAction): string {
     case 'enable_free_inference':
       return 'Set freeInference.enabled: true in coderax.yaml, then restart the server.';
     case 'set_provider_credential':
-      return 'Set ' + (action.envName ?? 'a free-provider key') + ' on the server, then restart so the catalog is rebuilt.';
+      return (
+        'Set ' +
+        (action.envName ?? 'a free-provider key') +
+        ' on the server, then restart so the catalog is rebuilt.'
+      );
     case 'configure_local_or_free_model':
       return 'Configure a local endpoint (for example Ollama) or enable freeInference with a credential.';
     case 'correct_endpoint_name_conflict':
