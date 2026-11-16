@@ -154,15 +154,18 @@ describe('Work readiness', () => {
     expect(readiness.checks.find((check) => check.id === 'free_inference_enabled')?.ok).toBe(false);
   });
 
-  it('reports the exact provider and model to pin an agent to', () => {
+  it('is ready for automatic Work when a free model is offered without a saved agent', () => {
     const readiness = describeWorkReadiness({
       catalog: catalog(),
       models: [hostedModel],
       agents: [],
     });
-    expect(readiness.ready).toBe(false);
-    expect(readiness.nextAction).toBe(
-      'Create an agent with provider "FreeOpenRouter" and model "nvidia/nemotron-3-ultra-550b-a55b:free".',
-    );
+    expect(readiness.ready).toBe(true);
+    expect(readiness.checks.find((check) => check.id === 'eligible_model')?.ok).toBe(true);
+    expect(readiness.checks.find((check) => check.id === 'eligible_agent')).toMatchObject({
+      ok: false,
+      required: false,
+    });
+    expect(readiness.nextAction).toBeNull();
   });
 });
