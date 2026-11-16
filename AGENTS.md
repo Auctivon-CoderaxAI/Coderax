@@ -315,7 +315,14 @@ gh api graphql --paginate -F owner='{owner}' -F repo='{repo}' -F number=PR_NUMBE
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         reviewThreads(first: 100, after: $endCursor) {
-          nodes { id isResolved isOutdated path line }
+          nodes {
+            id
+            isResolved
+            isOutdated
+            path
+            line
+            comments(first: 1) { nodes { id databaseId } }
+          }
           pageInfo { hasNextPage endCursor }
         }
       }
