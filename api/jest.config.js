@@ -23,6 +23,11 @@ module.exports = {
   testEnvironment: 'node',
   clearMocks: true,
   roots: ['<rootDir>'],
+  // These use node:test and are executed explicitly by `node --test` in vercel.json.
+  testPathIgnorePatterns: [
+    '[/\\\\]node_modules[/\\\\]',
+    '[/\\\\]__tests__[/\\\\]work(Chat|Models)\\.test\\.js$',
+  ],
   coverageDirectory: 'coverage',
   maxWorkers,
   testTimeout: 30000, // 30 seconds timeout for all tests
