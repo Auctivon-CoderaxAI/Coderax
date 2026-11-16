@@ -32,7 +32,7 @@ export type FreeRoutingLimits = {
 };
 
 export type FreeRouteRequirements = {
-  /** A Work turn needs tool calling, so an endpoint without it is a last resort. */
+  /** A Work turn needs tool calling; text-only endpoints must never execute it. */
   requireTools?: boolean;
   /** Conservative prompt estimate reserved against the daily token budget. */
   estimatedTokens?: number;
@@ -49,6 +49,7 @@ export type FreeRoutePlan =
       selected: FreeEndpoint;
       alternatives: FreeEndpoint[];
       estimatedTokens: number;
+      requireTools: boolean;
       primary: FreePrimaryStatus;
       rejected: FreeRouteRejection[];
     }
@@ -173,7 +174,7 @@ export function createFreeRouter({
     }
     const requiresTools = requirements.requireTools === true;
     const selection = selectFreeEndpoints(endpoints, {
-      requireTools: requiresTools && !limits.allowToolsInFallback,
+      requireTools: requiresTools,
     });
     for (const entry of selection.rejected) {
       rejected.push({ id: entry.id, reason: entry.reason });
@@ -213,6 +214,7 @@ export function createFreeRouter({
       selected: selected as FreeEndpoint,
       alternatives,
       estimatedTokens,
+      requireTools: requiresTools,
       primary,
       rejected,
     };
@@ -232,6 +234,7 @@ export function createFreeRouter({
     if (
       !Number.isSafeInteger(routePlan.estimatedTokens) ||
       routePlan.estimatedTokens < 0 ||
+      typeof routePlan.requireTools !== 'boolean' ||
       !Array.isArray(routePlan.alternatives)
     ) {
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
@@ -248,7 +251,8 @@ export function createFreeRouter({
       selectFreeEndpoints(endpoints).usable.filter(
         (endpoint) =>
           FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider) &&
-          (limits.allowFallback || endpoint.kind !== 'fallback'),
+          (limits.allowFallback || endpoint.kind !== 'fallback') &&
+          (!routePlan.requireTools || endpoint.capabilities.tools),
       ),
     );
     if (
