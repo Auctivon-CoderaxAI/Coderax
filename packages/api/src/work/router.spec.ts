@@ -112,6 +112,22 @@ describe('native Work router', () => {
     ]);
   });
 
+  it('offers the configured default even when it is not marked free', async () => {
+    const res = await request(
+      app({ configuredDefaultModel: async () => 'openai:gpt-4o' }),
+    ).get('/api/work/models');
+    expect(res.status).toBe(200);
+    expect(res.body.models.map((model: { id: string }) => model.id)).toEqual([
+      'auto',
+      'llama3:latest',
+      'openai:gpt-4o',
+    ]);
+    expect(res.body.models[0].target).toMatchObject({
+      id: 'openai:gpt-4o',
+      provider: 'gateway',
+    });
+  });
+
   it('does not offer a model catalog it cannot read', async () => {
     const res = await request(
       app({
@@ -342,6 +358,20 @@ describe('native Work router', () => {
       { id: 'qwen:7b', provider: 'ollama', local: true },
       { id: 'gpt-4o', provider: 'openAI' },
     ];
+
+    it('offers an agent that runs on the configured paid default', async () => {
+      const res = await request(
+        app({
+          listModels: catalog,
+          configuredDefaultModel: async () => ({ id: 'gpt-4o', provider: 'openAI' }),
+          listAgents: async () => [
+            { id: 'paid', name: 'Paid', model: 'gpt-4o', provider: 'openAI' },
+          ],
+        }),
+      ).get('/api/work/agents');
+      expect(res.status).toBe(200);
+      expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['paid']);
+    });
 
     it('offers only agents whose whole graph runs on free or local models', async () => {
       const res = await request(

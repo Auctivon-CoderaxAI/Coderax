@@ -23,6 +23,51 @@ export type WorkModelTarget = {
   provider?: string;
 };
 
+/** The deployment's configured default: the model id and, when known, its endpoint. */
+export type WorkConfiguredDefault = {
+  id: string;
+  provider?: string;
+};
+
+export type WorkConfiguredDefaultInput = string | WorkConfiguredDefault | null | undefined;
+
+/**
+ * Normalize the string form (older callers) and the endpoint-aware object form.
+ * The provider matters when two endpoints advertise the same model id.
+ */
+function readConfiguredDefault(input: WorkConfiguredDefaultInput): {
+  id?: string;
+  provider?: string;
+} {
+  if (!input) {
+    return {};
+  }
+  if (typeof input === 'string') {
+    return { id: input.trim() };
+  }
+  const id = typeof input.id === 'string' ? input.id.trim() : '';
+  const provider = typeof input.provider === 'string' ? input.provider.trim() : '';
+  return { ...(id ? { id } : {}), ...(provider ? { provider } : {}) };
+}
+
+/**
+ * Accepts a resolver result of unknown shape (the route layer passes its
+dependency through) and keeps only a usable default.
+ */
+export function normalizeConfiguredDefault(input: unknown): WorkConfiguredDefaultInput {
+  if (typeof input === 'string') {
+    return input.trim() || null;
+  }
+  if (input == null || typeof input !== 'object') {
+    return null;
+  }
+  const { id, provider } = readConfiguredDefault(input as WorkConfiguredDefault);
+  if (!id) {
+    return null;
+  }
+  return provider ? { id, provider } : { id };
+}
+
 export type WorkModel = {
   id: string;
   label: string;
@@ -86,16 +131,21 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
 /**
  * The model the automatic option runs on: the deployment's configured default
  * when that exact model is offered, otherwise the same free/local ranking Chat
- * routes by. Every candidate is already free or local, so ranking can never
- * reach a paid model.
+ * routes by. Every candidate other than the operator's configured default is
+ * free or local, so ranking can never reach an unconfigured paid model.
  */
 export function resolveWorkAutoModel(
   models: WorkModel[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel | null {
   const concrete = workConcreteModels(models);
-  const fallbackId = configuredDefault?.trim();
-  const configured = fallbackId ? concrete.find((model) => model.id === fallbackId) : undefined;
+  const { id: fallbackId, provider: fallbackProvider } = readConfiguredDefault(configuredDefault);
+  const configured = fallbackId
+    ? concrete.find(
+        (model) =>
+          model.id === fallbackId && (!fallbackProvider || model.provider === fallbackProvider),
+      )
+    : undefined;
   if (configured) {
     return configured;
   }
@@ -114,15 +164,60 @@ export function resolveWorkAutoModel(
 }
 
 /**
- * The picker's options: the automatic choice first, then the concrete models.
- * Automatic is offered only when there is at least one model to choose from,
- * so it can never be selected against an empty list, and it names its target.
+ * The operator's configured default is an explicit deployment choice, not a
+ * client claim, so it stays selectable even when the catalog does not mark it
+ * free or local. Without this, a gateway default such as DeepSeek V4.1 Flash
+ * Fast is filtered out and Work shows an empty picker.
+ */
+function withConfiguredDefault(
+  models: WorkModel[],
+  sources: WorkModelSource[],
+  configuredDefault?: WorkConfiguredDefaultInput,
+): WorkModel[] {
+  const { id, provider } = readConfiguredDefault(configuredDefault);
+  if (!id || id === WORK_AUTO_MODEL_ID) {
+    return models;
+  }
+  const alreadyOffered = models.some(
+    (model) => model.id === id && (!provider || model.provider === provider),
+  );
+  if (alreadyOffered) {
+    return models;
+  }
+  /**
+   * An endpoint the operator configured must actually advertise the model. An
+   * id-only fallback would fabricate a provider/model pair the catalog lacks and
+   * send inference to an endpoint that cannot serve it.
+   */
+  const source = sources.find(
+    (item) =>
+      (item.id ?? item.name ?? '').trim() === id &&
+      (!provider || (item.provider ?? '').trim() === provider),
+  );
+  if (!source) {
+    return models;
+  }
+  const resolvedProvider = provider ?? source.provider?.trim();
+  if (!resolvedProvider) {
+    return models;
+  }
+  const label = (source.label ?? id).trim() || id;
+  return [...models, { id, label, provider: resolvedProvider }].sort(
+    (a, b) => a.id.localeCompare(b.id) || (a.provider ?? '').localeCompare(b.provider ?? ''),
+  );
+}
+
+/**
+ * The picker's options: the automatic choice first, then the concrete models,
+ * including the operator's configured default. Automatic is offered only when
+ * there is at least one model to choose from, so it can never be selected
+ * against an empty list, and it names its target.
  */
 export function buildWorkModelOptions(
   sources: WorkModelSource[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel[] {
-  const models = buildWorkModels(sources);
+  const models = withConfiguredDefault(buildWorkModels(sources), sources, configuredDefault);
   const target = resolveWorkAutoModel(models, configuredDefault);
   if (!target) {
     return [];
@@ -212,7 +307,7 @@ export type WorkModelSelection =
 export function resolveWorkSelection(
   models: WorkModel[],
   selected: string | null | undefined,
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelSelection {
   const concrete = workConcreteModels(models);
 

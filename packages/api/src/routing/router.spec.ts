@@ -359,7 +359,7 @@ describe('cooldowns and budgets', () => {
     expect(ledger.snapshot('endpoint').tokensUsed).toBe(0);
   });
 
-  it('does not erase new-day reservations when yesterday's in-flight call settles late', () => {
+  it("does not erase new-day reservations when yesterday's in-flight call settles late", () => {
     let clock = Date.UTC(2026, 10, 9, 23, 59, 59);
     const ledger = createQuotaLedger({
       limits: { requestsPerDay: 10, tokensPerDay: 100 },

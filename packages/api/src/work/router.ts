@@ -4,9 +4,7 @@ import {
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
-import type { FreeInferenceCatalogState } from 'coderax-data-provider';
-import type { FreeRoutingSnapshot } from '../routing/router';
-import type { WorkModelSource } from './models';
+import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
@@ -31,7 +29,7 @@ export type WorkDeps = {
    * automatic choice. It is never trusted blindly: the resolved model must
    * also be among the offered free/local models.
    */
-  configuredDefaultModel?: () => Promise<string | null>;
+  configuredDefaultModel?: () => Promise<WorkConfiguredDefaultInput>;
   /**
    * Agents the caller can view, with the model and provider each runs on and
    * its handoff, chain and subagent references. Tenant and ACL scope are the
@@ -62,7 +60,7 @@ export type WorkDeps = {
 const HISTORY_LIMIT = 50;
 
 /** A default that cannot be read leaves automatic routing to the free/local ranking. */
-async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
+async function readConfiguredDefault(deps: WorkDeps): Promise<WorkConfiguredDefaultInput> {
   if (!deps.configuredDefaultModel) {
     return null;
   }
@@ -185,8 +183,12 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
     try {
-      const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
-      const models = buildWorkModelOptions(sources);
+      const [sources, agents, configuredDefault] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents(),
+        readConfiguredDefault(deps),
+      ]);
+      const models = buildWorkModelOptions(sources, configuredDefault);
       const eligible = await listEligibleWorkAgents({
         agents,
         models,
