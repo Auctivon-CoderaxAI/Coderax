@@ -117,6 +117,34 @@ describe('free route planning', () => {
       reason: 'free_capacity_exhausted',
     });
   });
+
+  it('never downgrades a tool-required turn even when text fallback is opted in', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({ allowToolsInFallback: true }, [primary, textOnly]);
+    const plan = router.plan({ requireTools: true });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.alternatives).toEqual([]);
+    expect(plan.requireTools).toBe(true);
+    const attempt = jest.fn(async () => ({ ok: true as const, value: 'ok' }));
+    const forged = await router.run({ ...plan, alternatives: [textOnly] }, attempt);
+    expect(forged).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tool-only route plan that has lost its capability constraint', async () => {
+    const { router } = routerWith();
+    const plan = router.plan({ requireTools: true });
+    if (!plan.ok) throw new Error('Expected a route');
+    const attempt = jest.fn();
+    const result = await router.run({ ...plan, requireTools: undefined } as unknown as typeof plan, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
 });
 
 describe('bounded failover', () => {
