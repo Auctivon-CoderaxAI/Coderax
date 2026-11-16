@@ -159,7 +159,7 @@ describe('native work model discovery', () => {
     );
     expect(
       options.filter((model) => model.id === 'shared').map((model) => model.provider),
-    ).toEqual(['ollama', 'gateway']);
+    ).toEqual(['gateway', 'ollama']);
     expect(options[0].target).toEqual({ id: 'shared', label: 'shared', provider: 'gateway' });
     expect(
       resolveWorkAgentModel(options, { id: 'agent', model: 'shared', provider: 'ollama' }),
