@@ -320,7 +320,13 @@ gh api graphql --paginate -F owner='{owner}' -F repo='{repo}' -F number=PR_NUMBE
         }
       }
     }
-  }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]'
+  }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
+
+# Resolve a review thread only after the fix is pushed to the PR branch
+gh api graphql -f query='
+  mutation($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } }
+  }' -F threadId=THREAD_ID
 
 # Read submitted reviews
 gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/reviews" --paginate
