@@ -75,7 +75,6 @@ function agentLabel(agent: TWorkAgent, localize: ReturnType<typeof useLocalize>)
     : name;
 }
 
-
 function localizeWorkReadinessAction(
   action: TWorkReadinessAction,
   localize: ReturnType<typeof useLocalize>,
