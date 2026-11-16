@@ -9,6 +9,8 @@ type GuestWorkHandoff = {
   createdAt: number;
 };
 
+let memoryHandoff: GuestWorkHandoff | null = null;
+
 const createHandoffId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
@@ -20,7 +22,18 @@ const createHandoffId = (): string => {
   return `handoff-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 };
 
+const isFresh = (handoff: GuestWorkHandoff): boolean => {
+  const age = Date.now() - handoff.createdAt;
+  return age <= HANDOFF_TTL_MS && age >= 0;
+};
+
 const readHandoff = (): GuestWorkHandoff | null => {
+  if (memoryHandoff != null) {
+    if (isFresh(memoryHandoff)) {
+      return memoryHandoff;
+    }
+    memoryHandoff = null;
+  }
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) {
@@ -36,11 +49,12 @@ const readHandoff = (): GuestWorkHandoff | null => {
       sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
-    if (Date.now() - value.createdAt > HANDOFF_TTL_MS || value.createdAt > Date.now()) {
+    const handoff = value as GuestWorkHandoff;
+    if (!isFresh(handoff)) {
       sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
-    return value as GuestWorkHandoff;
+    return handoff;
   } catch {
     return null;
   }
@@ -48,20 +62,24 @@ const readHandoff = (): GuestWorkHandoff | null => {
 
 /** Stores only the typed message text for the explicit Guest-to-owner Work handoff. */
 export const saveGuestWorkHandoffDraft = (text: string): string | null => {
-  try {
-    const current = readHandoff();
-    if (text === '') {
-      if (current) {
-        sessionStorage.removeItem(SESSION_KEY);
-      }
-      return null;
+  if (text === '') {
+    memoryHandoff = null;
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // Storage may be blocked; the in-memory record is already cleared.
     }
-    const id = createHandoffId();
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ id, text, createdAt: Date.now() }));
-    return id;
-  } catch {
     return null;
   }
+
+  const handoff: GuestWorkHandoff = { id: createHandoffId(), text, createdAt: Date.now() };
+  memoryHandoff = handoff;
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(handoff));
+  } catch {
+    // The SPA handoff can still complete in memory when this tab blocks sessionStorage.
+  }
+  return handoff.id;
 };
 
 /** Consumes a handoff once, only when its opaque id returns with the owner Work URL. */
@@ -70,6 +88,7 @@ export const takeGuestWorkHandoffDraft = (id: string): string | null => {
   if (!handoff || handoff.id !== id) {
     return null;
   }
+  memoryHandoff = null;
   try {
     sessionStorage.removeItem(SESSION_KEY);
   } catch {
