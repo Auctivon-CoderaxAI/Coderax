@@ -56,11 +56,11 @@ test('auto ranks a free/local model when no default is configured', () => {
   }
 });
 
-test('a paid configured default cannot displace an eligible local model', () => {
+test('the configured default is admitted even when it is not free or local', () => {
   assert.deepEqual(resolveWorkContext([PAID, LOCAL], 'auto', 'gpt-4o'), {
     isWork: true,
-    workModel: 'llama3:latest',
-    workProvider: 'ollama',
+    workModel: 'gpt-4o',
+    workProvider: 'openAI',
   });
 });
 
@@ -79,7 +79,7 @@ test('an allowed pick is kept even when a different default exists', () => {
 });
 
 test('no free or local model at all is reported as such', () => {
-  assert.deepEqual(resolveWorkContext([PAID], 'auto', 'gpt-4o'), { error: 'WORK_NO_FREE_MODEL' });
+  assert.deepEqual(resolveWorkContext([PAID], 'auto', null), { error: 'WORK_NO_FREE_MODEL' });
   assert.deepEqual(resolveWorkContext([], 'auto', 'llama3:latest'), {
     error: 'WORK_NO_FREE_MODEL',
   });
@@ -180,8 +180,8 @@ test('auto without a configured default admits only an eligible local model', as
 
 test('the alias middleware refuses a paid model before the chat handler runs', async () => {
   const middleware = workContextMiddleware(
-    async () => ({ openAI: [{ model: 'gpt-4o' }] }),
-    () => 'gpt-4o',
+    async () => ({ ollama: [{ model: 'llama3:latest' }], openAI: [{ model: 'gpt-4o' }] }),
+    () => null,
   );
   const req = { body: { text: 'plan', model: 'gpt-4o' }, user: {} };
   const res = response();
@@ -504,7 +504,7 @@ test('auto resolves through the real config adapter', async () => {
   assert.equal(req.workContext.workModel, 'qwen2.5');
 });
 
-test('a paid config default never wins auto; it routes to the offered free model', async () => {
+test('a configured default the catalog does not offer cannot win auto', async () => {
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
     undefined,
@@ -662,7 +662,7 @@ test('/api/work/chat runs the native path and passes the selected model and prov
   }
 });
 
-test('/api/work/chat refuses a paid model before any native admission runs', async () => {
+test('refuses a paid model that is not the configured default before native admission', async () => {
   let reached = false;
   const app = express();
   app.use(express.json());
@@ -674,8 +674,11 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
     '/api/work',
     createWorkApiRouter({
       chatRouter: createWorkChatRouter({
-        loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
-        configuredDefaultModel: () => 'gpt-4o',
+        loadModelsForRequest: async () => ({
+          ollama: [{ model: 'llama3:latest' }],
+          openAI: [{ model: 'gpt-4o' }],
+        }),
+        configuredDefaultModel: () => 'llama3:latest',
         seedConversation: async () => ({ seeded: false }),
         agentsRouter: (_req, res) => {
           reached = true;

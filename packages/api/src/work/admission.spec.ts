@@ -32,6 +32,32 @@ describe('Work admission', () => {
     });
   });
 
+  it('admits the configured default even when it is not marked free', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [
+          { id: 'gpt-4o', provider: 'openAI' },
+          { id: 'local-model', provider: 'ollama', local: true },
+        ],
+        requestedModel: 'auto',
+        configuredDefaultModel: 'gpt-4o',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      context: {
+        isWork: true,
+        workModel: 'gpt-4o',
+        workProvider: 'openAI',
+        allowedModels: [
+          { id: 'gpt-4o', provider: 'openAI' },
+          { id: 'local-model', provider: 'ollama' },
+        ],
+      },
+    });
+  });
+
   it('rejects a selected agent graph that reaches a paid model', async () => {
     const root: WorkGraphAgent = {
       id: 'root',

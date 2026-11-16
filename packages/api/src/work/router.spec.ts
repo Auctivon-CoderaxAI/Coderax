@@ -112,6 +112,22 @@ describe('native Work router', () => {
     ]);
   });
 
+  it('offers the configured default even when it is not marked free', async () => {
+    const res = await request(
+      app({ configuredDefaultModel: async () => 'openai:gpt-4o' }),
+    ).get('/api/work/models');
+    expect(res.status).toBe(200);
+    expect(res.body.models.map((model: { id: string }) => model.id)).toEqual([
+      'auto',
+      'llama3:latest',
+      'openai:gpt-4o',
+    ]);
+    expect(res.body.models[0].target).toMatchObject({
+      id: 'openai:gpt-4o',
+      provider: 'gateway',
+    });
+  });
+
   it('does not offer a model catalog it cannot read', async () => {
     const res = await request(
       app({

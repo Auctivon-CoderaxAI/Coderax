@@ -86,8 +86,8 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
 /**
  * The model the automatic option runs on: the deployment's configured default
  * when that exact model is offered, otherwise the same free/local ranking Chat
- * routes by. Every candidate is already free or local, so ranking can never
- * reach a paid model.
+ * routes by. Every candidate other than the operator's configured default is
+ * free or local, so ranking can never reach an unconfigured paid model.
  */
 export function resolveWorkAutoModel(
   models: WorkModel[],
@@ -114,15 +114,40 @@ export function resolveWorkAutoModel(
 }
 
 /**
- * The picker's options: the automatic choice first, then the concrete models.
- * Automatic is offered only when there is at least one model to choose from,
- * so it can never be selected against an empty list, and it names its target.
+ * The operator's configured default is an explicit deployment choice, not a
+ * client claim, so it stays selectable even when the catalog does not mark it
+ * free or local. Without this, a gateway default such as DeepSeek V4.1 Flash
+ * Fast is filtered out and Work shows an empty picker.
+ */
+function withConfiguredDefault(
+  models: WorkModel[],
+  sources: WorkModelSource[],
+  configuredDefault?: string | null,
+): WorkModel[] {
+  const id = configuredDefault?.trim();
+  if (!id || id === WORK_AUTO_MODEL_ID || models.some((model) => model.id === id)) {
+    return models;
+  }
+  const source = sources.find((item) => (item.id ?? item.name ?? '').trim() === id);
+  const provider = source?.provider?.trim();
+  if (!source || !provider) {
+    return models;
+  }
+  const label = (source.label ?? id).trim() || id;
+  return [...models, { id, label, provider }].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The picker's options: the automatic choice first, then the concrete models,
+ * including the operator's configured default. Automatic is offered only when
+ * there is at least one model to choose from, so it can never be selected
+ * against an empty list, and it names its target.
  */
 export function buildWorkModelOptions(
   sources: WorkModelSource[],
   configuredDefault?: string | null,
 ): WorkModel[] {
-  const models = buildWorkModels(sources);
+  const models = withConfiguredDefault(buildWorkModels(sources), sources, configuredDefault);
   const target = resolveWorkAutoModel(models, configuredDefault);
   if (!target) {
     return [];

@@ -55,7 +55,7 @@ export function resolveWorkContext(
   configuredDefault?: string | null,
 ): WorkModelContext | { error: WorkAdmissionFailure } {
   return resolveWorkContextFromOptions(
-    buildWorkModelOptions(sources),
+    buildWorkModelOptions(sources, configuredDefault),
     requested,
     configuredDefault,
   );
@@ -116,7 +116,7 @@ export async function resolveWorkAdmission(input: {
     return { ok: false, error: 'WORK_AGENT_ID_INVALID' };
   }
 
-  const options = buildWorkModelOptions(sources);
+  const options = buildWorkModelOptions(sources, configuredDefaultModel);
   const allowedModels = workConcreteModels(options).map(({ id, provider }) => ({ id, provider }));
   if (!requestedAgentId) {
     const context = resolveWorkContextFromOptions(options, requestedModel, configuredDefaultModel);

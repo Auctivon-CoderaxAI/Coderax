@@ -82,16 +82,23 @@ describe('native work model discovery', () => {
     });
   });
 
-  it('routes automatic to a free or local model, never to a paid default', () => {
-    /** A paid default cannot enter the offered catalog; automatic stays free/local. */
+  it('offers a configured paid default in the catalog', () => {
+    /** The default is an explicit deployment choice, so it enters the catalog. */
+    const models = buildWorkModelOptions(
+      [
+        { id: 'llama3:latest', local: true },
+        { id: 'openai:gpt-4o', provider: 'gateway' },
+      ],
+      'openai:gpt-4o',
+    );
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toEqual({
+      expect(resolveWorkSelection(models, selected, 'openai:gpt-4o')).toEqual({
         ok: true,
         auto: true,
-        model: { id: 'llama3:latest', label: 'llama3:latest' },
+        model: { id: 'openai:gpt-4o', label: 'openai:gpt-4o', provider: 'gateway' },
       });
     }
-    /** Even a paid id the caller names explicitly is refused. */
+    /** A paid id that is not the configured default is still refused. */
     expect(resolveWorkSelection(withPaid(), 'openai:gpt-4o', 'llama3:latest')).toEqual({
       ok: false,
       reason: 'model_unavailable',
@@ -120,6 +127,26 @@ describe('native work model discovery', () => {
       model: { id: 'beta:7b', provider: 'ollama' },
     });
     expect(resolveWorkAutoModel(models, null)).toMatchObject({ id: 'alpha:7b' });
+  });
+
+  it('offers the configured default alongside free and local models', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'llama3:latest', label: 'Llama 3', local: true },
+        { id: 'deepseek/deepseek-v4.1-flash-fast', provider: 'deepseek' },
+      ],
+      'deepseek/deepseek-v4.1-flash-fast',
+    );
+    expect(options.map((option) => option.id)).toEqual([
+      WORK_AUTO_MODEL_ID,
+      'deepseek/deepseek-v4.1-flash-fast',
+      'llama3:latest',
+    ]);
+    expect(options[0].target).toEqual({
+      id: 'deepseek/deepseek-v4.1-flash-fast',
+      label: 'deepseek/deepseek-v4.1-flash-fast',
+      provider: 'deepseek',
+    });
   });
 
   it('refuses automatic only when nothing free or local is offered', () => {
