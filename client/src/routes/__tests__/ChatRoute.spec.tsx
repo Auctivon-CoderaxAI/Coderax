@@ -258,7 +258,7 @@ it('requires owner sign-in when a guest switches from Chat to Work in place', as
     expect(router.state.location.pathname).toBe('/login');
     const loginParams = new URLSearchParams(router.state.location.search);
     expect(loginParams.get('manual')).toBe('1');
-    expect(loginParams.get('redirect_to')).toBe('/c/chat-a');
+    expect(loginParams.get('redirect_to')).toBe('/work/chat-a');
   });
 });
 
