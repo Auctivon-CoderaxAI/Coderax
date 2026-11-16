@@ -61,6 +61,11 @@ import {
 } from '~/hooks';
 import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
 import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
+import {
+  GUEST_WORK_HANDOFF_PARAM,
+  saveGuestWorkHandoffDraft,
+  takeGuestWorkHandoffDraft,
+} from '~/utils/guestWorkHandoff';
 import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
 import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
@@ -200,6 +205,26 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   });
   const isWorkMode = modeState.mode === 'work';
   const isGuestSession = user?.provider === 'guest';
+  const handoffIdRef = useRef<string | null>(null);
+  const [workHandoffDraft, setWorkHandoffDraft] = useState<string | null>(null);
+  const setConversationMode = useCallback(
+    (nextMode: 'chat' | 'work') => {
+      if (nextMode === 'work' && isGuestSession) {
+        const draftText =
+          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')?.value ??
+          '';
+        handoffIdRef.current = saveGuestWorkHandoffDraft(draftText);
+      } else if (nextMode === 'chat') {
+        handoffIdRef.current = null;
+      }
+      modeState.setMode(nextMode);
+    },
+    [isGuestSession, modeState],
+  );
+  const modeContextValue = useMemo(
+    () => ({ ...modeState, setMode: setConversationMode }),
+    [modeState, setConversationMode],
+  );
   const ownerSignInRequired = isWorkMode && isGuestSession;
   const workOptions = useWorkOptions({
     enabled: isAuthenticated && !isGuestSession && isWorkMode,
@@ -209,26 +234,57 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       return;
     }
     const redirectParams = new URLSearchParams(location.search);
-    // Owner sign-in must confirm a prepared task before it runs.
+    // Owner sign-in must review a prepared task before it runs. Guest conversation ids are not
+    // valid owner destinations, so every handoff starts a fresh owner Work conversation.
     redirectParams.delete('submit');
+    redirectParams.delete(GUEST_WORK_HANDOFF_PARAM);
+    if (handoffIdRef.current) {
+      redirectParams.set(GUEST_WORK_HANDOFF_PARAM, handoffIdRef.current);
+    }
     const redirectSearch = redirectParams.toString();
-    const returnPath = location.pathname.startsWith('/work/')
-      ? location.pathname
-      : `/work/${conversationId}`;
     const redirectTo = [
-      returnPath,
+      '/work/new',
       redirectSearch ? `?${redirectSearch}` : '',
       location.hash,
     ].join('');
     const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
     navigate(`/login?${loginParams.toString()}`, { replace: true });
   }, [
-    conversationId,
+    location.hash,
+    location.search,
+    navigate,
+    ownerSignInRequired,
+  ]);
+
+  useEffect(() => {
+    if (!isAuthenticated || isGuestSession || !isWorkMode) {
+      return;
+    }
+    const returnParams = new URLSearchParams(location.search);
+    const handoffId = returnParams.get(GUEST_WORK_HANDOFF_PARAM);
+    if (!handoffId) {
+      return;
+    }
+    const draft = takeGuestWorkHandoffDraft(handoffId);
+    if (draft != null) {
+      setWorkHandoffDraft(draft);
+      // The captured composer value is authoritative if the original URL also supplied a prompt.
+      returnParams.delete('prompt');
+    }
+    returnParams.delete(GUEST_WORK_HANDOFF_PARAM);
+    const returnSearch = returnParams.toString();
+    navigate(
+      `${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`,
+      { replace: true },
+    );
+  }, [
+    isAuthenticated,
+    isGuestSession,
+    isWorkMode,
     location.hash,
     location.pathname,
     location.search,
     navigate,
-    ownerSignInRequired,
   ]);
   const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
   const [newConversationWorkSelection] = useAtom(
@@ -577,6 +633,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     return null;
   }
 
+  const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
   const chatView = (
     <ChatView
       index={index}
@@ -584,6 +641,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       routePending={routeState.pending}
       workMode={isWorkMode}
       workCanSubmit={workCanSubmit}
+      handoffDraft={workHandoffDraft}
+      onWorkHandoffDraftApplied={clearWorkHandoffDraft}
     />
   );
 
@@ -604,7 +663,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         </div>
       )}
       <div hidden={routeState.pending} className={routeState.pending ? 'hidden' : 'contents'}>
-        <ConversationModeContext.Provider value={modeState}>
+        <ConversationModeContext.Provider value={modeContextValue}>
           <ChatModelRoutingContext.Provider value={isWorkMode ? null : chatModelRouting}>
             <ChatTransportContext.Provider
               value={isWorkMode ? workTransport : chatRoutingController.transport}
