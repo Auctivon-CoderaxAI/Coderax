@@ -41,7 +41,12 @@ jest.mock('~/store/temporary', () => ({ __esModule: true, default: {} }));
 jest.mock('~/components/Chat/Input/WorkAgentSelector', () => {
   const { atom } = jest.requireActual('jotai');
   return {
-    useWorkOptions: () => ({ options: { models: [], agents: [], auto: null } }),
+    useWorkOptions: () => ({
+      options: { models: [], agents: [], auto: null },
+      modelsQuery: { isError: false },
+      agentsQuery: { isError: false },
+      isLoading: false,
+    }),
     workSelectionFamily: (key: string) => {
       let selection = mockWorkSelectionAtoms.get(key);
       if (!selection) {
