@@ -4,12 +4,14 @@ import {
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
+import type { FreeInferenceCatalogState } from 'coderax-data-provider';
+import type { FreeRoutingSnapshot } from '../routing/router';
 import type { WorkModelSource } from './models';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
-import type { FreeRoutingSnapshot } from '../routing/router';
-import { createDisabledRoutingSnapshot } from '../routing/router';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { createDisabledRoutingSnapshot } from '../routing/router';
+import { describeWorkReadiness } from './readiness';
 import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
 import { isValidWorkId } from './ids';
@@ -53,6 +55,8 @@ export type WorkDeps = {
    * Absent means the deployment has not opted into hosted free routing.
    */
   routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
+  /** Why free inference is or is not usable, from the server credential state. */
+  freeInference?: () => FreeInferenceCatalogState;
 };
 
 const HISTORY_LIMIT = 50;
@@ -123,6 +127,35 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.json({ routing });
     } catch {
       res.status(503).json({ code: 'WORK_ROUTING_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * One answer to "why can't Work run?" that names the missing prerequisite:
+   * opt-in, credential, offered model, or agent. Never returns a key or value.
+   */
+  router.get('/readiness', async (_req: Request, res: Response) => {
+    try {
+      const [sources, agents] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents ? deps.listAgents() : Promise.resolve([]),
+      ]);
+      const models = buildWorkModelOptions(sources);
+      const eligible = await listEligibleWorkAgents({
+        agents,
+        models,
+        graphLimit: deps.agentGraphLimit ?? DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+        concurrency: deps.agentGraphConcurrency ?? DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+      });
+      const readiness = describeWorkReadiness({
+        catalog: deps.freeInference ? deps.freeInference() : null,
+        models,
+        agents: eligible,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ readiness });
+    } catch {
+      res.status(503).json({ code: 'WORK_READINESS_UNAVAILABLE' });
     }
   });
 
