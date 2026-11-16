@@ -5,7 +5,7 @@ import StartupLayout from './Startup';
 import store from '~/store';
 
 export default function LoginLayout() {
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, user } = useAuthContext();
   const [queriesEnabled, setQueriesEnabled] = useRecoilState<boolean>(store.queriesEnabled);
   useEffect(() => {
     if (queriesEnabled) {
@@ -19,5 +19,10 @@ export default function LoginLayout() {
       clearTimeout(timeout);
     };
   }, [queriesEnabled, setQueriesEnabled]);
-  return <StartupLayout isAuthenticated={isAuthenticated} />;
+  return (
+    <StartupLayout
+      isAuthenticated={isAuthenticated}
+      isGuestSession={user?.provider === 'guest'}
+    />
+  );
 }
