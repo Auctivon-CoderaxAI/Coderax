@@ -194,12 +194,17 @@ const AuthContextProvider = ({
       // Preserve a valid redirect_to across login failures so the deep link survives retries.
       // Cannot use buildLoginRedirectUrl() here: it reads the current pathname (already /login)
       // and would return plain /login, dropping the redirect_to destination.
-      const redirectTo = new URLSearchParams(window.location.search).get('redirect_to');
-      const loginPath =
-        redirectTo && isSafeRedirect(redirectTo)
-          ? `/login?redirect_to=${encodeURIComponent(redirectTo)}`
-          : '/login';
-      navigate(loginPath, { replace: true });
+      const currentLoginParams = new URLSearchParams(window.location.search);
+      const redirectTo = currentLoginParams.get('redirect_to');
+      const retryParams = new URLSearchParams();
+      if (currentLoginParams.get('manual') === '1') {
+        retryParams.set('manual', '1');
+      }
+      if (redirectTo && isSafeRedirect(redirectTo)) {
+        retryParams.set('redirect_to', redirectTo);
+      }
+      const retryQuery = retryParams.toString();
+      navigate(retryQuery ? `/login?${retryQuery}` : '/login', { replace: true });
     },
   });
   const { mutate: logoutMutate } = useLogoutUserMutation({
