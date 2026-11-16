@@ -3,7 +3,7 @@ import { useAtom } from 'jotai';
 import { atomFamily } from 'jotai/utils';
 import { useQuery } from '@tanstack/react-query';
 import { QueryKeys, dataService } from 'coderax-data-provider';
-import type { TWorkAgent } from 'coderax-data-provider';
+import type { TWorkAgent, TWorkReadinessAction } from 'coderax-data-provider';
 import type { WorkOptions, WorkSelection } from './workSelection';
 import {
   workSelectionFromConversation,
@@ -73,6 +73,33 @@ function agentLabel(agent: TWorkAgent, localize: ReturnType<typeof useLocalize>)
   return agent.members.length > 0
     ? localize('com_work_agent_coordinates', { 0: name, 1: agent.members.length })
     : name;
+}
+
+
+function localizeWorkReadinessAction(
+  action: TWorkReadinessAction,
+  localize: ReturnType<typeof useLocalize>,
+): string {
+  switch (action.id) {
+    case 'enable_free_inference':
+      return localize('com_work_readiness_enable_free_inference');
+    case 'set_provider_credential':
+      return localize('com_work_readiness_set_provider_credential', {
+        0: action.envName ?? 'a free-provider key',
+      });
+    case 'configure_local_or_free_model':
+      return localize('com_work_readiness_configure_local_or_free_model');
+    case 'correct_endpoint_name_conflict':
+      return localize('com_work_readiness_correct_endpoint_name_conflict');
+    case 'use_verified_free_or_local_model':
+      return localize('com_work_readiness_use_verified_free_or_local_model');
+    case 'inspect_rejected_free_endpoint':
+      return localize('com_work_readiness_inspect_rejected_free_endpoint');
+    case 'create_agent_after_model_available':
+      return localize('com_work_readiness_create_agent_after_model_available');
+    default:
+      return localize('com_work_models_empty');
+  }
 }
 
 export function WorkModelSelect({
@@ -191,6 +218,7 @@ export function WorkAgentConversationSelector() {
   const selection = storedSelection
     ? sanitizeWorkSelection(storedSelection, options)
     : workSelectionFromConversation(conversation, options);
+  const readinessAction = readinessQuery.data?.readiness.nextActionDescriptor;
 
   const apply = (next: WorkSelection) => {
     const resolved = resolveWorkSelection(next, options);
@@ -235,7 +263,11 @@ export function WorkAgentConversationSelector() {
       )}
       {!isLoading && !modelsQuery.isError && options.models.length === 0 && (
         <span role="alert" className="text-text-secondary text-xs">
-          {readinessQuery.data?.readiness.nextAction ?? localize('com_work_models_empty')}
+          {readinessQuery.isError
+            ? localize('com_work_readiness_unavailable')
+            : readinessAction
+              ? localizeWorkReadinessAction(readinessAction, localize)
+              : localize('com_work_models_empty')}
         </span>
       )}
     </div>
