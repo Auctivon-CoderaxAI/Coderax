@@ -12,4 +12,10 @@
 @theme inline {
   --color-gray-*: initial;
   --color-green-*: initial;
+  /* The legacy compatibility palette is closed to the steps repository components
+   * still read. Every other step, including 950, stays ungenerated so new code
+   * cannot reach for the closed scales. */
+  --color-gray-500: #595959;
+  --color-gray-650: #393939;
+  --color-green-500: #10a37f;
 }
