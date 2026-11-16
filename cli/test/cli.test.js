@@ -295,6 +295,32 @@ test('chat streams deltas to stdout', async () => {
   assert.match(h.stdout, /Hello world/);
 });
 
+test('Chat and Work preserve CRLF SSE deltas split across chunks', async () => {
+  const fetchImpl = async () =>
+    sseResponse([
+      'data: {"delta":"Hel',
+      'lo"}\r',
+      '\n\r',
+      '\n',
+      'data: {"delta":" world"}\r\n\r\n',
+      'data: [DONE]\r\n\r\n',
+    ]);
+
+  const h = harness({ fetchImpl });
+  await h.run(['config', 'set', 'base-url', 'https://example.test']);
+  seedCredentials();
+
+  for (const mode of ['chat', 'work']) {
+    assert.equal(await h.run([mode, 'hi', '--json']), 0);
+    assert.deepEqual(JSON.parse(h.stdout), {
+      mode,
+      text: 'Hello world',
+      events: 2,
+    });
+    assert.equal(h.stderr, '');
+  }
+});
+
 test('chat emits JSON when asked', async () => {
   const fetchImpl = async () =>
     sseResponse(['data: {"delta":"alpha"}\n\n', 'data: {"delta":"beta"}\n\n']);
