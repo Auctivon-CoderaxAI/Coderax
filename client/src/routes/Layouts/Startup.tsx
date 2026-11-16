@@ -21,7 +21,13 @@ const headerMap: Record<string, TranslationKeys> = {
   '/login/2fa/setup': 'com_auth_two_factor_setup_required',
 };
 
-export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: boolean }) {
+export default function StartupLayout({
+  isAuthenticated,
+  isGuestSession = false,
+}: {
+  isAuthenticated?: boolean;
+  isGuestSession?: boolean;
+}) {
   const [error, setError] = useState<TranslationKeys | null>(null);
   const [headerText, setHeaderText] = useState<TranslationKeys | null>(null);
   const [startupConfig, setStartupConfig] = useState<TStartupConfig | null>(null);
@@ -48,7 +54,11 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
    * bounce them straight back out of the screen the server is demanding they complete.
    */
   useEffect(() => {
-    if (!isAuthenticated || isRequiredTwoFactorSetupRoute()) {
+    const isManualGuestSignIn =
+      isGuestSession &&
+      location.pathname === '/login' &&
+      new URLSearchParams(location.search).get('manual') === '1';
+    if (!isAuthenticated || isRequiredTwoFactorSetupRoute() || isManualGuestSignIn) {
       return;
     }
     const destination =
