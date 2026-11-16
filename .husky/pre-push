@@ -15,15 +15,28 @@ set -u
 PROTECTED="main master dev"
 
 # Buffer stdin to a file first: a chained local hook needs the same ref list we do.
-refs=$(mktemp 2>/dev/null) || refs="/tmp/freebuff-pre-push.$$"
-touch "$refs" 2>/dev/null || exit 0
-cat > "$refs"
+if refs=$(mktemp 2>/dev/null); then
+  :
+else
+  rc=$?
+  [ -z "$refs" ] || rm -f "$refs"
+  exit "$rc"
+fi
+if cat > "$refs"; then
+  :
+else
+  rc=$?
+  rm -f "$refs"
+  exit "$rc"
+fi
 
 here=$(cd "$(dirname "$0")" && pwd)
 
 # Preserve any pre-existing hook: at install time it is moved to pre-push.local.
 if [ -x "$here/pre-push.local" ]; then
-  if ! "$here/pre-push.local" "$@" < "$refs"; then
+  if "$here/pre-push.local" "$@" < "$refs"; then
+    :
+  else
     rc=$?
     rm -f "$refs"
     exit "$rc"
