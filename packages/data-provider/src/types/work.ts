@@ -87,7 +87,7 @@ export type TWorkReadiness = {
   checks: TWorkReadinessCheck[];
   nextAction: string | null;
   /** Stable action data for clients to localize; prefer this over display text. */
-  nextActionDescriptor: TWorkReadinessAction | null;
+  nextActionDescriptor?: TWorkReadinessAction | null;
 };
 
 export type TWorkReadinessResponse = { readiness: TWorkReadiness };
