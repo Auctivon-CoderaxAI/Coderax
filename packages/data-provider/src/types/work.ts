@@ -59,6 +59,39 @@ export type TWorkAgent = {
 };
 
 export type TWorkAgentsResponse = { agents: TWorkAgent[] };
+
+export type TWorkReadinessCheckId =
+  | 'free_inference_enabled'
+  | 'provider_credential'
+  | 'eligible_model'
+  | 'eligible_agent';
+
+export type TWorkReadinessCheck = {
+  id: TWorkReadinessCheckId;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+};
+
+export type TWorkReadinessAction =
+  | { id: 'enable_free_inference' }
+  | { id: 'set_provider_credential'; envName: string | null }
+  | { id: 'configure_local_or_free_model' }
+  | { id: 'correct_endpoint_name_conflict' }
+  | { id: 'use_verified_free_or_local_model' }
+  | { id: 'inspect_rejected_free_endpoint' }
+  | { id: 'create_agent_after_model_available' };
+
+export type TWorkReadiness = {
+  ready: boolean;
+  checks: TWorkReadinessCheck[];
+  nextAction: string | null;
+  /** Stable action data for clients to localize; prefer this over display text. */
+  nextActionDescriptor?: TWorkReadinessAction | null;
+};
+
+export type TWorkReadinessResponse = { readiness: TWorkReadiness };
+
 export type TWorkTasksResponse = { tasks: TWorkTask[] };
 export type TWorkTaskResponse = { task: TWorkTask };
 

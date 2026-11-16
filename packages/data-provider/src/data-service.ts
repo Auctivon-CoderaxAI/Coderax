@@ -1046,6 +1046,10 @@ export function getWorkAgents(): Promise<t.TWorkAgentsResponse> {
   return request.get(endpoints.workAgents());
 }
 
+export function getWorkReadiness(): Promise<t.TWorkReadinessResponse> {
+  return request.get(endpoints.workReadiness());
+}
+
 export function getWorkRouting(): Promise<t.TWorkRoutingResponse> {
   return request.get(endpoints.workRouting());
 }
