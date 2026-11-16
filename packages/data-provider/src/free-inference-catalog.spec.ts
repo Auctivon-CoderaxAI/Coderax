@@ -55,18 +55,21 @@ describe('zero-cost catalog to Work projection', () => {
 
     const groqOnly = buildFreeInferenceWorkSources(enabled, { GROQ_API_KEY: 'k' });
     expect(groqOnly).toEqual([]);
-    expect(buildFreeInferenceCustomEndpoints(enabled, { GROQ_API_KEY: 'k' })[0]?.name).toBe(
-      'FreeGroq',
-    );
+    expect(buildFreeInferenceCustomEndpoints(enabled, { GROQ_API_KEY: 'k' })).toEqual([]);
+    expect(
+      describeFreeInferenceCatalog(enabled, { GROQ_API_KEY: 'k' }).endpoints.find(
+        (endpoint) => endpoint.provider === 'groq',
+      )?.blocked,
+    ).toBe('billing_plan_unverified');
   });
 
-  it('marks Cloudflare unsupported rather than pretending it can execute', () => {
+  it('does not route a free-tier provider when its account plan cannot be verified', () => {
     const state = describeFreeInferenceCatalog(enabled, {
       CLOUDFLARE_API_TOKEN: 'k',
       CLOUDFLARE_ACCOUNT_ID: 'acct',
     });
     const cloudflare = state.endpoints.find((endpoint) => endpoint.provider === 'cloudflare');
-    expect(cloudflare?.blocked).toBe('unsupported_transport');
+    expect(cloudflare?.blocked).toBe('billing_plan_unverified');
     expect(state.executableProviders).toEqual([]);
   });
 
@@ -82,5 +85,51 @@ describe('zero-cost catalog to Work projection', () => {
       'FreeOpenRouter',
     ]);
     expect(mergeFreeInferenceCustomEndpoints(config, {})).toBe(config);
+  });
+
+  it('does not label a conflicting reserved endpoint name as free', () => {
+    const modelId = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+    const config = {
+      freeInference: { enabled: true },
+      endpoints: {
+        custom: [
+          {
+            name: 'FreeOpenRouter',
+            baseURL: 'https://gateway.example/v1',
+            models: { default: [modelId] },
+          },
+        ],
+      },
+    };
+
+    const openRouter = describeFreeInferenceCatalog(config, openRouterKey).endpoints.find(
+      (endpoint) => endpoint.provider === 'openrouter',
+    );
+    expect(openRouter?.blocked).toBe('endpoint_name_conflict');
+    expect(buildFreeInferenceWorkSources(config, openRouterKey)).toEqual([]);
+    expect(buildFreeInferenceCustomEndpoints(config, openRouterKey)).toEqual([]);
+    expect(mergeFreeInferenceCustomEndpoints(config, openRouterKey)).toBe(config);
+  });
+
+  it('recognizes an existing canonical free endpoint without duplicating it', () => {
+    const modelId = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+    const config = {
+      freeInference: { enabled: true },
+      endpoints: {
+        custom: [
+          {
+            name: 'FreeOpenRouter',
+            baseURL: 'https://openrouter.ai/api/v1',
+            models: { default: [modelId] },
+          },
+        ],
+      },
+    };
+
+    const openRouter = describeFreeInferenceCatalog(config, openRouterKey).endpoints.find(
+      (endpoint) => endpoint.provider === 'openrouter',
+    );
+    expect(openRouter?.executable).toBe(true);
+    expect(mergeFreeInferenceCustomEndpoints(config, openRouterKey)).toBe(config);
   });
 });

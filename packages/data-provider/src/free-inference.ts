@@ -60,6 +60,8 @@ export type FreeEndpoint = {
 export type FreeEndpointRejection =
   | 'unknown_provider'
   | 'unverified_pricing'
+  | 'billing_plan_unverified'
+  | 'endpoint_name_conflict'
   | 'trial_credits'
   | 'nonzero_price'
   | 'distilled_model_as_primary';
@@ -140,16 +142,13 @@ export const DEEPSEEK_R1_PRIMARY: FreePrimaryStatus = {
   ],
 };
 
-/** Providers Coderax will route to. Anything else is rejected, not disabled. */
-export const FREE_PROVIDER_ALLOWLIST: readonly FreeProviderId[] = [
-  'openrouter',
-  'groq',
-  'cloudflare',
-];
+/** Providers Coderax can prove stay at $0. Anything else is rejected, not disabled. */
+export const FREE_PROVIDER_ALLOWLIST: readonly FreeProviderId[] = ['openrouter'];
 
 /**
- * Verified fallbacks, best first. `routingPriority` is an operator preference
- * between models of similar capability, not a benchmark result.
+ * Candidate fallbacks, best first. The policy below removes endpoints whose
+ * account tier or billing behavior cannot be verified at runtime.
+ * `routingPriority` is an operator preference, not a benchmark result.
  */
 export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
   {
@@ -180,9 +179,9 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     apiKeyEnv: 'GROQ_API_KEY',
     pricing: {
       basis: 'free-tier',
-      verifiedAt: '2026-11-08',
-      evidenceUrl: 'https://console.groq.com/docs/rate-limits',
-      note: 'Base plan rate limits (30 RPM, 1K RPD, 8K TPM, 200K TPD) with no per-token charge.',
+      verifiedAt: '2026-11-15',
+      evidenceUrl: 'https://console.groq.com/docs/billing-faqs',
+      note: 'Groq has both Free and billable Developer tiers. The API key does not reveal its account tier, so Coderax cannot verify that calls stay free.',
     },
     capabilities: { streaming: true, tools: false, reasoning: true },
     contextTokens: 32_768,
@@ -219,7 +218,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
       basis: 'free-daily-allocation',
       verifiedAt: '2026-11-08',
       evidenceUrl: 'https://developers.cloudflare.com/workers-ai/platform/pricing/',
-      note: '10,000 Neurons per day are included; usage above the allocation fails instead of billing on the Workers Free plan.',
+      note: 'The daily allocation is free on the Workers Free plan, but the API does not expose the account plan to this router; paid-plan overage cannot be ruled out.',
     },
     capabilities: { streaming: true, tools: false, reasoning: false },
     contextTokens: 24_000,
@@ -257,15 +256,6 @@ function isAbsoluteHttpUrl(value: string): boolean {
  * used with a warning: a chargeable route must never exist at all.
  */
 export function assertZeroCostEndpoint(endpoint: FreeEndpoint): FreeEndpointCheck {
-  if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
-    return { ok: false, reason: 'unknown_provider' };
-  }
-  if (
-    !isAbsoluteHttpUrl(endpoint.pricing.evidenceUrl) ||
-    endpoint.pricing.verifiedAt.trim() === ''
-  ) {
-    return { ok: false, reason: 'unverified_pricing' };
-  }
   if (/trial|credit/i.test(endpoint.pricing.basis) || /trial credit/i.test(endpoint.pricing.note)) {
     return { ok: false, reason: 'trial_credits' };
   }
@@ -274,6 +264,21 @@ export function assertZeroCostEndpoint(endpoint: FreeEndpoint): FreeEndpointChec
     (endpoint.completionCostPerMillion ?? 0) !== 0
   ) {
     return { ok: false, reason: 'nonzero_price' };
+  }
+  if (
+    !isAbsoluteHttpUrl(endpoint.pricing.evidenceUrl) ||
+    endpoint.pricing.verifiedAt.trim() === ''
+  ) {
+    return { ok: false, reason: 'unverified_pricing' };
+  }
+  // Free-tier and daily-allocation claims depend on the provider account plan.
+  // The credential does not identify that plan, so fail closed instead of
+  // risking usage-based billing on a Developer or paid account.
+  if (endpoint.pricing.basis !== 'free-model') {
+    return { ok: false, reason: 'billing_plan_unverified' };
+  }
+  if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
+    return { ok: false, reason: 'unknown_provider' };
   }
   if (
     endpoint.kind === 'primary' &&
@@ -348,9 +353,12 @@ export function describePrimaryStatus(endpoints: readonly FreeEndpoint[]): FreeP
 
 export type FreeInferenceEnv = Record<string, string | undefined>;
 
-/** Only the opt-in flag is read here; nothing else in the config is trusted. */
+/** Inspect opt-in and the reserved provider endpoint identity; no other config is trusted. */
 export type FreeInferenceConfigLike =
-  | { freeInference?: { enabled?: boolean } | null }
+  | {
+      freeInference?: { enabled?: boolean } | null;
+      endpoints?: { custom?: unknown } | null;
+    }
   | null
   | undefined;
 
@@ -360,10 +368,10 @@ export function isFreeInferenceEnabled(config: FreeInferenceConfigLike): boolean
 
 /**
  * Providers whose API is OpenAI-compatible, so Coderax's existing custom
- * endpoint client can execute them. Cloudflare Workers AI uses a different
- * request shape and is reported unsupported rather than pretended usable.
+ * endpoint client can execute them. Account-plan-dependent endpoints stay
+ * blocked because the server cannot prove their usage will remain free.
  */
-export const FREE_EXECUTABLE_PROVIDERS: readonly FreeProviderId[] = ['openrouter', 'groq'];
+export const FREE_EXECUTABLE_PROVIDERS: readonly FreeProviderId[] = ['openrouter'];
 
 export type FreeProviderEndpoint = {
   provider: 'openrouter' | 'groq';
@@ -379,12 +387,6 @@ export const FREE_PROVIDER_ENDPOINTS: readonly FreeProviderEndpoint[] = [
     name: 'FreeOpenRouter',
     baseURL: 'https://openrouter.ai/api/v1',
     label: 'OpenRouter (free)',
-  },
-  {
-    provider: 'groq',
-    name: 'FreeGroq',
-    baseURL: 'https://api.groq.com/openai/v1',
-    label: 'Groq (free tier)',
   },
 ];
 
@@ -425,6 +427,48 @@ export const DISABLED_FREE_INFERENCE_CATALOG: FreeInferenceCatalogState = {
   executableProviders: [],
 };
 
+type CustomEndpointConfig = {
+  name?: unknown;
+  baseURL?: unknown;
+  models?: { default?: unknown } | null;
+};
+
+/**
+ * A deployment may already use a reserved free-provider name. Trust that
+ * endpoint only when it still targets the canonical provider URL and lists the
+ * exact free model; otherwise the Work catalog must not label it free.
+ */
+function hasCompatibleCustomEndpoint(
+  config: FreeInferenceConfigLike,
+  provider: FreeProviderEndpoint,
+  modelId: string,
+): boolean {
+  const configured = config?.endpoints?.custom;
+  if (configured === undefined) {
+    return true;
+  }
+  if (!Array.isArray(configured)) {
+    return false;
+  }
+
+  const matching = (configured as CustomEndpointConfig[]).filter(
+    (endpoint) => endpoint?.name === provider.name,
+  );
+  if (matching.length === 0) {
+    return true;
+  }
+  if (matching.length !== 1) {
+    return false;
+  }
+
+  const [endpoint] = matching;
+  return (
+    endpoint.baseURL === provider.baseURL &&
+    Array.isArray(endpoint.models?.default) &&
+    endpoint.models.default.includes(modelId)
+  );
+}
+
 /**
  * One source of truth for whether an endpoint can run a real turn right now.
  * Never reads a credential value, only whether the named variable is present.
@@ -438,6 +482,9 @@ export function describeFreeInferenceCatalog(
     const credentialPresent = Boolean(env?.[endpoint.apiKeyEnv]);
     const policy = assertZeroCostEndpoint(endpoint);
     const supported = FREE_EXECUTABLE_PROVIDERS.includes(endpoint.provider);
+    const providerConfig = FREE_PROVIDER_ENDPOINTS.find(
+      (candidate) => candidate.provider === endpoint.provider,
+    );
     let blocked: FreeInferenceBlockReason | null = null;
     if (!enabled) {
       blocked = 'disabled';
@@ -447,6 +494,11 @@ export function describeFreeInferenceCatalog(
       blocked = 'missing_credential';
     } else if (!supported) {
       blocked = 'unsupported_transport';
+    } else if (
+      !providerConfig ||
+      !hasCompatibleCustomEndpoint(config, providerConfig, endpoint.modelId)
+    ) {
+      blocked = 'endpoint_name_conflict';
     }
     return {
       id: endpoint.id,

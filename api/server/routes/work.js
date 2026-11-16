@@ -83,16 +83,23 @@ const depsFor = (req) => {
   return deps;
 };
 
+const workChatRouter = getWorkChatRouter({
+  findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
+  freeModelSources: freeSourcesFor,
+});
+const chatRouter = express.Router();
+chatRouter.use('/chat', strictConfigMiddleware);
+chatRouter.use(workChatRouter);
+
 module.exports = createWorkApiRouter({
-  chatRouter: getWorkChatRouter({
-    findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
-    freeModelSources: freeSourcesFor,
-  }),
+  chatRouter,
   createReadRouterForRequest: () => {
     const readRouter = express.Router();
-    // Catalog admission needs the authenticated YAML/tenant configuration before
-    // depsFor captures graph limits; routing needs it to resolve its budgets.
+    // Model and readiness catalogs need the authenticated YAML/tenant config;
+    // agent admission needs it for graph limits, and routing needs its budgets.
     // Unrelated task reads/cancellation do not.
+    readRouter.use('/models', strictConfigMiddleware);
+    readRouter.use('/readiness', strictConfigMiddleware);
     readRouter.use('/agents', strictConfigMiddleware);
     readRouter.use('/routing', strictConfigMiddleware);
     readRouter.use((req, res, next) => {

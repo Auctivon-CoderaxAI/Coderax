@@ -49,7 +49,7 @@ export function describeWorkReadiness(input: {
   const missing = [
     ...new Set(
       catalog.endpoints
-        .filter((endpoint) => !endpoint.credentialPresent)
+        .filter((endpoint) => endpoint.blocked === 'missing_credential')
         .map((endpoint) => endpoint.credentialEnv),
     ),
   ].sort();
@@ -67,7 +67,7 @@ export function describeWorkReadiness(input: {
       id: 'provider_credential',
       required: false,
       ok: credentialed.length > 0,
-      detail: describeCredentialDetail(credentialed.length, missing),
+      detail: describeCredentialDetail(catalog, credentialed.length, missing),
     },
     {
       id: 'eligible_model',
@@ -97,14 +97,27 @@ export function describeWorkReadiness(input: {
   };
 }
 
-function describeCredentialDetail(credentialedCount: number, missing: string[]): string {
+function describeCredentialDetail(
+  catalog: FreeInferenceCatalogState,
+  credentialedCount: number,
+  missing: string[],
+): string {
   if (credentialedCount > 0) {
     return `${credentialedCount} verified free endpoint(s) have a server-side credential.`;
   }
   if (missing.length > 0) {
     return `No executable free endpoint has a credential. Missing: ${missing.join(', ')}.`;
   }
-  return 'No verified free endpoint is executable with the current transport.';
+  if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'endpoint_name_conflict')) {
+    return 'A reserved free-provider endpoint name points to a different URL or model list.';
+  }
+  if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'billing_plan_unverified')) {
+    return 'Free-tier or daily-allocation endpoints are blocked because their account plan cannot be verified.';
+  }
+  if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'unsupported_transport')) {
+    return 'No verified free endpoint is executable with the current transport.';
+  }
+  return 'No verified free endpoint is executable with the current policy.';
 }
 
 function nextActionFor(
@@ -119,12 +132,19 @@ function nextActionFor(
     case 'provider_credential':
       return `Set ${missing[0] ?? 'a free-provider key'} on the server, then restart so the catalog is rebuilt.`;
     case 'eligible_model':
-      if (catalog.enabled) {
-        return missing.length > 0
-          ? `Set ${missing[0]} on the server, then restart so the catalog is rebuilt.`
-          : 'Check the server log for a rejected free endpoint, then restart so the catalog is rebuilt.';
+      if (!catalog.enabled) {
+        return 'Configure a local endpoint (for example Ollama) or enable freeInference with a credential.';
       }
-      return 'Configure a local endpoint (for example Ollama) or enable freeInference with a credential.';
+      if (missing.length > 0) {
+        return `Set ${missing[0]} on the server, then restart so the catalog is rebuilt.`;
+      }
+      if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'endpoint_name_conflict')) {
+        return 'Rename or correct the existing reserved free-provider endpoint, then restart the server.';
+      }
+      if (catalog.endpoints.some((endpoint) => endpoint.blocked === 'billing_plan_unverified')) {
+        return 'Use a verified $0 model endpoint or a local model; account-plan-based free tiers stay blocked.';
+      }
+      return 'Check the server log for a rejected free endpoint, then restart so the catalog is rebuilt.';
     case 'eligible_agent': {
       const target = models[0];
       return target
