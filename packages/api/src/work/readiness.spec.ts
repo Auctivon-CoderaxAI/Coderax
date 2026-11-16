@@ -54,6 +54,7 @@ describe('Work readiness', () => {
     expect(readiness.ready).toBe(false);
     expect(readiness.checks.find((check) => check.id === 'eligible_model')?.ok).toBe(false);
     expect(readiness.nextAction).toMatch(/local endpoint|freeInference/);
+    expect(readiness.nextActionDescriptor).toEqual({ id: 'configure_local_or_free_model' });
   });
 
   it('names the missing credential instead of the generic model error', () => {
@@ -82,6 +83,10 @@ describe('Work readiness', () => {
       'OPENROUTER_API_KEY',
     );
     expect(readiness.nextAction).toContain('OPENROUTER_API_KEY');
+    expect(readiness.nextActionDescriptor).toEqual({
+      id: 'set_provider_credential',
+      envName: 'OPENROUTER_API_KEY',
+    });
   });
 
   it('does not ask for credentials for endpoints blocked by billing-plan uncertainty', () => {
@@ -110,6 +115,7 @@ describe('Work readiness', () => {
       'account plan cannot be verified',
     );
     expect(readiness.nextAction).toContain('account-plan-based free tiers stay blocked');
+    expect(readiness.nextActionDescriptor).toEqual({ id: 'use_verified_free_or_local_model' });
     expect(readiness.nextAction).not.toContain('GROQ_API_KEY');
   });
 
@@ -141,6 +147,7 @@ describe('Work readiness', () => {
     expect(readiness.nextAction).toContain(
       'Rename or correct the existing reserved free-provider endpoint',
     );
+    expect(readiness.nextActionDescriptor).toEqual({ id: 'correct_endpoint_name_conflict' });
   });
 
   it('is ready on a local model without hosted free inference', () => {
@@ -151,6 +158,7 @@ describe('Work readiness', () => {
     });
     expect(readiness.ready).toBe(true);
     expect(readiness.nextAction).toBeNull();
+    expect(readiness.nextActionDescriptor).toBeNull();
     expect(readiness.checks.find((check) => check.id === 'free_inference_enabled')?.ok).toBe(false);
   });
 
@@ -167,5 +175,6 @@ describe('Work readiness', () => {
       required: false,
     });
     expect(readiness.nextAction).toBeNull();
+    expect(readiness.nextActionDescriptor).toBeNull();
   });
 });
