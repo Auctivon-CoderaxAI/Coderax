@@ -52,6 +52,8 @@ export default function StartupLayout({
    * destination with `/c/new`. Mandatory enrollment is the one arrival that stays put: the user
    * holding a setup token is authenticated precisely until they enroll, so sending them on would
    * bounce them straight back out of the screen the server is demanding they complete.
+   * An authenticated guest in the explicit manual sign-in flow must also stay so the owner can
+   * replace the isolated guest session.
    */
   useEffect(() => {
     const isManualGuestSignIn =
