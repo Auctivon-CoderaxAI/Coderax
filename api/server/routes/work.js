@@ -1,7 +1,11 @@
 const express = require('express');
 const { logger } = require('@coderax/data-schemas');
 const { strictConfigMiddleware } = require('~/server/middleware/config/app');
-const { PermissionBits } = require('coderax-data-provider');
+const {
+  PermissionBits,
+  buildFreeInferenceWorkSources,
+  describeFreeInferenceCatalog,
+} = require('coderax-data-provider');
 const {
   createWorkDepsFactory,
   createWorkRouter,
@@ -55,7 +59,7 @@ async function listViewableAgents(req) {
  * A Work request carries its own authenticated context: model discovery is
  * per-user, reads are owner-scoped, and abort re-checks the native job owner.
  */
-const depsFor = createWorkDepsFactory({
+const baseDepsFor = createWorkDepsFactory({
   db,
   jobs: GenerationJobManager,
   loadModels,
@@ -66,9 +70,23 @@ const depsFor = createWorkDepsFactory({
   configuredDefaultModel: configuredDefaultFromRequest,
 });
 
+/** Verified free endpoints join the same catalog Work admits runs from, so a
+ *  model the picker offers is one the server will actually execute. */
+const freeSourcesFor = (req) =>
+  buildFreeInferenceWorkSources(req.config?.config ?? null, process.env);
+
+const depsFor = (req) => {
+  const deps = baseDepsFor(req);
+  const configuredListModels = deps.listModels;
+  deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
+  deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
+  return deps;
+};
+
 module.exports = createWorkApiRouter({
   chatRouter: getWorkChatRouter({
     findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
+    freeModelSources: freeSourcesFor,
   }),
   createReadRouterForRequest: () => {
     const readRouter = express.Router();

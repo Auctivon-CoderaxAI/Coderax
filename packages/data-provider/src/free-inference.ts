@@ -345,3 +345,221 @@ export function describePrimaryStatus(endpoints: readonly FreeEndpoint[]): FreeP
     evidence: [{ url: primary.pricing.evidenceUrl, detail: primary.pricing.note }],
   };
 }
+
+export type FreeInferenceEnv = Record<string, string | undefined>;
+
+/** Only the opt-in flag is read here; nothing else in the config is trusted. */
+export type FreeInferenceConfigLike =
+  | { freeInference?: { enabled?: boolean } | null }
+  | null
+  | undefined;
+
+export function isFreeInferenceEnabled(config: FreeInferenceConfigLike): boolean {
+  return config?.freeInference?.enabled === true;
+}
+
+/**
+ * Providers whose API is OpenAI-compatible, so Coderax's existing custom
+ * endpoint client can execute them. Cloudflare Workers AI uses a different
+ * request shape and is reported unsupported rather than pretended usable.
+ */
+export const FREE_EXECUTABLE_PROVIDERS: readonly FreeProviderId[] = ['openrouter', 'groq'];
+
+export type FreeProviderEndpoint = {
+  provider: 'openrouter' | 'groq';
+  /** Stable provider id an agent is pinned to. */
+  name: string;
+  baseURL: string;
+  label: string;
+};
+
+export const FREE_PROVIDER_ENDPOINTS: readonly FreeProviderEndpoint[] = [
+  {
+    provider: 'openrouter',
+    name: 'FreeOpenRouter',
+    baseURL: 'https://openrouter.ai/api/v1',
+    label: 'OpenRouter (free)',
+  },
+  {
+    provider: 'groq',
+    name: 'FreeGroq',
+    baseURL: 'https://api.groq.com/openai/v1',
+    label: 'Groq (free tier)',
+  },
+];
+
+export type FreeInferenceBlockReason =
+  | FreeEndpointRejection
+  | 'disabled'
+  | 'missing_credential'
+  | 'unsupported_transport';
+
+export type FreeInferenceEndpointState = {
+  id: string;
+  provider: FreeProviderId;
+  modelId: string;
+  label: string;
+  credentialEnv: string;
+  credentialPresent: boolean;
+  tools: boolean;
+  /** True only when opt-in, a server credential, policy and transport all agree. */
+  executable: boolean;
+  blocked: FreeInferenceBlockReason | null;
+};
+
+export type FreeExecutableProvider = {
+  provider: string;
+  name: string;
+  models: string[];
+};
+
+export type FreeInferenceCatalogState = {
+  enabled: boolean;
+  endpoints: FreeInferenceEndpointState[];
+  executableProviders: FreeExecutableProvider[];
+};
+
+export const DISABLED_FREE_INFERENCE_CATALOG: FreeInferenceCatalogState = {
+  enabled: false,
+  endpoints: [],
+  executableProviders: [],
+};
+
+/**
+ * One source of truth for whether an endpoint can run a real turn right now.
+ * Never reads a credential value, only whether the named variable is present.
+ */
+export function describeFreeInferenceCatalog(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): FreeInferenceCatalogState {
+  const enabled = isFreeInferenceEnabled(config);
+  const endpoints = FREE_ENDPOINTS.map((endpoint): FreeInferenceEndpointState => {
+    const credentialPresent = Boolean(env?.[endpoint.apiKeyEnv]);
+    const policy = assertZeroCostEndpoint(endpoint);
+    const supported = FREE_EXECUTABLE_PROVIDERS.includes(endpoint.provider);
+    let blocked: FreeInferenceBlockReason | null = null;
+    if (!enabled) {
+      blocked = 'disabled';
+    } else if (!policy.ok) {
+      blocked = policy.reason;
+    } else if (!credentialPresent) {
+      blocked = 'missing_credential';
+    } else if (!supported) {
+      blocked = 'unsupported_transport';
+    }
+    return {
+      id: endpoint.id,
+      provider: endpoint.provider,
+      modelId: endpoint.modelId,
+      label: endpoint.label,
+      credentialEnv: endpoint.apiKeyEnv,
+      credentialPresent,
+      tools: endpoint.capabilities.tools,
+      executable: blocked === null,
+      blocked,
+    };
+  });
+
+  const executableProviders = FREE_PROVIDER_ENDPOINTS.map((meta) => ({
+    provider: meta.provider,
+    name: meta.name,
+    models: endpoints
+      .filter((endpoint) => endpoint.executable && endpoint.provider === meta.provider)
+      .map((endpoint) => endpoint.modelId),
+  })).filter((group) => group.models.length > 0);
+
+  return { enabled, endpoints, executableProviders };
+}
+
+/**
+ * Turn verified $0 providers into ordinary custom endpoint entries, so the
+ * native agent runner executes them without a second transport. The API key
+ * stays an environment reference resolved server-side.
+ */
+export function buildFreeInferenceCustomEndpoints(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): Array<{
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  modelDisplayLabel: string;
+  models: { default: string[] };
+  titleConvo: true;
+}> {
+  const catalog = describeFreeInferenceCatalog(config, env);
+  return catalog.executableProviders.map((group) => {
+    const meta = FREE_PROVIDER_ENDPOINTS.find((entry) => entry.provider === group.provider);
+    const first = FREE_ENDPOINTS.find((entry) => entry.provider === group.provider);
+    if (!meta || !first) {
+      throw new Error('Free inference provider is missing its endpoint metadata');
+    }
+    return {
+      name: meta.name,
+      baseURL: meta.baseURL,
+      apiKey: '${' + first.apiKeyEnv + '}',
+      modelDisplayLabel: meta.label,
+      models: { default: group.models },
+      titleConvo: true,
+    };
+  });
+}
+
+/** The Work catalog rows that mirror the executable custom endpoints. */
+export type FreeInferenceWorkSource = {
+  id: string;
+  label: string;
+  provider: string;
+  free: true;
+};
+
+/**
+ * Work runs tools, so only endpoints that advertise native tool calling are
+ * offered. A text-only endpoint is never shown as a Work model.
+ */
+export function buildFreeInferenceWorkSources(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): FreeInferenceWorkSource[] {
+  const catalog = describeFreeInferenceCatalog(config, env);
+  const sources: FreeInferenceWorkSource[] = [];
+  for (const group of catalog.executableProviders) {
+    for (const endpoint of catalog.endpoints) {
+      if (!endpoint.executable || endpoint.provider !== group.provider || !endpoint.tools) {
+        continue;
+      }
+      sources.push({
+        id: endpoint.modelId,
+        label: endpoint.label,
+        provider: group.name,
+        free: true,
+      });
+    }
+  }
+  return sources;
+}
+
+/**
+ * Merge the executable free providers into a deployment config as custom
+ * endpoints. Disabled free inference, a missing credential or an unsupported
+ * transport adds nothing, so behavior is unchanged until opted in.
+ */
+export function mergeFreeInferenceCustomEndpoints<
+  T extends { endpoints?: Record<string, unknown> },
+>(config: T, env: FreeInferenceEnv | undefined): T {
+  const additions = buildFreeInferenceCustomEndpoints(config as FreeInferenceConfigLike, env);
+  if (additions.length === 0) {
+    return config;
+  }
+  const endpoints = (config.endpoints ?? {}) as Record<string, unknown>;
+  const existing = Array.isArray(endpoints.custom)
+    ? (endpoints.custom as Array<{ name?: string }>)
+    : [];
+  const existingNames = new Set(existing.map((entry) => entry?.name));
+  const merged = [...existing, ...additions.filter((entry) => !existingNames.has(entry.name))];
+  if (merged.length === existing.length) {
+    return config;
+  }
+  return { ...config, endpoints: { ...endpoints, custom: merged } } as T;
+}

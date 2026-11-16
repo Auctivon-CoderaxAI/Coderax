@@ -158,6 +158,7 @@ function workContextMiddleware(
   seedConversation = seedWorkConversation,
   findAgent = defaultFindAgent,
   canViewAgent = defaultCanViewAgent,
+  freeModelSources,
 ) {
   return async (req, res, next) => {
     try {
@@ -182,7 +183,9 @@ function workContextMiddleware(
       } catch {
         configuredDefault = null;
       }
-      const sources = flattenModelConfig(config);
+      const configuredSources = flattenModelConfig(config);
+      const sharedSources = freeModelSources ? await freeModelSources(req) : [];
+      const sources = [...configuredSources, ...sharedSources];
       const requestedAgentId = selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID);
       const admission = await resolveWorkAdmission({
         sources,
@@ -295,6 +298,7 @@ function createWorkChatRouter({
   findAgent,
   authorizeAgent,
   canViewAgent,
+  freeModelSources,
 } = {}) {
   const router = express.Router();
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
@@ -307,6 +311,7 @@ function createWorkChatRouter({
       seedConversation,
       findAgent,
       canViewAgent,
+      freeModelSources,
     ),
   );
   router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
