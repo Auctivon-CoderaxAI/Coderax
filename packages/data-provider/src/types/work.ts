@@ -59,6 +59,28 @@ export type TWorkAgent = {
 };
 
 export type TWorkAgentsResponse = { agents: TWorkAgent[] };
+
+export type TWorkReadinessCheckId =
+  | 'free_inference_enabled'
+  | 'provider_credential'
+  | 'eligible_model'
+  | 'eligible_agent';
+
+export type TWorkReadinessCheck = {
+  id: TWorkReadinessCheckId;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+};
+
+export type TWorkReadiness = {
+  ready: boolean;
+  checks: TWorkReadinessCheck[];
+  nextAction: string | null;
+};
+
+export type TWorkReadinessResponse = { readiness: TWorkReadiness };
+
 export type TWorkTasksResponse = { tasks: TWorkTask[] };
 export type TWorkTaskResponse = { task: TWorkTask };
 
