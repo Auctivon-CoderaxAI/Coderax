@@ -375,6 +375,26 @@ describe('AuthContextProvider: login onError redirect handling', () => {
     });
   });
 
+  it('preserves manual owner sign-in and the safe Work handoff after a login failure', () => {
+    const returnTo = '/work/new?_work_handoff=handoff-id';
+    window.history.replaceState(
+      {},
+      '',
+      `/login?manual=1&redirect_to=${encodeURIComponent(returnTo)}`,
+    );
+
+    renderProvider();
+
+    act(() => {
+      mockCapturedLoginOptions.onError({ message: 'Invalid credentials' });
+    });
+
+    const loginPath = mockNavigate.mock.calls[0][0] as string;
+    const retryParams = new URLSearchParams(loginPath.split('?')[1]);
+    expect(retryParams.get('manual')).toBe('1');
+    expect(retryParams.get('redirect_to')).toBe(returnTo);
+  });
+
   it('drops redirect_to when it contains an absolute URL (open-redirect prevention)', () => {
     window.history.replaceState({}, '', '/login?redirect_to=https%3A%2F%2Fevil.com');
 
