@@ -7,6 +7,7 @@ const mockNavigate = jest.fn();
 const mockMutatePinnedOrder = jest.fn();
 const mockCancelWorkTask = jest.fn();
 const mockInvalidateQueries = jest.fn();
+let mockActiveJobIds: string[] = [];
 let mockPinnedOrder: string[] | undefined;
 let mockTasksQuery: {
   data?: {
@@ -84,6 +85,7 @@ describe('WorkTasksSection', () => {
     mockMutatePinnedOrder.mockReset();
     mockCancelWorkTask.mockReset();
     mockInvalidateQueries.mockReset();
+    mockActiveJobIds = [];
     mockPinnedOrder = [];
     mockTasksQuery = {
       data: {
