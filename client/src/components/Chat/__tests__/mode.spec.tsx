@@ -72,4 +72,6 @@ it('honors an explicit Work deep link over a saved Chat mode', () => {
   );
 
   expect(workLink.result.current.mode).toBe('work');
+  act(() => workLink.result.current.setMode('chat'));
+  expect(workLink.result.current.mode).toBe('chat');
 });
