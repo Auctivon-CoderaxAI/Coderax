@@ -60,6 +60,8 @@ export type FreeEndpoint = {
 export type FreeEndpointRejection =
   | 'unknown_provider'
   | 'unverified_pricing'
+  | 'billing_plan_unverified'
+  | 'endpoint_name_conflict'
   | 'trial_credits'
   | 'nonzero_price'
   | 'distilled_model_as_primary';
@@ -140,16 +142,13 @@ export const DEEPSEEK_R1_PRIMARY: FreePrimaryStatus = {
   ],
 };
 
-/** Providers Coderax will route to. Anything else is rejected, not disabled. */
-export const FREE_PROVIDER_ALLOWLIST: readonly FreeProviderId[] = [
-  'openrouter',
-  'groq',
-  'cloudflare',
-];
+/** Providers Coderax can prove stay at $0. Anything else is rejected, not disabled. */
+export const FREE_PROVIDER_ALLOWLIST: readonly FreeProviderId[] = ['openrouter'];
 
 /**
- * Verified fallbacks, best first. `routingPriority` is an operator preference
- * between models of similar capability, not a benchmark result.
+ * Candidate fallbacks, best first. The policy below removes endpoints whose
+ * account tier or billing behavior cannot be verified at runtime.
+ * `routingPriority` is an operator preference, not a benchmark result.
  */
 export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
   {
@@ -180,9 +179,9 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     apiKeyEnv: 'GROQ_API_KEY',
     pricing: {
       basis: 'free-tier',
-      verifiedAt: '2026-11-08',
-      evidenceUrl: 'https://console.groq.com/docs/rate-limits',
-      note: 'Base plan rate limits (30 RPM, 1K RPD, 8K TPM, 200K TPD) with no per-token charge.',
+      verifiedAt: '2026-11-15',
+      evidenceUrl: 'https://console.groq.com/docs/billing-faqs',
+      note: 'Groq has both Free and billable Developer tiers. The API key does not reveal its account tier, so Coderax cannot verify that calls stay free.',
     },
     capabilities: { streaming: true, tools: false, reasoning: true },
     contextTokens: 32_768,
@@ -219,7 +218,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
       basis: 'free-daily-allocation',
       verifiedAt: '2026-11-08',
       evidenceUrl: 'https://developers.cloudflare.com/workers-ai/platform/pricing/',
-      note: '10,000 Neurons per day are included; usage above the allocation fails instead of billing on the Workers Free plan.',
+      note: 'The daily allocation is free on the Workers Free plan, but the API does not expose the account plan to this router; paid-plan overage cannot be ruled out.',
     },
     capabilities: { streaming: true, tools: false, reasoning: false },
     contextTokens: 24_000,
@@ -257,15 +256,6 @@ function isAbsoluteHttpUrl(value: string): boolean {
  * used with a warning: a chargeable route must never exist at all.
  */
 export function assertZeroCostEndpoint(endpoint: FreeEndpoint): FreeEndpointCheck {
-  if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
-    return { ok: false, reason: 'unknown_provider' };
-  }
-  if (
-    !isAbsoluteHttpUrl(endpoint.pricing.evidenceUrl) ||
-    endpoint.pricing.verifiedAt.trim() === ''
-  ) {
-    return { ok: false, reason: 'unverified_pricing' };
-  }
   if (/trial|credit/i.test(endpoint.pricing.basis) || /trial credit/i.test(endpoint.pricing.note)) {
     return { ok: false, reason: 'trial_credits' };
   }
@@ -274,6 +264,21 @@ export function assertZeroCostEndpoint(endpoint: FreeEndpoint): FreeEndpointChec
     (endpoint.completionCostPerMillion ?? 0) !== 0
   ) {
     return { ok: false, reason: 'nonzero_price' };
+  }
+  if (
+    !isAbsoluteHttpUrl(endpoint.pricing.evidenceUrl) ||
+    endpoint.pricing.verifiedAt.trim() === ''
+  ) {
+    return { ok: false, reason: 'unverified_pricing' };
+  }
+  // Free-tier and daily-allocation claims depend on the provider account plan.
+  // The credential does not identify that plan, so fail closed instead of
+  // risking usage-based billing on a Developer or paid account.
+  if (endpoint.pricing.basis !== 'free-model') {
+    return { ok: false, reason: 'billing_plan_unverified' };
+  }
+  if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
+    return { ok: false, reason: 'unknown_provider' };
   }
   if (
     endpoint.kind === 'primary' &&
@@ -344,4 +349,269 @@ export function describePrimaryStatus(endpoints: readonly FreeEndpoint[]): FreeP
     checkedAt: primary.pricing.verifiedAt,
     evidence: [{ url: primary.pricing.evidenceUrl, detail: primary.pricing.note }],
   };
+}
+
+export type FreeInferenceEnv = Record<string, string | undefined>;
+
+/** Inspect opt-in and the reserved provider endpoint identity; no other config is trusted. */
+export type FreeInferenceConfigLike =
+  | {
+      freeInference?: { enabled?: boolean } | null;
+      endpoints?: { custom?: unknown } | null;
+    }
+  | null
+  | undefined;
+
+export function isFreeInferenceEnabled(config: FreeInferenceConfigLike): boolean {
+  return config?.freeInference?.enabled === true;
+}
+
+/**
+ * Providers whose API is OpenAI-compatible, so Coderax's existing custom
+ * endpoint client can execute them. Account-plan-dependent endpoints stay
+ * blocked because the server cannot prove their usage will remain free.
+ */
+export const FREE_EXECUTABLE_PROVIDERS: readonly FreeProviderId[] = ['openrouter'];
+
+export type FreeProviderEndpoint = {
+  provider: 'openrouter' | 'groq';
+  /** Stable provider id an agent is pinned to. */
+  name: string;
+  baseURL: string;
+  label: string;
+};
+
+export const FREE_PROVIDER_ENDPOINTS: readonly FreeProviderEndpoint[] = [
+  {
+    provider: 'openrouter',
+    name: 'FreeOpenRouter',
+    baseURL: 'https://openrouter.ai/api/v1',
+    label: 'OpenRouter (free)',
+  },
+];
+
+export type FreeInferenceBlockReason =
+  | FreeEndpointRejection
+  | 'disabled'
+  | 'missing_credential'
+  | 'unsupported_transport';
+
+export type FreeInferenceEndpointState = {
+  id: string;
+  provider: FreeProviderId;
+  modelId: string;
+  label: string;
+  credentialEnv: string;
+  credentialPresent: boolean;
+  tools: boolean;
+  /** True only when opt-in, a server credential, policy and transport all agree. */
+  executable: boolean;
+  blocked: FreeInferenceBlockReason | null;
+};
+
+export type FreeExecutableProvider = {
+  provider: string;
+  name: string;
+  models: string[];
+};
+
+export type FreeInferenceCatalogState = {
+  enabled: boolean;
+  endpoints: FreeInferenceEndpointState[];
+  executableProviders: FreeExecutableProvider[];
+};
+
+export const DISABLED_FREE_INFERENCE_CATALOG: FreeInferenceCatalogState = {
+  enabled: false,
+  endpoints: [],
+  executableProviders: [],
+};
+
+type CustomEndpointConfig = {
+  name?: unknown;
+  baseURL?: unknown;
+  models?: { default?: unknown } | null;
+};
+
+/**
+ * A deployment may already use a reserved free-provider name. Trust that
+ * endpoint only when it still targets the canonical provider URL and lists the
+ * exact free model; otherwise the Work catalog must not label it free.
+ */
+function hasCompatibleCustomEndpoint(
+  config: FreeInferenceConfigLike,
+  provider: FreeProviderEndpoint,
+  modelId: string,
+): boolean {
+  const configured = config?.endpoints?.custom;
+  if (configured === undefined) {
+    return true;
+  }
+  if (!Array.isArray(configured)) {
+    return false;
+  }
+
+  const matching = (configured as CustomEndpointConfig[]).filter(
+    (endpoint) => endpoint?.name === provider.name,
+  );
+  if (matching.length === 0) {
+    return true;
+  }
+  if (matching.length !== 1) {
+    return false;
+  }
+
+  const [endpoint] = matching;
+  return (
+    endpoint.baseURL === provider.baseURL &&
+    Array.isArray(endpoint.models?.default) &&
+    endpoint.models.default.includes(modelId)
+  );
+}
+
+/**
+ * One source of truth for whether an endpoint can run a real turn right now.
+ * Never reads a credential value, only whether the named variable is present.
+ */
+export function describeFreeInferenceCatalog(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): FreeInferenceCatalogState {
+  const enabled = isFreeInferenceEnabled(config);
+  const endpoints = FREE_ENDPOINTS.map((endpoint): FreeInferenceEndpointState => {
+    const credentialPresent = Boolean(env?.[endpoint.apiKeyEnv]);
+    const policy = assertZeroCostEndpoint(endpoint);
+    const supported = FREE_EXECUTABLE_PROVIDERS.includes(endpoint.provider);
+    const providerConfig = FREE_PROVIDER_ENDPOINTS.find(
+      (candidate) => candidate.provider === endpoint.provider,
+    );
+    let blocked: FreeInferenceBlockReason | null = null;
+    if (!enabled) {
+      blocked = 'disabled';
+    } else if (!policy.ok) {
+      blocked = policy.reason;
+    } else if (!credentialPresent) {
+      blocked = 'missing_credential';
+    } else if (!supported) {
+      blocked = 'unsupported_transport';
+    } else if (
+      !providerConfig ||
+      !hasCompatibleCustomEndpoint(config, providerConfig, endpoint.modelId)
+    ) {
+      blocked = 'endpoint_name_conflict';
+    }
+    return {
+      id: endpoint.id,
+      provider: endpoint.provider,
+      modelId: endpoint.modelId,
+      label: endpoint.label,
+      credentialEnv: endpoint.apiKeyEnv,
+      credentialPresent,
+      tools: endpoint.capabilities.tools,
+      executable: blocked === null,
+      blocked,
+    };
+  });
+
+  const executableProviders = FREE_PROVIDER_ENDPOINTS.map((meta) => ({
+    provider: meta.provider,
+    name: meta.name,
+    models: endpoints
+      .filter((endpoint) => endpoint.executable && endpoint.provider === meta.provider)
+      .map((endpoint) => endpoint.modelId),
+  })).filter((group) => group.models.length > 0);
+
+  return { enabled, endpoints, executableProviders };
+}
+
+/**
+ * Turn verified $0 providers into ordinary custom endpoint entries, so the
+ * native agent runner executes them without a second transport. The API key
+ * stays an environment reference resolved server-side.
+ */
+export function buildFreeInferenceCustomEndpoints(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): Array<{
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  modelDisplayLabel: string;
+  models: { default: string[] };
+  titleConvo: true;
+}> {
+  const catalog = describeFreeInferenceCatalog(config, env);
+  return catalog.executableProviders.map((group) => {
+    const meta = FREE_PROVIDER_ENDPOINTS.find((entry) => entry.provider === group.provider);
+    const first = FREE_ENDPOINTS.find((entry) => entry.provider === group.provider);
+    if (!meta || !first) {
+      throw new Error('Free inference provider is missing its endpoint metadata');
+    }
+    return {
+      name: meta.name,
+      baseURL: meta.baseURL,
+      apiKey: '${' + first.apiKeyEnv + '}',
+      modelDisplayLabel: meta.label,
+      models: { default: group.models },
+      titleConvo: true,
+    };
+  });
+}
+
+/** The Work catalog rows that mirror the executable custom endpoints. */
+export type FreeInferenceWorkSource = {
+  id: string;
+  label: string;
+  provider: string;
+  free: true;
+};
+
+/**
+ * Work runs tools, so only endpoints that advertise native tool calling are
+ * offered. A text-only endpoint is never shown as a Work model.
+ */
+export function buildFreeInferenceWorkSources(
+  config: FreeInferenceConfigLike,
+  env: FreeInferenceEnv | undefined,
+): FreeInferenceWorkSource[] {
+  const catalog = describeFreeInferenceCatalog(config, env);
+  const sources: FreeInferenceWorkSource[] = [];
+  for (const group of catalog.executableProviders) {
+    for (const endpoint of catalog.endpoints) {
+      if (!endpoint.executable || endpoint.provider !== group.provider || !endpoint.tools) {
+        continue;
+      }
+      sources.push({
+        id: endpoint.modelId,
+        label: endpoint.label,
+        provider: group.name,
+        free: true,
+      });
+    }
+  }
+  return sources;
+}
+
+/**
+ * Merge the executable free providers into a deployment config as custom
+ * endpoints. Disabled free inference, a missing credential or an unsupported
+ * transport adds nothing, so behavior is unchanged until opted in.
+ */
+export function mergeFreeInferenceCustomEndpoints<
+  T extends { endpoints?: Record<string, unknown> },
+>(config: T, env: FreeInferenceEnv | undefined): T {
+  const additions = buildFreeInferenceCustomEndpoints(config as FreeInferenceConfigLike, env);
+  if (additions.length === 0) {
+    return config;
+  }
+  const endpoints = (config.endpoints ?? {}) as Record<string, unknown>;
+  const existing = Array.isArray(endpoints.custom)
+    ? (endpoints.custom as Array<{ name?: string }>)
+    : [];
+  const existingNames = new Set(existing.map((entry) => entry?.name));
+  const merged = [...existing, ...additions.filter((entry) => !existingNames.has(entry.name))];
+  if (merged.length === existing.length) {
+    return config;
+  }
+  return { ...config, endpoints: { ...endpoints, custom: merged } } as T;
 }
