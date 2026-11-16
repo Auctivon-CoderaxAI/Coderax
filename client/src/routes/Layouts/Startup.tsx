@@ -5,6 +5,7 @@ import {
   DEFAULT_APP_TITLE,
   setDocumentTitle,
   getPostLoginRedirect,
+  getPostLoginFallback,
   isRequiredTwoFactorSetupRoute,
 } from '~/utils';
 import { TranslationKeys, useLocalize } from '~/hooks';
@@ -51,7 +52,7 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
       return;
     }
     const destination =
-      getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? '/c/new';
+      getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
     navigateRef.current(destination, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only by design; see comment above
   }, []);
