@@ -82,16 +82,23 @@ describe('native work model discovery', () => {
     });
   });
 
-  it('routes automatic to a free or local model, never to a paid default', () => {
-    /** A paid default cannot enter the offered catalog; automatic stays free/local. */
+  it('offers a configured paid default in the catalog', () => {
+    /** The default is an explicit deployment choice, so it enters the catalog. */
+    const models = buildWorkModelOptions(
+      [
+        { id: 'llama3:latest', local: true },
+        { id: 'openai:gpt-4o', provider: 'gateway' },
+      ],
+      'openai:gpt-4o',
+    );
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      expect(resolveWorkSelection(withPaid(), selected, 'openai:gpt-4o')).toEqual({
+      expect(resolveWorkSelection(models, selected, 'openai:gpt-4o')).toEqual({
         ok: true,
         auto: true,
-        model: { id: 'llama3:latest', label: 'llama3:latest' },
+        model: { id: 'openai:gpt-4o', label: 'openai:gpt-4o', provider: 'gateway' },
       });
     }
-    /** Even a paid id the caller names explicitly is refused. */
+    /** A paid id that is not the configured default is still refused. */
     expect(resolveWorkSelection(withPaid(), 'openai:gpt-4o', 'llama3:latest')).toEqual({
       ok: false,
       reason: 'model_unavailable',
@@ -120,6 +127,70 @@ describe('native work model discovery', () => {
       model: { id: 'beta:7b', provider: 'ollama' },
     });
     expect(resolveWorkAutoModel(models, null)).toMatchObject({ id: 'alpha:7b' });
+  });
+
+  it('offers the configured default alongside free and local models', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'llama3:latest', label: 'Llama 3', local: true },
+        { id: 'deepseek/deepseek-v4.1-flash-fast', provider: 'deepseek' },
+      ],
+      'deepseek/deepseek-v4.1-flash-fast',
+    );
+    expect(options.map((option) => option.id)).toEqual([
+      WORK_AUTO_MODEL_ID,
+      'deepseek/deepseek-v4.1-flash-fast',
+      'llama3:latest',
+    ]);
+    expect(options[0].target).toEqual({
+      id: 'deepseek/deepseek-v4.1-flash-fast',
+      label: 'deepseek/deepseek-v4.1-flash-fast',
+      provider: 'deepseek',
+    });
+  });
+
+  it('keeps an eligible provider when the configured default shares its id', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'shared', provider: 'ollama', local: true },
+        { id: 'shared', provider: 'gateway' },
+      ],
+      { id: 'shared', provider: 'gateway' },
+    );
+    expect(
+      options.filter((model) => model.id === 'shared').map((model) => model.provider),
+    ).toEqual(['gateway', 'ollama']);
+    expect(options[0].target).toEqual({ id: 'shared', label: 'shared', provider: 'gateway' });
+    expect(
+      resolveWorkAgentModel(options, { id: 'agent', model: 'shared', provider: 'ollama' }),
+    ).toMatchObject({ id: 'shared', provider: 'ollama' });
+  });
+
+  it('does not invent a configured pair the catalog does not advertise', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'shared', provider: 'other' },
+        { id: 'local', provider: 'ollama', local: true },
+      ],
+      { id: 'shared', provider: 'gateway' },
+    );
+    expect(options.map((model) => model.id)).toEqual([WORK_AUTO_MODEL_ID, 'local']);
+    expect(options[0].target).toEqual({ id: 'local', label: 'local', provider: 'ollama' });
+  });
+
+  it('resolves the configured default on its own endpoint when the id is shared', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'gpt-4o', provider: 'openAI' },
+        { id: 'gpt-4o', provider: 'gateway' },
+        { id: 'llama3:latest', provider: 'ollama', local: true },
+      ],
+      { id: 'gpt-4o', provider: 'gateway' },
+    );
+    expect(options[0].target).toEqual({ id: 'gpt-4o', label: 'gpt-4o', provider: 'gateway' });
+    expect(
+      resolveWorkSelection(options, WORK_AUTO_MODEL_ID, { id: 'gpt-4o', provider: 'gateway' }),
+    ).toMatchObject({ ok: true, model: { id: 'gpt-4o', provider: 'gateway' } });
   });
 
   it('refuses automatic only when nothing free or local is offered', () => {
