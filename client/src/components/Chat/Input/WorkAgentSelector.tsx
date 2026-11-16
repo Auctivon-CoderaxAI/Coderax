@@ -47,6 +47,13 @@ export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
     staleTime: 30_000,
     enabled,
   });
+  const readinessQuery = useQuery({
+    queryKey: [QueryKeys.workReadiness],
+    queryFn: () => dataService.getWorkReadiness(),
+    retry: false,
+    staleTime: 30_000,
+    enabled,
+  });
   const options = useMemo(
     () => toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents),
     [modelsQuery.data, agentsQuery.data],
@@ -56,6 +63,7 @@ export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
     options,
     modelsQuery,
     agentsQuery,
+    readinessQuery,
     isLoading: modelsQuery.isLoading || agentsQuery.isLoading,
   };
 }
@@ -176,7 +184,7 @@ export function WorkAgentSelect({
 /** The in-task composer applies a new selection to the open Work conversation. */
 export function WorkAgentConversationSelector() {
   const localize = useLocalize();
-  const { options, isLoading, modelsQuery, agentsQuery } = useWorkOptions();
+  const { options, isLoading, modelsQuery, agentsQuery, readinessQuery } = useWorkOptions();
   const { conversation, isSubmitting } = useChatContext();
   const { selectionKey } = useConversationMode();
   const [storedSelection, setSelection] = useAtom(workSelectionFamily(selectionKey));
@@ -227,7 +235,7 @@ export function WorkAgentConversationSelector() {
       )}
       {!isLoading && !modelsQuery.isError && options.models.length === 0 && (
         <span role="alert" className="text-text-secondary text-xs">
-          {localize('com_work_models_empty')}
+          {readinessQuery.data?.readiness.nextAction ?? localize('com_work_models_empty')}
         </span>
       )}
     </div>
