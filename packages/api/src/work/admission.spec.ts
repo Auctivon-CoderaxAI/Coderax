@@ -58,6 +58,25 @@ describe('Work admission', () => {
     });
   });
 
+  it('admits the configured default on its configured endpoint when ids collide', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [
+          { id: 'gpt-4o', provider: 'openAI' },
+          { id: 'gpt-4o', provider: 'gateway' },
+          { id: 'local-model', provider: 'ollama', local: true },
+        ],
+        requestedModel: 'auto',
+        configuredDefaultModel: { id: 'gpt-4o', provider: 'gateway' },
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      context: { workModel: 'gpt-4o', workProvider: 'gateway' },
+    });
+  });
+
   it('rejects a selected agent graph that reaches a paid model', async () => {
     const root: WorkGraphAgent = {
       id: 'root',

@@ -1,6 +1,6 @@
 import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY } from 'coderax-data-provider';
 import type { WorkAgentGraph, WorkGraphAgent } from './graph';
-import type { WorkModelSource } from './models';
+import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
 import type { WorkModel } from './models';
 import {
   buildWorkModelOptions,
@@ -52,7 +52,7 @@ export function workAdmissionStatus(error: WorkAdmissionFailure): number {
 export function resolveWorkContext(
   sources: WorkModelSource[],
   requested: unknown,
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelContext | { error: WorkAdmissionFailure } {
   return resolveWorkContextFromOptions(
     buildWorkModelOptions(sources, configuredDefault),
@@ -64,7 +64,7 @@ export function resolveWorkContext(
 function resolveWorkContextFromOptions(
   options: ReturnType<typeof buildWorkModelOptions>,
   requested: unknown,
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelContext | { error: WorkAdmissionFailure } {
   if (requested != null && typeof requested !== 'string') {
     return { error: 'WORK_MODEL_NOT_ALLOWED' };
@@ -94,7 +94,7 @@ function resolveWorkContextFromOptions(
 export async function resolveWorkAdmission(input: {
   sources: WorkModelSource[];
   requestedModel: unknown;
-  configuredDefaultModel?: string | null;
+  configuredDefaultModel?: WorkConfiguredDefaultInput;
   requestedAgentId?: string | null;
   findAgent: (agentId: string) => Promise<WorkGraphAgent | null | undefined>;
   canViewAgent: (agent: WorkGraphAgent) => Promise<boolean>;

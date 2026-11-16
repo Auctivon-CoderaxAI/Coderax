@@ -359,6 +359,20 @@ describe('native Work router', () => {
       { id: 'gpt-4o', provider: 'openAI' },
     ];
 
+    it('offers an agent that runs on the configured paid default', async () => {
+      const res = await request(
+        app({
+          listModels: catalog,
+          configuredDefaultModel: async () => ({ id: 'gpt-4o', provider: 'openAI' }),
+          listAgents: async () => [
+            { id: 'paid', name: 'Paid', model: 'gpt-4o', provider: 'openAI' },
+          ],
+        }),
+      ).get('/api/work/agents');
+      expect(res.status).toBe(200);
+      expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['paid']);
+    });
+
     it('offers only agents whose whole graph runs on free or local models', async () => {
       const res = await request(
         app({

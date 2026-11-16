@@ -29,7 +29,11 @@ const { flattenModelConfig } = require('./workModels');
  * Returning null is deliberate: it lets the resolver fail with an actionable
  * message instead of guessing.
  */
-function resolveConfiguredDefaultModel(config) {
+/**
+ * The same default with its endpoint, so Work resolves the provider/model pair
+ * rather than whichever catalog entry happens to carry the id first.
+ */
+function resolveConfiguredDefault(config) {
   const specs = config?.modelSpecs?.list;
   if (!Array.isArray(specs)) {
     return null;
@@ -38,14 +42,24 @@ function resolveConfiguredDefaultModel(config) {
     specs.find((spec) => spec?.default === true) ??
     specs.find((spec) => spec?.softDefault === true);
   const model = chosen?.preset?.model;
-  return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
+  if (typeof model !== 'string' || model.trim() === '') {
+    return null;
+  }
+  const id = model.trim();
+  const endpoint = chosen?.preset?.endpoint;
+  const provider = typeof endpoint === 'string' && endpoint.trim() !== '' ? endpoint.trim() : '';
+  return provider ? { id, provider } : { id };
+}
+
+function resolveConfiguredDefaultModel(config) {
+  return resolveConfiguredDefault(config)?.id ?? null;
 }
 
 const configuredDefaultFromRequest = createConfiguredDefaultResolver(async (req) => {
   const { getAppConfigOptionsFromUser } = require('@coderax/api');
   const { getAppConfig } = require('~/server/services/Config');
   return getAppConfig(getAppConfigOptionsFromUser(req?.user));
-}, resolveConfiguredDefaultModel);
+}, resolveConfiguredDefault);
 
 function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
@@ -182,12 +196,17 @@ function workContextMiddleware(
       } catch {
         configuredDefault = null;
       }
+      const defaultModel =
+        typeof configuredDefault === 'string' ||
+        (configuredDefault != null && typeof configuredDefault === 'object')
+          ? configuredDefault
+          : null;
       const sources = flattenModelConfig(config);
       const requestedAgentId = selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID);
       const admission = await resolveWorkAdmission({
         sources,
         requestedModel: req.body?.model,
-        configuredDefaultModel: typeof configuredDefault === 'string' ? configuredDefault : null,
+        configuredDefaultModel: defaultModel,
         requestedAgentId,
         findAgent,
         canViewAgent: (agent) => canViewAgent(req, agent),
@@ -318,6 +337,7 @@ module.exports = {
   createWorkChatRouter,
   delegateToAgents,
   resolveWorkContext,
+  resolveConfiguredDefault,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,

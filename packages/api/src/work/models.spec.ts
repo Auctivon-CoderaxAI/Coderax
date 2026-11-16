@@ -149,6 +149,21 @@ describe('native work model discovery', () => {
     });
   });
 
+  it('resolves the configured default on its own endpoint when the id is shared', () => {
+    const options = buildWorkModelOptions(
+      [
+        { id: 'gpt-4o', provider: 'openAI' },
+        { id: 'gpt-4o', provider: 'gateway' },
+        { id: 'llama3:latest', provider: 'ollama', local: true },
+      ],
+      { id: 'gpt-4o', provider: 'gateway' },
+    );
+    expect(options[0].target).toEqual({ id: 'gpt-4o', label: 'gpt-4o', provider: 'gateway' });
+    expect(
+      resolveWorkSelection(options, WORK_AUTO_MODEL_ID, { id: 'gpt-4o', provider: 'gateway' }),
+    ).toMatchObject({ ok: true, model: { id: 'gpt-4o', provider: 'gateway' } });
+  });
+
   it('refuses automatic only when nothing free or local is offered', () => {
     const paidOnly = buildWorkModelOptions([{ id: 'gpt-4o', provider: 'openAI' }]);
     expect(paidOnly).toEqual([]);

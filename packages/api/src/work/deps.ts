@@ -76,7 +76,9 @@ export interface WorkDepsFactoryOptions {
   /** Agents the request's user can view in its tenant, with model and graph fields. */
   listAgents?: (req: WorkDepsRequest) => Promise<unknown[]>;
   /** The deployment default that automatic routing prefers when it is offered. */
-  configuredDefaultModel?: (req: WorkDepsRequest) => Promise<string | null>;
+  configuredDefaultModel?: (
+    req: WorkDepsRequest,
+  ) => Promise<string | { id: string; provider?: string } | null>;
 }
 
 const isStringList = (value: unknown): value is string[] =>

@@ -23,6 +23,33 @@ export type WorkModelTarget = {
   provider?: string;
 };
 
+/** The deployment's configured default: the model id and, when known, its endpoint. */
+export type WorkConfiguredDefault = {
+  id: string;
+  provider?: string;
+};
+
+export type WorkConfiguredDefaultInput = string | WorkConfiguredDefault | null | undefined;
+
+/**
+ * Normalize the string form (older callers) and the endpoint-aware object form.
+ * The provider matters when two endpoints advertise the same model id.
+ */
+function readConfiguredDefault(input: WorkConfiguredDefaultInput): {
+  id?: string;
+  provider?: string;
+} {
+  if (!input) {
+    return {};
+  }
+  if (typeof input === 'string') {
+    return { id: input.trim() };
+  }
+  const id = typeof input.id === 'string' ? input.id.trim() : '';
+  const provider = typeof input.provider === 'string' ? input.provider.trim() : '';
+  return { ...(id ? { id } : {}), ...(provider ? { provider } : {}) };
+}
+
 export type WorkModel = {
   id: string;
   label: string;
@@ -91,11 +118,16 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
  */
 export function resolveWorkAutoModel(
   models: WorkModel[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel | null {
   const concrete = workConcreteModels(models);
-  const fallbackId = configuredDefault?.trim();
-  const configured = fallbackId ? concrete.find((model) => model.id === fallbackId) : undefined;
+  const { id: fallbackId, provider: fallbackProvider } = readConfiguredDefault(configuredDefault);
+  const configured = fallbackId
+    ? concrete.find(
+        (model) =>
+          model.id === fallbackId && (!fallbackProvider || model.provider === fallbackProvider),
+      )
+    : undefined;
   if (configured) {
     return configured;
   }
@@ -122,19 +154,38 @@ export function resolveWorkAutoModel(
 function withConfiguredDefault(
   models: WorkModel[],
   sources: WorkModelSource[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel[] {
-  const id = configuredDefault?.trim();
-  if (!id || id === WORK_AUTO_MODEL_ID || models.some((model) => model.id === id)) {
+  const { id, provider } = readConfiguredDefault(configuredDefault);
+  if (!id || id === WORK_AUTO_MODEL_ID) {
     return models;
   }
-  const source = sources.find((item) => (item.id ?? item.name ?? '').trim() === id);
-  const provider = source?.provider?.trim();
-  if (!source || !provider) {
+  const offered = models.find((model) => model.id === id);
+  if (offered) {
+    /**
+     * The catalog deduplicates by id, so a model advertised by two endpoints keeps
+     * whichever came first. The deployment's configured endpoint is the one the run
+     * must use: match the provider/model pair rather than the id alone.
+     */
+    if (!provider || offered.provider === provider) {
+      return models;
+    }
+    return models.map((model) => (model.id === id ? { ...model, provider } : model));
+  }
+  const source =
+    sources.find(
+      (item) =>
+        (item.id ?? item.name ?? '').trim() === id &&
+        (!provider || (item.provider ?? '').trim() === provider),
+    ) ?? sources.find((item) => (item.id ?? item.name ?? '').trim() === id);
+  const resolvedProvider = provider ?? source?.provider?.trim();
+  if (!source || !resolvedProvider) {
     return models;
   }
   const label = (source.label ?? id).trim() || id;
-  return [...models, { id, label, provider }].sort((a, b) => a.id.localeCompare(b.id));
+  return [...models, { id, label, provider: resolvedProvider }].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
 }
 
 /**
@@ -145,7 +196,7 @@ function withConfiguredDefault(
  */
 export function buildWorkModelOptions(
   sources: WorkModelSource[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel[] {
   const models = withConfiguredDefault(buildWorkModels(sources), sources, configuredDefault);
   const target = resolveWorkAutoModel(models, configuredDefault);
@@ -237,7 +288,7 @@ export type WorkModelSelection =
 export function resolveWorkSelection(
   models: WorkModel[],
   selected: string | null | undefined,
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelSelection {
   const concrete = workConcreteModels(models);
 
