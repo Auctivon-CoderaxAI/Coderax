@@ -156,6 +156,8 @@ export function createFreeRouter({
       now,
     });
   const primary = describePrimaryStatus(endpoints);
+  // Bind tool requirements to plans issued by this router, not caller-editable fields.
+  const issuedToolRequirements = new WeakMap<object, boolean>();
 
   function plan(requirements: FreeRouteRequirements = {}): FreeRoutePlan {
     if (!limits.enabled) {
@@ -209,7 +211,7 @@ export function createFreeRouter({
       return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
     }
     const [selected, ...alternatives] = eligible;
-    return {
+    const routePlan: FreeRoutePlan = {
       ok: true,
       selected: selected as FreeEndpoint,
       alternatives,
@@ -218,6 +220,8 @@ export function createFreeRouter({
       primary,
       rejected,
     };
+    issuedToolRequirements.set(routePlan, requiresTools);
+    return routePlan;
   }
 
   async function run<T>(
@@ -231,7 +235,10 @@ export function createFreeRouter({
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
     }
 
+    const trustedRequireTools = issuedToolRequirements.get(routePlan);
     if (
+      trustedRequireTools === undefined ||
+      routePlan.requireTools !== trustedRequireTools ||
       !Number.isSafeInteger(routePlan.estimatedTokens) ||
       routePlan.estimatedTokens < 0 ||
       typeof routePlan.requireTools !== 'boolean' ||
@@ -252,7 +259,7 @@ export function createFreeRouter({
         (endpoint) =>
           FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider) &&
           (limits.allowFallback || endpoint.kind !== 'fallback') &&
-          (!routePlan.requireTools || endpoint.capabilities.tools),
+          (!trustedRequireTools || endpoint.capabilities.tools),
       ),
     );
     if (
