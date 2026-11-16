@@ -1,9 +1,9 @@
 import type { FreeEndpoint } from 'coderax-data-provider';
+import type { FreeRoutingLimits } from './router';
+import { isSafeModelSwitchPoint } from './checkpoint';
 import { createEndpointHealth } from './health';
 import { createQuotaLedger } from './quota';
-import type { FreeRoutingLimits } from './router';
 import { createFreeRouter } from './router';
-import { isSafeModelSwitchPoint } from './checkpoint';
 
 const primary: FreeEndpoint = {
   id: 'primary',
@@ -117,6 +117,112 @@ describe('free route planning', () => {
       reason: 'free_capacity_exhausted',
     });
   });
+
+  it('never downgrades a tool-required turn even when text fallback is opted in', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({ allowToolsInFallback: true }, [primary, textOnly]);
+    const plan = router.plan({ requireTools: true });
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.alternatives).toEqual([]);
+    expect(plan.requireTools).toBe(true);
+    const attempt = jest.fn(async () => ({ ok: true as const, value: 'ok' }));
+    const forged = await router.run(
+      { ...plan, requireTools: false, alternatives: [textOnly] },
+      attempt,
+    );
+    expect(forged).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged or mutated Work plan that disables tools and adds a text-only alternative', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({ allowToolsInFallback: true }, [primary, textOnly]);
+    const plan = router.plan({ requireTools: true });
+    if (!plan.ok) throw new Error('Expected a route');
+    const attempt = jest.fn(async () => ({
+      ok: false as const,
+      code: 'provider_error',
+      retryable: true,
+    }));
+    const forged = { ...plan, requireTools: false, alternatives: [textOnly] };
+    const options = { checkpoint: 'turn_start' as const };
+    expect(await router.run(forged, attempt, options)).toMatchObject({
+      ok: false,
+      reason: 'not_routed',
+      attempts: 0,
+    });
+    Object.assign(plan, forged);
+    expect(await router.run(plan, attempt, options)).toMatchObject({
+      ok: false,
+      reason: 'not_routed',
+      attempts: 0,
+    });
+    expect(attempt).not.toHaveBeenCalled();
+    expect(router.snapshot().endpoints.every((entry) => entry.quota.requestsUsed === 0)).toBe(true);
+  });
+
+  it('allows an issued text-only plan for a turn that does not require tools', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({}, [textOnly]);
+    const attempt = jest.fn(async () => ({ ok: true as const, value: 'answer' }));
+    expect(await router.run(router.plan(), attempt)).toMatchObject({ ok: true, attempts: 1 });
+    expect(attempt).toHaveBeenCalledWith(textOnly);
+  });
+
+  it('rejects an issued Work plan whose tool requirement was mutated', async () => {
+    const { router } = routerWith();
+    const plan = router.plan({ requireTools: true });
+    if (!plan.ok) throw new Error('Expected a Work route');
+    plan.requireTools = false;
+    const attempt = jest.fn();
+    const result = await router.run(plan, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('still executes a valid text-only route for a non-Work turn', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({ allowToolsInFallback: true }, [textOnly]);
+    const plan = router.plan({ requireTools: false });
+    if (!plan.ok) throw new Error('Expected a text-only route');
+    const attempt = jest.fn(async () => ({ ok: true as const, value: 'text' }));
+    expect(await router.run(plan, attempt)).toMatchObject({
+      ok: true,
+      endpoint: { id: 'text-only' },
+      attempts: 1,
+    });
+    expect(attempt).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a tool-only route plan that has lost its capability constraint', async () => {
+    const { router } = routerWith();
+    const plan = router.plan({ requireTools: true });
+    if (!plan.ok) throw new Error('Expected a route');
+    const attempt = jest.fn();
+    const result = await router.run(
+      { ...plan, requireTools: undefined } as unknown as typeof plan,
+      attempt,
+    );
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
 });
 
 describe('bounded failover', () => {
@@ -162,9 +268,7 @@ describe('bounded failover', () => {
     const result = await router.run({ ...plan, alternatives: [paid] }, attempt);
     expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
     expect(attempt).not.toHaveBeenCalled();
-    expect(router.snapshot().endpoints.every((entry) => entry.quota.requestsUsed === 0)).toBe(
-      true,
-    );
+    expect(router.snapshot().endpoints.every((entry) => entry.quota.requestsUsed === 0)).toBe(true);
   });
 
   it('rejects a forged fallback when fallback routing is disabled', async () => {
@@ -219,13 +323,17 @@ describe('bounded failover', () => {
     const { router } = routerWith();
     const plan = router.plan();
     const seen: string[] = [];
-    const result = await router.run(plan, async (endpoint) => {
-      seen.push(endpoint.id);
-      if (endpoint.id === 'primary') {
-        return { ok: false, code: 'provider_error', retryable: true };
-      }
-      return { ok: true, value: 'answer', tokens: 12 };
-    }, { checkpoint: 'turn_start' });
+    const result = await router.run(
+      plan,
+      async (endpoint) => {
+        seen.push(endpoint.id);
+        if (endpoint.id === 'primary') {
+          return { ok: false, code: 'provider_error', retryable: true };
+        }
+        return { ok: true, value: 'answer', tokens: 12 };
+      },
+      { checkpoint: 'turn_start' },
+    );
 
     expect(seen).toEqual(['primary', 'fallback-a']);
     expect(result).toMatchObject({ ok: true, endpoint: { id: 'fallback-a' }, attempts: 2 });
@@ -248,10 +356,14 @@ describe('bounded failover', () => {
   it('bounds attempts to maxRetries + 1', async () => {
     const { router } = routerWith({ maxRetries: 1 });
     const seen: string[] = [];
-    const result = await router.run(router.plan(), async (endpoint) => {
-      seen.push(endpoint.id);
-      return { ok: false, code: 'provider_error', retryable: true };
-    }, { checkpoint: 'turn_start' });
+    const result = await router.run(
+      router.plan(),
+      async (endpoint) => {
+        seen.push(endpoint.id);
+        return { ok: false, code: 'provider_error', retryable: true };
+      },
+      { checkpoint: 'turn_start' },
+    );
     expect(seen).toEqual(['primary', 'fallback-a']);
     expect(result).toMatchObject({ ok: false, reason: 'all_attempts_failed', attempts: 2 });
   });
@@ -305,10 +417,12 @@ describe('cooldowns and budgets', () => {
       health,
     });
 
-    await router.run(router.plan(), async (endpoint) =>
-      endpoint.id === 'primary'
-        ? { ok: false, code: 'rate_limited', retryable: true }
-        : { ok: true, value: 'served by the fallback' },
+    await router.run(
+      router.plan(),
+      async (endpoint) =>
+        endpoint.id === 'primary'
+          ? { ok: false, code: 'rate_limited', retryable: true }
+          : { ok: true, value: 'served by the fallback' },
       { checkpoint: 'turn_start' },
     );
     expect(health.isAvailable('primary')).toBe(false);
@@ -428,16 +542,20 @@ describe('cooldowns and budgets', () => {
   it('retains the reservation when usage is unknown and blocks further calls after overrun', async () => {
     const { router } = routerWith({ maxTokensPerDay: 100, maxRetries: 0 }, [primary]);
     await router.run(router.plan({ estimatedTokens: 70 }), async () => ({
-      ok: true, value: 'unmetered',
+      ok: true,
+      value: 'unmetered',
     }));
     expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(70);
 
     await router.run(router.plan({ estimatedTokens: 30 }), async () => ({
-      ok: true, value: 'overrun', tokens: 50,
+      ok: true,
+      value: 'overrun',
+      tokens: 50,
     }));
     expect(router.snapshot().endpoints[0]?.quota.tokensUsed).toBe(120);
     expect(router.plan()).toMatchObject({
-      ok: false, reason: 'free_capacity_exhausted',
+      ok: false,
+      reason: 'free_capacity_exhausted',
     });
   });
 

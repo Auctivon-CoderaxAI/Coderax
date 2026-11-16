@@ -1,13 +1,13 @@
-import type { FreeEndpoint, FreeEndpointRejection, FreePrimaryStatus } from 'coderax-data-provider';
-import type { WorkCheckpoint } from './checkpoint';
-import type { QuotaLedger } from './quota';
-import type { EndpointHealth } from './health';
 import {
   describePrimaryStatus,
   FREE_ENDPOINTS,
   FREE_PROVIDER_ALLOWLIST,
   selectFreeEndpoints,
 } from 'coderax-data-provider';
+import type { FreeEndpoint, FreeEndpointRejection, FreePrimaryStatus } from 'coderax-data-provider';
+import type { WorkCheckpoint } from './checkpoint';
+import type { EndpointHealth } from './health';
+import type { QuotaLedger } from './quota';
 import { isSafeModelSwitchPoint } from './checkpoint';
 import { createEndpointHealth } from './health';
 import { createQuotaLedger } from './quota';
@@ -32,7 +32,7 @@ export type FreeRoutingLimits = {
 };
 
 export type FreeRouteRequirements = {
-  /** A Work turn needs tool calling, so an endpoint without it is a last resort. */
+  /** A Work turn needs tool calling; text-only endpoints must never execute it. */
   requireTools?: boolean;
   /** Conservative prompt estimate reserved against the daily token budget. */
   estimatedTokens?: number;
@@ -49,6 +49,7 @@ export type FreeRoutePlan =
       selected: FreeEndpoint;
       alternatives: FreeEndpoint[];
       estimatedTokens: number;
+      requireTools: boolean;
       primary: FreePrimaryStatus;
       rejected: FreeRouteRejection[];
     }
@@ -117,6 +118,7 @@ export function createDisabledRoutingSnapshot(): FreeRoutingSnapshot {
 
 export type FreeRouter = {
   plan: (requirements?: FreeRouteRequirements) => FreeRoutePlan;
+  /** Execute the original plan object returned by this router. */
   run: <T>(
     plan: FreeRoutePlan,
     attempt: (endpoint: FreeEndpoint) => Promise<FreeAttemptOutcome<T>>,
@@ -155,6 +157,8 @@ export function createFreeRouter({
       now,
     });
   const primary = describePrimaryStatus(endpoints);
+  // Bind tool requirements to plans issued by this router, not caller-editable fields.
+  const issuedToolRequirements = new WeakMap<FreeRoutePlan, boolean>();
 
   function plan(requirements: FreeRouteRequirements = {}): FreeRoutePlan {
     if (!limits.enabled) {
@@ -173,7 +177,7 @@ export function createFreeRouter({
     }
     const requiresTools = requirements.requireTools === true;
     const selection = selectFreeEndpoints(endpoints, {
-      requireTools: requiresTools && !limits.allowToolsInFallback,
+      requireTools: requiresTools,
     });
     for (const entry of selection.rejected) {
       rejected.push({ id: entry.id, reason: entry.reason });
@@ -208,14 +212,17 @@ export function createFreeRouter({
       return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
     }
     const [selected, ...alternatives] = eligible;
-    return {
+    const routePlan: FreeRoutePlan = {
       ok: true,
       selected: selected as FreeEndpoint,
       alternatives,
       estimatedTokens,
+      requireTools: requiresTools,
       primary,
       rejected,
     };
+    issuedToolRequirements.set(routePlan, requiresTools);
+    return routePlan;
   }
 
   async function run<T>(
@@ -229,9 +236,14 @@ export function createFreeRouter({
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
     }
 
+    // Keep the capability constraint outside caller-mutable plan data.
+    const trustedRequireTools = issuedToolRequirements.get(routePlan);
     if (
+      trustedRequireTools === undefined ||
+      routePlan.requireTools !== trustedRequireTools ||
       !Number.isSafeInteger(routePlan.estimatedTokens) ||
       routePlan.estimatedTokens < 0 ||
+      typeof routePlan.requireTools !== 'boolean' ||
       !Array.isArray(routePlan.alternatives)
     ) {
       return { ok: false, reason: 'not_routed', attempts: 0, errors: [] };
@@ -248,7 +260,8 @@ export function createFreeRouter({
       selectFreeEndpoints(endpoints).usable.filter(
         (endpoint) =>
           FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider) &&
-          (limits.allowFallback || endpoint.kind !== 'fallback'),
+          (limits.allowFallback || endpoint.kind !== 'fallback') &&
+          (!trustedRequireTools || endpoint.capabilities.tools),
       ),
     );
     if (
@@ -295,7 +308,12 @@ export function createFreeRouter({
       if (outcome.ok) {
         tracker.recordSuccess(endpoint.id);
         if (outcome.tokens != null) {
-          ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens, reservation.resetAt);
+          ledger.settle(
+            endpoint.id,
+            outcome.tokens,
+            routePlan.estimatedTokens,
+            reservation.resetAt,
+          );
         }
         return { ok: true, endpoint, value: outcome.value, attempts };
       }
