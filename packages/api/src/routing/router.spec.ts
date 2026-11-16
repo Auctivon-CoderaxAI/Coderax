@@ -131,9 +131,37 @@ describe('free route planning', () => {
     expect(plan.alternatives).toEqual([]);
     expect(plan.requireTools).toBe(true);
     const attempt = jest.fn(async () => ({ ok: true as const, value: 'ok' }));
-    const forged = await router.run({ ...plan, alternatives: [textOnly] }, attempt);
+    const forged = await router.run({ ...plan, requireTools: false, alternatives: [textOnly] }, attempt);
     expect(forged).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
     expect(attempt).not.toHaveBeenCalled();
+  });
+
+
+  it('rejects an issued Work plan whose tool requirement was mutated', async () => {
+    const { router } = routerWith();
+    const plan = router.plan({ requireTools: true });
+    if (!plan.ok) throw new Error('Expected a Work route');
+    plan.requireTools = false;
+    const attempt = jest.fn();
+    const result = await router.run(plan, attempt);
+    expect(result).toMatchObject({ ok: false, reason: 'not_routed', attempts: 0 });
+    expect(attempt).not.toHaveBeenCalled();
+  });
+
+  it('still executes a valid text-only route for a non-Work turn', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackB,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const { router } = routerWith({ allowToolsInFallback: true }, [textOnly]);
+    const plan = router.plan({ requireTools: false });
+    if (!plan.ok) throw new Error('Expected a text-only route');
+    const attempt = jest.fn(async () => ({ ok: true as const, value: 'text' }));
+    expect(await router.run(plan, attempt)).toMatchObject({
+      ok: true, endpoint: { id: 'text-only' }, attempts: 1,
+    });
+    expect(attempt).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a tool-only route plan that has lost its capability constraint', async () => {
