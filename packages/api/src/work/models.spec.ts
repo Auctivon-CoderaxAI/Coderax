@@ -55,6 +55,34 @@ describe('native work model discovery', () => {
     expect(models).toEqual([{ id: 'llama3:latest', label: 'First' }]);
   });
 
+  it('fails closed when eligible providers advertise the same model id', () => {
+    const sources = [
+      { id: 'shared', provider: 'ollama', local: true },
+      { id: 'shared', provider: 'gateway', free: true },
+      { id: 'safe', provider: 'ollama', local: true },
+    ];
+    const models = buildWorkModels(sources);
+    expect(models).toEqual([{ id: 'safe', label: 'safe', provider: 'ollama' }]);
+    const options = buildWorkModelOptions(sources, { id: 'shared', provider: 'gateway' });
+    expect(options.map((model) => model.id)).toEqual([WORK_AUTO_MODEL_ID, 'safe']);
+    expect(resolveWorkSelection(options, 'shared')).toEqual({
+      ok: false, reason: 'model_unavailable',
+    });
+    expect(resolveWorkAgentModel(options, {
+      id: 'agent', model: 'shared', provider: 'ollama',
+    })).toBeNull();
+    expect(resolveWorkSelection(options, WORK_AUTO_MODEL_ID)).toMatchObject({
+      ok: true, model: { id: 'safe', provider: 'ollama' },
+    });
+  });
+
+  it('retains duplicate entries only when the provider is identical', () => {
+    expect(buildWorkModels([
+      { id: 'shared', label: 'First', provider: 'ollama', local: true },
+      { id: 'shared', label: 'Second', provider: 'ollama', local: true },
+    ])).toEqual([{ id: 'shared', label: 'First', provider: 'ollama' }]);
+  });
+
   it('puts the automatic option first when models are available', () => {
     const options = buildWorkModelOptions([{ id: 'llama3:latest', local: true }]);
     expect(options.map((option) => option.id)).toEqual([WORK_AUTO_MODEL_ID, 'llama3:latest']);
