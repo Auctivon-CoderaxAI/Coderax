@@ -56,11 +56,11 @@ test('auto ranks a free/local model when no default is configured', () => {
   }
 });
 
-test('the configured default is admitted even when it is not free or local', () => {
+test('falls back to a free/local model when the configured default is not eligible', () => {
   assert.deepEqual(resolveWorkContext([PAID, LOCAL], 'auto', 'gpt-4o'), {
     isWork: true,
-    workModel: 'gpt-4o',
-    workProvider: 'openAI',
+    workModel: 'llama3:latest',
+    workProvider: 'ollama',
   });
 });
 
