@@ -3448,6 +3448,7 @@
   "com_work_readiness_inspect_rejected_free_endpoint": "Check the server log for a rejected free endpoint, then restart the server.",
   "com_work_readiness_create_agent_after_model_available": "Create an agent after a free or local model is available.",
   "com_work_readiness_unavailable": "Work could not check its model setup. Check your connection, then try again.",
+  "com_work_owner_signin_required": "Work is private to your owner account. Opening sign-in; your draft will be preserved.",
   "com_work_routing_active": "Routed to {{0}} via {{1}}",
   "com_work_routing_primary_unavailable": "{{0}} is unavailable on a free endpoint",
   "com_work_agent": "Work agent",

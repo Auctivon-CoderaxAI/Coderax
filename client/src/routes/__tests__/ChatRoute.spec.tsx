@@ -17,6 +17,7 @@ const mockHasSetConversation = { current: true };
 let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
 const mockConfig = {};
 const mockRoles = { USER: {} };
+let mockAuthenticatedUser: { id: string; provider: string } | undefined;
 let mockAssistantListMap = {};
 let mockDefaultModelSpec: unknown = {};
 const mockNewConversation = jest.fn(({ template }: { template?: Partial<TConversation> }) => {
@@ -59,7 +60,7 @@ jest.mock('~/components/Chat/Input/WorkAgentSelector', () => {
 });
 jest.mock('../useAuthRedirect', () => ({
   __esModule: true,
-  default: () => ({ isAuthenticated: true, roles: mockRoles }),
+  default: () => ({ isAuthenticated: true, roles: mockRoles, user: mockAuthenticatedUser }),
 }));
 jest.mock('coderax-data-provider/react-query', () => ({
   useGetModelsQuery: () => ({ data: mockConfig }),
@@ -136,6 +137,7 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
     [
       { path: '/c/:conversationId', element: <Harness /> },
       { path: '/work/:conversationId', element: <Harness workMode /> },
+      { path: '/login', element: <div data-testid="login-page">Owner sign-in</div> },
     ],
     { initialEntries, initialIndex },
   );
@@ -157,6 +159,7 @@ beforeEach(() => {
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
   mockDefaultModelSpec = {};
+  mockAuthenticatedUser = undefined;
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
 });
@@ -221,6 +224,40 @@ it('copies a new Work selection to the acknowledged conversation without replaci
 
   await waitFor(() => {
     expect(store.get(workSelectionFamily(targetSelectionKey))).toEqual(existingSelection);
+  });
+});
+
+it('redirects a guest Work task to owner sign-in and preserves the draft without auto-submitting', async () => {
+  mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
+  const { router } = setup(['/work/new?prompt=Fix+the+Work+start+flow&submit=true']);
+
+  await waitFor(() => {
+    expect(router.state.location.pathname).toBe('/login');
+    const loginParams = new URLSearchParams(router.state.location.search);
+    expect(loginParams.get('manual')).toBe('1');
+    const redirectTo = loginParams.get('redirect_to');
+    expect(redirectTo).toBeTruthy();
+    const target = new URL(redirectTo!, 'https://coderaxai.vercel.app');
+    expect(target.pathname).toBe('/work/new');
+    expect(target.searchParams.get('prompt')).toBe('Fix the Work start flow');
+    expect(target.searchParams.has('submit')).toBe(false);
+  });
+
+  expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  expect(mockNewConversation).not.toHaveBeenCalled();
+});
+
+it('requires owner sign-in when a guest switches from Chat to Work in place', async () => {
+  mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
+  const { router } = setup(['/c/chat-a']);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+
+  await waitFor(() => {
+    expect(router.state.location.pathname).toBe('/login');
+    const loginParams = new URLSearchParams(router.state.location.search);
+    expect(loginParams.get('manual')).toBe('1');
+    expect(loginParams.get('redirect_to')).toBe('/work/chat-a');
   });
 });
 
