@@ -76,6 +76,42 @@ describe('engine workspace confinement', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('refuses a cloud run when the cloud root contains the private root', async () => {
+    const nestedPrivate = path.join(cloudRoot, 'private');
+    await mkdir(nestedPrivate);
+
+    const result = await resolveEngineWorkspace({
+      mode: 'cloud',
+      requestedRoot: cloudRoot,
+      roots: { private: nestedPrivate, cloud: cloudRoot },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'not_configured' }),
+      }),
+    );
+  });
+
+  it('refuses a private run when the private root contains the cloud root', async () => {
+    const nestedCloud = path.join(privateRoot, 'cloud');
+    await mkdir(nestedCloud);
+
+    const result = await resolveEngineWorkspace({
+      mode: 'private',
+      requestedRoot: privateRoot,
+      roots: { private: privateRoot, cloud: nestedCloud },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'not_configured' }),
+      }),
+    );
+  });
+
   it('does not follow a symlink that escapes the mode root', async () => {
     const escape = path.join(privateRoot, 'escape');
     try {

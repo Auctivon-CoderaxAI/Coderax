@@ -16,20 +16,25 @@ type SdkRequestResult = { data?: unknown; error?: unknown };
 
 type SdkClient = {
   session: {
-    create: (input: { directory: string; title?: string }) => Promise<SdkRequestResult>;
+    create: (input: {
+      body: { title?: string };
+      query?: { directory?: string };
+    }) => Promise<SdkRequestResult>;
     promptAsync: (input: {
-      sessionID: string;
-      directory: string;
-      model?: { providerID: string; modelID: string };
-      parts: Array<{ type: 'text'; text: string }>;
+      path: { id: string };
+      body: {
+        model?: { providerID: string; modelID: string };
+        parts: Array<{ type: 'text'; text: string }>;
+      };
+      query?: { directory?: string };
     }) => Promise<unknown>;
-    abort: (input: { sessionID: string; directory: string }) => Promise<unknown>;
+    abort: (input: { path: { id: string }; query?: { directory?: string } }) => Promise<unknown>;
   };
   event: {
-    subscribe: (
-      input: { directory: string },
-      options?: { signal?: AbortSignal },
-    ) => Promise<{ stream: AsyncIterable<unknown> }>;
+    subscribe: (input?: {
+      query?: { directory?: string };
+      signal?: AbortSignal;
+    }) => Promise<{ stream: AsyncIterable<unknown> }>;
   };
 };
 
@@ -91,8 +96,8 @@ export function loadOpenCodeSdk(options: {
   const transport: OpenCodeTransport = {
     createSession: async (input) => {
       const response = await sdk.session.create({
-        directory: input.directory,
-        ...(input.title ? { title: input.title } : {}),
+        body: { ...(input.title ? { title: input.title } : {}) },
+        query: { directory: input.directory },
       });
       const data = isRecord(response.data) ? response.data : null;
       const id = requiredString(data?.id);
@@ -102,10 +107,10 @@ export function loadOpenCodeSdk(options: {
       return { id };
     },
     subscribe: async (input) => {
-      const response = await sdk.event.subscribe(
-        { directory: input.directory },
-        input.signal ? { signal: input.signal } : undefined,
-      );
+      const response = await sdk.event.subscribe({
+        query: { directory: input.directory },
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
       if (!isRecord(response) || !response.stream) {
         throw new Error('OpenCode returned no event stream');
       }
@@ -113,19 +118,24 @@ export function loadOpenCodeSdk(options: {
     },
     prompt: async (input) => {
       const result = (await sdk.session.promptAsync({
-        sessionID: input.sessionId,
-        directory: input.directory,
-        ...(input.model
-          ? { model: { providerID: input.model.providerId, modelID: input.model.modelId } }
-          : {}),
-        parts: [{ type: 'text', text: input.text }],
+        path: { id: input.sessionId },
+        query: { directory: input.directory },
+        body: {
+          ...(input.model
+            ? { model: { providerID: input.model.providerId, modelID: input.model.modelId } }
+            : {}),
+          parts: [{ type: 'text', text: input.text }],
+        },
       })) as SdkRequestResult | undefined;
       if (isRecord(result) && result.error) {
         throw new Error('OpenCode rejected the prompt');
       }
     },
     abort: async (input) => {
-      await sdk.session.abort({ sessionID: input.sessionId, directory: input.directory });
+      await sdk.session.abort({
+        path: { id: input.sessionId },
+        query: { directory: input.directory },
+      });
     },
   };
 

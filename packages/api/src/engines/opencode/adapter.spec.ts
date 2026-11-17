@@ -205,6 +205,87 @@ describe('OpenCode adapter', () => {
     expect(seen.some((event) => event.type === 'completed')).toBe(false);
   });
 
+  it('bounds session startup and never leaves a late session untracked', async () => {
+    let resolveSession: ((value: { id: string }) => void) | undefined;
+    const createSession = jest.fn(
+      () => new Promise<{ id: string }>((resolve) => (resolveSession = resolve)),
+    );
+    const abort = jest.fn(async () => {});
+    const transport: OpenCodeTransport = {
+      createSession,
+      subscribe: jest.fn(),
+      prompt: jest.fn(),
+      abort,
+    };
+
+    const started = await startOpenCodeRun(
+      { enabled: true, transport, roots: { private: privateRoot, cloud: cloudRoot }, limits },
+      { ...request(privateRoot), timeoutMs: 25 },
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'timeout' }),
+      }),
+    );
+
+    resolveSession?.({ id: 'late-session' });
+    await Promise.resolve();
+    expect(abort).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'late-session' }));
+  });
+
+  it('does not send a prompt after the caller cancels startup', async () => {
+    const controller = new AbortController();
+    const prompt = jest.fn();
+    const abort = jest.fn(async () => {});
+    const transport: OpenCodeTransport = {
+      createSession: async () => ({ id: 's1' }),
+      subscribe: async () => {
+        controller.abort();
+        return { async *[Symbol.asyncIterator]() {} };
+      },
+      prompt,
+      abort,
+    };
+
+    const started = await startOpenCodeRun(
+      { enabled: true, transport, roots: { private: privateRoot, cloud: cloudRoot }, limits },
+      { ...request(privateRoot), signal: controller.signal },
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'cancelled' }),
+      }),
+    );
+    expect(prompt).not.toHaveBeenCalled();
+    expect(abort).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }));
+  });
+
+  it('stops the remote session when prompt submission fails', async () => {
+    const abort = jest.fn(async () => {});
+    const transport: OpenCodeTransport = {
+      createSession: async () => ({ id: 's1' }),
+      subscribe: async () => ({ async *[Symbol.asyncIterator]() {} }),
+      prompt: async () => {
+        throw new Error('rejected');
+      },
+      abort,
+    };
+
+    const started = await startOpenCodeRun(
+      { enabled: true, transport, roots: { private: privateRoot, cloud: cloudRoot }, limits },
+      request(privateRoot),
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'server_unavailable' }),
+      }),
+    );
+    expect(abort).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }));
+  });
+
   it('refuses to start a cloud run in the private workspace', async () => {
     const transport: OpenCodeTransport = {
       createSession: jest.fn(),

@@ -12,6 +12,7 @@ import type { WorkspaceRoots } from '../workspace';
 import { engineFailure } from '../types';
 import { resolveEngineWorkspace } from '../workspace';
 import { createEngineRunHandle } from '../run';
+import { withDeadline } from '../deadline';
 
 /**
  * OpenHands Agent Server event mapping.
@@ -151,7 +152,9 @@ export class OpenHandsEventMapper {
     }
 
     if (kind === 'ConversationStateUpdateEvent' || kind === 'ConversationStateChangedEvent') {
-      const status = str(raw.status) ?? str(raw.state);
+      const stateKey = str(raw.key);
+      const status =
+        stateKey === 'execution_status' ? str(raw.value) : (str(raw.status) ?? str(raw.state));
       if (status === 'finished' || status === 'completed') {
         if (this.terminal) {
           return [];
@@ -346,14 +349,28 @@ export async function startOpenHandsRun(
     return resolved;
   }
 
+  const timeoutMs = request.timeoutMs ?? options.limits.timeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  const startPromise = options.transport.start({
+    workspaceRoot: resolved.value.root,
+    prompt: request.prompt,
+    ...(request.model ? { model: request.model } : {}),
+    ...(request.signal ? { signal: request.signal } : {}),
+  });
   let started: Awaited<ReturnType<OpenHandsTransport['start']>>;
   try {
-    started = await options.transport.start({
-      workspaceRoot: resolved.value.root,
-      prompt: request.prompt,
-      ...(request.model ? { model: request.model } : {}),
-      ...(request.signal ? { signal: request.signal } : {}),
-    });
+    const outcome = await withDeadline(startPromise, deadline);
+    if (!outcome.ok) {
+      void startPromise
+        .then((late) => options.transport?.cancel(late.conversationId))
+        .catch(() => undefined);
+      return engineFailure(
+        'timeout',
+        'The OpenHands Agent Server did not start the task before the deadline.',
+        true,
+      );
+    }
+    started = outcome.value;
   } catch {
     return engineFailure(
       'server_unavailable',
@@ -362,6 +379,14 @@ export async function startOpenHandsRun(
   }
   if (!started.conversationId) {
     return engineFailure('protocol_error', 'The Agent Server returned no conversation id.');
+  }
+  if (request.signal?.aborted) {
+    try {
+      await options.transport.cancel(started.conversationId);
+    } catch {
+      // The session may already be gone.
+    }
+    return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
   const mapper = new OpenHandsEventMapper(started.conversationId);

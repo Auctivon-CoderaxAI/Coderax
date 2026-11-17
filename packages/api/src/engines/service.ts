@@ -3,6 +3,7 @@ import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
 import type { WorkspaceRoots } from './workspace';
 import type { LoadedOpenCodeSdk } from './opencode/sdk';
 import type { OpenCodeTransport } from './opencode/adapter';
+import type { OpenHandsTransport } from './openhands/adapter';
 import { createEngineRegistry } from './registry';
 import { createOpenCodeAdapter } from './opencode/adapter';
 import { createOpenHandsAdapter } from './openhands/adapter';
@@ -57,6 +58,7 @@ function limitsFor(timeoutMs?: number): EngineLimits {
 export function createExecutionEngines(
   config: ExecutionEnginesConfig,
   loadSdk: typeof loadOpenCodeSdk = loadOpenCodeSdk,
+  openHandsTransport: OpenHandsTransport | null = null,
 ): EngineRegistryApi {
   const engines = config?.engines ?? null;
   const roots: WorkspaceRoots = {
@@ -93,6 +95,7 @@ export function createExecutionEngines(
     openhands: createOpenHandsAdapter({
       enabled: openHands?.enabled === true,
       ...(openHands?.agentServerUrl ? { agentServerUrl: openHands.agentServerUrl } : {}),
+      ...(openHandsTransport ? { transport: openHandsTransport } : {}),
       roots,
       limits: limitsFor(openHands?.timeoutMs),
     }),

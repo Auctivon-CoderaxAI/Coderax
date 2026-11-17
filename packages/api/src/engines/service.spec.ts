@@ -1,4 +1,5 @@
 import type { ExecutionEnginesConfig } from './service';
+import type { OpenHandsTransport } from './openhands/adapter';
 import { createExecutionEngines, describeExecutionEngines } from './service';
 
 const config = (overrides: ExecutionEnginesConfig = {}): ExecutionEnginesConfig => ({
@@ -80,6 +81,26 @@ describe('config-driven execution engines', () => {
       expect.objectContaining({ baseURL: 'http://127.0.0.1:4096' }),
     );
     expect(enabled.engines[0]?.availability).toEqual({ available: true, reason: 'ready' });
+  });
+
+  it('uses an OpenHands transport supplied by the caller', () => {
+    const transport: OpenHandsTransport = {
+      start: jest.fn(),
+      cancel: jest.fn(),
+    };
+    const registry = createExecutionEngines(
+      config({
+        engines: {
+          openhands: { enabled: true, agentServerUrl: 'http://127.0.0.1:3000' },
+        },
+      }),
+      undefined,
+      transport,
+    );
+    expect(registry.snapshot().engines[1]?.availability).toEqual({
+      available: true,
+      reason: 'ready',
+    });
   });
 
   it('does not expose workspace roots or endpoints in status', () => {

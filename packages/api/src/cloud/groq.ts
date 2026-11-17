@@ -207,7 +207,7 @@ function isGroqMessage(value: unknown): value is GroqMessage {
   );
 }
 
-function readUsage(raw: unknown): GroqUsage {
+function usageFields(raw: unknown): GroqUsage {
   if (raw == null || typeof raw !== 'object') {
     return {};
   }
@@ -222,6 +222,37 @@ function readUsage(raw: unknown): GroqUsage {
     ...(outputTokens !== undefined ? { outputTokens } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
   };
+}
+
+/** Groq reports usage at the top level, and sometimes under x_groq.usage. */
+function readUsage(raw: unknown): GroqUsage {
+  if (raw == null || typeof raw !== 'object') {
+    return {};
+  }
+  const record = raw as Record<string, unknown>;
+  const nested = record.x_groq;
+  return {
+    ...usageFields(record.usage),
+    ...(nested != null && typeof nested === 'object'
+      ? usageFields((nested as Record<string, unknown>).usage)
+      : {}),
+  };
+}
+
+function hasUsage(usage: GroqUsage): boolean {
+  return (
+    usage.inputTokens !== undefined ||
+    usage.outputTokens !== undefined ||
+    usage.totalTokens !== undefined
+  );
+}
+
+function providerErrorFrame(raw: unknown): boolean {
+  if (raw == null || typeof raw !== 'object') {
+    return false;
+  }
+  const xGroq = (raw as Record<string, unknown>).x_groq;
+  return xGroq != null && typeof xGroq === 'object' && 'error' in xGroq;
 }
 
 function readStreamDelta(raw: unknown): string | null {
@@ -391,7 +422,8 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
     if (!prepared.ok) {
       return prepared;
     }
-    if (!ledger.reserve({ requests: 1, tokens: prepared.estimatedTokens })) {
+    const reservedTokens = prepared.estimatedTokens + prepared.maxOutputTokens;
+    if (!ledger.reserve({ requests: 1, tokens: reservedTokens })) {
       return failure(
         'quota_exhausted',
         'The local daily free-tier budget is exhausted; no request was sent.',
@@ -415,10 +447,8 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
       return failure('provider_unavailable', 'Groq returned an unreadable response.', true);
     }
     const text = readCompletionText(raw);
-    const usage = readUsage(
-      raw != null && typeof raw === 'object' ? (raw as Record<string, unknown>).usage : undefined,
-    );
-    settle(prepared.estimatedTokens, usage);
+    const usage = readUsage(raw);
+    settle(reservedTokens, usage);
     if (text === null || text.trim() === '') {
       return failure('invalid_request', 'Groq returned no completion text.');
     }
@@ -440,7 +470,8 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
     if (!prepared.ok) {
       return prepared;
     }
-    if (!ledger.reserve({ requests: 1, tokens: prepared.estimatedTokens })) {
+    const reservedTokens = prepared.estimatedTokens + prepared.maxOutputTokens;
+    if (!ledger.reserve({ requests: 1, tokens: reservedTokens })) {
       return failure(
         'quota_exhausted',
         'The local daily free-tier budget is exhausted; no request was sent.',
@@ -465,6 +496,8 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
     let buffer = '';
     let text = '';
     let usage: GroqUsage = {};
+    let terminated = false;
+    let streamError = false;
     try {
       for (;;) {
         const chunk = await reader.read();
@@ -481,6 +514,7 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
           }
           const data = trimmed.slice(5).trim();
           if (data === '[DONE]') {
+            terminated = true;
             continue;
           }
           let parsed: unknown;
@@ -494,18 +528,29 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
             text += delta;
             onDelta(delta);
           }
-          if (parsed != null && typeof parsed === 'object') {
-            usage = readUsage((parsed as Record<string, unknown>).usage);
+          const measured = readUsage(parsed);
+          if (hasUsage(measured)) {
+            usage = measured;
+          }
+          if (providerErrorFrame(parsed)) {
+            streamError = true;
           }
         }
       }
     } catch {
+      settle(reservedTokens, usage);
       return failure('provider_unavailable', 'The Groq stream failed.', true);
     } finally {
       reader.releaseLock();
     }
 
-    settle(prepared.estimatedTokens, usage);
+    settle(reservedTokens, usage);
+    if (streamError) {
+      return failure('provider_unavailable', 'Groq stopped the stream with an error.', true);
+    }
+    if (!terminated) {
+      return failure('provider_unavailable', 'The Groq stream ended before it completed.', true);
+    }
     if (text.trim() === '') {
       return failure('invalid_request', 'Groq returned no completion text.');
     }

@@ -115,6 +115,46 @@ describe('engine registry', () => {
     finish?.();
   });
 
+  it('holds the task lease until cancellation cleanup finishes', async () => {
+    let releaseCleanup: (() => void) | undefined;
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const registry = createEngineRegistry({
+      defaultEngine: 'opencode',
+      adapters: {
+        opencode: adapter('opencode', async () => ({
+          ok: true as const,
+          value: {
+            ...handleFor('a'),
+            cleanup,
+            result: new Promise<never>(() => {}),
+          },
+        })),
+      },
+    });
+
+    const first = await registry.start({ request });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      return;
+    }
+    const cancelPromise = first.value.cancel();
+    await Promise.resolve();
+
+    const second = await registry.start({ request });
+    expect(second).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'busy' }),
+      }),
+    );
+
+    releaseCleanup?.();
+    await cancelPromise;
+    expect(registry.arbiter.owner('conversation-1')).toBeNull();
+  });
+
   it('fails closed instead of falling back when the selected engine is unavailable', async () => {
     const openCodeStart = jest.fn();
     const registry = createEngineRegistry({

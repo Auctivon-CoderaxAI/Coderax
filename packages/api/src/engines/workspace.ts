@@ -82,7 +82,10 @@ export async function resolveEngineWorkspace(input: {
   }
   const otherMode: DataMode = input.mode === 'private' ? 'cloud' : 'private';
   const otherConfinement = await realOrNull(input.roots[otherMode]);
-  if (otherConfinement && isInside(confinement, otherConfinement)) {
+  if (
+    otherConfinement &&
+    (isInside(confinement, otherConfinement) || isInside(otherConfinement, confinement))
+  ) {
     return engineFailure('not_configured', 'Configured workspace roots overlap.');
   }
 

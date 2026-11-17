@@ -44,8 +44,8 @@ function toolName(part: Json): string {
 
 export class OpenCodeEventMapper {
   private readonly sessionId: string;
-  private readonly updatedParts = new Set<string>();
-  private readonly textLength = new Map<string, number>();
+  /** Text emitted for each part, reconciled across cumulative and delta forms. */
+  private readonly emittedText = new Map<string, string>();
   private readonly toolStatus = new Map<string, string>();
   private readonly filePaths = new Set<string>();
   private terminal: 'completed' | 'failed' | 'cancelled' | null = null;
@@ -105,13 +105,26 @@ export class OpenCodeEventMapper {
       if (!id || text === undefined) {
         return [];
       }
-      this.updatedParts.add(id);
-      const previous = this.textLength.get(id) ?? 0;
-      if (text.length <= previous) {
+      const emitted = this.emittedText.get(id) ?? '';
+      if (text === emitted) {
         return [];
       }
-      this.textLength.set(id, text.length);
-      return [{ type: 'text_delta', text: text.slice(previous) }];
+      if (text.startsWith(emitted)) {
+        const delta = text.slice(emitted.length);
+        this.emittedText.set(id, text);
+        return delta ? [{ type: 'text_delta', text: delta }] : [];
+      }
+      if (emitted.startsWith(text)) {
+        return [];
+      }
+      // A cumulative part can replace an earlier value. Emit only the tail
+      // after the common prefix so already-streamed text is not duplicated.
+      let common = 0;
+      while (common < text.length && common < emitted.length && text[common] === emitted[common]) {
+        common += 1;
+      }
+      this.emittedText.set(id, text);
+      return common < text.length ? [{ type: 'text_delta', text: text.slice(common) }] : [];
     }
     if (partType === 'tool') {
       return this.mapToolPart(part);
@@ -135,8 +148,9 @@ export class OpenCodeEventMapper {
   }
 
   /**
-   * Older servers emit deltas instead of full parts. A part that already
-   * arrived as an update is skipped, so text is never emitted twice.
+   * Older servers emit deltas instead of full parts. Deltas append to the text
+   * already emitted for the part, and a later cumulative update emits only its
+   * uncaptured suffix, so mixed streams never duplicate a character.
    */
   private mapPartDelta(properties: Json): EngineEvent[] {
     if (readString(properties.sessionID) !== this.sessionId) {
@@ -144,9 +158,11 @@ export class OpenCodeEventMapper {
     }
     const partId = readString(properties.partID);
     const delta = readString(properties.delta);
-    if (!partId || delta === undefined || this.updatedParts.has(partId)) {
+    if (!partId || delta === undefined) {
       return [];
     }
+    const emitted = this.emittedText.get(partId) ?? '';
+    this.emittedText.set(partId, emitted + delta);
     return [{ type: 'text_delta', text: delta }];
   }
 

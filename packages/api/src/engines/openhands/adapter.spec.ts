@@ -87,6 +87,47 @@ describe('OpenHands adapter', () => {
     ).toEqual([{ type: 'completed', sessionId: 'conversation-1' }]);
   });
 
+  it('reads execution_status from the native key/value shape', () => {
+    const mapper = new OpenHandsEventMapper('conversation-1');
+    expect(
+      mapper.map({
+        kind: 'ConversationStateUpdateEvent',
+        key: 'execution_status',
+        value: 'finished',
+      }),
+    ).toEqual([{ type: 'completed', sessionId: 'conversation-1' }]);
+  });
+
+  it('bounds startup so a pending Agent Server cannot hang the turn', async () => {
+    const transport: OpenHandsTransport = {
+      start: () => new Promise(() => {}),
+      cancel: async () => {},
+    };
+    const started = await startOpenHandsRun(
+      {
+        enabled: true,
+        agentServerUrl: 'http://127.0.0.1:3000',
+        transport,
+        roots: { private: privateRoot, cloud: cloudRoot },
+        limits,
+      },
+      {
+        taskKey: 't',
+        conversationId: 't',
+        prompt: 'fix it',
+        mode: 'private',
+        workspaceRoot: privateRoot,
+        timeoutMs: 25,
+      },
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'timeout' }),
+      }),
+    );
+  });
+
   it('runs through a configured transport and streams its evidence', async () => {
     const transport: OpenHandsTransport = {
       start: async () => ({

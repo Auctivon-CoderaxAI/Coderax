@@ -151,6 +151,19 @@ describe('GroqCloud free-tier provider', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('reserves the output allowance as well as the input estimate', async () => {
+    const fetchImpl = jest.fn();
+    const groq = provider({ config: { maxTokensPerDay: 100 }, fetchImpl });
+
+    await expect(groq.complete(request({ maxOutputTokens: 1_024 }))).resolves.toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'quota_exhausted' }),
+      }),
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('scrubs a server credential out of the outgoing messages', async () => {
     let body = '';
     const fetchImpl = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -207,6 +220,82 @@ describe('GroqCloud free-tier provider', () => {
       expect.objectContaining({
         ok: true,
         value: expect.objectContaining({ text: 'Green tests' }),
+      }),
+    );
+  });
+
+  it("reads usage from Groq's x_groq metadata", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"Hi"}}],"x_groq":{"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}}\n\n',
+          ),
+        );
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const fetchImpl = jest.fn(
+      async () => new Response(stream, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await provider({ fetchImpl }).stream(request(), () => {});
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        value: expect.objectContaining({
+          usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
+        }),
+      }),
+    );
+  });
+
+  it('fails a stream that ends without [DONE]', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'),
+        );
+        controller.close();
+      },
+    });
+    const fetchImpl = jest.fn(
+      async () => new Response(stream, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await provider({ fetchImpl }).stream(request(), () => {});
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'provider_unavailable', retryable: true }),
+      }),
+    );
+  });
+
+  it('fails a stream with an x_groq error frame even after text', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'),
+        );
+        controller.enqueue(encoder.encode('data: {"x_groq":{"error":{"message":"stopped"}}}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const fetchImpl = jest.fn(
+      async () => new Response(stream, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await provider({ fetchImpl }).stream(request(), () => {});
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'provider_unavailable' }),
       }),
     );
   });

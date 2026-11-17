@@ -127,14 +127,21 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     }
 
     const handle = started.value;
+    const releaseAfter =
+      handle.cleanup ??
+      handle.result.then(
+        () => undefined,
+        () => undefined,
+      );
+    void releaseAfter.then(release, release);
     return {
       ok: true,
       value: {
         ...handle,
-        result: handle.result.finally(release),
         cancel: async () => {
           try {
             await handle.cancel();
+            await handle.cleanup;
           } finally {
             release();
           }
@@ -142,6 +149,7 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
         close: async () => {
           try {
             await handle.close();
+            await handle.cleanup;
           } finally {
             release();
           }

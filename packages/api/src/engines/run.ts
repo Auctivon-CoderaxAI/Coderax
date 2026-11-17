@@ -67,9 +67,13 @@ export type EngineRunPumpOptions = {
   timeoutMs: number;
   maxSummaryChars: number;
   signal?: AbortSignal;
+  /** Aborts the transport subscription before waiting on iterator.return(). */
+  abort?: () => void;
   /** Called once, after the result settles, so callers can release a lease. */
   onSettled?: () => void;
 };
+
+const CLEANUP_TIMEOUT_MS = 5_000;
 
 export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunHandle {
   const queue = new EventQueue();
@@ -85,10 +89,26 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
   const result = new Promise<EngineResult<EngineRunSummary>>((resolve) => {
     resolveResult = resolve;
   });
-
-  const finish = (outcome: EngineResult<EngineRunSummary>, terminal?: EngineEvent): void => {
-    if (settled) {
+  let resolveCleanup: () => void = () => {};
+  const cleanup = new Promise<void>((resolve) => {
+    resolveCleanup = resolve;
+  });
+  let cleanupDone = false;
+  const settleCleanup = (): void => {
+    if (cleanupDone) {
       return;
+    }
+    cleanupDone = true;
+    resolveCleanup();
+  };
+
+  const finish = (
+    outcome: EngineResult<EngineRunSummary>,
+    terminal?: EngineEvent,
+    deferCleanup = false,
+  ): boolean => {
+    if (settled) {
+      return false;
     }
     settled = true;
     if (timer) {
@@ -100,10 +120,15 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     }
     queue.close();
     resolveResult(outcome);
+    if (!deferCleanup) {
+      settleCleanup();
+    }
     options.onSettled?.();
+    return true;
   };
 
   const closeIterator = async (): Promise<void> => {
+    options.abort?.();
     try {
       await iterator.return?.();
     } catch {
@@ -111,8 +136,28 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     }
   };
 
+  /** Bound cleanup so a dead transport cannot hold the task lease forever. */
+  const bounded = async (operation: Promise<unknown>): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, CLEANUP_TIMEOUT_MS);
+    });
+    await Promise.race([operation.catch(() => undefined), timeout]);
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+
+  const stopRemote = async (): Promise<void> => {
+    await bounded(options.cancelRun());
+    await bounded(closeIterator());
+    settleCleanup();
+  };
+
   const cancel = async (): Promise<void> => {
     if (settled) {
+      await bounded(closeIterator());
+      await cleanup;
       return;
     }
     // Settle before awaiting the engine: an iterator that closes during abort
@@ -123,9 +168,9 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
         error: { code: 'cancelled', message: 'The run was cancelled.', retryable: false },
       },
       { type: 'cancelled', sessionId: options.sessionId },
+      true,
     );
-    await options.cancelRun();
-    await closeIterator();
+    await stopRemote();
   };
 
   const summary = (): EngineRunSummary => ({
@@ -180,17 +225,33 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
           }
         }
       }
-      finish(engineFailure('protocol_error', 'The engine stream ended before the run completed.'), {
-        type: 'failed',
-        sessionId: options.sessionId,
-        code: 'protocol_error',
-      });
+      if (
+        finish(
+          engineFailure('protocol_error', 'The engine stream ended before the run completed.'),
+          {
+            type: 'failed',
+            sessionId: options.sessionId,
+            code: 'protocol_error',
+          },
+          true,
+        )
+      ) {
+        await stopRemote();
+      }
     } catch {
-      finish(engineFailure('provider_error', 'The engine event stream failed.'), {
-        type: 'failed',
-        sessionId: options.sessionId,
-        code: 'provider_error',
-      });
+      if (
+        finish(
+          engineFailure('provider_error', 'The engine event stream failed.'),
+          {
+            type: 'failed',
+            sessionId: options.sessionId,
+            code: 'provider_error',
+          },
+          true,
+        )
+      ) {
+        await stopRemote();
+      }
     }
   };
 
@@ -205,9 +266,9 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
           error: { code: 'timeout', message: 'The run timed out.', retryable: true },
         },
         { type: 'failed', sessionId: options.sessionId, code: 'timeout' },
+        true,
       );
-      await options.cancelRun();
-      await closeIterator();
+      await stopRemote();
     })();
   }, options.timeoutMs);
 
@@ -227,9 +288,9 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     events: queue.drain(),
     cancel,
     result,
+    cleanup,
     close: async () => {
       await cancel();
-      await closeIterator();
       queue.close();
     },
   };

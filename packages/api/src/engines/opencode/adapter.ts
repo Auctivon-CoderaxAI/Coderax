@@ -10,6 +10,7 @@ import type { WorkspaceRoots } from '../workspace';
 import { engineFailure } from '../types';
 import { resolveEngineWorkspace } from '../workspace';
 import { createEngineRunHandle } from '../run';
+import { withDeadline } from '../deadline';
 import { OpenCodeEventMapper } from './protocol';
 
 /**
@@ -66,8 +67,10 @@ export function describeOpenCode(options: OpenCodeAdapterOptions): EngineAvailab
  * Start one OpenCode run in a confined workspace.
  *
  * The session is created first, then the event stream is subscribed, then the
- * prompt is sent, so no early event is missed. Every outcome goes through the
- * shared pump, which settles the run once.
+ * prompt is sent, so no early event is missed. Session creation, subscription
+ * and prompt submission share one deadline; a late transport result is aborted
+ * instead of becoming an untracked run. Every outcome goes through the shared
+ * pump, which settles the run once.
  */
 export async function startOpenCodeRun(
   options: OpenCodeAdapterOptions,
@@ -99,30 +102,86 @@ export async function startOpenCodeRun(
     return resolved;
   }
   const workspace = resolved.value;
+  const timeoutMs = request.timeoutMs ?? options.limits.timeoutMs;
+  const deadline = Date.now() + timeoutMs;
+
+  const controller = new AbortController();
+  const abortFromRequest = (): void => controller.abort();
+  if (request.signal?.aborted) {
+    controller.abort();
+  } else {
+    request.signal?.addEventListener('abort', abortFromRequest, { once: true });
+  }
+  if (controller.signal.aborted) {
+    return engineFailure('cancelled', 'The run was cancelled before it started.', false);
+  }
+
+  const abortSession = async (sessionId: string): Promise<void> => {
+    try {
+      await options.transport?.abort({ sessionId, directory: workspace.root });
+    } catch {
+      // The session may already be gone; cancellation still settles locally.
+    }
+  };
 
   let sessionId: string;
   try {
-    const session = await options.transport.createSession({
+    const sessionPromise = options.transport.createSession({
       directory: workspace.root,
       title: request.conversationId,
     });
-    sessionId = session.id;
+    const outcome = await withDeadline(sessionPromise, deadline);
+    if (!outcome.ok) {
+      void sessionPromise.then((late) => abortSession(late.id)).catch(() => undefined);
+      return engineFailure(
+        'timeout',
+        'The OpenCode server did not create a session before the deadline.',
+        true,
+      );
+    }
+    sessionId = outcome.value.id;
   } catch {
     return engineFailure('server_unavailable', 'The OpenCode server did not accept the session.');
   }
   if (!sessionId) {
+    await abortSession(sessionId);
     return engineFailure('protocol_error', 'The OpenCode server returned no session id.');
+  }
+  if (controller.signal.aborted) {
+    await abortSession(sessionId);
+    return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
   let stream: AsyncIterable<unknown>;
   try {
-    stream = await options.transport.subscribe({
+    const subscribePromise = options.transport.subscribe({
       directory: workspace.root,
       sessionId,
-      signal: request.signal,
+      signal: controller.signal,
     });
+    const outcome = await withDeadline(subscribePromise, deadline);
+    if (!outcome.ok) {
+      void subscribePromise
+        .then(async (late) => {
+          const iterator = late[Symbol.asyncIterator]();
+          await iterator.return?.();
+        })
+        .catch(() => undefined);
+      await abortSession(sessionId);
+      return engineFailure(
+        'timeout',
+        'The OpenCode event stream did not open before the deadline.',
+        true,
+      );
+    }
+    stream = outcome.value;
   } catch {
+    await abortSession(sessionId);
     return engineFailure('server_unavailable', 'The OpenCode event stream was unavailable.');
+  }
+  if (controller.signal.aborted) {
+    await abortSession(sessionId);
+    return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
   const mapper = new OpenCodeEventMapper(sessionId);
@@ -131,27 +190,47 @@ export async function startOpenCodeRun(
     stream,
     map: (raw) => mapper.map(raw),
     cancelRun: async () => {
-      try {
-        await options.transport?.abort({ sessionId, directory: workspace.root });
-      } catch {
-        // The session may already be gone; cancellation still settles locally.
-      }
+      await abortSession(sessionId);
     },
-    timeoutMs: request.timeoutMs ?? options.limits.timeoutMs,
+    timeoutMs,
     maxSummaryChars: options.limits.maxSummaryChars,
-    ...(request.signal ? { signal: request.signal } : {}),
+    signal: controller.signal,
+    abort: () => controller.abort(),
   });
 
+  if (controller.signal.aborted) {
+    await handle.close();
+    return engineFailure('cancelled', 'The run was cancelled before it started.', false);
+  }
+
   try {
-    await options.transport.prompt({
+    const promptPromise = options.transport.prompt({
       sessionId,
       directory: workspace.root,
       text: request.prompt,
       ...(request.model ? { model: request.model } : {}),
     });
+    const outcome = await withDeadline(promptPromise, deadline);
+    if (!outcome.ok) {
+      void promptPromise.then(() => abortSession(sessionId)).catch(() => undefined);
+      await handle.close();
+      return engineFailure(
+        'timeout',
+        'The OpenCode server did not accept the task before the deadline.',
+        true,
+      );
+    }
   } catch {
+    const cancelled = controller.signal.aborted;
+    await abortSession(sessionId);
     await handle.close();
-    return engineFailure('server_unavailable', 'The OpenCode server did not accept the task.');
+    return engineFailure(
+      cancelled ? 'cancelled' : 'server_unavailable',
+      cancelled
+        ? 'The run was cancelled before it started.'
+        : 'The OpenCode server did not accept the task.',
+      false,
+    );
   }
 
   return { ok: true, value: handle };

@@ -104,6 +104,12 @@ export type EngineRunHandle = {
   cancel: () => Promise<void>;
   /** Resolves once the run reaches a terminal event or the stream closes. */
   result: Promise<EngineResult<EngineRunSummary>>;
+  /**
+   * Resolves after engine-side cancellation cleanup. The registry keeps the
+   * task lease until this settles, so a new run cannot overlap an abort that is
+   * still in flight.
+   */
+  cleanup?: Promise<void>;
   /** Releases engine-side resources; safe to call more than once. */
   close: () => Promise<void>;
 };
