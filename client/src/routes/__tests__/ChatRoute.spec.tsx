@@ -137,7 +137,7 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
     [
       { path: '/c/:conversationId', element: <Harness /> },
       { path: '/work/:conversationId', element: <Harness workMode /> },
-      { path: '/login', element: <div data-testid="login-page">Owner sign-in</div> },
+      { path: '/login', element: <div data-testid="login-page" /> },
     ],
     { initialEntries, initialIndex },
   );
@@ -257,7 +257,8 @@ it('requires owner sign-in when a guest switches from Chat to Work in place', as
     expect(router.state.location.pathname).toBe('/login');
     const loginParams = new URLSearchParams(router.state.location.search);
     expect(loginParams.get('manual')).toBe('1');
-    expect(loginParams.get('redirect_to')).toBe('/work/chat-a');
+    // Guest conversation ids are isolated from the owner account; the handoff starts fresh.
+    expect(loginParams.get('redirect_to')).toBe('/work/new');
   });
 });
 
