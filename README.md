@@ -283,6 +283,7 @@ Cloud status from a terminal:
 
 ```bash
 cd cli && npm link
+unset CODERAX_BASE_URL CODERAX_TOKEN
 coderax config set base-url https://your-deployment.example
 read -rsp "Coderax API token: " token; echo
 printf '%s\n' "$token" | coderax login
@@ -291,8 +292,10 @@ coderax doctor
 ```
 
 `coderax doctor` checks configuration, credentials and connectivity; `--help` lists
-the remaining commands and exit codes. Piping the token from `read` keeps it out of
-process arguments and shell history. See [`cli/README.md`](cli/README.md).
+the remaining commands and exit codes. The example clears `CODERAX_BASE_URL` and
+`CODERAX_TOKEN` first because both override stored configuration; piping the token
+from `read` keeps it out of process arguments and shell history. See
+[`cli/README.md`](cli/README.md).
 
 ---
 
