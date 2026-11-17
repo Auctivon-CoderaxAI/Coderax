@@ -108,24 +108,37 @@ export function isWorkSupportedModel(source: WorkModelSource): boolean {
   return source.free === true || source.local === true;
 }
 
-/** Deduplicate by id, keep the first label, and sort for a stable picker. */
+/**
+ * The Work submission contract selects concrete models by id alone. Until that
+ * contract supports provider-qualified ids end to end, refuse ambiguous ids
+ * rather than silently routing a request to whichever provider appeared first.
+ * Repeated catalog entries from the same provider remain deduplicated.
+ */
 export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
   const byId = new Map<string, WorkModel>();
+  const ambiguous = new Set<string>();
   for (const source of sources) {
     if (!isWorkSupportedModel(source)) {
       continue;
     }
     const id = (source.id ?? source.name ?? '').trim();
-    if (byId.has(id)) {
+    const provider = source.provider?.trim() || undefined;
+    const existing = byId.get(id);
+    if (existing && existing.provider !== provider) {
+      ambiguous.add(id);
       continue;
     }
-    byId.set(id, {
-      id,
-      label: (source.label ?? id).trim(),
-      ...(source.provider ? { provider: source.provider } : {}),
-    });
+    if (!existing) {
+      byId.set(id, {
+        id,
+        label: (source.label ?? id).trim() || id,
+        ...(provider ? { provider } : {}),
+      });
+    }
   }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...byId.values()]
+    .filter((model) => !ambiguous.has(model.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /**
