@@ -1,0 +1,41 @@
+name: Coderax post-merge deployment verification
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: 'Full HTTPS Coderax Vercel deployment origin; no credentials'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# A newer main push supersedes an older verification. Manual checks are never
+# cancelled.
+concurrency:
+  group: coderax-post-merge-deployment-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  verify:
+    name: Verify deployed Express API and UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout merged revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Verify deployed Express API and UI
+        env:
+          # The production alias is the default; set the CODERAX_DEPLOYMENT_URL
+          # repository variable to check a different Coderax Vercel origin.
+          CODERAX_DEPLOYMENT_URL: ${{ github.event.inputs.deployment_url || vars.CODERAX_DEPLOYMENT_URL || 'https://coderaxai.vercel.app' }}
+        run: node scripts/verify-coderax-deployment.mjs --live-url "$CODERAX_DEPLOYMENT_URL"
