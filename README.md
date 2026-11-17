@@ -278,11 +278,11 @@ Open source, actively developed, and built for anyone who values control over th
 
 ## 🖥️ Command-line client
 
-The CLI lives in [`Auctivon-CoderaxAI/Coderax-CLI`](https://github.com/Auctivon-CoderaxAI/Coderax-CLI). It exposes `coderax` for chat, Work mode, agents, models, products, Cloud status, health, OpenAPI discovery, and authenticated calls.
+The CLI lives in [`Auctivon-CoderaxAI/Coderax-CLI`](https://github.com/Auctivon-CoderaxAI/Coderax-CLI). It exposes `coderax` for chat, Work mode, agents, models, products, Cloud status, health, OpenAPI discovery, and authenticated calls. The CLI repository is private; access requires organization access.
 
 ```bash
-git clone https://github.com/Auctivon-CoderaxAI/Coderax-CLI.git
-cd Coderax-CLI &&
+git clone https://github.com/Auctivon-CoderaxAI/Coderax-CLI.git &&
+  cd Coderax-CLI &&
   npm link &&
   unset CODERAX_BASE_URL CODERAX_TOKEN &&
   coderax config set base-url https://your-deployment.example &&
@@ -293,6 +293,8 @@ login_status=$?
 unset token
 [ "$login_status" -eq 0 ] && coderax doctor
 ```
+
+For an existing checkout, run `git pull --ff-only` in `Coderax-CLI` instead of cloning again.
 
 The in-repo `cli/` package is deprecated; see [`cli/README.md`](cli/README.md).
 
