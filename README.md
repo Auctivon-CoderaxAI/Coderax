@@ -276,6 +276,21 @@ Beyond chat, Coderax provides AI Agents, Model Context Protocol (MCP) support, A
 
 Open source, actively developed, and built for anyone who values control over their AI infrastructure.
 
+## 🖥️ Command-line client
+
+`Coderax-CLI` drives a deployment from a terminal: it stores the deployment URL and
+token, probes health, and resolves the agent and model routes from the deployment's
+own OpenAPI document instead of hardcoding paths.
+
+```sh
+npm link                  # from a clone of Coderax-CLI; exposes `coderax`
+coderax config set --base-url https://your-deployment.example --token "<token>"
+coderax health
+coderax agents --json
+```
+
+Install, configuration precedence and exit codes: [Auctivon-CoderaxAI/Coderax-CLI](https://github.com/Auctivon-CoderaxAI/Coderax-CLI).
+
 ---
 
 ## 🌐 Resources
