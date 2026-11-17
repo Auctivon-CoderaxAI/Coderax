@@ -104,7 +104,7 @@ const depsFor = (req) => {
 };
 
 const engineChat = createEngineWorkChatHandler({
-  runtimeFor: engineRuntimeFor,
+  runtimeFor: getEngineWorkChatRuntime,
   storeFor: (req) =>
     createEngineWorkChatPersistence({
       db,
@@ -129,14 +129,10 @@ module.exports = createWorkApiRouter({
   chatRouter,
   createReadRouterForRequest: () => {
     const readRouter = express.Router();
-    // Model and readiness catalogs need the authenticated YAML/tenant config;
-    // agent admission needs it for graph limits, and routing needs its budgets.
-    // Unrelated task reads/cancellation do not.
-    readRouter.use('/models', strictConfigMiddleware);
-    readRouter.use('/readiness', strictConfigMiddleware);
-    readRouter.use('/agents', strictConfigMiddleware);
-    readRouter.use('/routing', strictConfigMiddleware);
-    readRouter.use('/engines', strictConfigMiddleware);
+    // Task reads and cancellation need the same authenticated YAML/tenant
+    // config as chat, so engine runtime lookup and cancellation target the
+    // runtime that actually started the run.
+    readRouter.use(strictConfigMiddleware);
     readRouter.use((req, res, next) => {
       // The router owns live cooldowns and quota, so it is shared per budget
       // instead of being rebuilt for each request.

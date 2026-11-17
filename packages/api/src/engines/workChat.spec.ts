@@ -7,6 +7,7 @@ import {
   EngineWorkChatRuntime,
   buildEnginePrompt,
   createEngineWorkChatHandler,
+  createEngineWorkChatPersistence,
   isOwnerEngineWorkChat,
 } from './workChat';
 
@@ -268,13 +269,114 @@ describe('owner-gated OpenCode Work ingress', () => {
     );
   });
 
-  it('rejects attachments instead of silently dropping them', async () => {
+  it('keeps attachment turns on the native runner', async () => {
     const { runner } = fakeRunner();
     const res = await request(app({ runner }))
       .post('/api/work/chat')
       .send({ text: 'Fix it', conversationId: 'new', files: [{ id: 'file-1' }] });
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('WORK_ENGINE_ATTACHMENTS_UNSUPPORTED');
+    expect(res.status).toBe(418);
+    expect(res.body.code).toBe('NATIVE');
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it('cancels a run when the client disconnects before startup finishes', async () => {
+    const { store, conversations } = fakeStore();
+    let resolveStart: ((value: EngineResult<EngineRunHandle>) => void) | undefined;
+    const cancel = jest.fn(async () => undefined);
+    const runner: EngineWorkChatRunner = {
+      start: jest.fn(
+        () =>
+          new Promise<EngineResult<EngineRunHandle>>((resolve) => {
+            resolveStart = resolve;
+          }),
+      ),
+      state: jest.fn(() => null),
+      cancel: jest.fn(async () => false),
+      snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
+    };
+    let close: (() => void) | undefined;
+    const res = {
+      on: jest.fn((event: string, callback: () => void) => {
+        if (event === 'close') {
+          close = callback;
+        }
+      }),
+      status: jest.fn(),
+      json: jest.fn(),
+      setHeader: jest.fn(),
+      flushHeaders: jest.fn(),
+      write: jest.fn(),
+      end: jest.fn(),
+      writableEnded: false,
+      destroyed: false,
+    };
+    const handler = createEngineWorkChatHandler({
+      runtimeFor: () => runner,
+      storeFor: () => store,
+    });
+    const pending = (
+      handler as unknown as (request: unknown, response: unknown, next: unknown) => Promise<void>
+    )(
+      {
+        method: 'POST',
+        path: '/chat',
+        body: { text: 'Fix it', conversationId: 'new' },
+        user: { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' },
+        config: { config: enabledConfig(), interfaceConfig: {} },
+      },
+      res,
+      jest.fn(),
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+    close?.();
+    resolveStart?.({
+      ok: true,
+      value: {
+        sessionId: 'session-1',
+        events: (async function* () {})(),
+        cancel,
+        result: Promise.resolve({
+          ok: true,
+          value: { sessionId: 'session-1', toolCalls: 0, edits: 0 },
+        }),
+        close: jest.fn(async () => undefined),
+      },
+    });
+    await pending;
+
+    expect(cancel).toHaveBeenCalled();
+    expect(Array.from(conversations.values())).toEqual(
+      expect.arrayContaining([expect.objectContaining({ workState: 'cancelled' })]),
+    );
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('loads the newest transcript window in chronological order', async () => {
+    const getMessages = jest.fn(async () => [
+      { text: 'newer', isCreatedByUser: false },
+      { text: 'older', isCreatedByUser: true },
+    ]);
+    const store = createEngineWorkChatPersistence({
+      db: {
+        getConvo: jest.fn(),
+        saveConvo: jest.fn(),
+        saveMessage: jest.fn(),
+        getMessages,
+      },
+      userId: 'owner',
+      tenantId: null,
+    });
+
+    await expect(store.loadTranscript(CONVERSATION_ID)).resolves.toEqual([
+      { text: 'older', isCreatedByUser: true },
+      { text: 'newer', isCreatedByUser: false },
+    ]);
+    expect(getMessages).toHaveBeenCalledWith(
+      { user: 'owner', conversationId: CONVERSATION_ID },
+      'messageId text isCreatedByUser createdAt',
+      { sort: { createdAt: -1 }, limit: 24 },
+    );
   });
 
   it('only treats the exact owner flag as an engine request', () => {

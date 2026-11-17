@@ -289,6 +289,8 @@ function createWorkChatRouter({
   const router = express.Router();
   /** Owner-only engine branch. It declines every request it does not own. */
   if (engineChat) {
+    const { checkBan } = require('~/server/middleware');
+    router.use(checkBan);
     router.use(engineChat);
   }
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));

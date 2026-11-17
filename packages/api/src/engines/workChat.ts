@@ -351,7 +351,7 @@ export function createEngineWorkChatPersistence(input: {
       const rows = await db.getMessages(
         { user: userId, conversationId },
         'messageId text isCreatedByUser createdAt',
-        { sort: { createdAt: 1 }, limit: 24 },
+        { sort: { createdAt: -1 }, limit: 24 },
       );
       return rows
         .filter(isRecord)
@@ -359,12 +359,13 @@ export function createEngineWorkChatPersistence(input: {
           text: typeof row.text === 'string' ? row.text : '',
           isCreatedByUser: row.isCreatedByUser === true,
         }))
-        .filter((row) => row.text.trim().length > 0);
+        .filter((row) => row.text.trim().length > 0)
+        .reverse();
     },
   };
 }
 
-function failureMessage(code: string, fallback?: string): string {
+function failureMessage(code: string): string {
   switch (code) {
     case 'disabled':
       return 'OpenCode execution is disabled for Work.';
@@ -385,7 +386,7 @@ function failureMessage(code: string, fallback?: string): string {
     case 'protocol_error':
       return 'The OpenCode event stream ended before the task finished.';
     default:
-      return fallback ?? 'The OpenCode run failed.';
+      return 'The OpenCode run failed.';
   }
 }
 
@@ -428,10 +429,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       return;
     }
     if (Array.isArray(body.files) && body.files.length > 0) {
-      res.status(400).json({
-        code: 'WORK_ENGINE_ATTACHMENTS_UNSUPPORTED',
-        message: 'OpenCode Work does not accept attachments yet.',
-      });
+      // Attachments stay on the native runner; the engine has no file UI yet.
+      next();
       return;
     }
     if (body.isRegenerate === true || body.compact === true || body.isEdited === true) {
@@ -490,6 +489,29 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       return;
     }
 
+    let closed = false;
+    let finished = false;
+    let activeHandle: EngineRunHandle | null = null;
+    let closeCancelled = false;
+    const cancelForClose = (): void => {
+      closed = true;
+      if (!activeHandle || closeCancelled) {
+        return;
+      }
+      closeCancelled = true;
+      void activeHandle
+        .cancel()
+        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+    };
+    res.on('close', () => {
+      if (!finished) {
+        cancelForClose();
+      }
+    });
+    if (res.destroyed) {
+      cancelForClose();
+    }
+
     try {
       if (runtime.state({ userId, tenantId, conversationId })) {
         res.status(409).json({
@@ -518,6 +540,11 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         workState: 'running',
         create: existing == null,
       });
+      if (closed) {
+        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        finished = true;
+        return;
+      }
 
       const started = await runtime.start({
         userId,
@@ -527,11 +554,22 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
       if (!started.ok) {
         await store.saveConversation({ conversationId, workState: 'failed' });
+        if (closed) {
+          finished = true;
+          return;
+        }
         res.status(started.error.code === 'busy' ? 409 : 503).json({
           code: 'WORK_ENGINE_START_FAILED',
           error: started.error.code,
-          message: failureMessage(started.error.code, started.error.message),
+          message: failureMessage(started.error.code),
         });
+        return;
+      }
+      activeHandle = started.value;
+      if (closed) {
+        await started.value.cancel();
+        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        finished = true;
         return;
       }
 
@@ -555,10 +593,20 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       } catch {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'failed' });
+        if (closed) {
+          finished = true;
+          return;
+        }
         res.status(503).json({
           code: 'WORK_ENGINE_STORE_UNAVAILABLE',
           message: 'Work could not persist this task.',
         });
+        return;
+      }
+      if (closed) {
+        await started.value.cancel();
+        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        finished = true;
         return;
       }
 
@@ -587,15 +635,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           sender: 'User',
           isCreatedByUser: true,
         },
-      });
-
-      let finished = false;
-      res.on('close', () => {
-        if (!finished) {
-          void runtime
-            .cancel({ userId, tenantId, conversationId })
-            .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
-        }
       });
 
       let text = '';
@@ -643,7 +682,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       } else if (streamError) {
         error = streamError;
       } else if (failed && !result.ok) {
-        error = failureMessage(result.error.code, result.error.message);
+        error = failureMessage(result.error.code);
       }
       let terminalState: 'cancelled' | 'failed' | 'completed' = 'completed';
       if (cancelled) {
@@ -716,6 +755,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       res.end();
     } catch {
       options.logger?.error?.('[Work] The OpenCode Work chat path failed.');
+      if (activeHandle && !finished) {
+        try {
+          await activeHandle.cancel();
+        } catch {
+          // The run is already settling locally.
+        }
+      }
+      if (closed) {
+        finished = true;
+        return;
+      }
       if (res.headersSent) {
         if (!res.writableEnded) {
           writeEvent(res, {
