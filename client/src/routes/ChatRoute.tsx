@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
@@ -207,6 +207,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   const isGuestSession = user?.provider === 'guest';
   const handoffIdRef = useRef<string | null>(null);
   const [workHandoffDraft, setWorkHandoffDraft] = useState<string | null>(null);
+  const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
   const setConversationMode = useCallback(
     (nextMode: 'chat' | 'work') => {
       if (nextMode === 'work' && isGuestSession) {
@@ -633,7 +634,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     return null;
   }
 
-  const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
   const chatView = (
     <ChatView
       index={index}
