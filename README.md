@@ -278,15 +278,17 @@ Open source, actively developed, and built for anyone who values control over th
 
 ## 🖥️ Command-line client
 
-`cli/` ships `@coderax/cli`, which exposes a `coderax` binary for chat, agents and
-Cloud status from a terminal:
+`cli/` ships `@coderax/cli`, which exposes a `coderax` binary for chat, Work
+mode, agents, models and Cloud status from a terminal:
 
 ```bash
-cd cli && npm link
-unset CODERAX_BASE_URL CODERAX_TOKEN
-coderax config set base-url https://your-deployment.example
-read -rsp "Coderax API token: " token; echo
-printf '%s\n' "$token" | coderax login
+cd cli &&
+  npm link &&
+  unset CODERAX_BASE_URL CODERAX_TOKEN &&
+  coderax config set base-url https://your-deployment.example &&
+  read -rsp "Coderax API token: " token &&
+  echo &&
+  printf '%s\n' "$token" | coderax login
 unset token
 coderax doctor
 ```
