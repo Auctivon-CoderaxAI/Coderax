@@ -281,15 +281,18 @@ Open source, actively developed, and built for anyone who values control over th
 `cli/` ships `@coderax/cli`, which exposes a `coderax` binary for chat, agents and
 Cloud status from a terminal:
 
-```sh
+```bash
 cd cli && npm link
 coderax config set base-url https://your-deployment.example
-coderax login --token "<token>"
+read -rsp "Coderax API token: " token; echo
+printf '%s\n' "$token" | coderax login
+unset token
 coderax doctor
 ```
 
 `coderax doctor` checks configuration, credentials and connectivity; `--help` lists
-the remaining commands and exit codes. See [`cli/README.md`](cli/README.md).
+the remaining commands and exit codes. Piping the token from `read` keeps it out of
+process arguments and shell history. See [`cli/README.md`](cli/README.md).
 
 ---
 
