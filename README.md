@@ -289,14 +289,16 @@ cd cli &&
   read -rsp "Coderax API token: " token &&
   echo &&
   printf '%s\n' "$token" | coderax login
+login_status=$?
 unset token
-coderax doctor
+[ "$login_status" -eq 0 ] && coderax doctor
 ```
 
 `coderax doctor` checks configuration, credentials and connectivity; `--help` lists
 the remaining commands and exit codes. The example clears `CODERAX_BASE_URL` and
 `CODERAX_TOKEN` first because both override stored configuration; piping the token
-from `read` keeps it out of process arguments and shell history. See
+from `read` keeps it out of process arguments and shell history. It preserves a
+failed setup and runs `doctor` only after a successful login. See
 [`cli/README.md`](cli/README.md).
 
 ---

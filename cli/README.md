@@ -5,15 +5,18 @@ product status and Cloud availability from a terminal.
 
 ## Install and sign in
 
+From the repository root:
+
 ```bash
-npm link &&
+cd cli && npm link &&
   unset CODERAX_BASE_URL CODERAX_TOKEN &&
   coderax config set base-url https://your-deployment.example &&
   read -rsp "Coderax API token: " token &&
   echo &&
   printf '%s\n' "$token" | coderax login
+login_status=$?
 unset token
-coderax doctor
+[ "$login_status" -eq 0 ] && coderax doctor
 ```
 
 `coderax login` sends the token to `/api/user` before storing it. A successful
@@ -23,8 +26,9 @@ clears `CODERAX_BASE_URL` and `CODERAX_TOKEN` first; both override stored
 configuration and would otherwise change which deployment or token is used.
 Piping the token from `read` keeps it out of process arguments and shell history,
 and the setup lines are chained with `&&` so login does not run if configuration
-or reading the token fails. Credentials are written with `0600` permissions where
-the platform enforces POSIX modes.
+or reading the token fails. `coderax doctor` runs only after a successful login,
+and the final status still reflects an earlier failure. Credentials are written
+with `0600` permissions where the platform enforces POSIX modes.
 
 On Windows, `coderax doctor` may report the `config-dir` check as failed even
 when the configuration is correct. Windows does not expose POSIX directory
