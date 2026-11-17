@@ -278,18 +278,18 @@ Open source, actively developed, and built for anyone who values control over th
 
 ## 🖥️ Command-line client
 
-`Coderax-CLI` drives a deployment from a terminal: it stores the deployment URL and
-token, probes health, and resolves the agent and model routes from the deployment's
-own OpenAPI document instead of hardcoding paths.
+`cli/` ships `@coderax/cli`, which exposes a `coderax` binary for chat, agents and
+Cloud status from a terminal:
 
 ```sh
-npm link                  # from a clone of Coderax-CLI; exposes `coderax`
-coderax config set --base-url https://your-deployment.example --token "<token>"
-coderax health
-coderax agents --json
+cd cli && npm link
+coderax login --token "<token>"
+coderax config set base-url https://your-deployment.example
+coderax doctor
 ```
 
-Install, configuration precedence and exit codes: [Auctivon-CoderaxAI/Coderax-CLI](https://github.com/Auctivon-CoderaxAI/Coderax-CLI).
+`coderax doctor` checks configuration, credentials and connectivity; `--help` lists
+the remaining commands and exit codes. See [`cli/README.md`](cli/README.md).
 
 ---
 
