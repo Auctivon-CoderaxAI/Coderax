@@ -288,8 +288,7 @@ cd Coderax-CLI &&
   coderax config set base-url https://your-deployment.example &&
   read -rsp "Coderax API token: " token &&
   echo &&
-  printf '%s
-' "$token" | coderax login
+  printf '%s\n' "$token" | coderax login
 login_status=$?
 unset token
 [ "$login_status" -eq 0 ] && coderax doctor
