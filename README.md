@@ -283,8 +283,8 @@ Cloud status from a terminal:
 
 ```sh
 cd cli && npm link
-coderax login --token "<token>"
 coderax config set base-url https://your-deployment.example
+coderax login --token "<token>"
 coderax doctor
 ```
 

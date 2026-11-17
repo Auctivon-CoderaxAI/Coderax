@@ -5,8 +5,8 @@ status from a terminal.
 
 ```sh
 npm link                                  # exposes `coderax`
-coderax login --token "<token>"           # verified before it is stored
 coderax config set base-url https://your-deployment.example
+coderax login --token "<token>"           # verified before it is stored
 coderax doctor                            # configuration, credentials, connectivity
 ```
 
