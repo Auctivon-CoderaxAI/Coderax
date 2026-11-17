@@ -21,6 +21,7 @@ Power Mode are disabled by default.
 | Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
 | Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
 | Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
+| Owner Work ingress     | `packages/api/src/engines/workChat.ts`                            | ADMIN-only `POST /api/work/chat` branch; streams and persists the turn, holds one live run per conversation, and reuses Work cancellation; off by default            |
 | Private/cloud boundary | `packages/api/src/cloud/mode.ts`                                  | Cross-mode denial, owner check, single-use export approval bound to exact content                                                                                    |
 | Secret scrubbing       | `packages/api/src/cloud/redact.ts`                                | Provider keys, bearer tokens and sensitive env values removed from outbound text and logs                                                                            |
 | GroqCloud provider     | `packages/api/src/cloud/groq.ts`                                  | One allowlisted free model, explicit free-tier attestation, local daily budget, 429/402 fail closed, no tools                                                        |
@@ -55,11 +56,34 @@ engines:
     enabled: true
     baseURL: http://127.0.0.1:4096
     timeoutMs: 900000
+  workChat:
+    enabled: true
+    engine: opencode
 ```
 
 The adapter creates a session, subscribes before prompting, streams SDK events,
 maps tool and file evidence, and aborts on cancellation. A run that produces
 text but no terminal event is reported as `protocol_error`.
+
+### Owner-only Work ingress
+
+`engines.workChat.enabled` is a separate opt-in from `engines.opencode.enabled`.
+When both are on, an authenticated `ADMIN` who starts a turn without a saved
+agent or attachments is routed through OpenCode at `POST /api/work/chat`:
+
+- the turn uses the private workspace root only, never the cloud root;
+- the user and assistant messages are written to the existing Work conversation,
+  and its `workState` becomes `completed`, `failed` or `cancelled`;
+- the reply streams as the same `created` / text / `final` SSE frames the Work
+  client already consumes;
+- `/api/work/tasks/:id/cancel` cancels the live engine run, scoped to the same
+  user and tenant;
+- a second run for the same conversation is refused with `WORK_ENGINE_BUSY`.
+
+Every non-owner, every selected-agent turn, and every attachment stays on the
+native runner. If OpenCode requests a tool permission that Work cannot collect,
+the run is cancelled and reported as failed rather than silently approved.
+Attachments, regenerate, compact and edit turns are rejected by this branch.
 
 ## OpenHands (optional engine)
 
@@ -146,6 +170,10 @@ npx tsc --noEmit
 npx tsdown
 ```
 
+The focused Work ingress suite additionally covers the owner/flag gate, native
+fallback, streamed and persisted turns, bounded follow-up context, busy and
+disabled failures, unsupported attachments, and approval fail-closed behavior.
+
 The focused suites cover:
 
 - a real disposable workspace: failing `node --test`, a real file edit, a real
@@ -164,17 +192,16 @@ The focused suites cover:
 ## Known limitations
 
 1. **No live OpenCode or OpenHands server or model credential was available in
-   this environment.** The adapters are exercised against protocol-conformant
-   transports; a live model run is not claimed.
-2. **The chat ingress is not rewired.** The adapters and registry are exported
-   and the status route is wired, but the existing native agent runner remains
-   the execution path for Chat/Work until an owner enables an engine and the
-   ingress is switched in a separate, reviewed change. This avoids two runners
-   editing one workspace.
-3. **OpenHands cannot be enabled without a remote Agent Server and the alpha
+   this environment.** The adapters and owner ingress are exercised against
+   protocol-conformant transports; a live model run is not claimed.
+2. **The owner ingress is text-only.** Attachments, regenerate, compact and edit
+   turns stay on the native path or are rejected; a saved-agent selection always
+   stays native. There is no engine picker UI: the owner enables the branch in
+   `coderax.yaml`.
+3. **OpenCode tool approvals fail closed.** The Work client does not yet collect
+   an OpenCode permission request, so such a run is cancelled and reported as
+   failed rather than approved automatically.
+4. **OpenHands cannot be enabled without a remote Agent Server and the alpha
    TypeScript client.** The adapter stays disabled rather than faking support.
-4. **The Groq daily ledger is process-local.** It is a guard, not a distributed
+5. **The Groq daily ledger is process-local.** It is a guard, not a distributed
    billing guarantee; exhaustion still fails closed through Groq's 429.
-5. **No UI was added.** The status route is read-only; the owner enables engines
-   through `coderax.yaml`. A picker entry point is a follow-up that depends on
-   the ingress change.

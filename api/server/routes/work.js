@@ -15,7 +15,9 @@ const {
   persistTerminalWorkState,
   workStateForJobStatus,
   getFreeRouterForConfig,
-  createExecutionEngines,
+  createEngineWorkChatHandler,
+  createEngineWorkChatPersistence,
+  getEngineWorkChatRuntime,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
@@ -76,17 +78,48 @@ const baseDepsFor = createWorkDepsFactory({
 const freeSourcesFor = (req) =>
   buildFreeInferenceWorkSources(req.config?.config ?? null, process.env);
 
+const engineRuntimeFor = (req) => getEngineWorkChatRuntime(req.config?.config);
+
 const depsFor = (req) => {
   const deps = baseDepsFor(req);
   const configuredListModels = deps.listModels;
   deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
   deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
+  /** An engine run is live state too; fall back to the native job registry. */
+  const nativeGetRunState = deps.getRunState;
+  deps.getRunState = async (input) =>
+    engineRuntimeFor(req).state({
+      userId: input.userId,
+      tenantId: req.user?.tenantId ?? null,
+      conversationId: input.conversationId,
+    }) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
+  const nativeCancelRun = deps.cancelRun;
+  deps.cancelRun = async (input) =>
+    (await engineRuntimeFor(req).cancel({
+      userId: input.userId,
+      tenantId: req.user?.tenantId ?? null,
+      conversationId: input.conversationId,
+    })) || nativeCancelRun(input);
   return deps;
 };
+
+const engineChat = createEngineWorkChatHandler({
+  runtimeFor: engineRuntimeFor,
+  storeFor: (req) =>
+    createEngineWorkChatPersistence({
+      db,
+      userId: req.user?.id,
+      tenantId: req.user?.tenantId ?? null,
+      isTemporary: req.body?.isTemporary === true,
+      interfaceConfig: req.config?.interfaceConfig,
+    }),
+  logger,
+});
 
 const workChatRouter = getWorkChatRouter({
   findAgent: (agentId) => db.getAgentWithVersionCount({ id: agentId }),
   freeModelSources: freeSourcesFor,
+  engineChat,
 });
 const chatRouter = express.Router();
 chatRouter.use('/chat', strictConfigMiddleware);
@@ -110,7 +143,7 @@ module.exports = createWorkApiRouter({
       const deps = {
         ...depsFor(req),
         routing: () => getFreeRouterForConfig(req.config?.config).snapshot(),
-        engines: () => createExecutionEngines(req.config?.config).snapshot(),
+        engines: () => engineRuntimeFor(req).snapshot(),
       };
       createWorkRouter(deps)(req, res, next);
     });

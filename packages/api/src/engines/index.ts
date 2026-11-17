@@ -18,6 +18,13 @@ export type { EngineStatus, EngineStatusSnapshot } from './registry';
 export { createEngineRegistry } from './registry';
 export type { ExecutionEnginesConfig } from './service';
 export { createExecutionEngines, describeExecutionEngines } from './service';
+export {
+  createEngineWorkChatHandler,
+  createEngineWorkChatPersistence,
+  getEngineWorkChatRuntime,
+  isOwnerEngineWorkChat,
+} from './workChat';
+export type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
 export { EngineRunArbiter } from './arbiter';
 export type { WorkspaceRoots } from './workspace';
 export { resolveEngineWorkspace, validateWorkspaceRoots } from './workspace';

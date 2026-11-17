@@ -3928,17 +3928,24 @@ export const enginesConfigSchema = z
         cloudRoot: z.string().trim().optional(),
       })
       .prefault({}),
+    /**
+     * Owner-only Work chat execution. When enabled, an ADMIN's Work turns run
+     * through the configured engine instead of the native agent runner; every
+     * other user, and every turn with a selected agent or attachment, still
+     * takes the native path. Disabled by default.
+     */
+    workChat: z
+      .object({
+        enabled: z.boolean().default(false),
+        engine: z.literal('opencode').default('opencode'),
+      })
+      .prefault({}),
     opencode: z
       .object({
         enabled: z.boolean().default(false),
         /** An existing `opencode serve` endpoint; Coderax never spawns it. */
         baseURL: z.string().trim().url().optional(),
-        timeoutMs: z
-          .number()
-          .int()
-          .min(1_000)
-          .max(3_600_000)
-          .default(DEFAULT_ENGINE_TIMEOUT_MS),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
       })
       .prefault({}),
     openhands: z
@@ -3946,12 +3953,7 @@ export const enginesConfigSchema = z
         enabled: z.boolean().default(false),
         /** A remote OpenHands Agent Server; the Python runtime is not bundled. */
         agentServerUrl: z.string().trim().url().optional(),
-        timeoutMs: z
-          .number()
-          .int()
-          .min(1_000)
-          .max(3_600_000)
-          .default(DEFAULT_ENGINE_TIMEOUT_MS),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
       })
       .prefault({}),
   })

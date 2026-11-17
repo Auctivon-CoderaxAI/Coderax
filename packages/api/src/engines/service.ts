@@ -21,6 +21,10 @@ export type ExecutionEnginesConfig =
   | {
       engines?: {
         defaultEngine?: 'opencode' | 'openhands';
+        workChat?: {
+          enabled?: boolean;
+          engine?: 'opencode';
+        } | null;
         workspaces?: {
           privateRoot?: string;
           cloudRoot?: string;

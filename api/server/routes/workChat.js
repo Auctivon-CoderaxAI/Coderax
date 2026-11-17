@@ -284,8 +284,13 @@ function createWorkChatRouter({
   authorizeAgent,
   canViewAgent,
   freeModelSources,
+  engineChat,
 } = {}) {
   const router = express.Router();
+  /** Owner-only engine branch. It declines every request it does not own. */
+  if (engineChat) {
+    router.use(engineChat);
+  }
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
   router.use(
     '/chat',
