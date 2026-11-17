@@ -276,6 +276,28 @@ Beyond chat, Coderax provides AI Agents, Model Context Protocol (MCP) support, A
 
 Open source, actively developed, and built for anyone who values control over their AI infrastructure.
 
+## 🖥️ Command-line client
+
+The CLI lives in [`Auctivon-CoderaxAI/Coderax-CLI`](https://github.com/Auctivon-CoderaxAI/Coderax-CLI). It exposes `coderax` for chat, Work mode, agents, models, products, Cloud status, health, OpenAPI discovery, and authenticated calls. The repository is private; authenticate `gh` first.
+
+```bash
+gh repo clone Auctivon-CoderaxAI/Coderax-CLI Coderax-CLI &&
+  cd Coderax-CLI &&
+  npm link &&
+  unset CODERAX_BASE_URL CODERAX_TOKEN &&
+  coderax config set base-url https://your-deployment.example &&
+  read -rsp "Coderax API token: " token &&
+  echo &&
+  printf '%s\n' "$token" | coderax login
+login_status=$?
+unset token
+[ "$login_status" -eq 0 ] && coderax doctor
+```
+
+For an existing checkout, run `git pull --ff-only` in `Coderax-CLI` instead of cloning again.
+
+The in-repo `cli/` package is deprecated; see [`cli/README.md`](cli/README.md).
+
 ---
 
 ## 🌐 Resources
