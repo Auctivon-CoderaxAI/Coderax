@@ -92,7 +92,8 @@ export const PRODUCTS = Object.freeze([
       + 'bash, with JSON output and meaningful exit codes for automation.',
     status: 'preview',
     availabilityNote:
-      'The CLI is maintained in the external Coderax-CLI repository; it is not '
+      'The CLI is maintained in the external Coderax-CLI repository '
+      + '(https://github.com/Auctivon-CoderaxAI/Coderax-CLI); it is not '
       + 'published to npm and the in-repo cli/ package is deprecated.',
     icon: 'TerminalSquare',
     shortcut: '2',
