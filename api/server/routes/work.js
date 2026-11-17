@@ -15,6 +15,7 @@ const {
   persistTerminalWorkState,
   workStateForJobStatus,
   getFreeRouterForConfig,
+  createExecutionEngines,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
@@ -102,12 +103,14 @@ module.exports = createWorkApiRouter({
     readRouter.use('/readiness', strictConfigMiddleware);
     readRouter.use('/agents', strictConfigMiddleware);
     readRouter.use('/routing', strictConfigMiddleware);
+    readRouter.use('/engines', strictConfigMiddleware);
     readRouter.use((req, res, next) => {
       // The router owns live cooldowns and quota, so it is shared per budget
       // instead of being rebuilt for each request.
       const deps = {
         ...depsFor(req),
         routing: () => getFreeRouterForConfig(req.config?.config).snapshot(),
+        engines: () => createExecutionEngines(req.config?.config).snapshot(),
       };
       createWorkRouter(deps)(req, res, next);
     });
