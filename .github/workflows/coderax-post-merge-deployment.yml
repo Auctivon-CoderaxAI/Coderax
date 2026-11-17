@@ -13,17 +13,17 @@ on:
 permissions:
   contents: read
 
-# A newer main push supersedes an older verification. Manual checks are never
-# cancelled.
+# Main pushes share a group and supersede older pushes. Each manual run gets a
+# unique group so a push cannot cancel an in-progress manual check.
 concurrency:
-  group: coderax-post-merge-deployment-${{ github.ref }}
+  group: coderax-post-merge-deployment-${{ github.event_name == 'push' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   verify:
     name: Verify deployed Express API and UI
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout merged revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -33,9 +33,48 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - name: Verify deployed Express API and UI
+      - name: Wait for pushed revision and verify deployment
+        if: github.event_name == 'push'
         env:
           # The production alias is the default; set the CODERAX_DEPLOYMENT_URL
           # repository variable to check a different Coderax Vercel origin.
+          CODERAX_DEPLOYMENT_URL: ${{ vars.CODERAX_DEPLOYMENT_URL || 'https://coderaxai.vercel.app' }}
+          EXPECTED_BACKEND_REVISION: ${{ github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          const origin = process.env.CODERAX_DEPLOYMENT_URL;
+          const expected = process.env.EXPECTED_BACKEND_REVISION;
+          const configUrl = new URL('/api/config', origin).toString();
+          const deadline = Date.now() + 10 * 60 * 1000;
+          let last = 'no response';
+          while (Date.now() < deadline) {
+            try {
+              const response = await fetch(configUrl, {
+                cache: 'no-store',
+                signal: AbortSignal.timeout(15_000),
+              });
+              const payload = await response.json();
+              last = payload?.buildInfo?.commit ?? 'missing buildInfo.commit';
+              if (last === expected) {
+                console.log(`Production reports ${last}`);
+                break;
+              }
+            } catch (error) {
+              last = error instanceof Error ? error.message : String(error);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 15_000));
+          }
+          if (last !== expected) {
+            throw new Error(
+              `production did not report ${expected} within 10 minutes (last: ${last})`,
+            );
+          }
+          NODE
+          node scripts/verify-coderax-deployment.mjs \
+            --live-url "$CODERAX_DEPLOYMENT_URL" \
+            --expected-backend-revision "$EXPECTED_BACKEND_REVISION"
+      - name: Verify deployed Express API and UI (manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
           CODERAX_DEPLOYMENT_URL: ${{ github.event.inputs.deployment_url || vars.CODERAX_DEPLOYMENT_URL || 'https://coderaxai.vercel.app' }}
         run: node scripts/verify-coderax-deployment.mjs --live-url "$CODERAX_DEPLOYMENT_URL"
