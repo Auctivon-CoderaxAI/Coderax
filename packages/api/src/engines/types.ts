@@ -112,11 +112,7 @@ export type EngineAvailability =
   | { available: true; reason: 'ready' }
   | {
       available: false;
-      reason:
-        | 'disabled'
-        | 'sdk_unavailable'
-        | 'not_configured'
-        | 'server_unavailable';
+      reason: 'disabled' | 'sdk_unavailable' | 'not_configured' | 'server_unavailable';
       /** User-safe explanation; never contains a key, token or absolute path. */
       detail: string;
     };

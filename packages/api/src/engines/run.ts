@@ -1,9 +1,4 @@
-import type {
-  EngineEvent,
-  EngineResult,
-  EngineRunHandle,
-  EngineRunSummary,
-} from './types';
+import type { EngineEvent, EngineResult, EngineRunHandle, EngineRunSummary } from './types';
 import { engineFailure } from './types';
 
 /**
@@ -138,9 +133,7 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     toolCalls,
     edits,
     ...(usage ? { usage } : {}),
-    ...(summaryText
-      ? { summary: summaryText.slice(0, options.maxSummaryChars) }
-      : {}),
+    ...(summaryText ? { summary: summaryText.slice(0, options.maxSummaryChars) } : {}),
   });
 
   const pump = async (): Promise<void> => {
@@ -175,16 +168,14 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
             return;
           }
           if (event.type === 'cancelled') {
-            finish(
-              {
-                ok: false,
-                error: {
-                  code: 'cancelled',
-                  message: 'The run was cancelled.',
-                  retryable: false,
-                },
+            finish({
+              ok: false,
+              error: {
+                code: 'cancelled',
+                message: 'The run was cancelled.',
+                retryable: false,
               },
-            );
+            });
             return;
           }
         }

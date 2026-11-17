@@ -71,12 +71,10 @@ describe('OpenCode event mapping', () => {
 
   it('deduplicates file edits and ignores other sessions', () => {
     const mapper = new OpenCodeEventMapper(sessionId);
-    expect(
-      mapper.map({ type: 'file.edited', properties: { file: 'src/sum.ts' } }),
-    ).toEqual([{ type: 'file_edit', path: 'src/sum.ts' }]);
-    expect(
-      mapper.map({ type: 'file.edited', properties: { file: 'src/sum.ts' } }),
-    ).toEqual([]);
+    expect(mapper.map({ type: 'file.edited', properties: { file: 'src/sum.ts' } })).toEqual([
+      { type: 'file_edit', path: 'src/sum.ts' },
+    ]);
+    expect(mapper.map({ type: 'file.edited', properties: { file: 'src/sum.ts' } })).toEqual([]);
 
     const other = new OpenCodeEventMapper(sessionId);
     expect(

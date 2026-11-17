@@ -208,12 +208,11 @@ export class OpenCodeEventMapper {
     }
     const permission = readString(properties.permission) ?? 'permission';
     const callId = readString(properties.id) ?? permission;
-    const tool = isRecord(properties.tool) ? properties.tool : null;
     return [
       {
         type: 'approval_required',
         callId,
-        tool: readString(tool?.callID) ? permission : permission,
+        tool: permission,
         description: permission,
       },
     ];

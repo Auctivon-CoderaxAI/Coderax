@@ -10,21 +10,21 @@ Power Mode are disabled by default.
 
 ## What is implemented
 
-| Piece | Location | Behavior |
-| --- | --- | --- |
-| Adapter contract | `packages/api/src/engines/types.ts` | Normalized `started`, `text_delta`, `tool_call`, `tool_result`, `file_edit`, `approval_required`, `usage`, `completed`, `failed`, `cancelled` events; typed failures |
-| One-run arbitration | `packages/api/src/engines/arbiter.ts` | A task key can be held by exactly one engine; a second engine gets `busy` |
-| Workspace confinement | `packages/api/src/engines/workspace.ts` | Real-path checks inside the mode root; private and cloud roots must not overlap; symlink escapes are rejected |
-| Shared settlement | `packages/api/src/engines/run.ts` | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure |
-| OpenCode adapter | `packages/api/src/engines/opencode/` | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort |
-| OpenHands adapter | `packages/api/src/engines/openhands/` | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists |
-| Engine registry | `packages/api/src/engines/registry.ts` | Default-engine selection, fail-closed availability, lease release |
-| Config service | `packages/api/src/engines/service.ts` | Reads `engines` config, loads the SDK only when enabled, produces safe status |
-| Read route | `GET /api/work/engines` | Availability of each engine and why it cannot run; no paths or credentials |
-| Private/cloud boundary | `packages/api/src/cloud/mode.ts` | Cross-mode denial, owner check, single-use export approval bound to exact content |
-| Secret scrubbing | `packages/api/src/cloud/redact.ts` | Provider keys, bearer tokens and sensitive env values removed from outbound text and logs |
-| GroqCloud provider | `packages/api/src/cloud/groq.ts` | One allowlisted free model, explicit free-tier attestation, local daily budget, 429/402 fail closed, no tools |
-| Config | `engines`, `cloudPower` in `packages/data-provider/src/config.ts` | Disabled defaults, bounded timeouts and budgets |
+| Piece                  | Location                                                          | Behavior                                                                                                                                                             |
+| ---------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter contract       | `packages/api/src/engines/types.ts`                               | Normalized `started`, `text_delta`, `tool_call`, `tool_result`, `file_edit`, `approval_required`, `usage`, `completed`, `failed`, `cancelled` events; typed failures |
+| One-run arbitration    | `packages/api/src/engines/arbiter.ts`                             | A task key can be held by exactly one engine; a second engine gets `busy`                                                                                            |
+| Workspace confinement  | `packages/api/src/engines/workspace.ts`                           | Real-path checks inside the mode root; private and cloud roots must not overlap; symlink escapes are rejected                                                        |
+| Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
+| OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
+| OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
+| Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
+| Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
+| Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
+| Private/cloud boundary | `packages/api/src/cloud/mode.ts`                                  | Cross-mode denial, owner check, single-use export approval bound to exact content                                                                                    |
+| Secret scrubbing       | `packages/api/src/cloud/redact.ts`                                | Provider keys, bearer tokens and sensitive env values removed from outbound text and logs                                                                            |
+| GroqCloud provider     | `packages/api/src/cloud/groq.ts`                                  | One allowlisted free model, explicit free-tier attestation, local daily budget, 429/402 fail closed, no tools                                                        |
+| Config                 | `engines`, `cloudPower` in `packages/data-provider/src/config.ts` | Disabled defaults, bounded timeouts and budgets                                                                                                                      |
 
 ## OpenCode (primary engine)
 
@@ -87,7 +87,7 @@ Verified free-tier facts (2026-11-17, official rate-limit page):
   the organisation's plan. Coderax therefore requires an explicit owner
   attestation (`acknowledgeFreeTierOnly`) and keeps local budgets at or below
   the published free ceilings.
-- The existing zero-cost router still blocks Groq for the *automatic* free
+- The existing zero-cost router still blocks Groq for the _automatic_ free
   route, because that path cannot verify the account plan. Cloud Power Mode is a
   separate, owner-only, explicit-export path; it does not weaken that router.
 

@@ -150,11 +150,7 @@ export class ModeBoundary {
    * Consume an approval exactly once. The token is bound to the owner, the
    * cloud mode, the exact payload and a short expiry.
    */
-  consumeApproval(
-    actor: ModeActor,
-    token: string,
-    entries: readonly ExportEntry[],
-  ): ModeDecision {
+  consumeApproval(actor: ModeActor, token: string, entries: readonly ExportEntry[]): ModeDecision {
     if (!actor.isOwner || !actor.userId) {
       return { ok: false, code: 'not_owner' };
     }

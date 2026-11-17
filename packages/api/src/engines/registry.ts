@@ -1,6 +1,7 @@
 import type {
   EngineAdapter,
   EngineAvailability,
+  EngineFailure,
   EngineId,
   EngineResult,
   EngineRunHandle,
@@ -49,19 +50,20 @@ function statusFor(id: EngineId, adapter: EngineAdapter): EngineStatus {
   return { id, capabilities: adapter.capabilities, availability };
 }
 
-function failureFor(availability: EngineAvailability) {
+function failureFor(availability: EngineAvailability): EngineFailure | null {
   if (availability.available) {
     return null;
   }
-  const code =
-    availability.reason === 'disabled'
-      ? 'disabled'
-      : availability.reason === 'not_configured'
-        ? 'not_configured'
-        : availability.reason === 'sdk_unavailable'
-          ? 'sdk_unavailable'
-          : 'server_unavailable';
-  return engineFailure(code, availability.detail);
+  switch (availability.reason) {
+    case 'disabled':
+      return engineFailure('disabled', availability.detail);
+    case 'not_configured':
+      return engineFailure('not_configured', availability.detail);
+    case 'sdk_unavailable':
+      return engineFailure('sdk_unavailable', availability.detail);
+    default:
+      return engineFailure('server_unavailable', availability.detail);
+  }
 }
 
 export type EngineRunInput = {
@@ -79,7 +81,9 @@ export type EngineRegistryApi = {
 export function createEngineRegistry(options: EngineRegistryOptions): EngineRegistryApi {
   const arbiter = options.arbiter ?? new EngineRunArbiter();
 
-  function select(engine?: EngineId | null): EngineResult<{ id: EngineId; adapter: EngineAdapter }> {
+  function select(
+    engine?: EngineId | null,
+  ): EngineResult<{ id: EngineId; adapter: EngineAdapter }> {
     const id = engine ?? options.defaultEngine;
     const adapter = options.adapters[id];
     if (!adapter) {
@@ -90,9 +94,7 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     return failure ?? { ok: true, value: { id, adapter } };
   }
 
-  async function start(
-    input: EngineRunInput,
-  ): Promise<EngineResult<EngineRunHandle>> {
+  async function start(input: EngineRunInput): Promise<EngineResult<EngineRunHandle>> {
     const selection = select(input.engine);
     if (!selection.ok) {
       return selection;

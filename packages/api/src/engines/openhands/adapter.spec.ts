@@ -3,11 +3,7 @@ import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import type { EngineEvent, EngineRunRequest } from '../types';
 import type { OpenHandsTransport } from './adapter';
-import {
-  createOpenHandsAdapter,
-  OpenHandsEventMapper,
-  startOpenHandsRun,
-} from './adapter';
+import { createOpenHandsAdapter, OpenHandsEventMapper, startOpenHandsRun } from './adapter';
 
 const limits = { timeoutMs: 2_000, maxSummaryChars: 200 };
 
@@ -148,8 +144,6 @@ describe('OpenHands adapter', () => {
       { type: 'tool_result', callId: 'a1', tool: 'edit', ok: true, output: 'edited' },
       { type: 'completed', sessionId: 'c1' },
     ]);
-    await expect(started.value.result).resolves.toEqual(
-      expect.objectContaining({ ok: true }),
-    );
+    await expect(started.value.result).resolves.toEqual(expect.objectContaining({ ok: true }));
   });
 });

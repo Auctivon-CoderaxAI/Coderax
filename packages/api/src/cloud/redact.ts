@@ -24,7 +24,8 @@ const PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bAIza[0-9A-Za-z_-]{30,}\b/g, replacement: '[REDACTED_KEY]' },
   { pattern: /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/gi, replacement: 'Bearer [REDACTED]' },
   {
-    pattern: /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+    pattern:
+      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
     replacement: '$1$2[REDACTED]',
   },
 ];
@@ -61,7 +62,9 @@ export function scrubSecrets(text: string, options: ScrubOptions = {}): ScrubRes
   for (const { pattern, replacement } of PATTERNS) {
     output = output.replace(pattern, (...args: unknown[]) => {
       redactions += 1;
-      return replacement.replace(/\$(\d)/g, (_, index: string) => String(args[Number(index)] ?? ''));
+      return replacement.replace(/\$(\d)/g, (_, index: string) =>
+        String(args[Number(index)] ?? ''),
+      );
     });
   }
   return { text: output, redactions };

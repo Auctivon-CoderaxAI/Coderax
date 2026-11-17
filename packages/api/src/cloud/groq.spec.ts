@@ -111,9 +111,7 @@ describe('GroqCloud free-tier provider', () => {
     );
 
     const withTools = provider({ fetchImpl });
-    await expect(
-      withTools.complete(request({ tools: [{ type: 'function' }] })),
-    ).resolves.toEqual(
+    await expect(withTools.complete(request({ tools: [{ type: 'function' }] }))).resolves.toEqual(
       expect.objectContaining({
         ok: false,
         error: expect.objectContaining({ code: 'tools_not_allowed' }),
@@ -143,9 +141,7 @@ describe('GroqCloud free-tier provider', () => {
       fetchImpl,
     });
 
-    await expect(groq.complete(request())).resolves.toEqual(
-      expect.objectContaining({ ok: true }),
-    );
+    await expect(groq.complete(request())).resolves.toEqual(expect.objectContaining({ ok: true }));
     await expect(groq.complete(request())).resolves.toEqual(
       expect.objectContaining({
         ok: false,
@@ -187,9 +183,7 @@ describe('GroqCloud free-tier provider', () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
-          encoder.encode(
-            'data: {"choices":[{"delta":{"content":"Green "}}],"usage":null}\n\n',
-          ),
+          encoder.encode('data: {"choices":[{"delta":{"content":"Green "}}],"usage":null}\n\n'),
         );
         controller.enqueue(
           encoder.encode(
@@ -232,10 +226,7 @@ describe('GroqCloud free-tier provider', () => {
   });
 
   it('keeps an unknown-usage reservation instead of refunding it', () => {
-    const ledger = createMemoryGroqLedger(
-      { maxRequestsPerDay: 2, maxTokensPerDay: 100 },
-      () => 0,
-    );
+    const ledger = createMemoryGroqLedger({ maxRequestsPerDay: 2, maxTokensPerDay: 100 }, () => 0);
     expect(ledger.reserve({ requests: 1, tokens: 40 })).toBe(true);
     ledger.settle({ reservedTokens: 40 });
     expect(ledger.snapshot().tokens).toBe(40);

@@ -17,25 +17,28 @@ import { loadOpenCodeSdk } from './opencode/sdk';
  * user-safe status instead of a process start or a fallback engine.
  */
 
-export type ExecutionEnginesConfig = {
-  engines?: {
-    defaultEngine?: 'opencode' | 'openhands';
-    workspaces?: {
-      privateRoot?: string;
-      cloudRoot?: string;
-    } | null;
-    opencode?: {
-      enabled?: boolean;
-      baseURL?: string;
-      timeoutMs?: number;
-    } | null;
-    openhands?: {
-      enabled?: boolean;
-      agentServerUrl?: string;
-      timeoutMs?: number;
-    } | null;
-  } | null;
-} | null | undefined;
+export type ExecutionEnginesConfig =
+  | {
+      engines?: {
+        defaultEngine?: 'opencode' | 'openhands';
+        workspaces?: {
+          privateRoot?: string;
+          cloudRoot?: string;
+        } | null;
+        opencode?: {
+          enabled?: boolean;
+          baseURL?: string;
+          timeoutMs?: number;
+        } | null;
+        openhands?: {
+          enabled?: boolean;
+          agentServerUrl?: string;
+          timeoutMs?: number;
+        } | null;
+      } | null;
+    }
+  | null
+  | undefined;
 
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_SUMMARY_CHARS = 4_000;

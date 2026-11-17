@@ -56,9 +56,10 @@ describe('private/cloud isolation', () => {
     const boundaryUnderTest = boundary();
     const entries: ExportEntry[] = [{ source: 'user_input', text: 'Explain this snippet.' }];
 
-    expect(
-      boundaryUnderTest.authorizeExport(owner('cloud'), { entries }),
-    ).toEqual({ ok: false, code: 'approval_required' });
+    expect(boundaryUnderTest.authorizeExport(owner('cloud'), { entries })).toEqual({
+      ok: false,
+      code: 'approval_required',
+    });
 
     const approval = boundaryUnderTest.createApproval(owner('cloud'), entries);
     expect(approval.ok).toBe(true);

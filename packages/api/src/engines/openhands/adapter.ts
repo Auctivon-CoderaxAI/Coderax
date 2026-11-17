@@ -119,8 +119,7 @@ export class OpenHandsEventMapper {
     }
 
     if (kind === 'ObservationEvent' && isRecord(raw.observation)) {
-      const callId =
-        str(raw.action_id) ?? this.pending?.callId ?? `${this.sessionId}:observation`;
+      const callId = str(raw.action_id) ?? this.pending?.callId ?? `${this.sessionId}:observation`;
       if (this.finishedCalls.has(callId)) {
         return [];
       }
@@ -238,8 +237,7 @@ export function describeOpenHands(input: {
     return {
       ok: true,
       value: {
-        detail:
-          'OpenHands requires a running Agent Server URL; it is not bundled with Coderax.',
+        detail: 'OpenHands requires a running Agent Server URL; it is not bundled with Coderax.',
         failure: {
           code: 'not_configured',
           message: 'No OpenHands Agent Server is configured.',
@@ -270,6 +268,36 @@ export type OpenHandsAdapterOptions = {
   limits: EngineLimits;
 };
 
+function failureReason(
+  code: EngineFailureCode,
+): Extract<EngineAvailability, { available: false }>['reason'] {
+  switch (code) {
+    case 'disabled':
+      return 'disabled';
+    case 'not_configured':
+      return 'not_configured';
+    case 'sdk_unavailable':
+      return 'sdk_unavailable';
+    default:
+      return 'server_unavailable';
+  }
+}
+
+function failureCode(
+  reason: Extract<EngineAvailability, { available: false }>['reason'],
+): EngineFailureCode {
+  switch (reason) {
+    case 'disabled':
+      return 'disabled';
+    case 'not_configured':
+      return 'not_configured';
+    case 'sdk_unavailable':
+      return 'sdk_unavailable';
+    default:
+      return 'server_unavailable';
+  }
+}
+
 function availabilityOf(options: OpenHandsAdapterOptions): EngineAvailability {
   const described = describeOpenHands(options);
   if (!described.ok) {
@@ -282,15 +310,11 @@ function availabilityOf(options: OpenHandsAdapterOptions): EngineAvailability {
   if (!described.value.failure) {
     return { available: true, reason: 'ready' };
   }
-  const reason =
-    described.value.failure.code === 'disabled'
-      ? 'disabled'
-      : described.value.failure.code === 'not_configured'
-        ? 'not_configured'
-        : described.value.failure.code === 'sdk_unavailable'
-          ? 'sdk_unavailable'
-          : 'server_unavailable';
-  return { available: false, reason, detail: described.value.detail };
+  return {
+    available: false,
+    reason: failureReason(described.value.failure.code),
+    detail: described.value.detail,
+  };
 }
 
 /**
@@ -304,15 +328,7 @@ export async function startOpenHandsRun(
 ): Promise<EngineResult<EngineRunHandle>> {
   const availability = availabilityOf(options);
   if (!availability.available) {
-    const code: EngineFailureCode =
-      availability.reason === 'disabled'
-        ? 'disabled'
-        : availability.reason === 'sdk_unavailable'
-          ? 'sdk_unavailable'
-          : availability.reason === 'not_configured'
-            ? 'not_configured'
-            : 'server_unavailable';
-    return engineFailure(code, availability.detail);
+    return engineFailure(failureCode(availability.reason), availability.detail);
   }
   if (!options.transport) {
     return engineFailure('sdk_unavailable', 'The OpenHands client is unavailable.');
@@ -339,7 +355,10 @@ export async function startOpenHandsRun(
       ...(request.signal ? { signal: request.signal } : {}),
     });
   } catch {
-    return engineFailure('server_unavailable', 'The OpenHands Agent Server did not accept the task.');
+    return engineFailure(
+      'server_unavailable',
+      'The OpenHands Agent Server did not accept the task.',
+    );
   }
   if (!started.conversationId) {
     return engineFailure('protocol_error', 'The Agent Server returned no conversation id.');

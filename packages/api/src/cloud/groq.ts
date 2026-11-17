@@ -114,7 +114,10 @@ export function createMemoryGroqLedger(
   config: Pick<GroqConfig, 'maxRequestsPerDay' | 'maxTokensPerDay'>,
   now: () => number = Date.now,
 ): GroqLedger {
-  const requestLimit = Math.max(1, Math.min(config.maxRequestsPerDay, GROQ_FREE_LIMITS.requestsPerDay));
+  const requestLimit = Math.max(
+    1,
+    Math.min(config.maxRequestsPerDay, GROQ_FREE_LIMITS.requestsPerDay),
+  );
   const tokenLimit = Math.max(1, Math.min(config.maxTokensPerDay, GROQ_FREE_LIMITS.tokensPerDay));
   let date = dayOf(now());
   let requests = 0;
@@ -184,11 +187,7 @@ type Prepared =
   | { ok: true; messages: GroqMessage[]; estimatedTokens: number; maxOutputTokens: number }
   | GroqFailure;
 
-function failure(
-  code: GroqFailureCode,
-  message: string,
-  retryable = false,
-): GroqFailure {
+function failure(code: GroqFailureCode, message: string, retryable = false): GroqFailure {
   return { ok: false, error: { code, message, retryable } };
 }
 
@@ -274,9 +273,7 @@ export type GroqProviderApi = {
 export function createGroqProvider(options: GroqProviderOptions): GroqProviderApi {
   const { config, env } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const ledger =
-    options.ledger ??
-    createMemoryGroqLedger(config, options.now ?? Date.now);
+  const ledger = options.ledger ?? createMemoryGroqLedger(config, options.now ?? Date.now);
 
   function preflight(request: GroqRequest): Prepared {
     if (!config.enabled) {
@@ -419,9 +416,7 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
     }
     const text = readCompletionText(raw);
     const usage = readUsage(
-      raw != null && typeof raw === 'object'
-        ? (raw as Record<string, unknown>).usage
-        : undefined,
+      raw != null && typeof raw === 'object' ? (raw as Record<string, unknown>).usage : undefined,
     );
     settle(prepared.estimatedTokens, usage);
     if (text === null || text.trim() === '') {

@@ -66,9 +66,7 @@ describe('engine registry', () => {
     if (!started.ok) {
       return;
     }
-    await expect(started.value.result).resolves.toEqual(
-      expect.objectContaining({ ok: true }),
-    );
+    await expect(started.value.result).resolves.toEqual(expect.objectContaining({ ok: true }));
     expect(openCodeStart).toHaveBeenCalledTimes(1);
     expect(registry.arbiter.owner('conversation-1')).toBeNull();
   });

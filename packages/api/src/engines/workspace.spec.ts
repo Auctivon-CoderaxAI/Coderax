@@ -33,7 +33,9 @@ describe('engine workspace confinement', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.mode).toBe('private');
-      expect(result.value.root).toBe(await import('node:fs/promises').then((fs) => fs.realpath(workspace)));
+      expect(result.value.root).toBe(
+        await import('node:fs/promises').then((fs) => fs.realpath(workspace)),
+      );
     }
   });
 
