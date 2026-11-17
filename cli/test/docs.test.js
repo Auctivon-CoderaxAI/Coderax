@@ -54,8 +54,21 @@ function makeStubBin() {
     'set -eu',
     'printf \'coderax %s\\n\' "$*" >> "$CODERAX_STUB_LOG"',
     'case "$1" in',
-    '  config) exit "${CODERAX_STUB_CONFIG_STATUS:-0}" ;;',
-    '  login) cat >/dev/null; exit "${CODERAX_STUB_LOGIN_STATUS:-0}" ;;',
+    '  config)',
+    '    if [ "${CODERAX_BASE_URL+x}" = x ] || [ "${CODERAX_TOKEN+x}" = x ]; then',
+    '      echo "credential override was not cleared" >&2',
+    '      exit 98',
+    '    fi',
+    '    exit "${CODERAX_STUB_CONFIG_STATUS:-0}"',
+    '    ;;',
+    '  login)',
+    '    token=$(cat)',
+    '    if [ "$token" != "stub-token" ]; then',
+    '      echo "unexpected login token" >&2',
+    '      exit 97',
+    '    fi',
+    '    exit "${CODERAX_STUB_LOGIN_STATUS:-0}"',
+    '    ;;',
     '  doctor) exit "${CODERAX_STUB_DOCTOR_STATUS:-0}" ;;',
     'esac',
     'exit 0',
@@ -105,7 +118,7 @@ test('README bash fences parse', () => {
 test('setup snippet stops before login when configuration fails', () => {
   const { result, commands } = runSetup('README.md', { configStatus: 1 });
   assert.ifError(result.error);
-  assert.notEqual(result.status, 0);
+  assert.equal(result.status, 1, result.stderr);
   assert.match(commands, /coderax config set/);
   assert.doesNotMatch(commands, /coderax login/);
   assert.doesNotMatch(commands, /coderax doctor/);
@@ -114,7 +127,7 @@ test('setup snippet stops before login when configuration fails', () => {
 test('setup snippet preserves login failure and skips doctor', () => {
   const { result, commands } = runSetup('README.md', { loginStatus: 3 });
   assert.ifError(result.error);
-  assert.notEqual(result.status, 0);
+  assert.equal(result.status, 1, result.stderr);
   assert.match(commands, /coderax login/);
   assert.doesNotMatch(commands, /coderax doctor/);
 });
@@ -130,7 +143,7 @@ test('setup snippet runs doctor only after successful login', () => {
 test('cli README setup snippet has the same failure behavior', () => {
   const failed = runSetup('cli/README.md', { configStatus: 1 });
   assert.ifError(failed.result.error);
-  assert.notEqual(failed.result.status, 0);
+  assert.equal(failed.result.status, 1, failed.result.stderr);
   assert.doesNotMatch(failed.commands, /coderax doctor/);
 
   const passed = runSetup('cli/README.md');
