@@ -12,7 +12,7 @@ const {
   parseChecksum,
   sha256,
 } = require("./updater.cjs");
-const { isSafeWebUrl, normalizeServerUrl } = require("./server-url.cjs");
+const { isSafeWebUrl, isSameServerOrigin, normalizeServerUrl } = require("./server-url.cjs");
 
 const execFileAsync = promisify(execFile);
 
@@ -62,7 +62,10 @@ function isSetupSender(event) {
 }
 
 function isAppSender(event) {
-  return Boolean(appWindow && !appWindow.isDestroyed() && event.sender === appWindow.webContents);
+  if (!appWindow || appWindow.isDestroyed() || event.sender !== appWindow.webContents) {
+    return false;
+  }
+  return isSameServerOrigin(event.senderFrame?.url, activeServerUrl);
 }
 
 async function readServerUrl() {

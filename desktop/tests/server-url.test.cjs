@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { isSafeWebUrl, normalizeServerUrl } = require("../server-url.cjs");
+const { isSafeWebUrl, isSameServerOrigin, normalizeServerUrl } = require("../server-url.cjs");
 
 test("normalizes an HTTPS deployment and keeps a reverse-proxy path", () => {
   assert.equal(normalizeServerUrl(" https://chat.example.com/coderax/ "), "https://chat.example.com/coderax");
@@ -30,4 +30,14 @@ test("blocks unsafe navigation protocols in remote windows", () => {
   assert.equal(isSafeWebUrl("http://localhost:3080"), true);
   assert.equal(isSafeWebUrl("http://example.com"), false);
   assert.equal(isSafeWebUrl("javascript:alert(1)"), false);
+});
+
+test("restricts privileged bridge calls to the configured server origin", () => {
+  const server = "https://chat.example.com/coderax";
+  assert.equal(isSameServerOrigin("https://chat.example.com/coderax/c/1", server), true);
+  assert.equal(isSameServerOrigin("https://chat.example.com.evil.net/coderax", server), false);
+  assert.equal(isSameServerOrigin("http://chat.example.com/coderax", server), false);
+  assert.equal(isSameServerOrigin("https://login.example.com/authorize", server), false);
+  assert.equal(isSameServerOrigin("not a URL", server), false);
+  assert.equal(isSameServerOrigin("https://chat.example.com/coderax", null), false);
 });
