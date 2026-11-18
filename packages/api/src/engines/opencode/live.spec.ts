@@ -51,7 +51,8 @@ const { createOpencodeClient } = require(process.argv[1]);
   }
   controller.abort();
   await iterator.return?.();
-  await client.session.abort({ path: { id: session.data.id }, query: { directory } });
+  const aborted = await client.session.abort({ path: { id: session.data.id }, query: { directory }, throwOnError: true });
+  if (aborted?.data !== true) throw new Error('session abort did not succeed');
   console.log(JSON.stringify({ id: session.data.id, first: first.value.type }));
 })().catch((error) => {
   console.error(error?.message ?? String(error));
