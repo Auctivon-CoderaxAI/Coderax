@@ -22,7 +22,7 @@ const auth = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function renderEntry(passwordLoginEnabled = false) {
+function renderEntry(passwordLoginEnabled = false, initialEntry = '/connect') {
   const router = createMemoryRouter(
     [
       {
@@ -37,10 +37,11 @@ function renderEntry(passwordLoginEnabled = false) {
         children: [
           { path: '/connect', element: <GuestEntry /> },
           { path: '/c/new', element: <div>Chat workspace</div> },
+          { path: '/work/new', element: <div>Work workspace</div> },
         ],
       },
     ],
-    { initialEntries: ['/connect'] },
+    { initialEntries: [initialEntry] },
   );
   render(<RouterProvider router={router} />);
   return router;
@@ -73,6 +74,15 @@ describe('guest and password entry', () => {
     const router = renderEntry();
     await screen.findByText('Chat workspace');
     expect(router.state.location.pathname).toBe('/c/new');
+  });
+
+  it('honors redirect_to when an authenticated user arrives', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'local' } }),
+    );
+    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
+    await screen.findByText('Work workspace');
+    expect(router.state.location.pathname).toBe('/work/new');
   });
 
   it('shows the password-only gate instead of entering chat as a guest', () => {
