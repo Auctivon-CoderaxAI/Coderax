@@ -187,6 +187,18 @@ describe('owner-gated OpenCode Work ingress', () => {
     expect(prompt).toContain('message-19');
   });
 
+  it('keeps the newest long messages when the history character budget is exhausted', () => {
+    const history = Array.from({ length: 12 }, (_, index) => ({
+      text: `${index}-` + 'x'.repeat(4_000),
+      isCreatedByUser: true,
+    }));
+    const prompt = buildEnginePrompt(history, 'continue');
+    expect(prompt).toContain('User: 11-');
+    expect(prompt).not.toContain('User: 0-');
+    expect(prompt.indexOf('User: 9-')).toBeLessThan(prompt.indexOf('User: 10-'));
+    expect(prompt.indexOf('User: 10-')).toBeLessThan(prompt.indexOf('User: 11-'));
+  });
+
   it('keeps agent-selected turns on the native runner', async () => {
     const { runner } = fakeRunner();
     const res = await request(app({ runner }))
@@ -267,6 +279,20 @@ describe('owner-gated OpenCode Work ingress', () => {
     expect(Array.from(conversations.values())).toEqual(
       expect.arrayContaining([expect.objectContaining({ workState: 'failed' })]),
     );
+  });
+
+  it('does not persist a failed state when a second start is busy', async () => {
+    const { store, conversations } = fakeStore();
+    const { runner } = fakeRunner();
+    (runner.start as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: { code: 'busy', message: 'Another engine run is already active for this task.' },
+    });
+    const res = await request(app({ store, runner }))
+      .post('/api/work/chat')
+      .send({ text: 'Fix it', conversationId: CONVERSATION_ID });
+    expect(res.status).toBe(409);
+    expect(conversations.size).toBe(0);
   });
 
   it('keeps attachment turns on the native runner', async () => {
@@ -444,5 +470,54 @@ describe('EngineWorkChatRuntime', () => {
       }),
     ).toBe(true);
     expect(cancel).toHaveBeenCalled();
+    runtime.release({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('keeps a settled run owned until the handler releases it', async () => {
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    const handle: EngineRunHandle = {
+      sessionId: 'session-lease',
+      events: (async function* () {})(),
+      cancel: jest.fn(async () => undefined),
+      result: Promise.resolve({
+        ok: true as const,
+        value: { sessionId: 'session-lease', toolCalls: 0, edits: 0 },
+      }),
+      close: jest.fn(async () => undefined),
+    };
+    const registry = {
+      start: jest.fn(async () => ({ ok: true as const, value: handle })),
+      select: jest.fn(),
+      snapshot: () => ({ defaultEngine: 'opencode' as const, engines: [] }),
+      arbiter: {} as EngineRegistryApi['arbiter'],
+    } as unknown as EngineRegistryApi;
+    const runtime = new EngineWorkChatRuntime(registry, '/srv/coderax/private');
+    const started = await runtime.start({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId,
+      prompt: 'Fix it',
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      throw new Error('expected a run');
+    }
+    await started.value.result;
+    expect(runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId })).toBe(
+      'running',
+    );
+    expect(
+      runtime.release({
+        userId: 'owner',
+        tenantId: 'tenant-1',
+        conversationId,
+        handle: started.value,
+      }),
+    ).toBe(true);
+    expect(runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId })).toBeNull();
   });
 });
