@@ -2,6 +2,7 @@ import { chromium } from '@playwright/test';
 import type { FullConfig } from '@playwright/test';
 import cleanupUser from './cleanupUser';
 import { appURL, login, submitRegistration } from './authenticate';
+import { prepareE2ECredentials } from './credentials';
 import { clearMailbox, getVerificationURL, waitForMessage } from './mailbox';
 import { getEmailChangeTarget, getEmailChangeUser } from './users.email';
 
@@ -9,6 +10,7 @@ const timeout = Number(process.env.E2E_AUTH_TIMEOUT ?? 15_000);
 const chromiumChannel = process.env.E2E_CHROMIUM_CHANNEL || undefined;
 
 async function globalSetup(config: FullConfig) {
+  prepareE2ECredentials();
   const user = getEmailChangeUser();
   await cleanupUser({ email: getEmailChangeTarget(), password: user.password });
   await cleanupUser(user);
