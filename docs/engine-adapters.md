@@ -81,7 +81,7 @@ produces text but no terminal event is reported as `protocol_error`.
 When both are on, an authenticated `ADMIN` who starts a turn without a saved
 agent or attachments is routed through OpenCode at `POST /api/work/chat`:
 
-- the turn uses the private workspace root only, never the cloud root;
+- private-mode turns use `engines.opencode.privateRoot`; cloud-mode turns use `engines.opencode.cloudRoot`;
 - the user and assistant messages are written to the existing Work conversation,
   and its `workState` becomes `completed`, `failed` or `cancelled`;
 - the reply streams as the same `created` / text / `final` SSE frames the Work
