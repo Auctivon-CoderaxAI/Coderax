@@ -197,9 +197,6 @@ const AuthContextProvider = ({
       const currentLoginParams = new URLSearchParams(window.location.search);
       const redirectTo = currentLoginParams.get('redirect_to');
       const retryParams = new URLSearchParams();
-      if (currentLoginParams.get('manual') === '1') {
-        retryParams.set('manual', '1');
-      }
       if (redirectTo && isSafeRedirect(redirectTo)) {
         retryParams.set('redirect_to', redirectTo);
       }
@@ -275,7 +272,7 @@ const AuthContextProvider = ({
 
   /** Obtain an isolated USER guest session before sending a passwordless visitor
    * to the login page. The endpoint is 404 when guest access is disabled, so
-   * existing manual-account and mandatory 2FA flows keep working unchanged.
+   * mandatory 2FA flows keep working unchanged.
    */
   const tryGuestSession = useCallback(async (): Promise<'created' | 'failed' | 'stale'> => {
     const attemptId = ++guestAttemptRef.current;
@@ -284,8 +281,7 @@ const AuthContextProvider = ({
       authConfig?.test === true ||
       authConfig?.optional === true ||
       isRequiredTwoFactorSetupRoute() ||
-      pathname.startsWith('/login/2fa') ||
-      new URLSearchParams(window.location.search).get('manual') === '1'
+      pathname.startsWith('/login/2fa')
     ) {
       return 'failed';
     }
@@ -404,14 +400,6 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
-          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
@@ -434,14 +422,6 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
-          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },

@@ -375,7 +375,7 @@ describe('AuthContextProvider: login onError redirect handling', () => {
     });
   });
 
-  it('preserves manual owner sign-in and the safe Work handoff after a login failure', () => {
+  it('drops the retired manual flag while preserving the safe Work handoff after a login failure', () => {
     const returnTo = '/work/new?_work_handoff=handoff-id';
     window.history.replaceState(
       {},
@@ -391,7 +391,7 @@ describe('AuthContextProvider: login onError redirect handling', () => {
 
     const loginPath = mockNavigate.mock.calls[0][0] as string;
     const retryParams = new URLSearchParams(loginPath.split('?')[1]);
-    expect(retryParams.get('manual')).toBe('1');
+    expect(retryParams.get('manual')).toBeNull();
     expect(retryParams.get('redirect_to')).toBe(returnTo);
   });
 

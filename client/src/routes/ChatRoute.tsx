@@ -212,8 +212,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     (nextMode: 'chat' | 'work') => {
       if (nextMode === 'work' && isGuestSession) {
         const draftText =
-          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')?.value ??
-          '';
+          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')
+            ?.value ?? '';
         handoffIdRef.current = saveGuestWorkHandoffDraft(draftText);
       } else if (nextMode === 'chat') {
         handoffIdRef.current = null;
@@ -231,33 +231,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     enabled: isAuthenticated && !isGuestSession && isWorkMode,
   });
   useEffect(() => {
-    if (!ownerSignInRequired) {
-      return;
-    }
-    const redirectParams = new URLSearchParams(location.search);
-    // Owner sign-in must review a prepared task before it runs. Guest conversation ids are not
-    // valid owner destinations, so every handoff starts a fresh owner Work conversation.
-    redirectParams.delete('submit');
-    redirectParams.delete(GUEST_WORK_HANDOFF_PARAM);
-    if (handoffIdRef.current) {
-      redirectParams.set(GUEST_WORK_HANDOFF_PARAM, handoffIdRef.current);
-    }
-    const redirectSearch = redirectParams.toString();
-    const redirectTo = [
-      '/work/new',
-      redirectSearch ? `?${redirectSearch}` : '',
-      location.hash,
-    ].join('');
-    const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
-    navigate(`/login?${loginParams.toString()}`, { replace: true });
-  }, [
-    location.hash,
-    location.search,
-    navigate,
-    ownerSignInRequired,
-  ]);
-
-  useEffect(() => {
     if (!isAuthenticated || isGuestSession || !isWorkMode) {
       return;
     }
@@ -274,10 +247,9 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     }
     returnParams.delete(GUEST_WORK_HANDOFF_PARAM);
     const returnSearch = returnParams.toString();
-    navigate(
-      `${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`,
-      { replace: true },
-    );
+    navigate(`${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`, {
+      replace: true,
+    });
   }, [
     isAuthenticated,
     isGuestSession,

@@ -227,39 +227,30 @@ it('copies a new Work selection to the acknowledged conversation without replaci
   });
 });
 
-it('redirects a guest Work task to owner sign-in and preserves the draft without auto-submitting', async () => {
+it('keeps a guest Work task on the owner-required state without opening a login form', async () => {
   mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
   const { router } = setup(['/work/new?prompt=Fix+the+Work+start+flow&submit=true']);
 
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/login');
-    const loginParams = new URLSearchParams(router.state.location.search);
-    expect(loginParams.get('manual')).toBe('1');
-    const redirectTo = loginParams.get('redirect_to');
-    expect(redirectTo).toBeTruthy();
-    const target = new URL(redirectTo!, 'https://coderaxai.vercel.app');
-    expect(target.pathname).toBe('/work/new');
-    expect(target.searchParams.get('prompt')).toBe('Fix the Work start flow');
-    expect(target.searchParams.has('submit')).toBe(false);
+    expect(screen.getByRole('status')).toHaveTextContent('com_work_owner_signin_required');
   });
-
-  expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  expect(router.state.location.pathname).toBe('/work/new');
+  expect(new URLSearchParams(router.state.location.search).get('manual')).toBeNull();
+  expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   expect(mockNewConversation).not.toHaveBeenCalled();
 });
 
-it('requires owner sign-in when a guest switches from Chat to Work in place', async () => {
+it('shows the owner-required state when a guest switches from Chat to Work in place', async () => {
   mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
   const { router } = setup(['/c/chat-a']);
 
   fireEvent.click(screen.getByRole('button', { name: 'Work' }));
 
   await waitFor(() => {
-    expect(router.state.location.pathname).toBe('/login');
-    const loginParams = new URLSearchParams(router.state.location.search);
-    expect(loginParams.get('manual')).toBe('1');
-    // Guest conversation ids are isolated from the owner account; the handoff starts fresh.
-    expect(loginParams.get('redirect_to')).toBe('/work/new');
+    expect(screen.getByRole('status')).toHaveTextContent('com_work_owner_signin_required');
   });
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(new URLSearchParams(router.state.location.search).get('manual')).toBeNull();
 });
 
 it('starts the authenticated transcript query while route metadata is still pending', async () => {
