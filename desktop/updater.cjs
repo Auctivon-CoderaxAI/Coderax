@@ -107,7 +107,11 @@ async function request(url, { token, accept, fetchImpl = fetch } = {}) {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetchImpl(url, { headers, redirect: "follow" });
+  const response = await fetchImpl(url, {
+    headers,
+    redirect: "follow",
+    signal: AbortSignal.timeout(60000),
+  });
   if (!response.ok) {
     const error = new Error(`GitHub responded with ${response.status}.`);
     error.status = response.status;
