@@ -324,6 +324,7 @@ jest.mock('coderax-data-provider', () => {
 });
 
 import useResumableSSE, {
+  hydrateSubmissionMessages,
   selectLocalSteersForQueue,
   ABORT_SWEEP_STATUSES,
 } from '~/hooks/SSE/useResumableSSE';
@@ -5844,5 +5845,36 @@ describe('selectLocalSteersForQueue', () => {
         'never-sent',
       ]);
     });
+  });
+});
+
+describe('hydrateSubmissionMessages', () => {
+  it('preserves a submission that has no user message', () => {
+    const submission = {
+      conversation: { conversationId: 'old-conversation' },
+      userMessage: undefined,
+      initialResponse: undefined,
+    } as unknown as TSubmission;
+
+    const hydrated = hydrateSubmissionMessages(submission, 'new-conversation');
+
+    expect(hydrated.conversation.conversationId).toBe('new-conversation');
+    expect(hydrated.userMessage).toBeUndefined();
+    expect(hydrated.initialResponse).toBeUndefined();
+  });
+
+  it('still hydrates a present user message', () => {
+    const userMessage = {
+      messageId: 'user-message',
+    } as unknown as TMessage;
+    const submission = {
+      conversation: { conversationId: 'old-conversation' },
+      userMessage,
+      initialResponse: undefined,
+    } as unknown as TSubmission;
+
+    const hydrated = hydrateSubmissionMessages(submission, 'new-conversation');
+
+    expect(hydrated.userMessage?.conversationId).toBe('new-conversation');
   });
 });
