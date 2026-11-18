@@ -62,9 +62,10 @@ describe('engine zero-cost admission', () => {
   });
 
   it('admits an allowlisted free model in cloud mode', () => {
-    expect(
-      availability({ mode: 'cloud', model: 'opencode/deepseek-v4.1-flash-free' }),
-    ).toEqual({ available: true, reason: 'ready' });
+    expect(availability({ mode: 'cloud', model: 'opencode/deepseek-v4.1-flash-free' })).toEqual({
+      available: true,
+      reason: 'ready',
+    });
     expect(availability({ mode: 'cloud', model: 'opencode/claude-sonnet-4.5' })).toMatchObject({
       available: false,
     });

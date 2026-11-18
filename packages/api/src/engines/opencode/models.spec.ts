@@ -1,8 +1,4 @@
-import {
-  isModelAllowedForMode,
-  isZeroCostModel,
-  parseEngineModel,
-} from './models';
+import { isModelAllowedForMode, isZeroCostModel, parseEngineModel } from './models';
 
 describe('OpenCode zero-cost model guard', () => {
   it('parses provider/model without splitting a model tag that contains a slash', () => {
@@ -20,9 +16,9 @@ describe('OpenCode zero-cost model guard', () => {
   });
 
   it('accepts catalogued free models and local providers only', () => {
-    expect(
-      isZeroCostModel({ providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' }),
-    ).toBe(true);
+    expect(isZeroCostModel({ providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' })).toBe(
+      true,
+    );
     expect(isZeroCostModel({ providerId: 'opencode', modelId: 'big-pickle' })).toBe(true);
     expect(isZeroCostModel({ providerId: 'opencode', modelId: 'claude-sonnet-4.5' })).toBe(false);
     expect(isZeroCostModel({ providerId: 'anthropic', modelId: 'claude-sonnet-4.5' })).toBe(false);
