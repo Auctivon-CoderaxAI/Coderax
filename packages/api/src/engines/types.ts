@@ -37,6 +37,11 @@ export type EngineFailure = {
     message?: string;
     retryable?: boolean;
   };
+  /**
+   * Cancellation cleanup that must settle before task ownership is released.
+   * A failed cleanup deliberately remains pending so ownership is not lost.
+   */
+  cleanup?: Promise<void>;
 };
 
 export type EngineSuccess<T> = { ok: true; value: T };
@@ -51,10 +56,20 @@ export function engineFailure(
   return { ok: false, error: { code, retryable, ...(message ? { message } : {}) } };
 }
 
+export function engineFailureWithCleanup(
+  code: EngineFailureCode,
+  cleanup: Promise<void>,
+  message?: string,
+  retryable = false,
+): EngineFailure {
+  return { ...engineFailure(code, message, retryable), cleanup };
+}
+
 /** One normalized event from an engine run. */
 export type EngineEvent =
   | { type: 'started'; sessionId: string }
   | { type: 'text_delta'; text: string }
+  | { type: 'text_replace'; text: string }
   | { type: 'tool_call'; callId: string; tool: string; input?: unknown }
   | { type: 'tool_result'; callId: string; tool: string; ok: boolean; output?: string }
   | { type: 'file_edit'; path: string }

@@ -128,6 +128,54 @@ describe('OpenHands adapter', () => {
     );
   });
 
+  it('attaches late-start cancellation to a timeout result', async () => {
+    let resolveStart:
+      | ((value: { conversationId: string; events: AsyncIterable<unknown> }) => void)
+      | undefined;
+    const start = jest.fn(
+      () =>
+        new Promise<{ conversationId: string; events: AsyncIterable<unknown> }>((resolve) => {
+          resolveStart = resolve;
+        }),
+    );
+    const cancel = jest.fn(async () => {});
+    const transport: OpenHandsTransport = { start, cancel };
+
+    const started = await startOpenHandsRun(
+      {
+        enabled: true,
+        agentServerUrl: 'http://127.0.0.1:3000',
+        transport,
+        roots: { private: privateRoot, cloud: cloudRoot },
+        limits,
+      },
+      {
+        taskKey: 't',
+        conversationId: 't',
+        prompt: 'fix it',
+        mode: 'private',
+        workspaceRoot: privateRoot,
+        timeoutMs: 25,
+      },
+    );
+    expect(started).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'timeout' }),
+      }),
+    );
+    if (started.ok) {
+      return;
+    }
+
+    resolveStart?.({
+      conversationId: 'late-conversation',
+      events: (async function* () {})(),
+    });
+    await started.cleanup;
+    expect(cancel).toHaveBeenCalledWith('late-conversation');
+  });
+
   it('runs through a configured transport and streams its evidence', async () => {
     const transport: OpenHandsTransport = {
       start: async () => ({

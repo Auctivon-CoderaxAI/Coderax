@@ -642,11 +642,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       let streamError: string | undefined;
       try {
         for await (const event of started.value.events) {
-          if (event.type === 'text_delta') {
-            text += event.text;
+          if (event.type === 'text_delta' || event.type === 'text_replace') {
+            const initial = text === '';
+            text = event.type === 'text_delta' ? text + event.text : event.text;
             send({
               message: true,
-              initial: text === event.text,
+              initial,
               text,
               messageId: responseMessageId,
               parentMessageId: userMessageId,

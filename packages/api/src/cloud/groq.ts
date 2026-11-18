@@ -252,7 +252,11 @@ function providerErrorFrame(raw: unknown): boolean {
     return false;
   }
   const xGroq = (raw as Record<string, unknown>).x_groq;
-  return xGroq != null && typeof xGroq === 'object' && 'error' in xGroq;
+  if (xGroq == null || typeof xGroq !== 'object') {
+    return false;
+  }
+  const error = (xGroq as Record<string, unknown>).error;
+  return error !== null && error !== undefined;
 }
 
 function readStreamDelta(raw: unknown): string | null {
@@ -344,6 +348,12 @@ export function createGroqProvider(options: GroqProviderOptions): GroqProviderAp
     }
     if (request.messages.length === 0 || !request.messages.every(isGroqMessage)) {
       return failure('invalid_request', 'A message with a supported role is required.');
+    }
+    if (request.estimatedTokens !== undefined && !Number.isFinite(request.estimatedTokens)) {
+      return failure('invalid_request', 'estimatedTokens must be a finite number.');
+    }
+    if (request.maxOutputTokens !== undefined && !Number.isFinite(request.maxOutputTokens)) {
+      return failure('invalid_request', 'maxOutputTokens must be a finite number.');
     }
 
     const scrubbed = request.messages.map((message) => ({

@@ -16,4 +16,10 @@ describe('secret scrubbing', () => {
     const result = scrubSecrets('password = hunter2');
     expect(result.text).toBe('password = [REDACTED]');
   });
+
+  it('consumes escaped quotes in a secret value', () => {
+    const result = scrubSecrets(`{"password":"abc${String.fromCharCode(92)}"suffix"}`);
+    expect(result.text).toBe('{"password":"[REDACTED]"}');
+    expect(result.text).not.toContain('suffix');
+  });
 });

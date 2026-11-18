@@ -25,12 +25,12 @@ const PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*/gi, replacement: 'Bearer [REDACTED]' },
   {
     pattern:
-      /("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)"\s*:\s*)("[^"]*"|'[^']*'|[^\s,}]+)/gi,
+      /("(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)"\s*:\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,}]+)/gi,
     replacement: '$1"[REDACTED]"',
   },
   {
     pattern:
-      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b(\s*[:=]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+      /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password)\b(\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\S+)/gi,
     replacement: '$1$2[REDACTED]',
   },
 ];

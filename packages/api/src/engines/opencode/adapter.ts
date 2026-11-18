@@ -7,11 +7,13 @@ import type {
   EngineLimits,
 } from '../types';
 import type { WorkspaceRoots } from '../workspace';
-import { engineFailure } from '../types';
+import { engineFailure, engineFailureWithCleanup } from '../types';
 import { resolveEngineWorkspace } from '../workspace';
 import { createEngineRunHandle } from '../run';
 import { withDeadline } from '../deadline';
 import { OpenCodeEventMapper } from './protocol';
+
+const CLEANUP_TIMEOUT_MS = 5_000;
 
 /**
  * The transport is the only OpenCode-specific surface the adapter needs. The
@@ -116,13 +118,42 @@ export async function startOpenCodeRun(
     return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
-  const abortSession = async (sessionId: string): Promise<void> => {
-    try {
-      await options.transport?.abort({ sessionId, directory: workspace.root });
-    } catch {
-      // The session may already be gone; cancellation still settles locally.
+  const abortSession = (sessionId: string): Promise<void> => {
+    const transport = options.transport;
+    if (!transport) {
+      return Promise.resolve();
     }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(new Error('OpenCode session cancellation timed out'));
+      }, CLEANUP_TIMEOUT_MS);
+      transport.abort({ sessionId, directory: workspace.root }).then(
+        () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        },
+        (error: unknown) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
   };
+  const retainOnFailure = (cleanup: Promise<void>): Promise<void> =>
+    cleanup.catch(() => new Promise<void>(() => undefined));
 
   let sessionId: string;
   try {
@@ -132,9 +163,13 @@ export async function startOpenCodeRun(
     });
     const outcome = await withDeadline(sessionPromise, deadline);
     if (!outcome.ok) {
-      void sessionPromise.then((late) => abortSession(late.id)).catch(() => undefined);
-      return engineFailure(
+      const cleanup = sessionPromise.then(
+        (late) => abortSession(late.id),
+        () => undefined,
+      );
+      return engineFailureWithCleanup(
         'timeout',
+        retainOnFailure(cleanup),
         'The OpenCode server did not create a session before the deadline.',
         true,
       );
@@ -144,11 +179,11 @@ export async function startOpenCodeRun(
     return engineFailure('server_unavailable', 'The OpenCode server did not accept the session.');
   }
   if (!sessionId) {
-    await abortSession(sessionId);
+    await abortSession(sessionId).catch(() => undefined);
     return engineFailure('protocol_error', 'The OpenCode server returned no session id.');
   }
   if (controller.signal.aborted) {
-    await abortSession(sessionId);
+    await abortSession(sessionId).catch(() => undefined);
     return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
@@ -161,26 +196,33 @@ export async function startOpenCodeRun(
     });
     const outcome = await withDeadline(subscribePromise, deadline);
     if (!outcome.ok) {
-      void subscribePromise
-        .then(async (late) => {
+      const cleanup = subscribePromise.then(
+        async (late) => {
           const iterator = late[Symbol.asyncIterator]();
-          await iterator.return?.();
-        })
-        .catch(() => undefined);
-      await abortSession(sessionId);
-      return engineFailure(
+          try {
+            await iterator.return?.();
+          } finally {
+            await abortSession(sessionId);
+          }
+        },
+        async () => {
+          await abortSession(sessionId);
+        },
+      );
+      return engineFailureWithCleanup(
         'timeout',
+        retainOnFailure(cleanup),
         'The OpenCode event stream did not open before the deadline.',
         true,
       );
     }
     stream = outcome.value;
   } catch {
-    await abortSession(sessionId);
+    await abortSession(sessionId).catch(() => undefined);
     return engineFailure('server_unavailable', 'The OpenCode event stream was unavailable.');
   }
   if (controller.signal.aborted) {
-    await abortSession(sessionId);
+    await abortSession(sessionId).catch(() => undefined);
     return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
 
@@ -212,17 +254,21 @@ export async function startOpenCodeRun(
     });
     const outcome = await withDeadline(promptPromise, deadline);
     if (!outcome.ok) {
-      void promptPromise.then(() => abortSession(sessionId)).catch(() => undefined);
+      const cleanup = promptPromise.then(
+        () => abortSession(sessionId),
+        () => undefined,
+      );
       await handle.close();
-      return engineFailure(
+      return engineFailureWithCleanup(
         'timeout',
+        retainOnFailure(cleanup),
         'The OpenCode server did not accept the task before the deadline.',
         true,
       );
     }
   } catch {
     const cancelled = controller.signal.aborted;
-    await abortSession(sessionId);
+    await abortSession(sessionId).catch(() => undefined);
     await handle.close();
     return engineFailure(
       cancelled ? 'cancelled' : 'server_unavailable',

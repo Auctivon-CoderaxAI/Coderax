@@ -46,6 +46,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isServerConnected(value: unknown): boolean {
+  return isRecord(value) && value.type === 'server.connected';
+}
+
 export type LoadedOpenCodeSdk = {
   module: SdkModule;
   transport: OpenCodeTransport;
@@ -114,7 +118,34 @@ export function loadOpenCodeSdk(options: {
       if (!isRecord(response) || !response.stream) {
         throw new Error('OpenCode returned no event stream');
       }
-      return response.stream as AsyncIterable<unknown>;
+      const iterator = (response.stream as AsyncIterable<unknown>)[Symbol.asyncIterator]();
+      const buffered: unknown[] = [];
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done) {
+          throw new Error('OpenCode event stream closed before it was ready');
+        }
+        buffered.push(next.value);
+        if (isServerConnected(next.value)) {
+          break;
+        }
+      }
+      return (async function* () {
+        try {
+          for (const event of buffered) {
+            yield event;
+          }
+          for (;;) {
+            const next = await iterator.next();
+            if (next.done) {
+              return;
+            }
+            yield next.value;
+          }
+        } finally {
+          await iterator.return?.();
+        }
+      })();
     },
     prompt: async (input) => {
       const result = (await sdk.session.promptAsync({

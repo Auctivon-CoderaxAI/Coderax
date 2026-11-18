@@ -19,6 +19,13 @@ describe('OpenCode event mapping', () => {
     expect(mapper.map(textPart('p1', 'Hello'))).toEqual([]);
   });
 
+  it('emits a full snapshot when cumulative text replaces earlier text', () => {
+    const mapper = new OpenCodeEventMapper(sessionId);
+    expect(mapper.map(textPart('p1', 'Hello'))).toEqual([{ type: 'text_delta', text: 'Hello' }]);
+    expect(mapper.map(textPart('p1', 'Help'))).toEqual([{ type: 'text_replace', text: 'Help' }]);
+    expect(mapper.map(textPart('p1', 'Help!'))).toEqual([{ type: 'text_delta', text: '!' }]);
+  });
+
   it('reconciles delta and cumulative text without duplicating a character', () => {
     const mapper = new OpenCodeEventMapper(sessionId);
     const delta = (text: string) => ({

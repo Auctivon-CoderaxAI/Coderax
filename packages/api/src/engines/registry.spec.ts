@@ -155,6 +155,63 @@ describe('engine registry', () => {
     expect(registry.arbiter.owner('conversation-1')).toBeNull();
   });
 
+  it('holds the task lease while failed-start cleanup is pending', async () => {
+    let finishCleanup: (() => void) | undefined;
+    const cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const registry = createEngineRegistry({
+      defaultEngine: 'opencode',
+      adapters: {
+        opencode: adapter('opencode', async () => ({
+          ...engineFailure('timeout'),
+          cleanup,
+        })),
+      },
+    });
+
+    const first = await registry.start({ request });
+    expect(first.ok).toBe(false);
+    expect(registry.arbiter.owner('conversation-1')).toBe('opencode');
+
+    const second = await registry.start({ request });
+    expect(second).toEqual(
+      expect.objectContaining({
+        ok: false,
+        error: expect.objectContaining({ code: 'busy' }),
+      }),
+    );
+
+    finishCleanup?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(registry.arbiter.owner('conversation-1')).toBeNull();
+  });
+
+  it('does not release ownership when failed-start cleanup rejects', async () => {
+    let rejectCleanup: ((error: Error) => void) | undefined;
+    const cleanup = new Promise<void>((_resolve, reject) => {
+      rejectCleanup = reject;
+    });
+    const registry = createEngineRegistry({
+      defaultEngine: 'opencode',
+      adapters: {
+        opencode: adapter('opencode', async () => ({
+          ...engineFailure('timeout'),
+          cleanup,
+        })),
+      },
+    });
+
+    const started = await registry.start({ request });
+    expect(started.ok).toBe(false);
+
+    rejectCleanup?.(new Error('cancel failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(registry.arbiter.owner('conversation-1')).toBe('opencode');
+  });
+
   it('fails closed instead of falling back when the selected engine is unavailable', async () => {
     const openCodeStart = jest.fn();
     const registry = createEngineRegistry({

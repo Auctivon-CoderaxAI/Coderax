@@ -9,7 +9,7 @@ import type {
   EngineRunRequest,
 } from '../types';
 import type { WorkspaceRoots } from '../workspace';
-import { engineFailure } from '../types';
+import { engineFailure, engineFailureWithCleanup } from '../types';
 import { resolveEngineWorkspace } from '../workspace';
 import { createEngineRunHandle } from '../run';
 import { withDeadline } from '../deadline';
@@ -33,6 +33,31 @@ const str = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;
 
 const MAX_OUTPUT = 8_000;
+const CLEANUP_TIMEOUT_MS = 5_000;
+
+function retainOnFailure(cleanup: Promise<void>): Promise<void> {
+  return cleanup.catch(() => new Promise<void>(() => undefined));
+}
+
+async function boundedCancel(
+  transport: OpenHandsTransport,
+  conversationId: string,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('OpenHands cancellation timed out')),
+      CLEANUP_TIMEOUT_MS,
+    );
+  });
+  try {
+    await Promise.race([transport.cancel(conversationId), timeout]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 function bounded(text: string): string {
   return text.length <= MAX_OUTPUT ? text : `${text.slice(0, MAX_OUTPUT)}…`;
@@ -336,6 +361,7 @@ export async function startOpenHandsRun(
   if (!options.transport) {
     return engineFailure('sdk_unavailable', 'The OpenHands client is unavailable.');
   }
+  const transport = options.transport;
   if (!request.prompt.trim()) {
     return engineFailure('protocol_error', 'A task prompt is required.');
   }
@@ -351,7 +377,7 @@ export async function startOpenHandsRun(
 
   const timeoutMs = request.timeoutMs ?? options.limits.timeoutMs;
   const deadline = Date.now() + timeoutMs;
-  const startPromise = options.transport.start({
+  const startPromise = transport.start({
     workspaceRoot: resolved.value.root,
     prompt: request.prompt,
     ...(request.model ? { model: request.model } : {}),
@@ -361,11 +387,13 @@ export async function startOpenHandsRun(
   try {
     const outcome = await withDeadline(startPromise, deadline);
     if (!outcome.ok) {
-      void startPromise
-        .then((late) => options.transport?.cancel(late.conversationId))
-        .catch(() => undefined);
-      return engineFailure(
+      const cleanup = startPromise.then(
+        (late) => boundedCancel(transport, late.conversationId),
+        () => undefined,
+      );
+      return engineFailureWithCleanup(
         'timeout',
+        retainOnFailure(cleanup),
         'The OpenHands Agent Server did not start the task before the deadline.',
         true,
       );
@@ -382,9 +410,9 @@ export async function startOpenHandsRun(
   }
   if (request.signal?.aborted) {
     try {
-      await options.transport.cancel(started.conversationId);
+      await boundedCancel(transport, started.conversationId);
     } catch {
-      // The session may already be gone.
+      // Best effort: there is no handle to carry cleanup for an aborted start.
     }
     return engineFailure('cancelled', 'The run was cancelled before it started.', false);
   }
@@ -396,7 +424,7 @@ export async function startOpenHandsRun(
     map: (raw) => mapper.map(raw),
     cancelRun: async () => {
       try {
-        await options.transport?.cancel(started.conversationId);
+        await boundedCancel(transport, started.conversationId);
       } catch {
         // Cancellation still settles locally even if the server is unreachable.
       }

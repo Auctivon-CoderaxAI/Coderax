@@ -4,7 +4,12 @@ import { loadOpenCodeSdk } from './sdk';
 
 describe('OpenCode SDK transport', () => {
   it('uses the root client nested path, body and query shape', async () => {
-    const stream = { async *[Symbol.asyncIterator]() {} };
+    const stream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'server.connected' };
+        yield { type: 'session.updated' };
+      },
+    };
     const create = jest.fn(async () => ({ data: { id: 'ses_1' } }));
     const promptAsync = jest.fn(async () => ({}));
     const abort = jest.fn(async () => ({}));
@@ -50,11 +55,15 @@ describe('OpenCode SDK transport', () => {
     });
 
     const controller = new AbortController();
-    await transport.subscribe({
+    const events: unknown[] = [];
+    for await (const event of await transport.subscribe({
       directory: '/srv/coderax/private',
       sessionId: 'ses_1',
       signal: controller.signal,
-    });
+    })) {
+      events.push(event);
+    }
+    expect(events).toEqual([{ type: 'server.connected' }, { type: 'session.updated' }]);
     expect(subscribe).toHaveBeenCalledWith({
       query: { directory: '/srv/coderax/private' },
       signal: controller.signal,

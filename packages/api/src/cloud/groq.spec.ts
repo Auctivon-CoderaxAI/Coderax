@@ -252,6 +252,46 @@ describe('GroqCloud free-tier provider', () => {
     );
   });
 
+  it('accepts a null x_groq error field', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"complete"}}]}\n\n'),
+        );
+        controller.enqueue(encoder.encode('data: {"x_groq":{"error":null}}\n\n'));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const fetchImpl = jest.fn(
+      async () => new Response(stream, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const result = await provider({ fetchImpl }).stream(request(), () => {});
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it('rejects non-finite token limits before reserving quota', async () => {
+    const fetchImpl = jest.fn();
+    const groq = provider({ fetchImpl });
+    for (const maxOutputTokens of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(groq.complete(request({ maxOutputTokens }))).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'invalid_request' }),
+        }),
+      );
+      await expect(groq.stream(request({ maxOutputTokens }), () => {})).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'invalid_request' }),
+        }),
+      );
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('fails a stream that ends without [DONE]', async () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

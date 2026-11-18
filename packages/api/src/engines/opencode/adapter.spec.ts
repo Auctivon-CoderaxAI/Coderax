@@ -229,8 +229,9 @@ describe('OpenCode adapter', () => {
       }),
     );
 
+    expect(started.cleanup).toBeDefined();
     resolveSession?.({ id: 'late-session' });
-    await Promise.resolve();
+    await started.cleanup;
     expect(abort).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'late-session' }));
   });
 

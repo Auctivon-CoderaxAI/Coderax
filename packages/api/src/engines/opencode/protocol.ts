@@ -46,6 +46,8 @@ export class OpenCodeEventMapper {
   private readonly sessionId: string;
   /** Text emitted for each part, reconciled across cumulative and delta forms. */
   private readonly emittedText = new Map<string, string>();
+  /** First-seen order for composing replacement snapshots across parts. */
+  private readonly textOrder: string[] = [];
   private readonly toolStatus = new Map<string, string>();
   private readonly filePaths = new Set<string>();
   private terminal: 'completed' | 'failed' | 'cancelled' | null = null;
@@ -93,6 +95,10 @@ export class OpenCodeEventMapper {
     }
   }
 
+  private fullText(): string {
+    return this.textOrder.map((id) => this.emittedText.get(id) ?? '').join('');
+  }
+
   private mapPartUpdate(properties: Json): EngineEvent[] {
     const part = isRecord(properties.part) ? properties.part : null;
     if (!part || readString(part.sessionID) !== this.sessionId) {
@@ -109,22 +115,17 @@ export class OpenCodeEventMapper {
       if (text === emitted) {
         return [];
       }
-      if (text.startsWith(emitted)) {
-        const delta = text.slice(emitted.length);
-        this.emittedText.set(id, text);
-        return delta ? [{ type: 'text_delta', text: delta }] : [];
-      }
-      if (emitted.startsWith(text)) {
-        return [];
-      }
-      // A cumulative part can replace an earlier value. Emit only the tail
-      // after the common prefix so already-streamed text is not duplicated.
-      let common = 0;
-      while (common < text.length && common < emitted.length && text[common] === emitted[common]) {
-        common += 1;
+      if (!this.emittedText.has(id)) {
+        this.textOrder.push(id);
       }
       this.emittedText.set(id, text);
-      return common < text.length ? [{ type: 'text_delta', text: text.slice(common) }] : [];
+      if (text.startsWith(emitted)) {
+        const delta = text.slice(emitted.length);
+        return delta ? [{ type: 'text_delta', text: delta }] : [];
+      }
+      // A cumulative part may replace text that was already sent. Send the
+      // complete snapshot so consumers replace what they have, not append a tail.
+      return [{ type: 'text_replace', text: this.fullText() }];
     }
     if (partType === 'tool') {
       return this.mapToolPart(part);
@@ -160,6 +161,9 @@ export class OpenCodeEventMapper {
     const delta = readString(properties.delta);
     if (!partId || delta === undefined) {
       return [];
+    }
+    if (!this.emittedText.has(partId)) {
+      this.textOrder.push(partId);
     }
     const emitted = this.emittedText.get(partId) ?? '';
     this.emittedText.set(partId, emitted + delta);

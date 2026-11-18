@@ -122,7 +122,13 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
       return engineFailure('provider_error', 'The execution engine failed to start.');
     }
     if (!started.ok) {
-      release();
+      if (started.cleanup) {
+        // Keep ownership until late cancellation settles; a failed cleanup is
+        // deliberately not allowed to make the task restartable.
+        void started.cleanup.then(release, () => undefined);
+      } else {
+        release();
+      }
       return started;
     }
 

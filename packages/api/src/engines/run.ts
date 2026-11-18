@@ -191,6 +191,8 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
         for (const event of options.map(next.value)) {
           if (event.type === 'text_delta') {
             summaryText += event.text;
+          } else if (event.type === 'text_replace') {
+            summaryText = event.text;
           } else if (event.type === 'tool_call') {
             toolCalls += 1;
           } else if (event.type === 'file_edit') {
