@@ -1,9 +1,11 @@
 /* eslint-disable i18next/no-literal-string */
 import { useEffect } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
 import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
+import SocialLoginRender from '~/components/Auth/SocialLoginRender';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { getPostLoginRedirect } from '~/utils';
 
 /**
  * Entry screen for passwordless guests and password-only owners. When the
@@ -12,6 +14,7 @@ import { useAuthContext } from '~/hooks/AuthContext';
  */
 export default function GuestEntry() {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
   const passwordLoginEnabled =
@@ -21,9 +24,10 @@ export default function GuestEntry() {
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
-      navigate('/c/new', { replace: true });
+      const destination = getPostLoginRedirect(new URLSearchParams(search)) ?? '/c/new';
+      navigate(destination, { replace: true });
     }
-  }, [shouldEnterWorkspace, navigate]);
+  }, [shouldEnterWorkspace, navigate, search]);
 
   if (!isAuthReady || isFetching || shouldEnterWorkspace) {
     return (
@@ -45,6 +49,7 @@ export default function GuestEntry() {
         We could not establish a guest session with the server. Your workspace is protected; no
         sign-in is required when guest access is available.
       </p>
+      <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
       <button
         className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
         type="button"

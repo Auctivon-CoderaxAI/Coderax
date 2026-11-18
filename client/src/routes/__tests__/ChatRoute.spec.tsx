@@ -251,6 +251,11 @@ it('shows the owner-required state when a guest switches from Chat to Work in pl
   });
   expect(router.state.location.pathname).toBe('/c/chat-a');
   expect(new URLSearchParams(router.state.location.search).get('manual')).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'com_ui_chat' }));
+  await waitFor(() => expect(screen.getByTestId('composer')).toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+  expect(router.state.location.pathname).toBe('/c/chat-a');
 });
 
 it('starts the authenticated transcript query while route metadata is still pending', async () => {

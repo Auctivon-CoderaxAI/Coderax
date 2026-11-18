@@ -17,9 +17,12 @@ function SocialLoginRender({
   startupConfig,
   /** Passkeys sign an existing account in, so they are offered on login only. */
   showPasskey = false,
+  /** Suppresses the divider when the host page does not render the email form. */
+  showEmailDivider = true,
 }: {
   startupConfig: TStartupConfig | null | undefined;
   showPasskey?: boolean;
+  showEmailDivider?: boolean;
 }) {
   const localize = useLocalize();
 
@@ -129,7 +132,7 @@ function SocialLoginRender({
 
   return (
     <>
-      {startupConfig.emailLoginEnabled && (
+      {showEmailDivider && startupConfig.emailLoginEnabled && (
         <>
           <div className="border-border-medium relative mt-6 flex w-full items-center justify-center border border-t uppercase">
             <div className="bg-surface-primary text-text-primary absolute px-3 text-xs">
