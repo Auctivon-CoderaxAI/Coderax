@@ -22,14 +22,18 @@ const auth = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function renderEntry(passwordLoginEnabled = false, initialEntry = '/connect') {
+function renderEntry(
+  passwordLoginEnabled = false,
+  initialEntry = '/connect',
+  startupConfig: Record<string, unknown> = {},
+) {
   const router = createMemoryRouter(
     [
       {
         element: (
           <Outlet
             context={{
-              startupConfig: { passwordLoginEnabled },
+              startupConfig: { passwordLoginEnabled, ...startupConfig },
               isFetching: false,
             }}
           />
@@ -83,6 +87,20 @@ describe('guest and password entry', () => {
     const router = renderEntry();
     await screen.findByText('Chat workspace');
     expect(router.state.location.pathname).toBe('/c/new');
+  });
+
+  it('offers configured sign-in methods when no guest session is available', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, '/connect', {
+      emailLoginEnabled: true,
+      socialLoginEnabled: true,
+      socialLogins: ['google'],
+      googleLoginEnabled: true,
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Coderax is unavailable');
+    expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'com_auth_google_login' })).toBeInTheDocument();
+    expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
   });
 
   it('shows the password-only gate instead of entering chat as a guest', () => {
