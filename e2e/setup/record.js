@@ -87,6 +87,11 @@ function randomHex(bytes) {
 }
 
 function getUser(env) {
+  if (env.E2E_USER_EMAIL && !env.E2E_USER_PASSWORD) {
+    throw new Error(
+      'E2E_USER_PASSWORD is required when E2E_USER_EMAIL is set; a generated password would break repeat recorder runs.',
+    );
+  }
   const runId = crypto.randomUUID().replace(/-/g, '').slice(0, 10);
   return {
     email: env.E2E_USER_EMAIL || `record-${runId}@example.com`,
