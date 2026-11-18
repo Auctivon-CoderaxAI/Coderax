@@ -24,6 +24,16 @@ export type CreatedEvent = {
   streamId: string;
 };
 
+/** Legacy cumulative text frame used by the native text stream. */
+export type MessageEvent = {
+  message: true;
+  initial?: boolean;
+  text?: string;
+  messageId?: string;
+  parentMessageId?: string;
+  conversationId?: string;
+};
+
 export type FinalMessageFields = {
   messageId?: string;
   parentMessageId?: string;
@@ -62,4 +72,4 @@ export type FinalEvent = {
   error?: { message: string };
 };
 
-export type ServerSentEvent = StreamEvent | CreatedEvent | FinalEvent;
+export type ServerSentEvent = StreamEvent | CreatedEvent | FinalEvent | MessageEvent;
