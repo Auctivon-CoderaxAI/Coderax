@@ -85,12 +85,12 @@ export function isModelAllowedForMode(
   return mode === 'cloud' ? true : LOCAL.has(model.providerId);
 }
 
-export const PRIVATE_MODEL_DETAIL =
+export const PRIVATE_MODEL_DETAIL: string =
   'Private Work runs require a local model (ollama or lmstudio). ' +
   'Free hosted models are available only when engines.workChat.mode is cloud.';
 
 /** User-safe explanation; names the accepted shape, never a credential. */
-export const ZERO_COST_MODEL_DETAIL =
+export const ZERO_COST_MODEL_DETAIL: string =
   'engines.opencode.model must name an allowlisted free OpenCode model ' +
   `(${OPENCODE_FREE_MODEL_IDS.slice(0, 3).join(', ')}, …) or a local provider ` +
   `model (${LOCAL_MODEL_PROVIDERS.join(', ')}).`;
