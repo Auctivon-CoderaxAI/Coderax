@@ -61,6 +61,10 @@ function isSetupSender(event) {
   return event.senderFrame?.url === setupFileUrl;
 }
 
+function isAppSender(event) {
+  return Boolean(appWindow && !appWindow.isDestroyed() && event.sender === appWindow.webContents);
+}
+
 async function readServerUrl() {
   try {
     const settings = JSON.parse(await fs.readFile(settingsPath(), "utf8"));
@@ -184,6 +188,7 @@ function createAppWindow(serverUrl) {
     title: "Coderax",
     icon: iconPath(),
     webPreferences: {
+      preload: join(__dirname, "app-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -284,10 +289,10 @@ async function startApp() {
     return { ok: true };
   });
   ipcMain.handle("update:check", async (event) => {
-    if (!isSetupSender(event)) {
-      return { ok: false, message: "Open the Coderax connection window and try again." };
+    if (!isSetupSender(event) && !isAppSender(event)) {
+      return { ok: false, message: "Open Coderax and try again." };
     }
-    return runUpdateCheck(setupWindow);
+    return runUpdateCheck(isAppSender(event) ? appWindow : setupWindow);
   });
 
   await openInitialWindow();

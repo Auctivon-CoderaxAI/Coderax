@@ -10,3 +10,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface Window {
+  coderaxDesktop?: {
+    checkForUpdates?: () => Promise<{ ok?: boolean; status?: string; message?: string }>;
+  };
+}
