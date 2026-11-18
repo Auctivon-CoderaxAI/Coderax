@@ -40,6 +40,11 @@ export const LOCAL_MODEL_PROVIDERS: readonly string[] = ['ollama', 'lmstudio'];
 const FREE = new Set(OPENCODE_FREE_MODEL_IDS);
 const LOCAL = new Set(LOCAL_MODEL_PROVIDERS);
 
+/** Ollama's local API can proxy cloud models; the provider alone is not proof of locality. */
+function isCloudBackedLocalModel(model: EngineModelRef): boolean {
+  return model.providerId === 'ollama' && /(?:^|[-_:])cloud(?:$|[-_:])/i.test(model.modelId);
+}
+
 /**
  * Parse the `provider/model` form OpenCode uses. The model id itself may
  * contain slashes (for example a Hugging Face tag), so only the first slash
@@ -82,7 +87,7 @@ export function isModelAllowedForMode(
   if (!isZeroCostModel(model) || !model) {
     return false;
   }
-  return mode === 'cloud' ? true : LOCAL.has(model.providerId);
+  return !isCloudBackedLocalModel(model) && (mode === 'cloud' || LOCAL.has(model.providerId));
 }
 
 export const PRIVATE_MODEL_DETAIL: string =
