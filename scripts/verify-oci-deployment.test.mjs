@@ -16,7 +16,7 @@ function serviceBlock(source, name) {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line === `  ${name}:`);
   assert.notEqual(start, -1, `missing Compose service ${name}`);
-  const end = lines.findIndex((line, index) => index > start && /^  [a-zA-Z0-9_-]+:$/.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^ {2}[a-zA-Z0-9_-]+:$/.test(line));
   return lines.slice(start, end === -1 ? undefined : end).join('\n');
 }
 
@@ -61,10 +61,16 @@ test('Caddy requires the private proxy header and preserves origin and streaming
 test('Vercel uses the authenticated proxy for every API and health rewrite', async () => {
   const vercel = JSON.parse(await read('vercel.json'));
   assert.equal(vercel.services.backend.entrypoint, 'api/proxy.js');
-  assert.match(vercel.services.backend.functions['api/proxy.js'].includeFiles, /packages\/api\/dist\/proxy\.cjs/);
+  assert.match(
+    vercel.services.backend.functions['api/proxy.js'].includeFiles,
+    /packages\/api\/dist\/proxy\.cjs/,
+  );
   assert.equal(vercel.services.backend.functions['api/proxy.js'].maxDuration, 300);
   for (const route of ['/api/(.*)', '/oauth/(.*)', '/readyz']) {
-    assert.equal(vercel.rewrites.find((item) => item.source === route)?.destination?.service, 'backend');
+    assert.equal(
+      vercel.rewrites.find((item) => item.source === route)?.destination?.service,
+      'backend',
+    );
   }
 });
 

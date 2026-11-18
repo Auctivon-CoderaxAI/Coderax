@@ -57,10 +57,7 @@ export function toWorkOptions(
   agents: TWorkAgent[] | undefined,
 ): WorkOptions {
   const concrete = (models ?? []).filter(
-    (model) =>
-      model.auto !== true &&
-      typeof model.provider === 'string' &&
-      model.provider !== '',
+    (model) => model.auto !== true && typeof model.provider === 'string' && model.provider !== '',
   );
   const offered = new Set(concrete.map(getWorkModelKey));
   const auto = (models ?? []).find((model) => model.auto === true && model.target != null) ?? null;

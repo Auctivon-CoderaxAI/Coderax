@@ -66,26 +66,30 @@ export function createWorkChatTransport(
         throw new Error('WORK_NO_FREE_MODEL');
       }
       const engineSelected = selected?.model.engine != null;
-      const workPayload = selected
-        ? engineSelected
-          ? {
-              ...payload,
-              model: selected.model.id,
-              agent_id: undefined,
-              assistant_id: undefined,
-              endpoint: undefined,
-              endpointType: undefined,
-              spec: null,
-            }
-          : {
-              ...payload,
-              ...selected.preset,
-              agent_id: selected.preset.agent_id,
-              assistant_id: undefined,
-              endpointType: selected.preset.endpoint,
-              spec: null,
-            }
-        : payload;
+      const workPayload = (() => {
+        if (!selected) {
+          return payload;
+        }
+        if (engineSelected) {
+          return {
+            ...payload,
+            model: selected.model.id,
+            agent_id: undefined,
+            assistant_id: undefined,
+            endpoint: undefined,
+            endpointType: undefined,
+            spec: null,
+          };
+        }
+        return {
+          ...payload,
+          ...selected.preset,
+          agent_id: selected.preset.agent_id,
+          assistant_id: undefined,
+          endpointType: selected.preset.endpoint,
+          spec: null,
+        };
+      })();
       return transport.start(
         {
           server: engineSelected

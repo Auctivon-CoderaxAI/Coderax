@@ -16,7 +16,6 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { createStorageAtom } from '~/store/jotai-utils';
-import { WorkRoutingBadge } from './WorkRoutingBadge';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
 import { useAuthContext, useLocalize } from '~/hooks';
@@ -233,6 +232,15 @@ export function WorkAgentConversationSelector() {
     : workSelectionFromConversation(conversation, options);
   const readinessAction = readinessQuery.data?.readiness.nextActionDescriptor;
   const hasProviderModel = options.models.some((model) => model.engine == null);
+  const readinessLabel = (() => {
+    if (readinessQuery.isError) {
+      return localize('com_work_readiness_unavailable');
+    }
+    if (readinessAction) {
+      return localizeWorkReadinessAction(readinessAction, localize);
+    }
+    return localize('com_work_models_empty');
+  })();
 
   const apply = (next: WorkSelection) => {
     const resolved = resolveWorkSelection(next, options);
@@ -277,11 +285,7 @@ export function WorkAgentConversationSelector() {
       )}
       {!isLoading && !modelsQuery.isError && !hasProviderModel && (
         <span role="alert" className="text-text-secondary text-xs">
-          {readinessQuery.isError
-            ? localize('com_work_readiness_unavailable')
-            : readinessAction
-              ? localizeWorkReadinessAction(readinessAction, localize)
-              : localize('com_work_models_empty')}
+          {readinessLabel}
         </span>
       )}
     </div>

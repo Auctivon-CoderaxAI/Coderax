@@ -106,9 +106,7 @@ it('offers the owner-only OpenCode engine as a selectable Work model', async () 
   fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
     target: { value: '["opencode","opencode"]' },
   });
-  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
-    '["opencode","opencode"]',
-  );
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('["opencode","opencode"]');
 });
 
 it('does not offer the OpenCode engine to non-owners', async () => {
@@ -124,9 +122,7 @@ it('selects the sole OpenCode engine when there is no automatic target', async (
   setup();
 
   expect(await screen.findByRole('option', { name: 'OpenCode' })).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
-    '["opencode","opencode"]',
-  );
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('["opencode","opencode"]');
 });
 
 it('does not offer an engine model without a provider', async () => {
