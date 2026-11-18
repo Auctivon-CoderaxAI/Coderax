@@ -105,6 +105,7 @@ the evidence rule. A role with no bound agent runs on the orchestrator and is li
 
 - A completed turn is not a completed task without retained evidence.
 - A completed run is not a verified build while a required gate is `not_run` or `failed`.
+- A plan with a security task, or a plan-specific gate list, requires the security gate; a supplied gate that failed blocks verification even when the mode would not have required it.
 - A skipped, cancelled or failed task makes the result `partial` or `blocked`, never complete.
 - A reviewable pull request is part of delivery; missing, closed or pending-CI pull requests keep
   the result unverified.

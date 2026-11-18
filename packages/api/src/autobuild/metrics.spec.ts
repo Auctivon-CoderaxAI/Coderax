@@ -52,7 +52,7 @@ describe('summarizeBenchmarks', () => {
     expect(summary.verifiedCompletions).toBe(2);
     expect(summary.verifiedRate).toBeCloseTo(2 / 3);
     expect(summary.firstPassTestRate).toBeCloseTo(2 / 3);
-    expect(summary.meanDurationMs).toBeCloseTo((10 + 20 + 5) / 3 * 60_000);
+    expect(summary.meanDurationMs).toBeCloseTo(((10 + 20 + 5) / 3) * 60_000);
     expect(summary.meanRepairIterations).toBeCloseTo(4 / 3);
     expect(summary.totalManualInterventions).toBe(1);
     expect(summary.meanModelLatencyMs).toBe(500);
@@ -115,7 +115,10 @@ describe('compareBenchmarks', () => {
 
   it('reports a regression when the candidate completes fewer builds', () => {
     const baseline = summarizeBenchmarks([sample(), sample()]);
-    const candidate = summarizeBenchmarks([sample({ outcome: 'failed' }), sample({ outcome: 'failed' })]);
+    const candidate = summarizeBenchmarks([
+      sample({ outcome: 'failed' }),
+      sample({ outcome: 'failed' }),
+    ]);
 
     const comparison = compareBenchmarks(baseline, candidate);
     expect(comparison.verdict).toBe('regressed');
@@ -125,14 +128,42 @@ describe('compareBenchmarks', () => {
   });
 
   it('reports mixed results instead of hiding a regression behind an improvement', () => {
-    const baseline = summarizeBenchmarks([
-      sample({ outcome: 'failed', durationMs: 5 * 60_000 }),
-    ]);
+    const baseline = summarizeBenchmarks([sample({ outcome: 'failed', durationMs: 5 * 60_000 })]);
     const candidate = summarizeBenchmarks([
       sample({ outcome: 'verified_complete', durationMs: 20 * 60_000 }),
     ]);
 
     expect(compareBenchmarks(baseline, candidate).verdict).toBe('mixed');
+  });
+
+  it('does not call a build improved when manual interventions rise', () => {
+    const baseline = summarizeBenchmarks([sample({ durationMs: 300_000, manualInterventions: 0 })]);
+    const candidate = summarizeBenchmarks([
+      sample({ durationMs: 240_000, manualInterventions: 5 }),
+    ]);
+
+    const comparison = compareBenchmarks(baseline, candidate);
+    expect(comparison.verdict).toBe('mixed');
+    expect(comparison.deltas.meanManualInterventions).toBe(5);
+  });
+
+  it('normalizes interventions when the sample counts differ', () => {
+    const baseline = summarizeBenchmarks([
+      sample({ manualInterventions: 2 }),
+      sample({ manualInterventions: 0 }),
+    ]);
+    const candidate = summarizeBenchmarks([sample({ manualInterventions: 2 })]);
+
+    const comparison = compareBenchmarks(baseline, candidate);
+    expect(comparison.deltas.meanManualInterventions).toBe(1);
+    expect(comparison.verdict).toBe('regressed');
+  });
+
+  it('treats extra findings and latency as regressions', () => {
+    const baseline = summarizeBenchmarks([sample({ securityFindings: 0, modelLatencyMs: 200 })]);
+    const candidate = summarizeBenchmarks([sample({ securityFindings: 4, modelLatencyMs: 900 })]);
+
+    expect(compareBenchmarks(baseline, candidate).verdict).toBe('regressed');
   });
 
   it('reports unchanged when no measured metric moves', () => {

@@ -1,10 +1,5 @@
 import type { BuildPlan } from './plan';
-import {
-  assessBuildPlan,
-  criticalPathTaskIds,
-  parseBuildPlan,
-  resolveBuildLayers,
-} from './plan';
+import { assessBuildPlan, criticalPathTaskIds, parseBuildPlan, resolveBuildLayers } from './plan';
 
 const task = (overrides: Record<string, unknown> = {}) => ({
   id: 'research',
@@ -114,10 +109,7 @@ describe('parseBuildPlan', () => {
     const result = parseBuildPlan({
       name: 'Cycle',
       request: 'Cycle',
-      tasks: [
-        task({ id: 'a', dependsOn: ['b'] }),
-        task({ id: 'b', dependsOn: ['a'] }),
-      ],
+      tasks: [task({ id: 'a', dependsOn: ['b'] }), task({ id: 'b', dependsOn: ['a'] })],
     });
 
     expect(result.ok).toBe(false);
@@ -173,7 +165,10 @@ describe('resolveBuildLayers', () => {
     const layers = resolveBuildLayers(plan);
     expect(layers.ok).toBe(true);
     if (layers.ok) {
-      expect(layers.value.map((layer) => layer.taskIds)).toEqual([['a', 'b'], ['c', 'd']]);
+      expect(layers.value.map((layer) => layer.taskIds)).toEqual([
+        ['a', 'b'],
+        ['c', 'd'],
+      ]);
     }
   });
 });
@@ -201,7 +196,11 @@ describe('assessBuildPlan', () => {
       name: 'Security',
       request: 'Review authorization',
       tasks: [
-        task({ id: 'build', role: 'backend', acceptance: ['Authorization denies cross-tenant access'] }),
+        task({
+          id: 'build',
+          role: 'backend',
+          acceptance: ['Authorization denies cross-tenant access'],
+        }),
         task({ id: 'review', role: 'reviewer', dependsOn: ['build'] }),
       ],
     });

@@ -58,9 +58,7 @@ describe('build mode policy', () => {
     const parsed = parseBuildPlan({
       name: 'Security plan',
       request: 'Tighten tenant authorization',
-      tasks: [
-        task('api', { acceptance: ['Cross-tenant authorization is denied'] }),
-      ],
+      tasks: [task('api', { acceptance: ['Cross-tenant authorization is denied'] })],
     });
     if (!parsed.ok) {
       throw new Error(parsed.error.message);
@@ -133,6 +131,42 @@ describe('chooseEffectiveMode', () => {
 
     expect(decision.mode).toBe('autonomous');
     expect(decision.degraded).toBe(true);
+  });
+
+  it('uses the plan request when no separate request is supplied', () => {
+    const parsed = parseBuildPlan({
+      name: 'Complex plan',
+      request:
+        'Build a complete full-stack application with frontend, backend, database, authentication, tests and deployment.',
+      tasks: [task('a'), task('b'), task('c'), task('d')],
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error.message);
+    }
+
+    const decision = chooseEffectiveMode({ requested: 'turbo15', plan: parsed.value });
+    expect(decision.mode).toBe('autonomous');
+    expect(decision.degraded).toBe(true);
+  });
+
+  it('lets an explicit request override the plan request', () => {
+    const parsed = parseBuildPlan({
+      name: 'Complex plan',
+      request:
+        'Build a complete full-stack application with frontend, backend, database, authentication, tests and deployment.',
+      tasks: [task('a'), task('b')],
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error.message);
+    }
+
+    const decision = chooseEffectiveMode({
+      requested: 'turbo15',
+      plan: parsed.value,
+      request: 'Add a settings button.',
+    });
+    expect(decision.mode).toBe('turbo15');
+    expect(decision.degraded).toBe(false);
   });
 
   it('does not change a non-turbo mode', () => {

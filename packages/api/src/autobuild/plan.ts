@@ -73,7 +73,10 @@ const stepIdSchema = z
   .trim()
   .min(1, 'Every task needs an id')
   .max(WORKFLOW_STEP_ID_MAX_LENGTH)
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, 'Task ids may use letters, numbers, dashes and underscores');
+  .regex(
+    /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/,
+    'Task ids may use letters, numbers, dashes and underscores',
+  );
 
 const acceptanceSchema = z
   .array(z.string().trim().min(1).max(BUILD_ACCEPTANCE_MAX_LENGTH))
@@ -97,7 +100,11 @@ const taskSchema = z.object({
 
 const planSchema = z.object({
   name: z.string().trim().min(1, 'A build plan needs a name').max(WORKFLOW_NAME_MAX_LENGTH),
-  request: z.string().trim().min(1, 'A build plan needs a request').max(WORKFLOW_RUN_INPUT_MAX_LENGTH),
+  request: z
+    .string()
+    .trim()
+    .min(1, 'A build plan needs a request')
+    .max(WORKFLOW_RUN_INPUT_MAX_LENGTH),
   tasks: z.array(taskSchema).min(1, 'A build plan needs at least one task').max(WORKFLOW_STEPS_MAX),
 });
 
@@ -120,9 +127,7 @@ function normalizeTasks(tasks: ParsedTask[]): BuildTask[] {
     role: task.role,
     instruction: task.instruction,
     acceptance: [...new Set(task.acceptance)],
-    dependsOn: [
-      ...new Set(task.dependsOn ?? (index === 0 ? [] : [tasks[index - 1].id])),
-    ],
+    dependsOn: [...new Set(task.dependsOn ?? (index === 0 ? [] : [tasks[index - 1].id]))],
     maxAttempts: task.maxAttempts ?? 2,
     requiresApproval: task.requiresApproval === true,
   }));

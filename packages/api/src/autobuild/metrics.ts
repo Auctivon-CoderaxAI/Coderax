@@ -46,6 +46,11 @@ function rate(count: number, total: number): number | null {
   return total === 0 ? null : count / total;
 }
 
+/** Normalize a total by sample count before comparing sets of different sizes. */
+function interventionsPerSample(samples: number, interventions: number): number | null {
+  return samples === 0 ? null : interventions / samples;
+}
+
 function isVerified(sample: BenchmarkSample): boolean {
   return sample.outcome === 'verified_complete';
 }
@@ -110,10 +115,7 @@ export function summarizeBenchmarks(samples: readonly BenchmarkSample[]): Benchm
 
   return {
     ...base,
-    totalManualInterventions: list.reduce(
-      (total, sample) => total + sample.manualInterventions,
-      0,
-    ),
+    totalManualInterventions: list.reduce((total, sample) => total + sample.manualInterventions, 0),
     meanModelLatencyMs: mean(latencies),
     byComplexity,
     byMode,
@@ -129,6 +131,9 @@ export interface BenchmarkComparison {
     meanDurationMs: number | null;
     turboRate: number | null;
     meanRepairIterations: number | null;
+    meanManualInterventions: number | null;
+    meanSecurityFindings: number | null;
+    meanModelLatencyMs: number | null;
   };
   reasons: string[];
 }
@@ -155,6 +160,9 @@ export function compareBenchmarks(
         meanDurationMs: null,
         turboRate: null,
         meanRepairIterations: null,
+        meanManualInterventions: null,
+        meanSecurityFindings: null,
+        meanModelLatencyMs: null,
       },
       reasons: ['Both benchmark sets need at least one sample.'],
     };
@@ -166,6 +174,12 @@ export function compareBenchmarks(
     meanDurationMs: delta(candidate.meanDurationMs, baseline.meanDurationMs),
     turboRate: delta(candidate.turboRate, baseline.turboRate),
     meanRepairIterations: delta(candidate.meanRepairIterations, baseline.meanRepairIterations),
+    meanManualInterventions: delta(
+      interventionsPerSample(candidate.samples, candidate.totalManualInterventions),
+      interventionsPerSample(baseline.samples, baseline.totalManualInterventions),
+    ),
+    meanSecurityFindings: delta(candidate.meanSecurityFindings, baseline.meanSecurityFindings),
+    meanModelLatencyMs: delta(candidate.meanModelLatencyMs, baseline.meanModelLatencyMs),
   };
 
   const reasons: string[] = [];
@@ -189,27 +203,34 @@ export function compareBenchmarks(
     reasons.push(`${label}: ${format(value)}`);
   };
 
-  record('Verified completion rate', deltas.verifiedRate, true, (value) =>
-    `${(value * 100).toFixed(1)} pp`,
+  record(
+    'Verified completion rate',
+    deltas.verifiedRate,
+    true,
+    (value) => `${(value * 100).toFixed(1)} pp`,
   );
-  record('First-pass test rate', deltas.firstPassTestRate, true, (value) =>
-    `${(value * 100).toFixed(1)} pp`,
+  record(
+    'First-pass test rate',
+    deltas.firstPassTestRate,
+    true,
+    (value) => `${(value * 100).toFixed(1)} pp`,
   );
   record('Mean duration', deltas.meanDurationMs, false, (value) => `${value.toFixed(0)} ms`);
-  record('Turbo success rate', deltas.turboRate, true, (value) =>
-    `${(value * 100).toFixed(1)} pp`,
-  );
-  record('Mean repair iterations', deltas.meanRepairIterations, false, (value) =>
+  record('Turbo success rate', deltas.turboRate, true, (value) => `${(value * 100).toFixed(1)} pp`);
+  record('Mean repair iterations', deltas.meanRepairIterations, false, (value) => value.toFixed(2));
+  record('Mean manual interventions', deltas.meanManualInterventions, false, (value) =>
     value.toFixed(2),
   );
+  record('Mean security findings', deltas.meanSecurityFindings, false, (value) => value.toFixed(2));
+  record(
+    'Mean model latency',
+    deltas.meanModelLatencyMs,
+    false,
+    (value) => `${value.toFixed(0)} ms`,
+  );
 
-  const verdict = improved && regressed
-    ? 'mixed'
-    : improved
-      ? 'improved'
-      : regressed
-        ? 'regressed'
-        : 'unchanged';
+  const verdict =
+    improved && regressed ? 'mixed' : improved ? 'improved' : regressed ? 'regressed' : 'unchanged';
 
   return { comparable: true, verdict, deltas, reasons };
 }

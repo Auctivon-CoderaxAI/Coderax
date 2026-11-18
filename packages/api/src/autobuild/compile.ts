@@ -62,7 +62,10 @@ const MODE_GUIDANCE: Record<BuildMode, string> = {
 };
 
 function sanitizeInline(value: string, maxLength: number): string {
-  return value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, maxLength);
+  return value
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
 }
 
 function repositoryContext(repository: BuildRepositoryContext | undefined): string | null {
@@ -77,7 +80,9 @@ function repositoryContext(repository: BuildRepositoryContext | undefined): stri
   }
   return [
     `Repository: ${owner}/${name}.`,
-    baseRef.length > 0 ? `Base branch: ${baseRef}.` : 'Use the repository default branch as the base.',
+    baseRef.length > 0
+      ? `Base branch: ${baseRef}.`
+      : 'Use the repository default branch as the base.',
     'Work on a feature branch and open a pull request. Never push directly to the protected branch.',
   ].join(' ');
 }

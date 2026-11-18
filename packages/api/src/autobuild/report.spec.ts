@@ -126,12 +126,62 @@ describe('summarizeBuild', () => {
   });
 
   it('requires a security gate in verified mode', () => {
+    const report = summarizeBuild(snapshot({ mode: 'verified' }));
+
+    expect(report.missingGates).toEqual(['security']);
+    expect(report.outcome).toBe('complete_unverified');
+  });
+
+  it('requires security when the plan has a security task', () => {
     const report = summarizeBuild(
-      snapshot({ mode: 'verified' }),
+      snapshot({
+        steps: [
+          step(),
+          step({
+            id: 'security',
+            title: 'Review tenant boundaries',
+            role: 'security',
+            result: 'Reviewed the tenant checks.',
+          }),
+        ],
+        gates: [
+          { gate: 'tests', status: 'passed' },
+          { gate: 'build', status: 'passed' },
+          { gate: 'review', status: 'passed' },
+          { gate: 'security', status: 'failed' },
+        ],
+      }),
     );
 
     expect(report.missingGates).toEqual(['security']);
     expect(report.outcome).toBe('complete_unverified');
+    expect(report.verified).toBe(false);
+  });
+
+  it('honors required gates supplied for a specific plan', () => {
+    const report = summarizeBuild(
+      snapshot({ requiredGates: ['tests', 'build', 'review', 'security'] }),
+    );
+
+    expect(report.missingGates).toEqual(['security']);
+    expect(report.outcome).toBe('complete_unverified');
+  });
+
+  it('blocks verification when a supplied gate failed even if it was not required', () => {
+    const report = summarizeBuild(
+      snapshot({
+        gates: [
+          { gate: 'tests', status: 'passed' },
+          { gate: 'build', status: 'passed' },
+          { gate: 'review', status: 'passed' },
+          { gate: 'security', status: 'failed' },
+        ],
+      }),
+    );
+
+    expect(report.missingGates).toEqual([]);
+    expect(report.outcome).toBe('complete_unverified');
+    expect(report.blockers).toContain('Gate security failed');
   });
 
   it('requires a reviewable pull request when the policy does', () => {
@@ -191,6 +241,20 @@ describe('summarizeBuild', () => {
     expect(after.turbo.overrunMs).toBe(5 * 60_000);
   });
 
+  it('does not let a later snapshot deadline relax the turbo budget', () => {
+    const report = summarizeBuild(
+      snapshot({
+        mode: 'turbo15',
+        deadlineAt: '2026-01-01T01:00:00.000Z',
+        settledAt: '2026-01-01T00:20:00.000Z',
+      }),
+    );
+
+    expect(report.turbo.met).toBe(false);
+    expect(report.turbo.reason).toBe('verified_after_budget');
+    expect(report.turbo.overrunMs).toBe(5 * 60_000);
+  });
+
   it('does not count a fast but unverified build as a turbo success', () => {
     const report = summarizeBuild(
       snapshot({
@@ -238,9 +302,7 @@ describe('summarizeBuild', () => {
   });
 
   it('passes through a deployment result without treating it as verification', () => {
-    const report = summarizeBuild(
-      snapshot({ deployment: { status: 'not_attempted' } }),
-    );
+    const report = summarizeBuild(snapshot({ deployment: { status: 'not_attempted' } }));
 
     expect(report.verified).toBe(true);
     expect(report.deployment?.status).toBe('not_attempted');

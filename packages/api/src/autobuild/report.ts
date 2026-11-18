@@ -53,6 +53,8 @@ export interface BuildSnapshot {
   settledAt?: string;
   deadlineAt?: string | null;
   gates?: BuildGateEvidence[];
+  /** Gates this plan requires beyond its mode's defaults. */
+  requiredGates?: readonly BuildGate[];
   pullRequest?: BuildPullRequest | null;
   deployment?: BuildDeployment | null;
 }
@@ -132,15 +134,18 @@ function normalizeGates(
   evidence: BuildGateEvidence[] | undefined,
   required: readonly BuildGate[],
 ): BuildGateEvidence[] {
-  const known = new Set<BuildGate>(required);
   const byGate = new Map<BuildGate, BuildGateEvidence>();
   for (const entry of evidence ?? []) {
-    if (!known.has(entry.gate) || byGate.has(entry.gate)) {
-      continue;
+    if (!byGate.has(entry.gate)) {
+      byGate.set(entry.gate, entry);
     }
-    byGate.set(entry.gate, entry);
   }
-  return required.map((gate) => byGate.get(gate) ?? { gate, status: 'not_run' });
+  for (const gate of required) {
+    if (!byGate.has(gate)) {
+      byGate.set(gate, { gate, status: 'not_run' });
+    }
+  }
+  return [...byGate.values()];
 }
 
 function deliveryReport(
@@ -209,7 +214,12 @@ function turboReport(
   const startMs = snapshot.startedAt == null ? Number.NaN : Date.parse(snapshot.startedAt);
   const endMs = snapshot.settledAt == null ? Number.NaN : Date.parse(snapshot.settledAt);
   const elapsedMs = Number.isFinite(startMs) && Number.isFinite(endMs) ? endMs - startMs : null;
-  const overrunMs = Number.isFinite(endMs) ? Math.max(0, endMs - deadlineMs) : null;
+  /** A later snapshot deadline must never relax the mode's own budget. */
+  const effectiveDeadlineMs =
+    targetMs != null && Number.isFinite(startMs)
+      ? Math.min(deadlineMs, startMs + targetMs)
+      : deadlineMs;
+  const overrunMs = Number.isFinite(endMs) ? Math.max(0, endMs - effectiveDeadlineMs) : null;
   if (outcome !== 'verified_complete') {
     return {
       targetMs,
@@ -223,7 +233,7 @@ function turboReport(
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
     return { targetMs, deadlineAt, met: false, elapsedMs, overrunMs, reason: 'missing_timing' };
   }
-  const withinBudget = endMs <= deadlineMs;
+  const withinBudget = endMs <= effectiveDeadlineMs;
   return {
     targetMs,
     deadlineAt,
@@ -250,7 +260,9 @@ function buildSummary(
   return [
     `${finished.length} of ${total} tasks finished; ${blocked.length} failed; ${unfinished.length} unfinished.`,
     `Gates — ${gateSummary(gates)}.`,
-    outcome === 'verified_complete' ? 'Verified complete.' : `Outcome: ${outcome.replace('_', ' ')}.`,
+    outcome === 'verified_complete'
+      ? 'Verified complete.'
+      : `Outcome: ${outcome.replace('_', ' ')}.`,
   ].join(' ');
 }
 
@@ -264,7 +276,13 @@ export function summarizeBuild(
   options: BuildReportOptions = {},
 ): BuildReport {
   const policy = getBuildModePolicy(snapshot.mode);
-  const requiredGates = options.requiredGates ?? policy.requiredGates;
+  const requiredGates = new Set<BuildGate>(
+    options.requiredGates ?? snapshot.requiredGates ?? policy.requiredGates,
+  );
+  if (snapshot.steps.some((step) => step.role === 'security')) {
+    requiredGates.add('security');
+  }
+  const requiredGateList = [...requiredGates];
   const requirePullRequest = options.requirePullRequest ?? policy.requirePullRequest;
 
   const tasks = snapshot.steps.map(toTaskReport);
@@ -272,14 +290,15 @@ export function summarizeBuild(
   const blocked = tasks.filter((task) => task.status === 'failed');
   const unfinished = tasks.filter(
     (task) =>
-      task.status !== 'completed' &&
-      task.status !== 'failed' &&
-      task.status !== 'cancelled',
+      task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled',
   );
   const cancelled = tasks.filter((task) => task.status === 'cancelled');
   const unverified = finished.filter((task) => !task.evidence);
-  const gates = normalizeGates(snapshot.gates, requiredGates);
-  const missingGates = gates.filter((gate) => gate.status !== 'passed').map((gate) => gate.gate);
+  const gates = normalizeGates(snapshot.gates, requiredGateList);
+  const missingGates = gates
+    .filter((gate) => gate.status !== 'passed' && requiredGateList.includes(gate.gate))
+    .map((gate) => gate.gate);
+  const failedGates = gates.filter((gate) => gate.status === 'failed');
   const delivery = deliveryReport(snapshot.pullRequest, requirePullRequest);
   const terminal = isTerminalWorkflowRunStatus(snapshot.status);
 
@@ -292,7 +311,12 @@ export function summarizeBuild(
     outcome = finished.length > 0 ? 'partial' : 'failed';
   } else if (blocked.length > 0 || unfinished.length > 0 || cancelled.length > 0) {
     outcome = 'partial';
-  } else if (missingGates.length === 0 && unverified.length === 0 && delivery.ok) {
+  } else if (
+    missingGates.length === 0 &&
+    failedGates.length === 0 &&
+    unverified.length === 0 &&
+    delivery.ok
+  ) {
     outcome = 'verified_complete';
   } else {
     outcome = 'complete_unverified';
@@ -301,6 +325,11 @@ export function summarizeBuild(
   const blockers: string[] = [];
   for (const gate of missingGates) {
     blockers.push(`Required gate ${gate} did not pass`);
+  }
+  for (const gate of failedGates) {
+    if (!missingGates.includes(gate.gate)) {
+      blockers.push(`Gate ${gate.gate} failed`);
+    }
   }
   for (const task of blocked) {
     blockers.push(`Task ${task.id} failed`);

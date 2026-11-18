@@ -137,7 +137,8 @@ const SURFACE_SIGNALS: ReadonlyArray<{ surface: string; pattern: RegExp }> = [
   },
 ];
 
-const COMPLETENESS_SIGNAL = /\b(complete|full[- ]stack|end[- ]to[- ]end|production|from scratch)\b/i;
+const COMPLETENESS_SIGNAL =
+  /\b(complete|full[- ]stack|end[- ]to[- ]end|production|from scratch)\b/i;
 
 /**
  * A request-level estimate used before a plan exists. It is deliberately
@@ -192,8 +193,16 @@ export function chooseEffectiveMode(input: {
   const policy = getBuildModePolicy('turbo15');
   const reasons: string[] = [];
   const planAssessment = plan == null ? null : assessBuildPlan(plan);
+  const explicitRequest = request?.trim();
+  const planRequest = plan?.request?.trim();
+  const assessedRequest =
+    explicitRequest != null && explicitRequest.length > 0
+      ? explicitRequest
+      : planRequest != null && planRequest.length > 0
+        ? planRequest
+        : null;
   const requestAssessment =
-    request == null || request.trim().length === 0 ? null : assessRequestComplexity(request);
+    assessedRequest == null ? null : assessRequestComplexity(assessedRequest);
 
   if (planAssessment != null && planAssessment.taskCount > policy.maxTasks) {
     reasons.push(
@@ -206,7 +215,9 @@ export function chooseEffectiveMode(input: {
     );
   }
   if (requestAssessment?.complexity === 'complex') {
-    reasons.push('The request spans enough surfaces that a verified 15-minute MVP is not realistic.');
+    reasons.push(
+      'The request spans enough surfaces that a verified 15-minute MVP is not realistic.',
+    );
   }
 
   if (reasons.length === 0) {
