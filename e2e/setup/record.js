@@ -9,11 +9,6 @@ const storageStatePath = path.resolve(rootPath, 'e2e/storageState.json');
 const configTemplatePath = path.resolve(rootPath, 'e2e/config/librechat.e2e.yaml');
 const configPath = path.resolve(rootPath, 'e2e/.generated/coderax.e2e.yaml');
 const fakeModelHookPath = path.resolve(rootPath, 'e2e/setup/fake-model.js');
-const defaultUser = {
-  email: 'testuser@example.com',
-  name: 'Test User',
-  password: 'securepassword123',
-};
 
 const rateLimitOverrides = {
   LOGIN_VIOLATION_SCORE: '0',
@@ -67,6 +62,7 @@ const preservedCredentialEnvKeys = new Set([
   'CREDS_IV',
   'E2E_USER_PASSWORD',
   'E2E_USER_B_PASSWORD',
+  'E2E_EMAIL_CHANGE_USER_PASSWORD',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET',
   'REFRESH_TOKEN_EXPIRY',
@@ -91,10 +87,11 @@ function randomHex(bytes) {
 }
 
 function getUser(env) {
+  const runId = crypto.randomUUID().replace(/-/g, '').slice(0, 10);
   return {
-    email: env.E2E_USER_EMAIL || defaultUser.email,
-    name: env.E2E_USER_NAME || defaultUser.name,
-    password: env.E2E_USER_PASSWORD || defaultUser.password,
+    email: env.E2E_USER_EMAIL || `record-${runId}@example.com`,
+    name: env.E2E_USER_NAME || `Record User ${runId}`,
+    password: env.E2E_USER_PASSWORD || randomHex(24),
   };
 }
 
