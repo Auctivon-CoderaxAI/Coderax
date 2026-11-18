@@ -90,6 +90,24 @@ describe('private/cloud isolation', () => {
     ).toEqual({ ok: false, code: 'approval_invalid' });
   });
 
+  it('does not authorize a differently framed payload containing separator characters', () => {
+    const boundaryUnderTest = boundary();
+    const original: ExportEntry[] = [
+      { source: 'user_input', text: 'alpha\\u0001cloud_resource\\u0000beta' },
+    ];
+    const altered: ExportEntry[] = [
+      { source: 'user_input', text: 'alpha' },
+      { source: 'cloud_resource', text: 'beta' },
+    ];
+    const approval = boundaryUnderTest.createApproval(owner('cloud'), original);
+    expect(approval.ok).toBe(true);
+    if (!approval.ok) return;
+    expect(boundaryUnderTest.consumeApproval(owner('cloud'), approval.approval.token, altered))
+      .toEqual({ ok: false, code: 'approval_invalid' });
+    expect(boundaryUnderTest.consumeApproval(owner('cloud'), approval.approval.token, original))
+      .toEqual({ ok: true });
+  });
+
   it('expires approvals and never revives them', () => {
     let now = 10_000;
     const boundaryUnderTest = new ModeBoundary({
