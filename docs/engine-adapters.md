@@ -35,8 +35,11 @@ Verify of the official package (2026-11-17):
 - It talks to an OpenCode server. Coderax **attaches** to an existing server; it
   does not spawn one, which keeps API memory flat on small Oracle Always Free
   ARM64 instances. The server is the operator's process and its workspace.
-- Node `require(esm)` support (Node >= 22.12) is required by the CommonJS API
-  package. Older runtimes receive a typed `sdk_unavailable` failure.
+- `@opencode-ai/sdk` is a normal `@coderax/api` dependency, installed with the
+  workspace. It publishes only an `import` export condition, so a bare
+  `require` fails even on Node 24. The loader falls back to the pinned
+  `dist/index.js` entry; an unsupported runtime receives a typed
+  `sdk_unavailable` failure instead of crashing.
 
 Owner setup (no cost):
 
@@ -55,15 +58,22 @@ engines:
   opencode:
     enabled: true
     baseURL: http://127.0.0.1:4096
+    # Required: a free OpenCode model in cloud mode, a local model in private mode.
+    model: opencode/deepseek-v4.1-flash-free
     timeoutMs: 900000
   workChat:
     enabled: true
     engine: opencode
+    mode: cloud
 ```
 
-The adapter creates a session, subscribes before prompting, streams SDK events,
-maps tool and file evidence, and aborts on cancellation. A run that produces
-text but no terminal event is reported as `protocol_error`.
+`engines.opencode.model` is required. It pins every run to a zero-cost model:
+private mode accepts only a local provider (`ollama` or `lmstudio`), while cloud
+mode also accepts the free OpenCode Console allowlist. The engine reports
+`sdk_unavailable` with an explanatory detail rather than starting on a paid
+default. The adapter creates a session, subscribes before prompting, streams SDK
+events, maps tool and file evidence, and aborts on cancellation. A run that
+produces text but no terminal event is reported as `protocol_error`.
 
 ### Owner-only Work ingress
 

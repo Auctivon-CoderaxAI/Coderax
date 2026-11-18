@@ -441,7 +441,7 @@ describe('EngineWorkChatRuntime', () => {
       snapshot: () => ({ defaultEngine: 'opencode' as const, engines: [] }),
       arbiter: {} as EngineRegistryApi['arbiter'],
     } as unknown as EngineRegistryApi;
-    const runtime = new EngineWorkChatRuntime(registry, '/srv/coderax/private');
+    const runtime = new EngineWorkChatRuntime(registry, { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' });
     const first = await runtime.start({
       userId: 'owner',
       tenantId: 'tenant-1',
@@ -495,7 +495,7 @@ describe('EngineWorkChatRuntime', () => {
       snapshot: () => ({ defaultEngine: 'opencode' as const, engines: [] }),
       arbiter: {} as EngineRegistryApi['arbiter'],
     } as unknown as EngineRegistryApi;
-    const runtime = new EngineWorkChatRuntime(registry, '/srv/coderax/private');
+    const runtime = new EngineWorkChatRuntime(registry, { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' });
     const started = await runtime.start({
       userId: 'owner',
       tenantId: 'tenant-1',
