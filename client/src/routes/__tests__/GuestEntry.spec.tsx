@@ -13,6 +13,10 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
 }));
 
+jest.mock('~/hooks/Auth/usePasskey', () => ({
+  usePasskeySignIn: () => ({ signIn: jest.fn(), isSigningIn: false }),
+}));
+
 const auth = (overrides: Record<string, unknown> = {}) => ({
   isAuthReady: true,
   isAuthenticated: false,
@@ -100,6 +104,16 @@ describe('guest and password entry', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Coderax is unavailable');
     expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'com_auth_google_login' })).toBeInTheDocument();
+    expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
+  });
+
+  it('offers passkey sign-in when the deployment configures it for /connect', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, '/connect', { passkeyLoginEnabled: true });
+    expect(screen.getByRole('alert')).toHaveTextContent('Coderax is unavailable');
+    expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
+    expect(screen.getByTestId('passkey')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_auth_passkey_login' })).toBeInTheDocument();
     expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
   });
 
