@@ -6,11 +6,14 @@
 	# route preserves this order: direct Work streams must be handled before the
 	# proxy-secret response, while every other path stays proxy-only.
 	route {
-		# OpenCode Work streams outlive Vercel Hobby's 60-second function limit.
-		# Only this prefix is accepted directly; the app still requires an owner JWT.
+		# OpenCode Work starts and resumable stream attachments outlive Vercel
+		# Hobby's 60-second function limit. Only these prefixes are accepted
+		# directly; the app still requires an owner JWT.
 		@direct_work {
 			path /api/work/chat
 			path /api/work/chat/*
+			path /api/agents/chat/stream
+			path /api/agents/chat/stream/*
 			not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
 		}
 		handle @direct_work {

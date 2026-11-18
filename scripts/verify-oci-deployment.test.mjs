@@ -48,7 +48,7 @@ test('Caddy requires the private proxy header and preserves origin and streaming
   );
   assert.match(
     caddy,
-    /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
+    /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?path \/api\/agents\/chat\/stream\n[\s\S]*?path \/api\/agents\/chat\/stream\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
   );
   assert.match(caddy, /header_up Host coderaxai\.vercel\.app/);
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);

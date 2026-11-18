@@ -12,6 +12,7 @@ import {
   configuredWorkEngineOrigin,
   toWorkChatServer,
   toWorkEngineChatServer,
+  toWorkEngineStreamUrl,
 } from './workTransport';
 import * as requests from '~/data-provider';
 
@@ -51,8 +52,26 @@ export function createWorkChatTransport(
   selection?: WorkSelection | null,
   engineOrigin?: string,
 ): Transport {
+  const directEngineOrigin = engineOrigin ?? configuredWorkEngineOrigin();
+  let engineStream = false;
+
   return {
     ...transport,
+    stream: (auth) => {
+      const stream = transport.stream(auth);
+      return {
+        ...stream,
+        reconnectToStream: (request, requestOptions) => {
+          if (!engineStream || !directEngineOrigin) {
+            return stream.reconnectToStream(request, requestOptions);
+          }
+          return stream.reconnectToStream(
+            { ...request, url: toWorkEngineStreamUrl(request.url, directEngineOrigin) },
+            requestOptions,
+          );
+        },
+      };
+    },
     start: ({ server, payload }, requestOptions) => {
       const selected = options
         ? resolveWorkSelection(
@@ -66,6 +85,7 @@ export function createWorkChatTransport(
         throw new Error('WORK_NO_FREE_MODEL');
       }
       const engineSelected = selected?.model.engine != null;
+      engineStream = engineSelected;
       const workPayload = (() => {
         if (!selected) {
           return payload;
@@ -93,7 +113,7 @@ export function createWorkChatTransport(
       return transport.start(
         {
           server: engineSelected
-            ? toWorkEngineChatServer(engineOrigin ?? configuredWorkEngineOrigin())
+            ? toWorkEngineChatServer(directEngineOrigin)
             : toWorkChatServer(
                 isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
                   ? EndpointURLs[EModelEndpoint.agents]
