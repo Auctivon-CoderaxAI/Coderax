@@ -17,6 +17,7 @@ function SocialLoginRender({
   startupConfig,
   /** Passkeys sign an existing account in, so they are offered on login only. */
   showPasskey = false,
+  /** Suppresses the divider when the host page does not render the email form. */
   showEmailDivider = true,
 }: {
   startupConfig: TStartupConfig | null | undefined;

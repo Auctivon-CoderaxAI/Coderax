@@ -22,14 +22,18 @@ const auth = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function renderEntry(passwordLoginEnabled = false, initialEntry = '/connect') {
+function renderEntry(
+  passwordLoginEnabled = false,
+  initialEntry = '/connect',
+  startupConfig: Record<string, unknown> = {},
+) {
   const router = createMemoryRouter(
     [
       {
         element: (
           <Outlet
             context={{
-              startupConfig: { passwordLoginEnabled },
+              startupConfig: { passwordLoginEnabled, ...startupConfig },
               isFetching: false,
             }}
           />
@@ -67,6 +71,15 @@ describe('guest and password entry', () => {
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
 
+  it('honors redirect_to when an authenticated user arrives', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'local' } }),
+    );
+    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
+    await screen.findByText('Work workspace');
+    expect(router.state.location.pathname).toBe('/work/new');
+  });
+
   it('opens chat only after the backend issues an authenticated session', async () => {
     (useAuthContext as jest.Mock).mockReturnValue(
       auth({ isAuthenticated: true, user: { provider: 'local' } }),
@@ -76,13 +89,18 @@ describe('guest and password entry', () => {
     expect(router.state.location.pathname).toBe('/c/new');
   });
 
-  it('honors redirect_to when an authenticated user arrives', async () => {
-    (useAuthContext as jest.Mock).mockReturnValue(
-      auth({ isAuthenticated: true, user: { provider: 'local' } }),
-    );
-    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
-    await screen.findByText('Work workspace');
-    expect(router.state.location.pathname).toBe('/work/new');
+  it('offers configured sign-in methods when no guest session is available', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, '/connect', {
+      emailLoginEnabled: true,
+      socialLoginEnabled: true,
+      socialLogins: ['google'],
+      googleLoginEnabled: true,
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Coderax is unavailable');
+    expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'com_auth_google_login' })).toBeInTheDocument();
+    expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
   });
 
   it('shows the password-only gate instead of entering chat as a guest', () => {

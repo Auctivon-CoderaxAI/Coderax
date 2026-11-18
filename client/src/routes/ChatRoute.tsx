@@ -572,11 +572,12 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   if (ownerSignInRequired) {
     return (
       <div
-        className="flex h-screen items-center justify-center px-6 text-center"
+        className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center"
         aria-live="polite"
         role="status"
       >
-        {localize('com_work_owner_signin_required')}
+        <p>{localize('com_work_owner_signin_required')}</p>
+        <Button onClick={() => setConversationMode('chat')}>{localize('com_ui_chat')}</Button>
       </div>
     );
   }
