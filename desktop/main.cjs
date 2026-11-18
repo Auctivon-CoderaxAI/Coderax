@@ -12,7 +12,7 @@ const {
   parseChecksum,
   sha256,
 } = require("./updater.cjs");
-const { isSafeWebUrl, normalizeServerUrl } = require("./server-url.cjs");
+const { isSafeWebUrl, isSameServerOrigin, normalizeServerUrl } = require("./server-url.cjs");
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +59,13 @@ function settingsPath() {
 
 function isSetupSender(event) {
   return event.senderFrame?.url === setupFileUrl;
+}
+
+function isAppSender(event) {
+  if (!appWindow || appWindow.isDestroyed() || event.sender !== appWindow.webContents) {
+    return false;
+  }
+  return isSameServerOrigin(event.senderFrame?.url, activeServerUrl);
 }
 
 async function readServerUrl() {
@@ -184,6 +191,7 @@ function createAppWindow(serverUrl) {
     title: "Coderax",
     icon: iconPath(),
     webPreferences: {
+      preload: join(__dirname, "app-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -284,10 +292,10 @@ async function startApp() {
     return { ok: true };
   });
   ipcMain.handle("update:check", async (event) => {
-    if (!isSetupSender(event)) {
-      return { ok: false, message: "Open the Coderax connection window and try again." };
+    if (!isSetupSender(event) && !isAppSender(event)) {
+      return { ok: false, message: "Open Coderax and try again." };
     }
-    return runUpdateCheck(setupWindow);
+    return runUpdateCheck(isAppSender(event) ? appWindow : setupWindow);
   });
 
   await openInitialWindow();

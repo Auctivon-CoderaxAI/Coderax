@@ -6,7 +6,7 @@
   "author": "CoderaxAI",
   "main": "main.cjs",
   "scripts": {
-    "typecheck": "node --check main.cjs && node --check preload.cjs && node --check server-url.cjs && node --check updater.cjs && node --check setup.js",
+    "typecheck": "node --check main.cjs && node --check preload.cjs && node --check app-preload.cjs && node --check server-url.cjs && node --check updater.cjs && node --check setup.js",
     "desktop:test": "node --test",
     "desktop:package": "pwsh -NoProfile -File package.ps1"
   },
@@ -25,6 +25,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "app-preload.cjs",
       "server-url.cjs",
       "updater.cjs",
       "setup.html",
