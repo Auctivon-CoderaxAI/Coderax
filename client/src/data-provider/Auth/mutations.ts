@@ -1,8 +1,9 @@
 import { useResetRecoilState, useSetRecoilState } from 'recoil';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { MutationKeys, QueryKeys, dataService, request } from 'coderax-data-provider';
+import { MutationKeys, QueryKeys, apiBaseUrl, dataService, request } from 'coderax-data-provider';
 import type { UseMutationOptions, UseMutationResult } from '@tanstack/react-query';
 import type * as t from 'coderax-data-provider';
+import type { TPasswordLogin } from '~/common';
 import useClearStates from '~/hooks/Config/useClearStates';
 import { clearAllConversationStorage } from '~/utils';
 import store from '~/store';
@@ -47,6 +48,34 @@ export const useLoginUserMutation = (
       options?.onMutate?.(vars);
     },
     // Queries re-enabled in setUserContext (AuthContext) after setTokenHeader runs
+    onSuccess: (...args) => {
+      options?.onSuccess?.(...args);
+    },
+    onError: (...args) => {
+      setQueriesEnabled(true);
+      options?.onError?.(...args);
+    },
+  });
+};
+
+export const usePasswordLoginMutation = (
+  options?: t.MutationOptions<t.TLoginResponse, TPasswordLogin, unknown, unknown>,
+): UseMutationResult<t.TLoginResponse, unknown, TPasswordLogin, unknown> => {
+  const queryClient = useQueryClient();
+  const clearStates = useClearStates();
+  const resetDefaultPreset = useResetRecoilState(store.defaultPreset);
+  const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
+  return useMutation(['passwordLogin'], {
+    mutationFn: (payload: TPasswordLogin) =>
+      request.post(`${apiBaseUrl()}/api/auth/password`, payload),
+    ...(options || {}),
+    onMutate: (vars) => {
+      setQueriesEnabled(false);
+      resetDefaultPreset();
+      clearStates();
+      queryClient.removeQueries();
+      options?.onMutate?.(vars);
+    },
     onSuccess: (...args) => {
       options?.onSuccess?.(...args);
     },
