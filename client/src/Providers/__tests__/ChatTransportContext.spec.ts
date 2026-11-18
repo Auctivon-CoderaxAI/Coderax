@@ -3,7 +3,7 @@ import type { ChatTransportRequest } from 'coderax-data-provider';
 import type { WorkOptions } from '~/components/Chat/Input/workSelection';
 import { toWorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
-import { toWorkChatServer } from '../workTransport';
+import { toWorkChatServer, toWorkEngineChatServer } from '../workTransport';
 
 describe('toWorkChatServer', () => {
   const nativeEndpoint = 'https://coderax.example/api/agents/chat';
@@ -36,6 +36,13 @@ describe('toWorkChatServer', () => {
     expect(() =>
       toWorkChatServer('https://other.example/api/agents/chat/openAI', nativeEndpoint),
     ).toThrow('same-origin Coderax native agent endpoint');
+  });
+
+  it('routes the engine directly to the configured Work origin', () => {
+    expect(toWorkEngineChatServer('https://work.example')).toBe(
+      'https://work.example/api/work/chat',
+    );
+    expect(toWorkEngineChatServer()).toMatch(/\/api\/work\/chat$/);
   });
 });
 
@@ -124,10 +131,11 @@ describe('createWorkChatTransport', () => {
         ],
       },
       { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+      'https://work.example',
     );
     await transport.start(chatRequest);
     const request = start.mock.calls[0][0];
-    expect(request.server).toMatch(/\/api\/work\/chat$/);
+    expect(request.server).toBe('https://work.example/api/work/chat');
     expect(request.payload.model).toBe('opencode');
     expect(request.payload.endpoint).toBeUndefined();
     expect(request.payload.endpointType).toBeUndefined();

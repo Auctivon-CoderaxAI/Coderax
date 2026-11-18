@@ -8,7 +8,11 @@ import {
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
 import { createSSETransport } from '~/hooks/SSE/transport';
-import { toWorkChatServer } from './workTransport';
+import {
+  configuredWorkEngineOrigin,
+  toWorkChatServer,
+  toWorkEngineChatServer,
+} from './workTransport';
 import * as requests from '~/data-provider';
 
 export { toWorkChatServer } from './workTransport';
@@ -45,6 +49,7 @@ export function createWorkChatTransport(
   transport: Transport = defaultChatTransport,
   options?: WorkOptions,
   selection?: WorkSelection | null,
+  engineOrigin?: string,
 ): Transport {
   return {
     ...transport,
@@ -83,13 +88,13 @@ export function createWorkChatTransport(
         : payload;
       return transport.start(
         {
-          server: toWorkChatServer(
-            engineSelected
-              ? EndpointURLs[EModelEndpoint.agents]
-              : isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
-                ? EndpointURLs[EModelEndpoint.agents]
-                : server,
-          ),
+          server: engineSelected
+            ? toWorkEngineChatServer(engineOrigin ?? configuredWorkEngineOrigin())
+            : toWorkChatServer(
+                isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
+                  ? EndpointURLs[EModelEndpoint.agents]
+                  : server,
+              ),
           payload: workPayload,
         },
         requestOptions,

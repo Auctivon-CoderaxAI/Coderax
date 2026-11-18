@@ -1,5 +1,28 @@
 import { EModelEndpoint, EndpointURLs } from 'coderax-data-provider';
 
+/** Long engine runs bypass the 60-second Vercel Hobby function limit. */
+export function toWorkEngineChatServer(origin?: string): string {
+  if (!origin) {
+    return toWorkChatServer(EndpointURLs[EModelEndpoint.agents]);
+  }
+  let base: URL;
+  try {
+    base = new URL(origin);
+  } catch {
+    throw new Error('Work engine origin must be a valid HTTPS URL.');
+  }
+  if (base.protocol !== 'https:' || base.username || base.password) {
+    throw new Error('Work engine origin must be a valid HTTPS URL.');
+  }
+  return new URL('/api/work/chat', base).toString();
+}
+
+/** Vite build-time override; unset keeps the stock same-origin Work route. */
+export function configuredWorkEngineOrigin(): string | undefined {
+  const value = import.meta.env?.VITE_WORK_ENGINE_ORIGIN;
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
 /** Rewrite only native agent generation starts through Work's model gate. SSE,
  * resume, cancellation, approvals and queued-turn controls stay on the shared
  * authenticated agent transport. */
