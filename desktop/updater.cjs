@@ -6,7 +6,7 @@ const RELEASE_TAG_PREFIX = "desktop-v";
 const INSTALLER_ASSET = "Coderax-Windows-x64.exe";
 const CHECKSUMS_ASSET = "SHA256SUMS.txt";
 const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
-const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=30`;
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases?per_page=100`;
 const USER_AGENT = "Coderax-Desktop-Updater";
 
 function parseVersion(value) {
@@ -32,6 +32,16 @@ function isNewerVersion(tag, currentVersion) {
   const next = parseVersion(releaseVersion(tag));
   const installed = parseVersion(currentVersion);
   return Boolean(next && installed && compareVersions(next, installed) > 0);
+}
+
+/** Extract the `rel="next"` URL from a GitHub Link header. */
+function nextReleasePage(linkHeader) {
+  if (typeof linkHeader !== "string") return null;
+  for (const part of linkHeader.split(",")) {
+    const match = /<([^>]+)>\s*;\s*rel="?next"?/.exec(part.trim());
+    if (match) return match[1];
+  }
+  return null;
 }
 
 function isTrustedAssetUrl(value) {
@@ -120,9 +130,26 @@ async function request(url, { token, accept, fetchImpl = fetch } = {}) {
   return response;
 }
 
+async function fetchAllReleases({ token = null, fetchImpl = fetch } = {}) {
+  const releases = [];
+  const seen = new Set();
+  let url = RELEASES_API;
+  while (url) {
+    if (seen.has(url)) throw new Error("GitHub returned a release pagination loop.");
+    if (seen.size >= 50) throw new Error("GitHub returned too many release pages.");
+    seen.add(url);
+
+    const response = await request(url, { token, fetchImpl });
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error("GitHub returned an invalid release list.");
+    releases.push(...page);
+    url = nextReleasePage(response.headers?.get?.("link"));
+  }
+  return releases;
+}
+
 async function checkForDesktopUpdate({ currentVersion, token = null, fetchImpl = fetch } = {}) {
-  const response = await request(RELEASES_API, { token, fetchImpl });
-  const releases = await response.json();
+  const releases = await fetchAllReleases({ token, fetchImpl });
   return selectDesktopRelease(releases, currentVersion);
 }
 
@@ -142,6 +169,7 @@ module.exports = {
   downloadReleaseAsset,
   isNewerVersion,
   isTrustedAssetUrl,
+  nextReleasePage,
   parseChecksum,
   parseVersion,
   releaseVersion,

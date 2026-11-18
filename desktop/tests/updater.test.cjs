@@ -2,12 +2,26 @@ const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const test = require("node:test");
 const {
+  checkForDesktopUpdate,
   isNewerVersion,
+  nextReleasePage,
   parseChecksum,
   parseVersion,
   selectDesktopRelease,
   sha256,
 } = require("../updater.cjs");
+
+const RELEASES_URL =
+  "https://api.github.com/repos/Auctivon-CoderaxAI/Coderax/releases?per_page=100";
+const NEXT_RELEASES_URL = `${RELEASES_URL}&page=2`;
+
+function response(body, link = null) {
+  return {
+    ok: true,
+    headers: { get: (name) => (name.toLowerCase() === "link" ? link : null) },
+    json: async () => body,
+  };
+}
 
 function release(version, overrides = {}) {
   const tag = `desktop-v${version}`;
@@ -90,4 +104,28 @@ test("hashes the installer bytes with SHA-256", () => {
   const bytes = Buffer.from("coderax");
   const expected = createHash("sha256").update(bytes).digest("hex");
   assert.equal(sha256(bytes), expected);
+});
+
+test("reads the next release page from the GitHub Link header", () => {
+  assert.equal(
+    nextReleasePage(`<${NEXT_RELEASES_URL}>; rel="next", <${RELEASES_URL}&page=3>; rel="last"`),
+    NEXT_RELEASES_URL,
+  );
+  assert.equal(nextReleasePage(null), null);
+  assert.equal(nextReleasePage(`<${RELEASES_URL}>; rel="prev"`), null);
+});
+
+test("follows release pagination before selecting an update", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    return calls.length === 1
+      ? response([release("1.2.0", { draft: true })], `<${NEXT_RELEASES_URL}>; rel="next"`)
+      : response([release("1.1.0")]);
+  };
+
+  const selected = await checkForDesktopUpdate({ currentVersion: "1.0.0", fetchImpl });
+
+  assert.equal(selected.version, "1.1.0");
+  assert.deepEqual(calls, [RELEASES_URL, NEXT_RELEASES_URL]);
 });

@@ -22,6 +22,7 @@ const setupFileUrl = pathToFileURL(setupPath).href;
 let appWindow;
 let setupWindow;
 let activeServerUrl;
+let updateOperation = null;
 const mediaPermissionDecisions = new Map();
 
 app.setAppUserModelId(appId);
@@ -328,7 +329,30 @@ async function resolveUpdateToken() {
   }
 }
 
-async function runUpdateCheck(parent) {
+function runUpdateCheck(parent) {
+  if (updateOperation) return updateOperation;
+  updateOperation = performUpdateCheck(parent).finally(() => {
+    updateOperation = null;
+  });
+  return updateOperation;
+}
+
+function launchInstaller(installerPath) {
+  return new Promise((resolve, reject) => {
+    const installer = spawn(installerPath, ["/S", "--force-run"], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    installer.once("error", reject);
+    installer.once("spawn", () => {
+      installer.unref();
+      resolve();
+    });
+  });
+}
+
+async function performUpdateCheck(parent) {
   const owner = parent && !parent.isDestroyed() ? parent : currentWindow();
 
   let release;
@@ -393,11 +417,7 @@ async function runUpdateCheck(parent) {
 
     const installerPath = join(app.getPath("temp"), `Coderax-${release.version}.exe`);
     await fs.writeFile(installerPath, installer, { mode: 0o700 });
-    spawn(installerPath, ["/S"], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    }).unref();
+    await launchInstaller(installerPath);
     app.quit();
     return { ok: true, status: "installing" };
   } catch (error) {
