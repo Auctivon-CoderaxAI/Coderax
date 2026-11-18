@@ -118,6 +118,28 @@ it('does not offer the OpenCode engine to non-owners', async () => {
   expect(screen.queryByRole('option', { name: 'OpenCode' })).not.toBeInTheDocument();
 });
 
+it('selects the sole OpenCode engine when there is no automatic target', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({ models: [] });
+  jest.mocked(dataService.getWorkAgents).mockResolvedValue({ agents: [] });
+  setup();
+
+  expect(await screen.findByRole('option', { name: 'OpenCode' })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
+    '["opencode","opencode"]',
+  );
+});
+
+it('does not offer an engine model without a provider', async () => {
+  mockRole = 'USER';
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [{ id: 'engine', label: 'Engine', engine: 'opencode' }],
+  });
+  setup();
+
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  expect(screen.queryByRole('option', { name: 'Engine' })).not.toBeInTheDocument();
+});
+
 it('localizes a readiness action instead of rendering the server English string', async () => {
   jest.mocked(dataService.getWorkModels).mockResolvedValue({ models: [] });
   jest.mocked(dataService.getWorkAgents).mockResolvedValue({ agents: [] });

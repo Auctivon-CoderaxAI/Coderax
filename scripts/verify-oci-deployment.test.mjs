@@ -41,8 +41,16 @@ test('OCI Compose publishes only Caddy and keeps model/app ports private', async
 });
 
 test('Caddy requires the private proxy header and preserves origin and streaming metadata', async () => {
-  const caddy = await read('deploy/oci/Caddyfile');
-  assert.match(caddy, /@unauthorized not header X-Coderax-Proxy-Secret/);
+  const caddy = (await read('deploy/oci/Caddyfile')).replace(/\r\n/g, '\n');
+  assert.match(
+    caddy,
+    /@unauthorized \{[\s\S]*?not header X-Coderax-Proxy-Secret \{\$CODERAX_PROXY_SECRET\}[\s\S]*?not path \/api\/work\/chat\n[\s\S]*?not path \/api\/work\/chat\/\*/,
+  );
+  assert.match(
+    caddy,
+    /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
+  );
+  assert.match(caddy, /header_up Host coderaxai\.vercel\.app/);
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);
   assert.match(caddy, /header_up Host \{http\.request\.header\.X-Forwarded-Host\}/);
   assert.match(caddy, /header_up X-Forwarded-Proto https/);

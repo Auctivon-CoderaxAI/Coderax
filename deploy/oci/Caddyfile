@@ -3,35 +3,41 @@
 {$CODERAX_API_HOST} {
 	encode zstd gzip
 
-	# OpenCode Work streams outlive Vercel Hobby's 60-second function limit.
-	# Only this prefix is accepted directly; the app still requires an owner JWT.
-	@unauthorized {
-		not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
-		not path /api/work/chat*
-	}
-	respond @unauthorized 403
+	# route preserves this order: direct Work streams must be handled before the
+	# proxy-secret response, while every other path stays proxy-only.
+	route {
+		# OpenCode Work streams outlive Vercel Hobby's 60-second function limit.
+		# Only this prefix is accepted directly; the app still requires an owner JWT.
+		@direct_work {
+			path /api/work/chat
+			path /api/work/chat/*
+			not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
+		}
+		handle @direct_work {
+			reverse_proxy app:3080 {
+				flush_interval -1
+				header_up Host coderaxai.vercel.app
+				header_up X-Forwarded-Host coderaxai.vercel.app
+				header_up X-Forwarded-Proto https
+				header_up X-Forwarded-For {http.request.remote.host}
+				header_up -X-Coderax-Proxy-Secret
+			}
+		}
 
-	@direct_work {
-		path /api/work/chat*
-		not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
-	}
-	handle @direct_work {
+		@unauthorized {
+			not header X-Coderax-Proxy-Secret {$CODERAX_PROXY_SECRET}
+			not path /api/work/chat
+			not path /api/work/chat/*
+		}
+		respond @unauthorized 403
+
 		reverse_proxy app:3080 {
 			flush_interval -1
-			header_up Host coderaxai.vercel.app
-			header_up X-Forwarded-Host coderaxai.vercel.app
+			header_up Host {http.request.header.X-Forwarded-Host}
+			header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
 			header_up X-Forwarded-Proto https
-			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
 			header_up -X-Coderax-Proxy-Secret
 		}
-	}
-
-	reverse_proxy app:3080 {
-		flush_interval -1
-		header_up Host {http.request.header.X-Forwarded-Host}
-		header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
-		header_up X-Forwarded-Proto https
-		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-		header_up -X-Coderax-Proxy-Secret
 	}
 }

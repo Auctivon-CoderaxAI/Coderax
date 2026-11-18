@@ -232,6 +232,7 @@ export function WorkAgentConversationSelector() {
     ? sanitizeWorkSelection(storedSelection, options)
     : workSelectionFromConversation(conversation, options);
   const readinessAction = readinessQuery.data?.readiness.nextActionDescriptor;
+  const hasProviderModel = options.models.some((model) => model.engine == null);
 
   const apply = (next: WorkSelection) => {
     const resolved = resolveWorkSelection(next, options);
@@ -274,7 +275,7 @@ export function WorkAgentConversationSelector() {
           {localize('com_work_agents_unavailable')}
         </span>
       )}
-      {!isLoading && !modelsQuery.isError && options.models.length === 0 && (
+      {!isLoading && !modelsQuery.isError && !hasProviderModel && (
         <span role="alert" className="text-text-secondary text-xs">
           {readinessQuery.isError
             ? localize('com_work_readiness_unavailable')
