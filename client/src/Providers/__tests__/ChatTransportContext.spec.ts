@@ -112,6 +112,28 @@ describe('createWorkChatTransport', () => {
     });
   });
 
+  it('routes the OpenCode engine without a provider endpoint or agent', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport(
+      { start } as never,
+      {
+        ...options,
+        models: [
+          ...options.models,
+          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
+        ],
+      },
+      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+    );
+    await transport.start(chatRequest);
+    const request = start.mock.calls[0][0];
+    expect(request.server).toMatch(/\/api\/work\/chat$/);
+    expect(request.payload.model).toBe('opencode');
+    expect(request.payload.endpoint).toBeUndefined();
+    expect(request.payload.endpointType).toBeUndefined();
+    expect(request.payload.agent_id).toBeUndefined();
+  });
+
   it('routes an Assistants conversation to the native Work agent endpoint', async () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport({ start } as never, options);

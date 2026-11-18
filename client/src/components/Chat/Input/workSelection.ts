@@ -4,6 +4,9 @@ import type { TWorkAgent, TWorkModel } from 'coderax-data-provider';
 /** Shared sentinel for "let Coderax choose": no saved agent, and the server's model route. */
 export const WORK_AUTOMATIC = WORK_AUTO_MODEL_ID;
 
+/** The owner-only engine id the Work route accepts without a provider endpoint. */
+export const WORK_OPENCODE_ENGINE = 'opencode' as const;
+
 export type WorkSelection = { agentId: string; modelKey: string };
 
 export const automaticWorkSelection: WorkSelection = {
@@ -41,7 +44,10 @@ export function toWorkOptions(
   agents: TWorkAgent[] | undefined,
 ): WorkOptions {
   const concrete = (models ?? []).filter(
-    (model) => model.auto !== true && typeof model.provider === 'string' && model.provider !== '',
+    (model) =>
+      model.auto !== true &&
+      (model.engine != null ||
+        (typeof model.provider === 'string' && model.provider !== '')),
   );
   const offered = new Set(concrete.map(getWorkModelKey));
   const auto = (models ?? []).find((model) => model.auto === true && model.target != null) ?? null;
@@ -151,7 +157,9 @@ export function workSelectionFromConversation(
     return sanitizeWorkSelection({ agentId: conversation.agent_id }, options);
   }
   const model = options.models.find(
-    (option) => option.id === conversation?.model && option.provider === conversation?.endpoint,
+    (option) =>
+      option.id === conversation?.model &&
+      (option.engine != null || option.provider === conversation?.endpoint),
   );
   return { agentId: WORK_AUTOMATIC, modelKey: model ? getWorkModelKey(model) : WORK_AUTOMATIC };
 }
