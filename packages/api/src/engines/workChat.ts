@@ -123,9 +123,10 @@ export function buildEnginePrompt(
   history: ReadonlyArray<{ text: string; isCreatedByUser: boolean }>,
   request: string,
 ): string {
+  const selected = history.slice(-MAX_HISTORY_MESSAGES);
   const lines: string[] = [];
   let used = 0;
-  for (const message of history.slice(-MAX_HISTORY_MESSAGES)) {
+  for (const message of selected.slice().reverse()) {
     const text = message.text.trim().slice(0, MAX_HISTORY_MESSAGE_CHARS);
     if (!text) {
       continue;
@@ -137,6 +138,7 @@ export function buildEnginePrompt(
     used += line.length;
     lines.push(line);
   }
+  lines.reverse();
   return lines.length > 0
     ? `Earlier in this Work conversation:\n${lines.join('\n')}\n\nCurrent request:\n${request}`
     : request;
@@ -159,18 +161,39 @@ export type EngineWorkChatRunner = {
     tenantId: string | null;
     conversationId: string;
   }) => Promise<boolean>;
+  /** The handler owns the lease until terminal persistence has finished. */
+  release?: (input: {
+    userId: string;
+    tenantId: string | null;
+    conversationId: string;
+    handle?: EngineRunHandle;
+  }) => boolean;
   snapshot: () => EngineStatusSnapshot;
 };
 
-type ActiveRun = {
+type RunScope = {
   userId: string;
   tenantId: string | null;
+  conversationId: string;
+};
+
+type ActiveRun = {
+  handle: EngineRunHandle;
   cancel: () => Promise<void>;
 };
 
-export class EngineWorkChatRuntime implements EngineWorkChatRunner {
-  private readonly runs = new Map<string, ActiveRun>();
+/**
+ * Active runs are process-level state, not runtime-cache state. A config change
+ * can create a new runtime cache entry, but state/cancel must still reach the
+ * run that the previous entry started.
+ */
+const activeRuns = new Map<string, ActiveRun>();
 
+function activeRunKey(input: RunScope): string {
+  return JSON.stringify([input.tenantId, input.userId, input.conversationId]);
+}
+
+export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   constructor(
     private readonly registry: EngineRegistryApi,
     private readonly privateRoot: string,
@@ -180,31 +203,32 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     return this.registry.snapshot();
   }
 
-  state(input: { userId: string; tenantId: string | null; conversationId: string }): string | null {
-    const run = this.runs.get(input.conversationId);
-    return run && run.userId === input.userId && run.tenantId === input.tenantId ? 'running' : null;
+  state(input: RunScope): string | null {
+    return activeRuns.has(activeRunKey(input)) ? 'running' : null;
   }
 
-  async cancel(input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-  }): Promise<boolean> {
-    const run = this.runs.get(input.conversationId);
-    if (!run || run.userId !== input.userId || run.tenantId !== input.tenantId) {
+  async cancel(input: RunScope): Promise<boolean> {
+    const run = activeRuns.get(activeRunKey(input));
+    if (!run) {
       return false;
     }
     await run.cancel();
     return true;
   }
 
-  async start(input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-    prompt: string;
-  }): Promise<EngineResult<EngineRunHandle>> {
-    if (this.runs.has(input.conversationId)) {
+  release(input: RunScope & { handle?: EngineRunHandle }): boolean {
+    const key = activeRunKey(input);
+    const run = activeRuns.get(key);
+    if (!run || (input.handle != null && run.handle !== input.handle)) {
+      return false;
+    }
+    activeRuns.delete(key);
+    return true;
+  }
+
+  async start(input: RunScope & { prompt: string }): Promise<EngineResult<EngineRunHandle>> {
+    const key = activeRunKey(input);
+    if (activeRuns.has(key)) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
     const started = await this.registry.start({
@@ -220,19 +244,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     if (!started.ok) {
       return started;
     }
-    const run: ActiveRun = {
-      userId: input.userId,
-      tenantId: input.tenantId,
-      cancel: started.value.cancel,
-    };
-    this.runs.set(input.conversationId, run);
-    void started.value.result
-      .finally(() => {
-        if (this.runs.get(input.conversationId) === run) {
-          this.runs.delete(input.conversationId);
-        }
-      })
-      .catch(() => undefined);
+    activeRuns.set(key, { handle: started.value, cancel: started.value.cancel });
     return started;
   }
 }
@@ -393,6 +405,9 @@ function failureMessage(code: string): string {
 type HandlerOptions = {
   runtimeFor: (config: EngineWorkChatConfig | null | undefined) => EngineWorkChatRunner;
   storeFor: (req: Request) => EngineWorkChatStore;
+  /** Shared with the native runner so neither can start beside the other. */
+  reserveRun?: (input: RunScope) => boolean;
+  releaseRun?: (input: RunScope) => boolean;
   logger?: { warn?: (message: string) => void; error?: (message: string) => void };
 };
 
@@ -492,6 +507,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let closed = false;
     let finished = false;
     let activeHandle: EngineRunHandle | null = null;
+    let reserved = false;
+    const reservation = { userId, tenantId, conversationId };
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
@@ -513,6 +530,16 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     }
 
     try {
+      if (options.reserveRun) {
+        if (!options.reserveRun(reservation)) {
+          res.status(409).json({
+            code: 'WORK_ENGINE_BUSY',
+            message: 'Another Work run is already active for this task.',
+          });
+          return;
+        }
+        reserved = true;
+      }
       if (runtime.state({ userId, tenantId, conversationId })) {
         res.status(409).json({
           code: 'WORK_ENGINE_BUSY',
@@ -534,18 +561,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       } catch {
         // The current request is still enough to start; history is an enhancement.
       }
-      await store.saveConversation({
-        conversationId,
-        title,
-        workState: 'running',
-        create: existing == null,
-      });
-      if (closed) {
-        await store.saveConversation({ conversationId, workState: 'cancelled' });
-        finished = true;
-        return;
-      }
-
       const started = await runtime.start({
         userId,
         tenantId,
@@ -553,7 +568,10 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         prompt: buildEnginePrompt(history, promptText),
       });
       if (!started.ok) {
-        await store.saveConversation({ conversationId, workState: 'failed' });
+        /** A rejected second request must never overwrite the active run's state. */
+        if (started.error.code !== 'busy') {
+          await store.saveConversation({ conversationId, workState: 'failed' });
+        }
         if (closed) {
           finished = true;
           return;
@@ -566,6 +584,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       activeHandle = started.value;
+      await store.saveConversation({
+        conversationId,
+        title,
+        workState: 'running',
+        create: existing == null,
+      });
       if (closed) {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'cancelled' });
@@ -782,6 +806,13 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         code: 'WORK_ENGINE_UNAVAILABLE',
         message: 'The OpenCode engine could not start this task.',
       });
+    } finally {
+      if (activeHandle) {
+        runtime.release?.({ ...reservation, handle: activeHandle });
+      }
+      if (reserved) {
+        options.releaseRun?.(reservation);
+      }
     }
   };
 }

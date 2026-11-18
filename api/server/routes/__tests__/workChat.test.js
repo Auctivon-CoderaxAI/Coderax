@@ -6,11 +6,14 @@ const { createWorkApiRouter } = require('../workApi');
 const {
   createWorkChatRouter,
   delegateToAgents,
+  releaseWorkRun,
+  reserveWorkRun,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
+  workChatRunReservationMiddleware,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -1006,6 +1009,50 @@ test('/api/work/chat checks access to the selected agent before reading its mode
   } finally {
     server.close();
   }
+});
+
+test('the shared reservation blocks a native Work run while another runner owns the task', () => {
+  const conversationId = '44444444-4444-4444-8444-444444444444';
+  const scope = { userId: 'reservation-user', tenantId: 'tenant-r', conversationId };
+  assert.equal(reserveWorkRun(scope), true);
+
+  const first = response();
+  first.once = () => undefined;
+  let firstNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    first,
+    () => {
+      firstNextCalls += 1;
+    },
+  );
+  assert.equal(first.statusCode, 409);
+  assert.equal(firstNextCalls, 0);
+  assert.equal(releaseWorkRun(scope), true);
+
+  const second = response();
+  second.once = () => undefined;
+  let secondNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    second,
+    () => {
+      secondNextCalls += 1;
+    },
+  );
+  assert.equal(secondNextCalls, 1);
+  assert.equal(reserveWorkRun(scope), false);
+  assert.equal(releaseWorkRun(scope), true);
 });
 
 test('Work model reads skip chat-only model resolution', async () => {

@@ -29,7 +29,12 @@ const {
   rowsFromCursor,
   onlyWorkRows,
 } = require('./workModels');
-const { getWorkChatRouter, configuredDefaultFromRequest } = require('./workChat');
+const {
+  getWorkChatRouter,
+  configuredDefaultFromRequest,
+  reserveWorkRun,
+  releaseWorkRun,
+} = require('./workChat');
 const { createWorkApiRouter } = require('./workApi');
 
 const listAgentPages = createWorkAgentPageLoader((input) => db.getListAgentsByAccess(input));
@@ -105,6 +110,8 @@ const depsFor = (req) => {
 
 const engineChat = createEngineWorkChatHandler({
   runtimeFor: getEngineWorkChatRuntime,
+  reserveRun: reserveWorkRun,
+  releaseRun: releaseWorkRun,
   storeFor: (req) =>
     createEngineWorkChatPersistence({
       db,
