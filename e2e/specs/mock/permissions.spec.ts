@@ -194,7 +194,7 @@ test.describe('permission principal details', () => {
     const ownerUser: TestUser = {
       email: `acl-owner-${suffix}@example.com`,
       name: `ACL Owner ${suffix}`,
-      password: 'securepassword123',
+      password: `pw-${suffix}`,
     };
 
     const { api, role, token } = await createAuthenticatedRequest(
