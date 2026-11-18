@@ -3,8 +3,10 @@ import {
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 } from 'coderax-data-provider';
+import type { FreeInferenceCatalogState } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
+import type { FreeRoutingSnapshot } from '../routing/router';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';

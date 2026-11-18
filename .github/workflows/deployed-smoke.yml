@@ -1,0 +1,48 @@
+name: Deployed smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployment base URL (defaults to the production secret)
+        required: false
+        type: string
+  schedule:
+    - cron: "17 5 * * *"
+
+concurrency:
+  group: deployed-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Deployment-backed smoke
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Run deployment smoke
+        env:
+          CODERAX_BASE_URL: ${{ inputs.base_url || secrets.CODERAX_SMOKE_BASE_URL }}
+          CODERAX_SMOKE_TOKEN: ${{ secrets.CODERAX_SMOKE_TOKEN }}
+          CODERAX_SMOKE_EMAIL: ${{ secrets.CODERAX_SMOKE_EMAIL }}
+          CODERAX_SMOKE_PASSWORD: ${{ secrets.CODERAX_SMOKE_PASSWORD }}
+          CODERAX_SMOKE_MODEL: ${{ vars.CODERAX_SMOKE_MODEL }}
+          CODERAX_SMOKE_REQUIRE_AGENTS: ${{ vars.CODERAX_SMOKE_REQUIRE_AGENTS }}
+          CODERAX_SMOKE_REPORT: deployed-smoke-report.json
+        run: node scripts/smoke-deployed.mjs
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-smoke-report
+          path: deployed-smoke-report.json
+          if-no-files-found: ignore
+          retention-days: 14
