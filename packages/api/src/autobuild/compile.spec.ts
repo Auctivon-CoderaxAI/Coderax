@@ -54,7 +54,21 @@ describe('compileBuildPlan', () => {
     expect(compiled.value.workflow.steps[1].dependsOn).toEqual(['api']);
     expect(compiled.value.workflow.steps[1].maxAttempts).toBe(2);
     expect(compiled.value.workflow.settings?.maxParallel).toBe(2);
+    expect(compiled.value.requiredGates).toEqual(['tests', 'build', 'review']);
     expect(compiled.value.deadlineAt).toBe('2026-01-01T00:15:00.000Z');
+  });
+
+  it('adds the security gate when a task claims security work', () => {
+    const compiled = compileBuildPlan({
+      plan: plan([task('api', { acceptance: ['Authorization denies cross-tenant reads'] })]),
+      mode: 'autonomous',
+      orchestratorAgentId: 'agent-lead',
+    });
+
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) {
+      expect(compiled.value.requiredGates).toContain('security');
+    }
   });
 
   it('carries acceptance criteria, the evidence rule and the pull-request rule into each task', () => {
@@ -75,6 +89,7 @@ describe('compileBuildPlan', () => {
     expect(instruction).toContain('Do not claim a task, test, build or deployment succeeded');
     expect(instruction).toContain('open a pull request');
     expect(instruction).toContain('Never push directly to the protected branch');
+    expect(instruction).toContain('Build request: Build the service');
   });
 
   it('bounds an injected repository name to one line', () => {

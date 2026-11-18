@@ -6,9 +6,9 @@ import {
 } from 'coderax-data-provider';
 import type { WorkflowStepInput } from 'coderax-data-provider';
 import type { CreateWorkflowPayload } from '../workflows/definition';
-import type { BuildMode, BuildModePolicy } from './modes';
+import type { BuildGate, BuildMode, BuildModePolicy } from './modes';
 import type { BuildPlan, BuildRole, BuildTask } from './plan';
-import { getBuildModePolicy } from './modes';
+import { getBuildModePolicy, requiredGatesForPlan } from './modes';
 
 export interface BuildRepositoryContext {
   owner: string;
@@ -36,6 +36,8 @@ export interface RoleAssignment {
 export interface CompiledBuild {
   workflow: CreateWorkflowPayload;
   policy: BuildModePolicy;
+  /** The base mode gates plus any evidence this plan's own claims require. */
+  requiredGates: BuildGate[];
   deadlineAt: string | null;
   roleAssignments: RoleAssignment[];
   unresolvedRoles: BuildRole[];
@@ -98,7 +100,8 @@ function compileInstruction(
     repositoryContext(repository),
     'Report the exact commands you ran, their outcomes, and the files you changed. Do not claim a task, test, build or deployment succeeded without recorded evidence.',
   ].filter((section): section is string => section != null && section.length > 0);
-  return `${sections.join('\n\n')}\n\nBuild request: ${plan.request}`;
+  const requestExcerpt = sanitizeInline(plan.request, 1_000);
+  return `${sections.join('\n\n')}\n\nBuild request: ${requestExcerpt}`;
 }
 
 function roleAssignment(
@@ -192,6 +195,7 @@ export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResu
         },
       },
       policy,
+      requiredGates: requiredGatesForPlan(mode, plan),
       deadlineAt,
       roleAssignments,
       unresolvedRoles: roleAssignments

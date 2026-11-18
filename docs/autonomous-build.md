@@ -33,7 +33,9 @@ that separates finished work from claimed work. Those are the pieces in `package
 
 Turbo is a target, not a promise. `chooseEffectiveMode()` moves an oversized or complex plan to
 `autonomous` and returns the reason. The report records the missed target; it never skips a gate to
-meet it. No mode authorizes a deployment, and no mode lowers the evidence requirement to pass.
+meet it. No mode authorizes a deployment, and no mode lowers the evidence requirement to pass. A
+plan that asks for security work, or claims it in an acceptance criterion, additionally requires the
+security gate even when its mode's base gates omit it.
 
 ## Plan contract
 

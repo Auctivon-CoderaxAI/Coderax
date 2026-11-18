@@ -78,6 +78,19 @@ export function getBuildModePolicy(mode: BuildMode): BuildModePolicy {
   return POLICIES[mode];
 }
 
+/**
+ * A plan that asks for security work or claims it in an acceptance criterion
+ * earns the security gate even in a mode whose base gates omit it. A plan can
+ * add evidence requirements; it can never remove one.
+ */
+export function requiredGatesForPlan(mode: BuildMode, plan: BuildPlan): BuildGate[] {
+  const gates = new Set<BuildGate>(getBuildModePolicy(mode).requiredGates);
+  if (assessBuildPlan(plan).requiresSecurityReview) {
+    gates.add('security');
+  }
+  return [...gates];
+}
+
 export type BuildComplexity = 'simple' | 'moderate' | 'complex';
 
 export interface ComplexityAssessment {

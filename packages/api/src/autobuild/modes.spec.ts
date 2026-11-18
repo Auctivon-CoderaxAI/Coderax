@@ -5,6 +5,7 @@ import {
   buildDeadline,
   chooseEffectiveMode,
   getBuildModePolicy,
+  requiredGatesForPlan,
   TURBO_15_BUDGET_MS,
 } from './modes';
 
@@ -51,6 +52,30 @@ describe('build mode policy', () => {
   it('never authorizes deployment from any mode', () => {
     expect(getBuildModePolicy('autonomous').allowDeploy).toBe(false);
     expect(getBuildModePolicy('verified').allowDeploy).toBe(false);
+  });
+
+  it('adds a security gate when the plan claims security work', () => {
+    const parsed = parseBuildPlan({
+      name: 'Security plan',
+      request: 'Tighten tenant authorization',
+      tasks: [
+        task('api', { acceptance: ['Cross-tenant authorization is denied'] }),
+      ],
+    });
+    if (!parsed.ok) {
+      throw new Error(parsed.error.message);
+    }
+
+    expect(requiredGatesForPlan('autonomous', parsed.value)).toEqual([
+      'tests',
+      'build',
+      'review',
+      'security',
+    ]);
+  });
+
+  it('does not remove a gate a mode already requires', () => {
+    expect(requiredGatesForPlan('verified', planWith(1))).toContain('security');
   });
 });
 
