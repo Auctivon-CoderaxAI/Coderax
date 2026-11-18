@@ -34,6 +34,7 @@ const { logger, getTenantId, SystemCapabilities } = require('@coderax/data-schem
 const { hasCapability, hasConfigCapability } = require('~/server/middleware/roles/capabilities');
 const { getLdapConfig } = require('~/server/services/Config/ldap');
 const { getRumConfig } = require('~/server/services/Config/rum');
+const { isPasswordLoginEnabled } = require('~/server/services/Config/passwordLogin');
 const { getAppConfig } = require('~/server/services/Config/app');
 
 const router = express.Router();
@@ -106,6 +107,7 @@ function buildPreLoginPayload() {
     samlImageUrl: process.env.SAML_IMAGE_URL,
     serverDomain: process.env.DOMAIN_SERVER || 'http://localhost:3080',
     emailLoginEnabled,
+    passwordLoginEnabled: isPasswordLoginEnabled(),
     registrationEnabled: !ldap?.enabled && isEnabled(process.env.ALLOW_REGISTRATION),
     socialLoginEnabled: isEnabled(process.env.ALLOW_SOCIAL_LOGIN),
     emailEnabled: checkEmailConfig(),

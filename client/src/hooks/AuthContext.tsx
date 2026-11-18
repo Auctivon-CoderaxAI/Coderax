@@ -39,11 +39,12 @@ import {
   useGetRole,
   useGetUserQuery,
   useLoginUserMutation,
+  usePasswordLoginMutation,
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
-import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
+import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
 import useTimeout from './useTimeout';
 import store from '~/store';
@@ -90,6 +91,7 @@ const AuthContextProvider = ({
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [passwordLoginError, setPasswordLoginError] = useState<string | undefined>(undefined);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(authConfig?.test === true);
   const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
@@ -202,6 +204,24 @@ const AuthContextProvider = ({
       }
       const retryQuery = retryParams.toString();
       navigate(retryQuery ? `/login?${retryQuery}` : '/login', { replace: true });
+    },
+  });
+  const { mutate: passwordLoginMutate } = usePasswordLoginMutation({
+    onMutate: () => setPasswordLoginError(undefined),
+    onSuccess: (data: t.TLoginResponse) => {
+      guestAttemptRef.current += 1;
+      const { user, token } = data;
+      if (!user || !token) {
+        setPasswordLoginError('Unable to sign in.');
+        return;
+      }
+      setPasswordLoginError(undefined);
+      const redirect =
+        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
+      setUserContext({ token, isAuthenticated: true, user, redirect });
+    },
+    onError: (error: TResError | unknown) => {
+      setPasswordLoginError(getLoginErrorText(error as TResError) ?? 'Unable to sign in.');
     },
   });
   const { mutate: logoutMutate } = useLogoutUserMutation({
@@ -333,6 +353,14 @@ const AuthContextProvider = ({
       loginMutate(data);
     },
     [loginMutate],
+  );
+
+  const passwordLogin = useCallback(
+    (data: TPasswordLogin) => {
+      guestAttemptRef.current += 1;
+      passwordLoginMutate(data);
+    },
+    [passwordLoginMutate],
   );
 
   const silentRefresh = useCallback(() => {
@@ -504,6 +532,8 @@ const AuthContextProvider = ({
       token,
       error,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
       setError,
@@ -528,6 +558,8 @@ const AuthContextProvider = ({
       userRoleName,
       customRole,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
     ],

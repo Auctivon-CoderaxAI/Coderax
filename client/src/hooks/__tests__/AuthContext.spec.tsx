@@ -54,6 +54,7 @@ let mockCapturedLogoutOptions: {
 
 const mockRefreshMutate = jest.fn();
 const mockLoginMutate = jest.fn();
+const mockPasswordLoginMutate = jest.fn();
 const mockLogoutMutate = jest.fn();
 let capturedAuthContext: ReturnType<typeof useAuthContext> | undefined;
 
@@ -67,6 +68,7 @@ jest.mock('~/data-provider', () => ({
       return { mutate: mockLoginMutate };
     },
   ),
+  usePasswordLoginMutation: jest.fn(() => ({ mutate: mockPasswordLoginMutate })),
   useLogoutUserMutation: jest.fn(
     (options: {
       onSuccess: (...args: unknown[]) => void;

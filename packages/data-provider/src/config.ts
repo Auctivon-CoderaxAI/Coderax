@@ -3215,6 +3215,8 @@ export type TStartupConfig = {
   };
   serverDomain: string;
   emailLoginEnabled: boolean;
+  /** Server-checked password-only owner login; the password itself is never exposed. */
+  passwordLoginEnabled?: boolean;
   registrationEnabled: boolean;
   socialLoginEnabled: boolean;
   passwordResetEnabled: boolean;
