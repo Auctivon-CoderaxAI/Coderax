@@ -123,17 +123,43 @@ success, repair iterations, manual interventions, security findings, model laten
 `mixed` instead of hiding one behind the other. These are pure aggregations: the samples must come
 from actual runs, not from estimates.
 
+## Verification runner
+
+`runBuildVerification({ workspaceRoot, commands, signal })` executes commands instead of assuming a
+pass. It validates every executable against an allowlist, rejects executable paths, resolves `cwd`
+with symlinks and rejects paths outside the workspace, spawns with `shell: false` on POSIX (on
+Windows a shell resolves `.cmd` shims only when the arguments are restricted to shell-safe tokens),
+enforces a timeout with a process-tree kill, bounds and redacts output, and converts exit codes into
+`BuildGateEvidence`. `tests`, `build` and `security` are executable gates; `review` remains a
+judgement. A gate with no configured command is `not_run`, never `passed`. The resulting evidence is
+accepted by `summarizeBuild`.
+
+## Planner adapter and launch path
+
+`planBuild()` accepts an injected completion function. It rejects a planner marked `paid`, extracts
+JSON from fenced or conversational output, validates the object with `parseBuildPlan`, retries with
+the validation message, restores the original request, chooses the effective mode and compiles the
+workflow. `createHeuristicBuildPlan()` is the deterministic zero-cost fallback when no free or local
+completion is configured.
+
+`POST /api/workflows/builds` accepts a project request, mode and saved orchestrator agent, validates
+the request, compiles a deterministic plan, authorizes every bound agent, then creates and starts the
+ordinary durable workflow. The Workflows view has a **New autonomous build** launcher; on success it
+selects the created workflow so the existing run panel and stream monitor it.
+
 ## Not implemented in this change
 
-- **No planner model call.** Something must produce the plan; `parseBuildPlan` validates it.
-- **No HTTP route or UI entry point.** Compiled plans are ordinary workflows, so they are created
-  and run through the existing Workflows API/UI. A dedicated build surface is a separate change.
+- **Automatic verification invocation is not wired into the workflow runner.** Agents can run tests
+  in their turns, but a completed run does not itself call `runBuildVerification`; a caller must
+  invoke the runner with the commands and attach its evidence to the run.
+- **The launch route uses the deterministic planner.** The model adapter is available for a free or
+  local completion, but no server-side free-model provider is configured yet.
 - **No agent auto-provisioning.** Specialist roles bind to saved agents supplied by the caller.
 - **No deadline cancellation.** The engine records the target and reports the overrun; it does not
   kill an in-flight build at minute 15, because that would discard real work mid-verification.
 - **No deployment execution.** `allowDeploy` is false in every policy and only owner-authorized,
   verified deployments belong to a separate workflow.
 
-A build is not "autonomous end to end" until a planner adapter, a build entry point and a real
-provider-backed benchmark exist. Until then, report this layer as the contract and scheduler
-foundation it is.
+A build is not "autonomous end to end" until the workflow runner invokes the execution verifier
+automatically and a real provider-backed benchmark exists. Until then, report this layer as the
+contract, planner, execution verifier and scheduler foundation it is.

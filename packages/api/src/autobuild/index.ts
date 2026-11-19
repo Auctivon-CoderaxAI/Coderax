@@ -2,4 +2,7 @@ export * from './compile';
 export * from './metrics';
 export * from './modes';
 export * from './plan';
+export * from './planner';
+export * from './start';
+export * from './verify';
 export * from './report';

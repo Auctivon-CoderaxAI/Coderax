@@ -21,6 +21,7 @@ import {
   parseStartWorkflowRun,
   parseUpdateWorkflow,
 } from './definition';
+import { parseStartBuild, prepareBuildLaunch } from '../autobuild/start';
 import { computeNextRunAt, isValidTimezone } from '../schedules/cadence';
 
 interface WorkflowRecord {
@@ -379,6 +380,87 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
 
     listTemplates: async (_req: ServerRequest, res: Response): Promise<void> => {
       res.status(200).json({ templates: WORKFLOW_TEMPLATES });
+    },
+
+    /**
+     * Plan, validate and compile a project request, then create and start the
+     * ordinary durable workflow that executes it. Planning is deterministic and
+     * zero-cost here; a free/local model adapter can supply richer plans through
+     * `planBuild` without changing this launch contract.
+     */
+    startBuild: async (req: ServerRequest, res: Response): Promise<void> => {
+      const owner = userId(req);
+      if (owner == null) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const parsed = parseStartBuild(req.body);
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+      const prepared = prepareBuildLaunch(parsed.value);
+      if (!prepared.ok) {
+        res.status(400).json({ error: prepared.error.message });
+        return;
+      }
+
+      const payload = prepared.value.compiled.workflow;
+      const agentIds = new Set<string>([payload.agentId]);
+      for (const step of payload.steps) {
+        if (step.agentId != null) {
+          agentIds.add(step.agentId);
+        }
+      }
+      try {
+        for (const agentId of agentIds) {
+          if (!(await deps.canRunAgent(agentId, req))) {
+            res.status(403).json({ error: 'You cannot run that agent' });
+            return;
+          }
+        }
+        const workflow = await deps.methods.createWorkflow({
+          userId: owner,
+          ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+          name: payload.name,
+          ...(payload.description == null ? {} : { description: payload.description }),
+          agentId: payload.agentId,
+          steps: payload.steps,
+          ...(payload.settings == null ? {} : { settings: payload.settings }),
+        });
+        const run = await deps.methods.createWorkflowRun({
+          userId: owner,
+          ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          agentId: workflow.agentId,
+          steps: workflow.steps,
+          conversationId: createRunId(),
+          ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          trigger: { type: 'manual' },
+          input: parsed.value.request,
+        });
+        deps.wake();
+        res.status(202).json({
+          workflow: toWorkflowView(workflow),
+          run: toRunView(run),
+          build: {
+            planner: 'deterministic',
+            requestedMode: prepared.value.decision.requested,
+            mode: prepared.value.decision.mode,
+            degraded: prepared.value.decision.degraded,
+            ...(prepared.value.decision.reason == null
+              ? {}
+              : { reason: prepared.value.decision.reason }),
+            taskCount: prepared.value.plan.tasks.length,
+            requiredGates: prepared.value.compiled.requiredGates,
+            unresolvedRoles: prepared.value.compiled.unresolvedRoles,
+          },
+        });
+      } catch (error) {
+        logger.error('[workflows] failed to start autonomous build', error);
+        unavailable(res);
+      }
     },
 
     createWorkflow: async (req: ServerRequest, res: Response): Promise<void> => {
