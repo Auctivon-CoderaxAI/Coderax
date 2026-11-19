@@ -1,9 +1,9 @@
 import { EModelEndpoint } from 'coderax-data-provider';
 import type { ChatTransportRequest } from 'coderax-data-provider';
 import type { WorkOptions } from '~/components/Chat/Input/workSelection';
+import { toWorkChatServer, toWorkEngineChatServer, toWorkEngineStreamUrl } from '../workTransport';
 import { toWorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
-import { toWorkChatServer, toWorkEngineChatServer, toWorkEngineStreamUrl } from '../workTransport';
 
 describe('toWorkChatServer', () => {
   const nativeEndpoint = 'https://coderax.example/api/agents/chat';

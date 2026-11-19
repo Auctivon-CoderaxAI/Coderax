@@ -16,9 +16,9 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { createStorageAtom } from '~/store/jotai-utils';
+import { useAuthContext, useLocalize } from '~/hooks';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
-import { useAuthContext, useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 export { getWorkModelKey } from './workSelection';
