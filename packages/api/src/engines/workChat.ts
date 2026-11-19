@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { SystemRoles } from 'coderax-data-provider';
-import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { DataMode, EngineResult, EngineRunHandle, EngineRunSummary } from './types';
-import { parseEngineModel } from './opencode/models';
+import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
 import type { EngineModelRef } from './opencode/models';
 import type { ExecutionEnginesConfig } from './service';
-import { engineFailure } from './types';
-import { createExecutionEngines } from './service';
 import { isValidWorkTask, workTitle } from '../work/task';
+import { parseEngineModel } from './opencode/models';
+import { createExecutionEngines } from './service';
+import { engineFailure } from './types';
 
 /**
  * Owner-gated OpenCode execution inside the Work chat ingress.

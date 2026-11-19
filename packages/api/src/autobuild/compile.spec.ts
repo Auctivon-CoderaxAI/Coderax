@@ -1,7 +1,7 @@
 import { WORKFLOW_INSTRUCTION_MAX_LENGTH } from 'coderax-data-provider';
 import type { BuildPlan } from './plan';
-import { parseBuildPlan } from './plan';
 import { compileBuildPlan } from './compile';
+import { parseBuildPlan } from './plan';
 
 const task = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,

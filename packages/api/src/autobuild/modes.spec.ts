@@ -1,5 +1,4 @@
 import type { BuildPlan } from './plan';
-import { parseBuildPlan } from './plan';
 import {
   assessRequestComplexity,
   buildDeadline,
@@ -8,6 +7,7 @@ import {
   requiredGatesForPlan,
   TURBO_15_BUDGET_MS,
 } from './modes';
+import { parseBuildPlan } from './plan';
 
 const task = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,

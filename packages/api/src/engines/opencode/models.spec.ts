@@ -31,8 +31,12 @@ describe('OpenCode zero-cost model guard', () => {
     expect(isModelAllowedForMode(hosted, 'private')).toBe(false);
     expect(isModelAllowedForMode(hosted, 'cloud')).toBe(true);
     expect(isModelAllowedForMode(local, 'private')).toBe(true);
-    expect(isModelAllowedForMode({ providerId: 'ollama', modelId: 'gpt-oss:120b-cloud' }, 'private')).toBe(false);
-    expect(isModelAllowedForMode({ providerId: 'ollama', modelId: 'gpt-oss:120b-cloud' }, 'cloud')).toBe(false);
+    expect(
+      isModelAllowedForMode({ providerId: 'ollama', modelId: 'gpt-oss:120b-cloud' }, 'private'),
+    ).toBe(false);
+    expect(
+      isModelAllowedForMode({ providerId: 'ollama', modelId: 'gpt-oss:120b-cloud' }, 'cloud'),
+    ).toBe(false);
     expect(isModelAllowedForMode(local, 'cloud')).toBe(true);
     expect(isModelAllowedForMode(null, 'cloud')).toBe(false);
   });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { EngineResult } from '../types';
 import type { OpenCodeTransport } from './adapter';
+import type { EngineResult } from '../types';
 import { engineFailure } from '../types';
 
 /**

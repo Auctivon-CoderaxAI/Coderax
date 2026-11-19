@@ -1,8 +1,8 @@
 import express from 'express';
 import request from 'supertest';
-import type { EngineRegistryApi } from './registry';
-import type { EngineEvent, EngineResult, EngineRunHandle } from './types';
 import type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
+import type { EngineEvent, EngineResult, EngineRunHandle } from './types';
+import type { EngineRegistryApi } from './registry';
 import {
   EngineWorkChatRuntime,
   buildEnginePrompt,

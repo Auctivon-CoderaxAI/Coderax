@@ -7,13 +7,13 @@ import {
   sanitizeWorkSelection,
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
-import { createSSETransport } from '~/hooks/SSE/transport';
 import {
   configuredWorkEngineOrigin,
   toWorkChatServer,
   toWorkEngineChatServer,
   toWorkEngineStreamUrl,
 } from './workTransport';
+import { createSSETransport } from '~/hooks/SSE/transport';
 import * as requests from '~/data-provider';
 
 export { toWorkChatServer } from './workTransport';

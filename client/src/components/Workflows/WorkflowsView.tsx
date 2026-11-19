@@ -47,8 +47,8 @@ import {
   useWorkflowTemplatesQuery,
   useWorkflowsQuery,
 } from '~/data-provider';
-import BuildLauncher from './BuildLauncher';
 import { triggerDownload } from '~/utils/downloadFile';
+import BuildLauncher from './BuildLauncher';
 import { useLocalize } from '~/hooks';
 
 const RUN_STATUS_LABELS: Record<WorkflowRunStatus, TranslationKeys> = {

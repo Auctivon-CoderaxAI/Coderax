@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { CommandRunner } from './verify';
-import { summarizeBuild } from './report';
 import { createSpawnCommandRunner, redactSecrets, runBuildVerification } from './verify';
+import { summarizeBuild } from './report';
 
 function makeWorkspace(): { root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), 'coderax-verify-'));
