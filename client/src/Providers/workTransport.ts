@@ -1,8 +1,44 @@
 import { EModelEndpoint, EndpointURLs } from 'coderax-data-provider';
 
+/** Long engine runs bypass the 60-second Vercel Hobby function limit. */
+export function toWorkEngineChatServer(origin?: string): string {
+  if (!origin) {
+    return toWorkChatServer(EndpointURLs[EModelEndpoint.agents]);
+  }
+  let base: URL;
+  try {
+    base = new URL(origin);
+  } catch {
+    throw new Error('Work engine origin must be a valid HTTPS URL.');
+  }
+  if (base.protocol !== 'https:' || base.username || base.password) {
+    throw new Error('Work engine origin must be a valid HTTPS URL.');
+  }
+  return new URL('/api/work/chat', base).toString();
+}
+
+/** Reattach an engine generation to its direct origin instead of Vercel. */
+export function toWorkEngineStreamUrl(url: string, origin?: string): string {
+  if (!origin) {
+    return url;
+  }
+  const engine = new URL(toWorkEngineChatServer(origin));
+  const stream = new URL(url, engine);
+  stream.protocol = engine.protocol;
+  stream.host = engine.host;
+  return stream.toString();
+}
+
+/** Vite build-time override; unset keeps the stock same-origin Work route. */
+export function configuredWorkEngineOrigin(): string | undefined {
+  const value = import.meta.env?.VITE_WORK_ENGINE_ORIGIN;
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
 /** Rewrite only native agent generation starts through Work's model gate. SSE,
  * resume, cancellation, approvals and queued-turn controls stay on the shared
- * authenticated agent transport. */
+ * authenticated agent transport. Engine stream attachments are redirected by
+ * `createWorkChatTransport` because that transport owns the engine selection. */
 export function toWorkChatServer(
   server: string,
   nativeChatEndpoint = EndpointURLs[EModelEndpoint.agents],

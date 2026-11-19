@@ -7,8 +7,13 @@ import {
   sanitizeWorkSelection,
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
+import {
+  configuredWorkEngineOrigin,
+  toWorkChatServer,
+  toWorkEngineChatServer,
+  toWorkEngineStreamUrl,
+} from './workTransport';
 import { createSSETransport } from '~/hooks/SSE/transport';
-import { toWorkChatServer } from './workTransport';
 import * as requests from '~/data-provider';
 
 export { toWorkChatServer } from './workTransport';
@@ -45,9 +50,28 @@ export function createWorkChatTransport(
   transport: Transport = defaultChatTransport,
   options?: WorkOptions,
   selection?: WorkSelection | null,
+  engineOrigin?: string,
 ): Transport {
+  const directEngineOrigin = engineOrigin ?? configuredWorkEngineOrigin();
+  let engineStream = false;
+
   return {
     ...transport,
+    stream: (auth) => {
+      const stream = transport.stream(auth);
+      return {
+        ...stream,
+        reconnectToStream: (request, requestOptions) => {
+          if (!engineStream || !directEngineOrigin) {
+            return stream.reconnectToStream(request, requestOptions);
+          }
+          return stream.reconnectToStream(
+            { ...request, url: toWorkEngineStreamUrl(request.url, directEngineOrigin) },
+            requestOptions,
+          );
+        },
+      };
+    },
     start: ({ server, payload }, requestOptions) => {
       const selected = options
         ? resolveWorkSelection(
@@ -60,23 +84,41 @@ export function createWorkChatTransport(
       if (options && !selected) {
         throw new Error('WORK_NO_FREE_MODEL');
       }
-      const workPayload = selected
-        ? {
+      const engineSelected = selected?.model.engine != null;
+      engineStream = engineSelected;
+      const workPayload = (() => {
+        if (!selected) {
+          return payload;
+        }
+        if (engineSelected) {
+          return {
             ...payload,
-            ...selected.preset,
-            agent_id: selected.preset.agent_id,
+            model: selected.model.id,
+            agent_id: undefined,
             assistant_id: undefined,
-            endpointType: selected.preset.endpoint,
+            endpoint: undefined,
+            endpointType: undefined,
             spec: null,
-          }
-        : payload;
+          };
+        }
+        return {
+          ...payload,
+          ...selected.preset,
+          agent_id: selected.preset.agent_id,
+          assistant_id: undefined,
+          endpointType: selected.preset.endpoint,
+          spec: null,
+        };
+      })();
       return transport.start(
         {
-          server: toWorkChatServer(
-            isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
-              ? EndpointURLs[EModelEndpoint.agents]
-              : server,
-          ),
+          server: engineSelected
+            ? toWorkEngineChatServer(directEngineOrigin)
+            : toWorkChatServer(
+                isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
+                  ? EndpointURLs[EModelEndpoint.agents]
+                  : server,
+              ),
           payload: workPayload,
         },
         requestOptions,
