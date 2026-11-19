@@ -3940,6 +3940,8 @@ export const enginesConfigSchema = z
       .object({
         enabled: z.boolean().default(false),
         engine: z.literal('opencode').default('opencode'),
+        /** Private runs use local weights; cloud runs may use free hosted models. */
+        mode: z.enum(['private', 'cloud']).default('private'),
       })
       .prefault({}),
     opencode: z
@@ -3947,6 +3949,11 @@ export const enginesConfigSchema = z
         enabled: z.boolean().default(false),
         /** An existing `opencode serve` endpoint; Coderax never spawns it. */
         baseURL: z.string().trim().url().optional(),
+        /**
+         * Pinned zero-cost model in `provider/model` form. Required when the
+         * engine is enabled so OpenCode never falls back to a paid default.
+         */
+        model: z.string().trim().optional(),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
       })
       .prefault({}),

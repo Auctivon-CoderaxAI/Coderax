@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { EngineResult } from '../types';
 import type { OpenCodeTransport } from './adapter';
 import { engineFailure } from '../types';
@@ -5,11 +7,14 @@ import { engineFailure } from '../types';
 /**
  * Official OpenCode SDK loader.
  *
- * `@opencode-ai/sdk` is ESM-only while `@coderax/api` compiles to CommonJS.
- * Node's `require(esm)` support makes a direct require work on Node >= 22.12;
- * older runtimes receive a typed `sdk_unavailable` failure instead of a crash.
- * The SDK is loaded lazily and only when this adapter is enabled, so an unused
- * engine never starts a server or adds startup cost.
+ * `@opencode-ai/sdk` is ESM-only while `@coderax/api` compiles to CommonJS,
+ * and 1.19.6 publishes only an `import` export condition. A bare `require`
+ * therefore fails with ERR_PACKAGE_PATH_NOT_EXPORTED even on a runtime that
+ * can load ESM. The loader falls back to the pinned `dist/index.js` entry so
+ * the engine works on Node, while an unsupported runtime still receives a
+ * typed `sdk_unavailable` failure instead of a crash. The SDK is loaded lazily
+ * and only when this adapter is enabled, so an unused engine adds no startup
+ * cost.
  */
 
 type SdkRequestResult = { data?: unknown; error?: unknown };
@@ -42,6 +47,21 @@ type SdkModule = {
   createOpencodeClient: (config: { baseUrl?: string; directory?: string }) => unknown;
 };
 
+/** Locate the pinned ESM entry without relying on the missing require condition. */
+export function resolveOpenCodeSdkEntry(): string | null {
+  for (const root of require.resolve.paths('@opencode-ai/sdk') ?? []) {
+    const candidate = path.join(root, '@opencode-ai', 'sdk', 'dist', 'index.js');
+    try {
+      if (fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Keep looking in the next node_modules directory.
+    }
+  }
+  return null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -72,11 +92,30 @@ export function loadOpenCodeSdk(options: {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     loaded = require('@opencode-ai/sdk');
-  } catch {
-    return engineFailure(
-      'sdk_unavailable',
-      'Install @opencode-ai/sdk on Node 22.12 or newer to enable this engine.',
-    );
+  } catch (error) {
+    /**
+     * 1.19.6 declares only an `import` export condition, so a bare `require`
+     * fails on Node with ERR_PACKAGE_PATH_NOT_EXPORTED even though the runtime
+     * supports loading the ESM entry. Load the pinned entry file directly, but
+     * only after locating it inside a real node_modules directory.
+     */
+    const code = (error as NodeJS.ErrnoException).code;
+    const entry = code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' ? resolveOpenCodeSdkEntry() : null;
+    if (!entry) {
+      return engineFailure(
+        'sdk_unavailable',
+        'The installed OpenCode SDK could not be loaded on this Node runtime.',
+      );
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      loaded = require(entry);
+    } catch {
+      return engineFailure(
+        'sdk_unavailable',
+        'The installed OpenCode SDK could not be loaded on this Node runtime.',
+      );
+    }
   }
   if (!isRecord(loaded) || typeof loaded.createOpencodeClient !== 'function') {
     return engineFailure('sdk_unavailable', 'The installed OpenCode SDK has an unsupported shape.');
