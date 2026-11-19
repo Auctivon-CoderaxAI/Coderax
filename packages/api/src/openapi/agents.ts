@@ -37,13 +37,24 @@ const documentedEdgeSchema = z.object({
 });
 
 /**
- * Replace only the `edges` field for the document. The schemas are `ZodObject` at runtime
- * (built with `.extend(...).strict()`), but their exported type is the wider `ZodType`, so
- * one cast is needed to reach `.extend`.
+ * `git_identity` is validated at runtime by a Zod v3 bridge around the shared Zod v4
+ * validator (see agents/validation.ts). The converter cannot introspect that
+ * `.transform()`, so the document describes the normalized output instead.
  */
-function withDocumentedEdges(schema: ZodTypeAny): ZodTypeAny {
+const documentedGitIdentitySchema = z.object({
+  name: z.string().min(1).max(128),
+  email: z.string().max(254),
+});
+
+/**
+ * Replace only the fields the converter cannot express for the document. The schemas are
+ * `ZodObject` at runtime (built with `.extend(...).strict()`), but their exported type is
+ * the wider `ZodType`, so one cast is needed to reach `.extend`.
+ */
+function withDocumentedFields(schema: ZodTypeAny, gitIdentity: ZodTypeAny): ZodTypeAny {
   return (schema as unknown as z.AnyZodObject).extend({
     edges: z.array(documentedEdgeSchema).optional(),
+    git_identity: gitIdentity,
   });
 }
 
@@ -54,9 +65,18 @@ function withDocumentedEdges(schema: ZodTypeAny): ZodTypeAny {
  * neither the full link shape a request could send nor the restricted stub a Builder
  * response can carry (`packages/api/src/agents/instructions/access.ts`).
  */
-const agentCreateRequestSchema = withDocumentedEdges(agentManagementCreateSchema);
-const agentUpdateRequestSchema = withDocumentedEdges(agentManagementUpdateSchema);
-const agentResponseSchema = withDocumentedEdges(agentManagementResponseSchema);
+const agentCreateRequestSchema = withDocumentedFields(
+  agentManagementCreateSchema,
+  documentedGitIdentitySchema.optional(),
+);
+const agentUpdateRequestSchema = withDocumentedFields(
+  agentManagementUpdateSchema,
+  documentedGitIdentitySchema.nullable().optional(),
+);
+const agentResponseSchema = withDocumentedFields(
+  agentManagementResponseSchema,
+  documentedGitIdentitySchema.nullable().optional(),
+);
 
 /**
  * Reuse the enforced list envelope; override only `data` with the documented-edge agent.
