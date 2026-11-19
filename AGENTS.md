@@ -356,6 +356,4 @@ gh pr checks PR_NUMBER
   request. Confirm the review was actually submitted (section 2).
 
 
-
-
 <!-- /coderabbit-ai-generated:v1 --><!-- END freebuff-pr-policy -->
