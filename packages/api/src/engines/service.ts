@@ -8,6 +8,12 @@ import { createEngineRegistry } from './registry';
 import { createOpenCodeAdapter } from './opencode/adapter';
 import { createOpenHandsAdapter } from './openhands/adapter';
 import { loadOpenCodeSdk } from './opencode/sdk';
+import {
+  isModelAllowedForMode,
+  parseEngineModel,
+  PRIVATE_MODEL_DETAIL,
+  ZERO_COST_MODEL_DETAIL,
+} from './opencode/models';
 
 /**
  * Config-driven construction of the execution engines.
@@ -25,6 +31,7 @@ export type ExecutionEnginesConfig =
         workChat?: {
           enabled?: boolean;
           engine?: 'opencode';
+          mode?: 'private' | 'cloud';
         } | null;
         workspaces?: {
           privateRoot?: string;
@@ -33,6 +40,7 @@ export type ExecutionEnginesConfig =
         opencode?: {
           enabled?: boolean;
           baseURL?: string;
+          model?: string;
           timeoutMs?: number;
         } | null;
         openhands?: {
@@ -71,9 +79,16 @@ export function createExecutionEngines(
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    if (!openCode.baseURL || !roots.private) {
+    const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
+    const requiredRoot = workMode === 'cloud' ? roots.cloud : roots.private;
+    const model = parseEngineModel(openCode.model);
+    if (!openCode.baseURL || !requiredRoot) {
+      unavailableDetail = `engines.opencode.baseURL and engines.workspaces.${workMode}Root must both be configured.`;
+    } else if (!isModelAllowedForMode(model, workMode)) {
       unavailableDetail =
-        'engines.opencode.baseURL and engines.workspaces.privateRoot must both be configured.';
+        workMode === 'private' && model?.providerId === 'opencode'
+          ? PRIVATE_MODEL_DETAIL
+          : ZERO_COST_MODEL_DETAIL;
     } else {
       const loaded = loadSdk({ baseURL: openCode.baseURL, directory: roots.private });
       if (loaded.ok) {

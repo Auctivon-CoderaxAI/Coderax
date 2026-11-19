@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { SystemRoles } from 'coderax-data-provider';
 import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
-import type { EngineResult, EngineRunHandle, EngineRunSummary } from './types';
+import type { DataMode, EngineResult, EngineRunHandle, EngineRunSummary } from './types';
+import { parseEngineModel } from './opencode/models';
+import type { EngineModelRef } from './opencode/models';
 import type { ExecutionEnginesConfig } from './service';
 import { engineFailure } from './types';
 import { createExecutionEngines } from './service';
@@ -39,12 +41,15 @@ export type EngineWorkChatConfig = {
     workChat?: {
       enabled?: boolean;
       engine?: 'opencode';
+      mode?: 'private' | 'cloud';
     } | null;
     workspaces?: {
       privateRoot?: string;
+      cloudRoot?: string;
     } | null;
     opencode?: {
       enabled?: boolean;
+      model?: string;
     } | null;
   } | null;
   interfaceConfig?: unknown;
@@ -196,7 +201,9 @@ function activeRunKey(input: RunScope): string {
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   constructor(
     private readonly registry: EngineRegistryApi,
-    private readonly privateRoot: string,
+    private readonly roots: { private: string; cloud: string },
+    private readonly mode: DataMode = 'private',
+    private readonly model?: EngineModelRef,
   ) {}
 
   snapshot(): EngineStatusSnapshot {
@@ -237,8 +244,9 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
         taskKey: input.conversationId,
         conversationId: input.conversationId,
         prompt: input.prompt,
-        mode: 'private',
-        workspaceRoot: this.privateRoot,
+        mode: this.mode,
+        workspaceRoot: this.mode === 'cloud' ? this.roots.cloud : this.roots.private,
+        ...(this.model ? { model: this.model } : {}),
       },
     });
     if (!started.ok) {
@@ -255,6 +263,8 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
   const engines = config?.engines;
   return JSON.stringify({
     privateRoot: engines?.workspaces?.privateRoot ?? '',
+    cloudRoot: engines?.workspaces?.cloudRoot ?? '',
+    workChat: engines?.workChat ?? null,
     opencode: engines?.opencode ?? null,
     openhands: (engines as { openhands?: unknown } | undefined)?.openhands ?? null,
     defaultEngine: (engines as { defaultEngine?: unknown } | undefined)?.defaultEngine ?? null,
@@ -270,10 +280,16 @@ export function getEngineWorkChatRuntime(
   if (existing) {
     return existing;
   }
-  const privateRoot = config?.engines?.workspaces?.privateRoot ?? '';
+  const roots = {
+    private: config?.engines?.workspaces?.privateRoot ?? '',
+    cloud: config?.engines?.workspaces?.cloudRoot ?? '',
+  };
+  const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config as ExecutionEnginesConfig),
-    privateRoot,
+    roots,
+    mode,
+    parseEngineModel(config?.engines?.opencode?.model) ?? undefined,
   );
   runtimes.set(key, runtime);
   return runtime;

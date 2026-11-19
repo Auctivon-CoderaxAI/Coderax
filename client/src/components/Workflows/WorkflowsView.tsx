@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Plus,
+  Rocket,
   RotateCcw,
   Trash2,
   Workflow as WorkflowIcon,
@@ -46,6 +47,7 @@ import {
   useWorkflowTemplatesQuery,
   useWorkflowsQuery,
 } from '~/data-provider';
+import BuildLauncher from './BuildLauncher';
 import { triggerDownload } from '~/utils/downloadFile';
 import { useLocalize } from '~/hooks';
 
@@ -1450,13 +1452,25 @@ export default function WorkflowsView() {
   const workflows = useMemo(() => data?.workflows ?? [], [data?.workflows]);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState<WorkflowView | 'new' | null>(null);
+  const [buildOpen, setBuildOpen] = useState(false);
   const deleteMutation = useDeleteWorkflowMutation();
   const selected = workflows.find((workflow) => workflow.id === selectedId) ?? workflows[0];
 
-  const openCreate = () => setEditing('new');
+  const openCreate = () => {
+    setBuildOpen(false);
+    setEditing('new');
+  };
+  const openBuild = () => {
+    setEditing(null);
+    setBuildOpen(true);
+  };
   const finishEdit = (workflow: WorkflowView) => {
     setSelectedId(workflow.id);
     setEditing(null);
+  };
+  const finishBuild = (workflowId: string) => {
+    setSelectedId(workflowId);
+    setBuildOpen(false);
   };
 
   return (
@@ -1475,14 +1489,24 @@ export default function WorkflowsView() {
               {localize('com_ui_workflows_subtitle')}
             </p>
           </div>
-          <button
-            type="button"
-            className="bg-surface-submit flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-semibold"
-            onClick={openCreate}
-          >
-            <Plus className="h-4 w-4" aria-hidden />
-            {localize('com_ui_workflow_new')}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="bg-surface-submit flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-semibold"
+              onClick={openBuild}
+            >
+              <Rocket className="h-4 w-4" aria-hidden />
+              {localize('com_ui_workflow_build_new')}
+            </button>
+            <button
+              type="button"
+              className="border-border-medium flex items-center gap-1 rounded-lg border px-4 py-2 text-sm font-semibold"
+              onClick={openCreate}
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+              {localize('com_ui_workflow_new')}
+            </button>
+          </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
@@ -1520,6 +1544,7 @@ export default function WorkflowsView() {
                       onClick={() => {
                         setSelectedId(workflow.id);
                         setEditing(null);
+                        setBuildOpen(false);
                       }}
                     >
                       <span className="block text-sm font-semibold">{workflow.name}</span>
@@ -1563,10 +1588,17 @@ export default function WorkflowsView() {
                 onCancel={() => setEditing(null)}
               />
             )}
-            {editing === null && selected == null && (
+            {buildOpen && (
+              <BuildLauncher
+                agents={agents ?? []}
+                onStarted={finishBuild}
+                onCancel={() => setBuildOpen(false)}
+              />
+            )}
+            {!buildOpen && editing === null && selected == null && (
               <p className="text-text-secondary text-sm">{localize('com_ui_workflow_select')}</p>
             )}
-            {editing === null && selected != null && (
+            {!buildOpen && editing === null && selected != null && (
               <div>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>

@@ -1,5 +1,8 @@
 export const WORK_AUTO_MODEL_ID = 'auto';
 
+/** The owner-only OpenCode engine, selected by model id rather than a provider model. */
+export const WORK_OPENCODE_ENGINE_ID = 'opencode' as const;
+
 export type TWorkTaskState =
   | 'running'
   | 'awaiting_approval'
@@ -32,6 +35,8 @@ export type TWorkModel = {
   label: string;
   provider?: string;
   auto?: true;
+  /** Marks the embedded OpenCode engine rather than a provider-hosted model. */
+  engine?: typeof WORK_OPENCODE_ENGINE_ID;
   target?: TWorkModelTarget;
 };
 
