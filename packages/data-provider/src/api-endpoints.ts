@@ -221,6 +221,26 @@ export const projectFile = (projectId: string, fileId: string) =>
 export const projectConversation = (conversationId: string) =>
   `${projectsRoot}/conversations/${encodeURIComponent(conversationId)}`;
 
+/* Movie production hub */
+export const movieRoot = `${BASE_URL}/api/movie`;
+export const movieProjects = () => movieRoot;
+export const movieStatus = () => `${movieRoot}/status`;
+export const movieSeed = () => `${movieRoot}/seed`;
+export const movieProjectById = (projectId: string) =>
+  `${movieRoot}/${encodeURIComponent(projectId)}`;
+export const movieProjectStatus = (projectId: string) =>
+  `${movieProjectById(projectId)}/status`;
+export const movieScenePlan = (projectId: string, sceneId: string) =>
+  `${movieProjectById(projectId)}/scenes/${encodeURIComponent(sceneId)}/plan`;
+export const movieSceneAudioPlan = (projectId: string, sceneId: string) =>
+  `${movieProjectById(projectId)}/scenes/${encodeURIComponent(sceneId)}/audio-plan`;
+export const movieShotGenerate = (projectId: string, sceneId: string, shotId: string) =>
+  `${movieProjectById(projectId)}/scenes/${encodeURIComponent(sceneId)}/shots/${encodeURIComponent(shotId)}/generate`;
+export const movieShotReview = (projectId: string, sceneId: string, shotId: string) =>
+  `${movieProjectById(projectId)}/scenes/${encodeURIComponent(sceneId)}/shots/${encodeURIComponent(shotId)}/review`;
+export const movieAssemblyPlan = (projectId: string) =>
+  `${movieProjectById(projectId)}/assembly-plan`;
+
 export const search = (q: string, cursor?: string | null) =>
   `${BASE_URL}/api/search?q=${q}${cursor ? `&cursor=${cursor}` : ''}`;
 

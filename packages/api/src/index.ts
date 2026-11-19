@@ -86,6 +86,8 @@ export * from './actions';
 export * from './prompts';
 /* Projects */
 export * from './projects';
+/* Movie production */
+export * from './movie';
 /* Conversations */
 export * from './conversations';
 /* Zero-cost inference routing */

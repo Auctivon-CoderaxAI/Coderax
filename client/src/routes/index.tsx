@@ -63,6 +63,11 @@ const loadInsightsView = () =>
     Component: m.default,
   }));
 
+const loadMovieView = () =>
+  importWithRecovery(() => import('~/components/Movie')).then((m) => ({
+    Component: m.MovieView,
+  }));
+
 const loadProjectsView = () =>
   importWithRecovery(() => import('~/components/Projects')).then((m) => ({
     Component: m.ProjectsView,
@@ -190,6 +195,10 @@ export const router = createBrowserRouter(
                 {
                   path: 'studio',
                   element: <Studio />,
+                },
+                {
+                  path: 'movie',
+                  lazy: loadMovieView,
                 },
                 {
                   path: 'workflows',

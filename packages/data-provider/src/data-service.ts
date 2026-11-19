@@ -26,6 +26,7 @@ import * as sk from './types/skills';
 import * as f from './types/files';
 import * as config from './config';
 import * as wf from './workflows';
+import type * as movie from './movie';
 import request from './request';
 import * as s from './schemas';
 import * as r from './roles';
@@ -1138,6 +1139,89 @@ export function assignConversationToProject(
   return request.put(endpoints.projectConversation(conversationId), {
     projectId,
   });
+}
+
+/* Movie production hub */
+
+export function listMovieProjects(): Promise<movie.TMovieProject[]> {
+  return request.get(endpoints.movieProjects());
+}
+
+export function getMovieProject(projectId: string): Promise<movie.TMovieProject> {
+  return request.get(endpoints.movieProjectById(projectId));
+}
+
+export function getMovieServiceStatus(): Promise<{
+  services: movie.TMovieServiceState[];
+  providerReady: boolean;
+}> {
+  return request.get(endpoints.movieStatus());
+}
+
+export function getMovieProductionStatus(projectId: string): Promise<movie.TMovieProductionStatus> {
+  return request.get(endpoints.movieProjectStatus(projectId));
+}
+
+export function seedMovieProject(): Promise<{
+  project: movie.TMovieProject;
+  created: boolean;
+}> {
+  return request.post(endpoints.movieSeed(), {});
+}
+
+export function createMovieProject(
+  payload: movie.TCreateMovieProjectRequest,
+): Promise<movie.TMovieProject> {
+  return request.post(endpoints.movieProjects(), payload);
+}
+
+export function updateMovieProject(
+  projectId: string,
+  payload: movie.TUpdateMovieProjectRequest,
+): Promise<movie.TMovieProject> {
+  return request.patch(endpoints.movieProjectById(projectId), payload);
+}
+
+export function deleteMovieProject(projectId: string): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.movieProjectById(projectId));
+}
+
+export function planMovieScene(
+  projectId: string,
+  sceneId: string,
+): Promise<movie.TMovieProject> {
+  return request.post(endpoints.movieScenePlan(projectId, sceneId), {});
+}
+
+export function planMovieSceneAudio(
+  projectId: string,
+  sceneId: string,
+): Promise<{ plan: Record<string, unknown>; job: movie.TMovieJob }> {
+  return request.post(endpoints.movieSceneAudioPlan(projectId, sceneId), {});
+}
+
+export function generateMovieShot(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+): Promise<{ job: movie.TMovieJob; project: movie.TMovieProject }> {
+  return request.post(endpoints.movieShotGenerate(projectId, sceneId, shotId), {});
+}
+
+export function reviewMovieShot(
+  projectId: string,
+  sceneId: string,
+  shotId: string,
+  decision: 'approve' | 'reject',
+): Promise<movie.TMovieProject> {
+  return request.post(endpoints.movieShotReview(projectId, sceneId, shotId), { decision });
+}
+
+export function planMovieAssembly(projectId: string): Promise<{
+  plan: Record<string, unknown>;
+  job: movie.TMovieJob;
+}> {
+  return request.post(endpoints.movieAssemblyPlan(projectId), {});
 }
 
 export function pinConversation(

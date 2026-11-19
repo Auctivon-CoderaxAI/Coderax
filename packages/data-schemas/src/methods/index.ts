@@ -104,6 +104,13 @@ import {
   type ParentSubagentThreadRecord,
 } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
+import {
+  createMovieProjectMethods,
+  type MovieProjectMethods,
+  type CreateMovieProjectInput,
+  type UpdateMovieProjectInput,
+  type MovieJobPatch,
+} from './movieProject';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -528,6 +535,7 @@ export function createMethods(
     ...messageMethods,
     ...conversationMethods,
     ...createChatProjectMethods(mongoose),
+    ...createMovieProjectMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,
@@ -558,7 +566,14 @@ export {
   DEFAULT_AVAILABLE_PROJECT_FILES_LIMIT,
 } from './file';
 
+export {
+  MOVIE_PROJECT_CONFLICT,
+} from './movieProject';
+
 export type {
+  CreateMovieProjectInput,
+  UpdateMovieProjectInput,
+  MovieJobPatch,
   UserMethods,
   PasskeyMethods,
   SessionMethods,
@@ -607,6 +622,7 @@ export type {
   ConversationMethods,
   AgentEventActorReconciliationStorageMetrics,
   ChatProjectMethods,
+  MovieProjectMethods,
   TxMethods,
   TransactionMethods,
   SpendTokensMethods,
