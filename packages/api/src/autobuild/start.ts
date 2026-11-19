@@ -1,11 +1,11 @@
 import { WORKFLOW_RUN_INPUT_MAX_LENGTH } from 'coderax-data-provider';
-import { compileBuildPlan } from './compile';
+import type { BuildMode, BuildModeDecision } from './modes';
+import type { BuildPlan, BuildRole } from './plan';
 import type { CompiledBuild } from './compile';
 import { BUILD_MODES, chooseEffectiveMode } from './modes';
-import type { BuildMode, ModeDecision } from './modes';
-import { BUILD_ROLES } from './plan';
-import type { BuildPlan, BuildRole } from './plan';
 import { createHeuristicBuildPlan } from './planner';
+import { compileBuildPlan } from './compile';
+import { BUILD_ROLES } from './plan';
 
 export interface StartBuildRequest {
   request: string;
@@ -20,7 +20,7 @@ export type StartBuildParseResult =
 
 export interface PreparedBuild {
   plan: BuildPlan;
-  decision: ModeDecision;
+  decision: BuildModeDecision;
   compiled: CompiledBuild;
 }
 

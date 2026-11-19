@@ -229,8 +229,14 @@ export function compareBenchmarks(
     (value) => `${value.toFixed(0)} ms`,
   );
 
-  const verdict =
-    improved && regressed ? 'mixed' : improved ? 'improved' : regressed ? 'regressed' : 'unchanged';
+  let verdict: BenchmarkComparison['verdict'] = 'unchanged';
+  if (improved && regressed) {
+    verdict = 'mixed';
+  } else if (improved) {
+    verdict = 'improved';
+  } else if (regressed) {
+    verdict = 'regressed';
+  }
 
   return { comparable: true, verdict, deltas, reasons };
 }

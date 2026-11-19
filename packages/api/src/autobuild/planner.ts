@@ -3,11 +3,11 @@ import {
   WORKFLOW_RUN_INPUT_MAX_LENGTH,
   WORKFLOW_STEP_TITLE_MAX_LENGTH,
 } from 'coderax-data-provider';
-import type { CompiledBuild, CompileBuildResult } from './compile';
-import { compileBuildPlan, type RoleAssignment } from './compile';
-import type { BuildMode, ModeDecision } from './modes';
-import { assessRequestComplexity, chooseEffectiveMode } from './modes';
 import type { BuildPlan, BuildPlanResult, BuildRole, BuildTask } from './plan';
+import type { CompiledBuild, CompileBuildResult } from './compile';
+import type { BuildMode, BuildModeDecision } from './modes';
+import { assessRequestComplexity, chooseEffectiveMode } from './modes';
+import { compileBuildPlan, type RoleAssignment } from './compile';
 import { parseBuildPlan } from './plan';
 
 /**
@@ -49,7 +49,7 @@ export type PlannerErrorCode =
 
 export interface PlanBuildValue {
   plan: BuildPlan;
-  decision: ModeDecision;
+  decision: BuildModeDecision;
   compiled: CompiledBuild;
   attempts: number;
 }
