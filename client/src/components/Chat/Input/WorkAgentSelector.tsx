@@ -2,8 +2,8 @@ import { useMemo } from 'react';
 import { useAtom } from 'jotai';
 import { atomFamily } from 'jotai/utils';
 import { useQuery } from '@tanstack/react-query';
-import { QueryKeys, dataService } from 'coderax-data-provider';
-import type { TWorkAgent, TWorkReadinessAction } from 'coderax-data-provider';
+import { QueryKeys, SystemRoles, dataService } from 'coderax-data-provider';
+import type { TWorkAgent, TWorkModel, TWorkReadinessAction } from 'coderax-data-provider';
 import type { WorkOptions, WorkSelection } from './workSelection';
 import {
   workSelectionFromConversation,
@@ -12,13 +12,13 @@ import {
   getWorkModelKey,
   selectWorkAgent,
   WORK_AUTOMATIC,
+  WORK_OPENCODE_ENGINE,
   toWorkOptions,
 } from './workSelection';
 import { createStorageAtom } from '~/store/jotai-utils';
-import { WorkRoutingBadge } from './WorkRoutingBadge';
+import { useAuthContext, useLocalize } from '~/hooks';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
-import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 export { getWorkModelKey } from './workSelection';
@@ -31,8 +31,18 @@ export const workSelectionFamily = atomFamily((key: string) =>
 const selectClassName =
   'text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 cursor-pointer truncate rounded-full bg-transparent py-1.5 pr-8 pl-3 text-sm focus-visible:ring-2 focus-visible:outline-hidden disabled:cursor-default disabled:opacity-70';
 
-/** Work's own catalog: free/local models and the agents whose whole graph runs on them. */
+/** The server exposes the OpenCode engine only to the owner; the picker mirrors that gate. */
+const openCodeEngine: TWorkModel = {
+  id: WORK_OPENCODE_ENGINE,
+  label: 'OpenCode',
+  provider: WORK_OPENCODE_ENGINE,
+  engine: WORK_OPENCODE_ENGINE,
+};
+
+/** Work's own catalog: free/local models, the OpenCode engine, and the agents whose graph runs on them. */
 export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
+  const { user } = useAuthContext();
+  const canUseOpenCode = user?.role === SystemRoles.ADMIN;
   const modelsQuery = useQuery({
     queryKey: [QueryKeys.workModels],
     queryFn: () => dataService.getWorkModels(),
@@ -54,10 +64,13 @@ export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
     staleTime: 30_000,
     enabled,
   });
-  const options = useMemo(
-    () => toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents),
-    [modelsQuery.data, agentsQuery.data],
-  );
+  const options = useMemo(() => {
+    const base = toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents);
+    if (!canUseOpenCode || base.models.some((model) => model.engine != null)) {
+      return base;
+    }
+    return { ...base, models: [...base.models, openCodeEngine] };
+  }, [modelsQuery.data, agentsQuery.data, canUseOpenCode]);
 
   return {
     options,
@@ -218,6 +231,16 @@ export function WorkAgentConversationSelector() {
     ? sanitizeWorkSelection(storedSelection, options)
     : workSelectionFromConversation(conversation, options);
   const readinessAction = readinessQuery.data?.readiness.nextActionDescriptor;
+  const hasProviderModel = options.models.some((model) => model.engine == null);
+  const readinessLabel = (() => {
+    if (readinessQuery.isError) {
+      return localize('com_work_readiness_unavailable');
+    }
+    if (readinessAction) {
+      return localizeWorkReadinessAction(readinessAction, localize);
+    }
+    return localize('com_work_models_empty');
+  })();
 
   const apply = (next: WorkSelection) => {
     const resolved = resolveWorkSelection(next, options);
@@ -260,13 +283,9 @@ export function WorkAgentConversationSelector() {
           {localize('com_work_agents_unavailable')}
         </span>
       )}
-      {!isLoading && !modelsQuery.isError && options.models.length === 0 && (
+      {!isLoading && !modelsQuery.isError && !hasProviderModel && (
         <span role="alert" className="text-text-secondary text-xs">
-          {readinessQuery.isError
-            ? localize('com_work_readiness_unavailable')
-            : readinessAction
-              ? localizeWorkReadinessAction(readinessAction, localize)
-              : localize('com_work_models_empty')}
+          {readinessLabel}
         </span>
       )}
     </div>
