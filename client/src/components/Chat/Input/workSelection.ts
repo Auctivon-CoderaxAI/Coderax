@@ -4,6 +4,9 @@ import type { TWorkAgent, TWorkModel } from 'coderax-data-provider';
 /** Shared sentinel for "let Coderax choose": no saved agent, and the server's model route. */
 export const WORK_AUTOMATIC = WORK_AUTO_MODEL_ID;
 
+/** The owner-only engine id the Work route accepts without a provider endpoint. */
+export const WORK_OPENCODE_ENGINE = 'opencode' as const;
+
 export type WorkSelection = { agentId: string; modelKey: string };
 
 export const automaticWorkSelection: WorkSelection = {
@@ -33,6 +36,19 @@ export type ResolvedWorkSelection = {
 
 export function getWorkModelKey(model: Pick<TWorkModel, 'id' | 'provider'>): string {
   return JSON.stringify([model.provider ?? '', model.id]);
+}
+
+/** A sole engine is the only concrete choice when the server has no automatic target. */
+function soleEngineModel(options: WorkOptions): TWorkModel | null {
+  if (options.auto != null || options.models.length !== 1) {
+    return null;
+  }
+  return options.models[0].engine != null ? options.models[0] : null;
+}
+
+function soleEngineSelection(options: WorkOptions): WorkSelection | null {
+  const model = soleEngineModel(options);
+  return model ? { agentId: WORK_AUTOMATIC, modelKey: getWorkModelKey(model) } : null;
 }
 
 /** An agent is offered only when its model is still among the concrete models. */
@@ -83,9 +99,9 @@ export function resolveWorkSelection(
   const target = options.auto?.target;
   const model =
     selection.modelKey === WORK_AUTOMATIC
-      ? options.models.find(
+      ? (options.models.find(
           (option) => option.id === target?.id && option.provider === target?.provider,
-        )
+        ) ?? soleEngineModel(options))
       : options.models.find((option) => getWorkModelKey(option) === selection.modelKey);
   if (!model?.provider) {
     return null;
@@ -119,10 +135,12 @@ export function sanitizeWorkSelection(stored: unknown, options: WorkOptions): Wo
   const modelOffered =
     typeof value.modelKey === 'string' &&
     options.models.some((option) => getWorkModelKey(option) === value.modelKey);
-  return {
-    agentId: WORK_AUTOMATIC,
-    modelKey: modelOffered ? (value.modelKey as string) : WORK_AUTOMATIC,
-  };
+  return (
+    soleEngineSelection(options) ?? {
+      agentId: WORK_AUTOMATIC,
+      modelKey: modelOffered ? (value.modelKey as string) : WORK_AUTOMATIC,
+    }
+  );
 }
 
 /** Choosing an agent pins its model; returning to automatic keeps the model choice. */
@@ -151,7 +169,14 @@ export function workSelectionFromConversation(
     return sanitizeWorkSelection({ agentId: conversation.agent_id }, options);
   }
   const model = options.models.find(
-    (option) => option.id === conversation?.model && option.provider === conversation?.endpoint,
+    (option) =>
+      option.id === conversation?.model &&
+      (option.engine != null || option.provider === conversation?.endpoint),
   );
-  return { agentId: WORK_AUTOMATIC, modelKey: model ? getWorkModelKey(model) : WORK_AUTOMATIC };
+  return (
+    soleEngineSelection(options) ?? {
+      agentId: WORK_AUTOMATIC,
+      modelKey: model ? getWorkModelKey(model) : WORK_AUTOMATIC,
+    }
+  );
 }

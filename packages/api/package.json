@@ -115,7 +115,6 @@
     "registry": "https://registry.npmjs.org/"
   },
   "peerDependencies": {
-    "@opencode-ai/sdk": "1.19.6",
     "@anthropic-ai/vertex-sdk": "^0.16.0",
     "@aws-sdk/client-bedrock-runtime": "^3.1013.0",
     "@aws-sdk/client-cloudfront": "^3.1042.0",
@@ -181,12 +180,8 @@
     "yauzl": "^3.2.1",
     "zod": "^3.25.67"
   },
-  "peerDependenciesMeta": {
-    "@opencode-ai/sdk": {
-      "optional": true
-    }
-  },
   "dependencies": {
+    "@opencode-ai/sdk": "1.19.6",
     "@langchain/langgraph-checkpoint": "^1.1.2",
     "@langchain/langgraph-checkpoint-mongodb": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.32.2",

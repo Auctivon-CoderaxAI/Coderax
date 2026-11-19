@@ -1,0 +1,23 @@
+name: CI canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runner:
+    name: Runner canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove the runner started
+        run: |
+          echo "runner_started=true"
+          echo "runner_os=$RUNNER_OS"
+          echo "runner_arch=$RUNNER_ARCH"
+          echo "run_id=$GITHUB_RUN_ID"
+          echo "sha=$GITHUB_SHA"
+      - name: Prove Node is available
+        run: node --version

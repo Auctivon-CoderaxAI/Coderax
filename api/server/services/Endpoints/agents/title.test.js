@@ -467,4 +467,23 @@ describe('agents addTitle', () => {
     expect(mockSaveConvo).not.toHaveBeenCalled();
     expect(mockCacheStore.has('user-1-seeded-chat')).toBe(false);
   });
+
+  it('falls back to the first message when title generation returns nothing', async () => {
+    await addTitle(makeReq(), {
+      text: 'Plan the release checklist',
+      client: makeClient(null),
+      conversationId: 'cid-fallback',
+      immediate: true,
+      convoReady: Promise.resolve(),
+    });
+
+    expect(mockSaveConvo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        conversationId: 'cid-fallback',
+        title: 'Plan the release checklist',
+      }),
+      expect.objectContaining({ noUpsert: true }),
+    );
+  });
 });
