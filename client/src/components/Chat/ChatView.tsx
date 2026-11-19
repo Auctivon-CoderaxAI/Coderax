@@ -53,6 +53,8 @@ function ChatView({
   routePending = false,
   workMode = false,
   workCanSubmit = false,
+  handoffDraft,
+  onWorkHandoffDraftApplied,
 }: {
   index?: number;
   project?: TChatProject;
@@ -61,6 +63,9 @@ function ChatView({
   /** Work keeps its model selector; Chat selects automatically and shows none. */
   workMode?: boolean;
   workCanSubmit?: boolean;
+  /** One-time text staged while a Guest signs into the owner account for Work. */
+  handoffDraft?: string | null;
+  onWorkHandoffDraftApplied?: () => void;
 }) {
   const { conversationId } = useParams();
   const localize = useLocalize();
@@ -290,6 +295,8 @@ function ChatView({
                                   routePending={routePending}
                                   workMode={workMode}
                                   workCanSubmit={workCanSubmit}
+                                  handoffDraft={handoffDraft}
+                                  onWorkHandoffDraftApplied={onWorkHandoffDraftApplied}
                                   placeholder={chatFormPlaceholder}
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}

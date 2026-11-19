@@ -54,6 +54,7 @@ let mockCapturedLogoutOptions: {
 
 const mockRefreshMutate = jest.fn();
 const mockLoginMutate = jest.fn();
+const mockPasswordLoginMutate = jest.fn();
 const mockLogoutMutate = jest.fn();
 let capturedAuthContext: ReturnType<typeof useAuthContext> | undefined;
 
@@ -67,6 +68,7 @@ jest.mock('~/data-provider', () => ({
       return { mutate: mockLoginMutate };
     },
   ),
+  usePasswordLoginMutation: jest.fn(() => ({ mutate: mockPasswordLoginMutate })),
   useLogoutUserMutation: jest.fn(
     (options: {
       onSuccess: (...args: unknown[]) => void;
@@ -373,6 +375,26 @@ describe('AuthContextProvider: login onError redirect handling', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/login?redirect_to=%2Fc%2Fabc123', {
       replace: true,
     });
+  });
+
+  it('drops the retired manual flag while preserving the safe Work handoff after a login failure', () => {
+    const returnTo = '/work/new?_work_handoff=handoff-id';
+    window.history.replaceState(
+      {},
+      '',
+      `/login?manual=1&redirect_to=${encodeURIComponent(returnTo)}`,
+    );
+
+    renderProvider();
+
+    act(() => {
+      mockCapturedLoginOptions.onError({ message: 'Invalid credentials' });
+    });
+
+    const loginPath = mockNavigate.mock.calls[0][0] as string;
+    const retryParams = new URLSearchParams(loginPath.split('?')[1]);
+    expect(retryParams.get('manual')).toBeNull();
+    expect(retryParams.get('redirect_to')).toBe(returnTo);
   });
 
   it('drops redirect_to when it contains an absolute URL (open-redirect prevention)', () => {

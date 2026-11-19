@@ -63,4 +63,13 @@ function isSafeWebUrl(value) {
   }
 }
 
-module.exports = { isSafeWebUrl, normalizeServerUrl };
+function isSameServerOrigin(value, serverUrl) {
+  try {
+    if (!serverUrl) return false;
+    return new URL(value).origin === new URL(serverUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { isSafeWebUrl, isSameServerOrigin, normalizeServerUrl };

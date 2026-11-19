@@ -39,11 +39,12 @@ import {
   useGetRole,
   useGetUserQuery,
   useLoginUserMutation,
+  usePasswordLoginMutation,
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
-import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
+import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
 import useTimeout from './useTimeout';
 import store from '~/store';
@@ -90,6 +91,7 @@ const AuthContextProvider = ({
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [passwordLoginError, setPasswordLoginError] = useState<string | undefined>(undefined);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(authConfig?.test === true);
   const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
@@ -194,12 +196,32 @@ const AuthContextProvider = ({
       // Preserve a valid redirect_to across login failures so the deep link survives retries.
       // Cannot use buildLoginRedirectUrl() here: it reads the current pathname (already /login)
       // and would return plain /login, dropping the redirect_to destination.
-      const redirectTo = new URLSearchParams(window.location.search).get('redirect_to');
-      const loginPath =
-        redirectTo && isSafeRedirect(redirectTo)
-          ? `/login?redirect_to=${encodeURIComponent(redirectTo)}`
-          : '/login';
-      navigate(loginPath, { replace: true });
+      const currentLoginParams = new URLSearchParams(window.location.search);
+      const redirectTo = currentLoginParams.get('redirect_to');
+      const retryParams = new URLSearchParams();
+      if (redirectTo && isSafeRedirect(redirectTo)) {
+        retryParams.set('redirect_to', redirectTo);
+      }
+      const retryQuery = retryParams.toString();
+      navigate(retryQuery ? `/login?${retryQuery}` : '/login', { replace: true });
+    },
+  });
+  const { mutate: passwordLoginMutate } = usePasswordLoginMutation({
+    onMutate: () => setPasswordLoginError(undefined),
+    onSuccess: (data: t.TLoginResponse) => {
+      guestAttemptRef.current += 1;
+      const { user, token } = data;
+      if (!user || !token) {
+        setPasswordLoginError('Unable to sign in.');
+        return;
+      }
+      setPasswordLoginError(undefined);
+      const redirect =
+        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
+      setUserContext({ token, isAuthenticated: true, user, redirect });
+    },
+    onError: (error: TResError | unknown) => {
+      setPasswordLoginError(getLoginErrorText(error as TResError) ?? 'Unable to sign in.');
     },
   });
   const { mutate: logoutMutate } = useLogoutUserMutation({
@@ -270,7 +292,7 @@ const AuthContextProvider = ({
 
   /** Obtain an isolated USER guest session before sending a passwordless visitor
    * to the login page. The endpoint is 404 when guest access is disabled, so
-   * existing manual-account and mandatory 2FA flows keep working unchanged.
+   * mandatory 2FA flows keep working unchanged.
    */
   const tryGuestSession = useCallback(async (): Promise<'created' | 'failed' | 'stale'> => {
     const attemptId = ++guestAttemptRef.current;
@@ -279,8 +301,7 @@ const AuthContextProvider = ({
       authConfig?.test === true ||
       authConfig?.optional === true ||
       isRequiredTwoFactorSetupRoute() ||
-      pathname.startsWith('/login/2fa') ||
-      new URLSearchParams(window.location.search).get('manual') === '1'
+      pathname.startsWith('/login/2fa')
     ) {
       return 'failed';
     }
@@ -332,6 +353,14 @@ const AuthContextProvider = ({
       loginMutate(data);
     },
     [loginMutate],
+  );
+
+  const passwordLogin = useCallback(
+    (data: TPasswordLogin) => {
+      guestAttemptRef.current += 1;
+      passwordLoginMutate(data);
+    },
+    [passwordLoginMutate],
   );
 
   const silentRefresh = useCallback(() => {
@@ -399,14 +428,6 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
-          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
@@ -429,14 +450,6 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
-          }
           navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
@@ -519,6 +532,8 @@ const AuthContextProvider = ({
       token,
       error,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
       setError,
@@ -543,6 +558,8 @@ const AuthContextProvider = ({
       userRoleName,
       customRole,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
     ],

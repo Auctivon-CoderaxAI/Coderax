@@ -112,19 +112,17 @@ describe('native Work router', () => {
     ]);
   });
 
-  it('offers the configured default even when it is not marked free', async () => {
-    const res = await request(
-      app({ configuredDefaultModel: async () => 'openai:gpt-4o' }),
-    ).get('/api/work/models');
+  it('does not offer an unverified paid configured default', async () => {
+    const res = await request(app({ configuredDefaultModel: async () => 'openai:gpt-4o' })).get(
+      '/api/work/models',
+    );
     expect(res.status).toBe(200);
     expect(res.body.models.map((model: { id: string }) => model.id)).toEqual([
       'auto',
       'llama3:latest',
-      'openai:gpt-4o',
     ]);
     expect(res.body.models[0].target).toMatchObject({
-      id: 'openai:gpt-4o',
-      provider: 'gateway',
+      id: 'llama3:latest',
     });
   });
 
@@ -359,7 +357,7 @@ describe('native Work router', () => {
       { id: 'gpt-4o', provider: 'openAI' },
     ];
 
-    it('offers an agent that runs on the configured paid default', async () => {
+    it('does not offer an agent on the unverified paid configured default', async () => {
       const res = await request(
         app({
           listModels: catalog,
@@ -370,7 +368,7 @@ describe('native Work router', () => {
         }),
       ).get('/api/work/agents');
       expect(res.status).toBe(200);
-      expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['paid']);
+      expect(res.body.agents).toEqual([]);
     });
 
     it('offers only agents whose whole graph runs on free or local models', async () => {

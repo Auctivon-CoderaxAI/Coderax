@@ -67,6 +67,7 @@ const preservedCredentialEnvKeys = new Set([
   ...Object.keys(baseEnv),
   'E2E_USER_PASSWORD',
   'E2E_USER_B_PASSWORD',
+  'E2E_EMAIL_CHANGE_USER_PASSWORD',
 ]);
 
 function writeRuntimeRealConfig() {

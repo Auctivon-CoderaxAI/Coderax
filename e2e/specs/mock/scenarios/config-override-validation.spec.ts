@@ -36,7 +36,7 @@ async function login(
 const targetUser = {
   email: `config-override-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`,
   name: 'Config Override Target',
-  password: 'securepassword789',
+  password: `pw-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 };
 
 let cachedSessions: { admin: Session; target: Session } | undefined;

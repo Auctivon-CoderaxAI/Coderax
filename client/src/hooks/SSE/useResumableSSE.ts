@@ -634,7 +634,7 @@ const buildOptimisticConversation = (
   return withSubmittedCodeDecision(conversation, submission)!;
 };
 
-const hydrateSubmissionMessages = (
+export const hydrateSubmissionMessages = (
   submission: TSubmission,
   conversationId: string,
 ): TSubmission => ({
@@ -643,7 +643,9 @@ const hydrateSubmissionMessages = (
     ...submission.conversation,
     conversationId,
   },
-  userMessage: hydrateMessageConversationId(submission.userMessage, conversationId),
+  userMessage: submission.userMessage
+    ? hydrateMessageConversationId(submission.userMessage, conversationId)
+    : submission.userMessage,
   initialResponse: submission.initialResponse
     ? hydrateMessageConversationId(submission.initialResponse, conversationId)
     : submission.initialResponse,

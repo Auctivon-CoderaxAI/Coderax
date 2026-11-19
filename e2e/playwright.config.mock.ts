@@ -108,8 +108,7 @@ const reportPath = path.resolve(rootPath, 'e2e/playwright-report');
 const deploymentSkillsPath = path.resolve(rootPath, 'e2e/fixtures/deployment-skills');
 const enableDynamicMcp = process.env.E2E_MCP_LIST_CHANGED === 'true';
 const enableMcpApps = process.env.E2E_MCP_APPS === 'true';
-const enableMcpAppPhaseLabels =
-  enableMcpApps && process.env.E2E_MCP_APP_PHASE_LABELS === 'true';
+const enableMcpAppPhaseLabels = enableMcpApps && process.env.E2E_MCP_APP_PHASE_LABELS === 'true';
 const mcpAppsPolicy = process.env.E2E_MCP_APPS_POLICY;
 if (mcpAppsPolicy && !['true', 'false', 'omitted'].includes(mcpAppsPolicy)) {
   throw new Error(`E2E_MCP_APPS_POLICY must be true, false, or omitted; got ${mcpAppsPolicy}`);
@@ -229,6 +228,7 @@ const preservedCredentialEnvKeys = new Set([
   ...Object.keys(baseEnv),
   'E2E_USER_PASSWORD',
   'E2E_USER_B_PASSWORD',
+  'E2E_EMAIL_CHANGE_USER_PASSWORD',
 ]);
 
 /**

@@ -46,9 +46,11 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
    * destination with `/c/new`. Mandatory enrollment is the one arrival that stays put: the user
    * holding a setup token is authenticated precisely until they enroll, so sending them on would
    * bounce them straight back out of the screen the server is demanding they complete.
+   * `/connect` is left to GuestEntry, which owns the guest-session hand-off and its redirect.
    */
   useEffect(() => {
-    if (!isAuthenticated || isRequiredTwoFactorSetupRoute()) {
+    const isGuestEntry = location.pathname === '/connect';
+    if (!isAuthenticated || isRequiredTwoFactorSetupRoute() || isGuestEntry) {
       return;
     }
     const destination =
@@ -82,19 +84,19 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
     isFetching,
   };
 
+  let header: string | null = null;
+  if (location.pathname !== '/connect' && location.pathname !== '/login') {
+    if (headerText) {
+      header = localize(headerText);
+    } else {
+      const mappedHeader = headerMap[location.pathname];
+      header = mappedHeader ? localize(mappedHeader) : null;
+    }
+  }
+
   return (
     <AuthLayout
-      header={
-        location.pathname === '/connect' ||
-        (location.pathname === '/login' &&
-          new URLSearchParams(location.search).get('manual') !== '1')
-          ? null
-          : headerText
-            ? localize(headerText)
-            : headerMap[location.pathname]
-              ? localize(headerMap[location.pathname])
-              : null
-      }
+      header={header}
       isFetching={isFetching}
       startupConfig={startupConfig}
       startupConfigError={startupConfigError}
