@@ -2,7 +2,7 @@ import React from 'react';
 import { RecoilRoot } from 'recoil';
 import ReactMarkdown from 'react-markdown';
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getRemarkPlugins, getRehypePlugins, getMarkdownComponents } from '../markdownConfig';
 import { MessageContext, ArtifactProvider, CodeBlockProvider } from '~/Providers';
@@ -220,7 +220,7 @@ beforeEach(() => {
 });
 
 describe('MarkdownBlocks code-block index parity', () => {
-  it('assigns document-order indices on a direct render (matches whole-message renderer)', () => {
+  it('assigns document-order indices on a direct render (matches whole-message renderer)', async () => {
     const { container: oldC } = render(
       <TestProviders>
         <OldMarkdown content={MIXED} />
@@ -233,7 +233,7 @@ describe('MarkdownBlocks code-block index parity', () => {
     );
 
     expect(indicesIn(oldC)).toEqual(EXPECTED);
-    expect(indicesIn(newC)).toEqual(EXPECTED);
+    await waitFor(() => expect(indicesIn(newC)).toEqual(EXPECTED));
   });
 
   it('keeps indices correct across a simulated stream (no drift under memoization)', () => {

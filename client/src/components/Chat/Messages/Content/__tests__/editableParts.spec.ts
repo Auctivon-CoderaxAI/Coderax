@@ -51,4 +51,16 @@ describe('hasEditablePart', () => {
   ])('is false for %s', (_label, content) => {
     expect(hasEditablePart({ content } as TMessage)).toBe(false);
   });
+
+  it('keeps a directive in a fence when an apparent closer has an info string', () => {
+    const content = [
+      { type: ContentTypes.TEXT, text: '```\n```js\n:::artifact{identifier="x"}\n```' },
+    ];
+    expect(hasEditablePart({ content } as TMessage)).toBe(true);
+  });
+
+  it('does not open a backtick fence whose info string contains a backtick', () => {
+    const content = [{ type: ContentTypes.TEXT, text: '```code```\n:::artifact{identifier="x"}' }];
+    expect(hasEditablePart({ content } as TMessage)).toBe(false);
+  });
 });

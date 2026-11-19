@@ -13,10 +13,12 @@ import {
   MCPUIResourceCarousel,
 } from '~/components/MCPUIResource';
 import { Citation, CompositeCitation, HighlightedText } from '~/components/Web/Citation';
-import { langSubset, remarkApproxTilde, remarkSingleDollarMath } from '~/utils';
 import { Artifact, artifactPlugin } from '~/components/Artifacts/Artifact';
 import { code, a, p, img, table } from './MarkdownComponents';
+import { remarkSingleDollarMath } from '~/utils/latex';
 import { unicodeCitation } from '~/components/Web';
+import { remarkApproxTilde } from '~/utils/tilde';
+import { langSubset } from '~/utils/languages';
 
 /**
  * Single source of truth for the markdown rendering pipeline, shared by the

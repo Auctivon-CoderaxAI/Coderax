@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
 import {
@@ -61,6 +61,11 @@ import {
 } from '~/hooks';
 import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
 import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
+import {
+  GUEST_WORK_HANDOFF_PARAM,
+  saveGuestWorkHandoffDraft,
+  takeGuestWorkHandoffDraft,
+} from '~/utils/guestWorkHandoff';
 import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
 import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
@@ -76,6 +81,8 @@ const isValidChatProjectId = (projectId: string | null): projectId is string =>
 export default function ChatRoute({ workMode = false }: { workMode?: boolean }) {
   const { data: startupConfig } = useGetStartupConfig();
   const { isAuthenticated, user, roles } = useAuthRedirect();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const defaultTemporaryChat = useRecoilValue(temporaryStore.defaultTemporaryChat);
@@ -194,9 +201,64 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       (conversation?.conversationId === conversationId && conversation.isWork === true)
         ? 'work'
         : 'chat',
+    forceInitialMode: workMode,
   });
   const isWorkMode = modeState.mode === 'work';
-  const workOptions = useWorkOptions({ enabled: isAuthenticated && isWorkMode });
+  const isGuestSession = user?.provider === 'guest';
+  const handoffIdRef = useRef<string | null>(null);
+  const [workHandoffDraft, setWorkHandoffDraft] = useState<string | null>(null);
+  const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
+  const setConversationMode = useCallback(
+    (nextMode: 'chat' | 'work') => {
+      if (nextMode === 'work' && isGuestSession) {
+        const draftText =
+          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')
+            ?.value ?? '';
+        handoffIdRef.current = saveGuestWorkHandoffDraft(draftText);
+      } else if (nextMode === 'chat') {
+        handoffIdRef.current = null;
+      }
+      modeState.setMode(nextMode);
+    },
+    [isGuestSession, modeState],
+  );
+  const modeContextValue = useMemo(
+    () => ({ ...modeState, setMode: setConversationMode }),
+    [modeState, setConversationMode],
+  );
+  const ownerSignInRequired = isWorkMode && isGuestSession;
+  const workOptions = useWorkOptions({
+    enabled: isAuthenticated && !isGuestSession && isWorkMode,
+  });
+  useEffect(() => {
+    if (!isAuthenticated || isGuestSession || !isWorkMode) {
+      return;
+    }
+    const returnParams = new URLSearchParams(location.search);
+    const handoffId = returnParams.get(GUEST_WORK_HANDOFF_PARAM);
+    if (!handoffId) {
+      return;
+    }
+    const draft = takeGuestWorkHandoffDraft(handoffId);
+    if (draft != null) {
+      setWorkHandoffDraft(draft);
+      // The captured composer value is authoritative if the original URL also supplied a prompt.
+      returnParams.delete('prompt');
+    }
+    returnParams.delete(GUEST_WORK_HANDOFF_PARAM);
+    const returnSearch = returnParams.toString();
+    navigate(`${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`, {
+      replace: true,
+    });
+  }, [
+    isAuthenticated,
+    isGuestSession,
+    isWorkMode,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigate,
+  ]);
   const [workSelection, setWorkSelection] = useAtom(workSelectionFamily(modeState.selectionKey));
   const [newConversationWorkSelection] = useAtom(
     workSelectionFamily(JSON.stringify([user?.id ?? '', Constants.NEW_CONVO])),
@@ -219,6 +281,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     workOptions.options,
   );
   const workCanSubmit =
+    isAuthenticated &&
+    !isGuestSession &&
     !workOptions.isLoading &&
     !workOptions.modelsQuery.isError &&
     resolvedWorkSelection != null;
@@ -297,6 +361,10 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
+    // Private Work must not create a task or conversation for an isolated guest identity.
+    if (ownerSignInRequired) {
+      return;
+    }
     // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
     const rolesLoaded = roles?.USER != null;
     const isNewConvo = conversationId === Constants.NEW_CONVO;
@@ -480,6 +548,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   }, [
     conversationId,
     isWorkMode,
+    ownerSignInRequired,
     routeState.pending,
     roles,
     agentsMap,
@@ -499,6 +568,19 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     conversation?.conversationId,
     automaticChatPreset,
   ]);
+
+  if (ownerSignInRequired) {
+    return (
+      <div
+        className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center"
+        aria-live="polite"
+        role="status"
+      >
+        <p>{localize('com_work_owner_signin_required')}</p>
+        <Button onClick={() => setConversationMode('chat')}>{localize('com_ui_chat')}</Button>
+      </div>
+    );
+  }
 
   if (endpointsQuery.isLoading || modelsQuery.isLoading) {
     return (
@@ -532,6 +614,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
       routePending={routeState.pending}
       workMode={isWorkMode}
       workCanSubmit={workCanSubmit}
+      handoffDraft={workHandoffDraft}
+      onWorkHandoffDraftApplied={clearWorkHandoffDraft}
     />
   );
 
@@ -552,7 +636,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         </div>
       )}
       <div hidden={routeState.pending} className={routeState.pending ? 'hidden' : 'contents'}>
-        <ConversationModeContext.Provider value={modeState}>
+        <ConversationModeContext.Provider value={modeContextValue}>
           <ChatModelRoutingContext.Provider value={isWorkMode ? null : chatModelRouting}>
             <ChatTransportContext.Provider
               value={isWorkMode ? workTransport : chatRoutingController.transport}

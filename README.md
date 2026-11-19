@@ -90,6 +90,11 @@ server's free/local catalog; the native generation and authorization paths are
 unchanged. Entering Work in an owned Chat conversation adds execution metadata
 to that record instead of creating a second history.
 
+Work does not consider a model eligible solely because its identifier has a
+local-looking prefix. It trusts the server catalog's existing free/local flags,
+including local endpoint classifications; these are not independently verified
+proof that the configured inference endpoint costs $0.
+
 Focused component tests cover unchanged router location, composer identity,
 draft/file-input retention and mode restoration. Native Work seed tests cover
 in-place promotion, tenant rejection and failed storage operations. These are
@@ -270,6 +275,28 @@ Coderax is a self-hosted AI chat platform that unifies all major AI providers in
 Beyond chat, Coderax provides AI Agents, Model Context Protocol (MCP) support, Artifacts, Code Interpreter, custom actions, conversation search, and enterprise-ready multi-user authentication.
 
 Open source, actively developed, and built for anyone who values control over their AI infrastructure.
+
+## 🖥️ Command-line client
+
+The CLI lives in [`Auctivon-CoderaxAI/Coderax-CLI`](https://github.com/Auctivon-CoderaxAI/Coderax-CLI). It exposes `coderax` for chat, Work mode, agents, models, products, Cloud status, health, OpenAPI discovery, and authenticated calls. The repository is private; authenticate `gh` first.
+
+```bash
+gh repo clone Auctivon-CoderaxAI/Coderax-CLI Coderax-CLI &&
+  cd Coderax-CLI &&
+  npm link &&
+  unset CODERAX_BASE_URL CODERAX_TOKEN &&
+  coderax config set base-url https://your-deployment.example &&
+  read -rsp "Coderax API token: " token &&
+  echo &&
+  printf '%s\n' "$token" | coderax login
+login_status=$?
+unset token
+[ "$login_status" -eq 0 ] && coderax doctor
+```
+
+For an existing checkout, run `git pull --ff-only` in `Coderax-CLI` instead of cloning again.
+
+The in-repo `cli/` package is deprecated; see [`cli/README.md`](cli/README.md).
 
 ---
 

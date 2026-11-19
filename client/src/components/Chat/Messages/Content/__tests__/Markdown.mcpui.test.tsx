@@ -35,12 +35,19 @@ const renderMarkdown = (content: string, legacyHtmlEnabled = true) =>
     </RecoilRoot>,
   );
 
+/* Both renderers are lazy. Compiling their module graphs can starve the test's
+ * timers on a cold cache, so load them before the timed tests. */
+beforeAll(async () => {
+  await import('../MarkdownContent');
+  await import('../MarkdownLiteContent');
+}, 120000);
+
 describe('Markdown with MCP UI markers (resource IDs)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders two legacy UI resources for markers with resource IDs across separate attachments', () => {
+  it('renders two legacy UI resources for markers with resource IDs across separate attachments', async () => {
     // Two tool responses, each produced one ui_resources attachment
     const paris = {
       resourceId: 'abc123',
@@ -72,11 +79,11 @@ describe('Markdown with MCP UI markers (resource IDs)', () => {
 
     renderMarkdown(content);
 
-    const renderers = screen.getAllByTestId('ui-resource-renderer');
+    const renderers = await screen.findAllByTestId('ui-resource-renderer', {}, { timeout: 15000 });
     expect(renderers).toHaveLength(2);
     expect(renderers[0]).toHaveAttribute('data-resource-uri', 'ui://weather/paris');
     expect(renderers[1]).toHaveAttribute('data-resource-uri', 'ui://weather/nyc');
-  });
+  }, 30000);
 
   it('does not mount an App View from a legacy Markdown marker', () => {
     mockUseConversationUIResources.mockReturnValue(
@@ -146,10 +153,10 @@ describe('Markdown table rendering', () => {
     );
   });
 
-  it('wraps lightweight Markdown tables in a horizontally scrollable container', () => {
+  it('wraps lightweight Markdown tables in a horizontally scrollable container', async () => {
     render(<MarkdownLite content={tableMarkdown} />);
 
-    expect(screen.getByRole('table').parentElement).toHaveClass(
+    expect((await screen.findByRole('table', {}, { timeout: 15000 })).parentElement).toHaveClass(
       'markdown-table-wrapper',
       'w-full',
       'max-w-full',

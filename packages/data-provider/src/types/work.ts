@@ -59,5 +59,77 @@ export type TWorkAgent = {
 };
 
 export type TWorkAgentsResponse = { agents: TWorkAgent[] };
+
+export type TWorkReadinessCheckId =
+  | 'free_inference_enabled'
+  | 'provider_credential'
+  | 'eligible_model'
+  | 'eligible_agent';
+
+export type TWorkReadinessCheck = {
+  id: TWorkReadinessCheckId;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+};
+
+export type TWorkReadinessAction =
+  | { id: 'enable_free_inference' }
+  | { id: 'set_provider_credential'; envName: string | null }
+  | { id: 'configure_local_or_free_model' }
+  | { id: 'correct_endpoint_name_conflict' }
+  | { id: 'use_verified_free_or_local_model' }
+  | { id: 'inspect_rejected_free_endpoint' }
+  | { id: 'create_agent_after_model_available' };
+
+export type TWorkReadiness = {
+  ready: boolean;
+  checks: TWorkReadinessCheck[];
+  nextAction: string | null;
+  /** Stable action data for clients to localize; prefer this over display text. */
+  nextActionDescriptor?: TWorkReadinessAction | null;
+};
+
+export type TWorkReadinessResponse = { readiness: TWorkReadiness };
+
 export type TWorkTasksResponse = { tasks: TWorkTask[] };
 export type TWorkTaskResponse = { task: TWorkTask };
+
+/** The preferred model and why it is or is not serving, without credentials. */
+export type TWorkRoutingPrimary = {
+  available: boolean;
+  label: string;
+  modelIds: readonly string[];
+  reason?: string;
+  checkedAt: string;
+  evidence: ReadonlyArray<{ url: string; detail: string }>;
+};
+
+export type TWorkRoutingEndpoint = {
+  id: string;
+  provider: string;
+  modelId: string;
+  label: string;
+  kind: 'primary' | 'fallback';
+  available: boolean;
+  cooldownUntil: number | null;
+  tools: boolean;
+  quota: {
+    requestsUsed: number;
+    requestsLimit: number;
+    tokensUsed: number;
+    tokensLimit: number;
+    resetAt: number;
+  };
+};
+
+/** What a new Work turn would run on, and the free budget behind it. */
+export type TWorkRoutingSnapshot = {
+  enabled: boolean;
+  primary: TWorkRoutingPrimary;
+  activeModel: { provider: string; modelId: string; label: string } | null;
+  endpoints: TWorkRoutingEndpoint[];
+  paidRoutesEnabled: false;
+};
+
+export type TWorkRoutingResponse = { routing: TWorkRoutingSnapshot };

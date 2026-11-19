@@ -10,6 +10,9 @@ const {
   canViewWorkAgent,
   createConfiguredDefaultResolver,
   hasMalformedWorkAgentId,
+  normalizeConfiguredDefault,
+  resolveConfiguredDefault,
+  resolveConfiguredDefaultModel,
   resolveWorkAdmission,
   resolveWorkContext,
   selectedWorkAgentId,
@@ -20,32 +23,14 @@ const {
 const { flattenModelConfig } = require('./workModels');
 
 /**
- * The deployment's default model, read from the app config Coderax already
- * loads. `req.config` is the app config, and its default-selection data is
- * `modelSpecs.list`: a spec marked `default` is the hard default, and one marked
- * `softDefault` is the fallback. The concrete model id lives on the spec's
- * `preset`, so a spec that only names an agent yields no model id.
- *
- * Returning null is deliberate: it lets the resolver fail with an actionable
- * message instead of guessing.
+ * The default resolver lives in `@coderax/api`; this route only loads the app
+ * config it reads, keeping backend behavior in the TypeScript workspace.
  */
-function resolveConfiguredDefaultModel(config) {
-  const specs = config?.modelSpecs?.list;
-  if (!Array.isArray(specs)) {
-    return null;
-  }
-  const chosen =
-    specs.find((spec) => spec?.default === true) ??
-    specs.find((spec) => spec?.softDefault === true);
-  const model = chosen?.preset?.model;
-  return typeof model === 'string' && model.trim() !== '' ? model.trim() : null;
-}
-
 const configuredDefaultFromRequest = createConfiguredDefaultResolver(async (req) => {
   const { getAppConfigOptionsFromUser } = require('@coderax/api');
   const { getAppConfig } = require('~/server/services/Config');
   return getAppConfig(getAppConfigOptionsFromUser(req?.user));
-}, resolveConfiguredDefaultModel);
+}, resolveConfiguredDefault);
 
 function defaultFindAgent(agentId) {
   return require('~/models').getAgentWithVersionCount({ id: agentId });
@@ -158,6 +143,7 @@ function workContextMiddleware(
   seedConversation = seedWorkConversation,
   findAgent = defaultFindAgent,
   canViewAgent = defaultCanViewAgent,
+  freeModelSources,
 ) {
   return async (req, res, next) => {
     try {
@@ -182,12 +168,14 @@ function workContextMiddleware(
       } catch {
         configuredDefault = null;
       }
-      const sources = flattenModelConfig(config);
+      const configuredSources = flattenModelConfig(config);
+      const sharedSources = freeModelSources ? await freeModelSources(req) : [];
+      const sources = [...configuredSources, ...sharedSources];
       const requestedAgentId = selectedWorkAgentId(req.body, Constants.EPHEMERAL_AGENT_ID);
       const admission = await resolveWorkAdmission({
         sources,
         requestedModel: req.body?.model,
-        configuredDefaultModel: typeof configuredDefault === 'string' ? configuredDefault : null,
+        configuredDefaultModel: normalizeConfiguredDefault(configuredDefault),
         requestedAgentId,
         findAgent,
         canViewAgent: (agent) => canViewAgent(req, agent),
@@ -283,6 +271,85 @@ function delegateToAgents(agentsRouter) {
 }
 
 /**
+ * One conversation reservation spans both runners. The engine branch and the
+ * native agent branch each have their own admission checks, so those checks
+ * cannot see a run started by the other branch. This map is the shared lock:
+ * acquire it before either runner writes, release it when that request's run
+ * has finished, failed, or been cancelled.
+ */
+const workRunReservations = new Map();
+
+function workRunReservationKey({ userId, tenantId, conversationId }) {
+  return JSON.stringify([tenantId ?? null, userId, conversationId]);
+}
+
+function reserveWorkRun(input) {
+  if (!input?.userId || !input?.conversationId) {
+    return false;
+  }
+  const key = workRunReservationKey(input);
+  if (workRunReservations.has(key)) {
+    return false;
+  }
+  workRunReservations.set(key, input);
+  return true;
+}
+
+function releaseWorkRun(input) {
+  if (!input?.userId || !input?.conversationId) {
+    return false;
+  }
+  return workRunReservations.delete(workRunReservationKey(input));
+}
+
+/**
+ * The native branch is reached only after the engine branch declines, so one
+ * successful reservation here covers the native SSE run that follows. The
+ * response stays open until the native run settles, then finish/close releases
+ * the conversation for the next turn.
+ */
+function workChatRunReservationMiddleware(req, res, next) {
+  if (req.method !== 'POST') {
+    return next();
+  }
+  if (req.path !== '/chat' && req.path !== '/chat/' && req.path !== '/chat/agents') {
+    return next();
+  }
+  const conversationId =
+    typeof req.body?.conversationId === 'string' ? req.body.conversationId.trim() : '';
+  const userId = req.user?.id;
+  if (!userId || !conversationId || conversationId === 'new' || conversationId === 'pending') {
+    return next();
+  }
+  const tenantId = req.user?.tenantId ?? null;
+  const reservation = { userId, tenantId, conversationId };
+  if (!reserveWorkRun(reservation)) {
+    return res.status(409).json({
+      code: 'WORK_RUN_BUSY',
+      message: 'Another Work run is already active for this task.',
+    });
+  }
+  let released = false;
+  const release = () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    releaseWorkRun(reservation);
+  };
+  if (typeof res.once === 'function') {
+    res.once('finish', release);
+    res.once('close', release);
+  } else {
+    release();
+  }
+  if (res.destroyed) {
+    release();
+  }
+  return next();
+}
+
+/**
  * The Work start path is the existing native chat path, reached through an alias
  * so the server can attach Work context. No second runner, no duplicated stream,
  * and no reimplemented middleware chain.
@@ -295,8 +362,17 @@ function createWorkChatRouter({
   findAgent,
   authorizeAgent,
   canViewAgent,
+  freeModelSources,
+  engineChat,
 } = {}) {
   const router = express.Router();
+  /** Owner-only engine branch. It declines every request it does not own. */
+  if (engineChat) {
+    const { checkBan } = require('~/server/middleware');
+    router.use(checkBan);
+    router.use(engineChat);
+  }
+  router.use(workChatRunReservationMiddleware);
   router.use(selectedAgentAuthorizationMiddleware(authorizeAgent));
   router.use(
     '/chat',
@@ -307,6 +383,7 @@ function createWorkChatRouter({
       seedConversation,
       findAgent,
       canViewAgent,
+      freeModelSources,
     ),
   );
   router.use('/chat', delegateToAgents(agentsRouter ?? require('./agents')));
@@ -317,11 +394,15 @@ module.exports = {
   configuredDefaultFromRequest,
   createWorkChatRouter,
   delegateToAgents,
+  releaseWorkRun,
+  reserveWorkRun,
   resolveWorkContext,
+  resolveConfiguredDefault,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
+  workChatRunReservationMiddleware,
   WORK_AUTO_MODEL_ID,
 };
 

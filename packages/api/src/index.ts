@@ -78,6 +78,10 @@ export * from './memory';
 export * from './modelSpecs';
 /* Agents */
 export * from './agents';
+/* Execution engines */
+export * from './engines';
+/* Cloud Power Mode and private/cloud isolation */
+export * from './cloud';
 /* Assistants */
 export * from './assistants';
 /* Actions */
@@ -88,6 +92,8 @@ export * from './prompts';
 export * from './projects';
 /* Conversations */
 export * from './conversations';
+/* Zero-cost inference routing */
+export * from './routing';
 /* Work */
 export * from './work/admission';
 export * from './work/configuredDefault';

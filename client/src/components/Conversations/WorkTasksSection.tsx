@@ -5,9 +5,14 @@ import { buttonVariants, cn, useToastContext } from '@coderax/client';
 import { dataService, MutationKeys, QueryKeys } from 'coderax-data-provider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TWorkTasksResponse } from 'coderax-data-provider';
-import { useGetPinnedOrderQuery, useUpdatePinnedOrderMutation } from '~/data-provider';
+import {
+  useActiveJobs,
+  useGetPinnedOrderQuery,
+  useUpdatePinnedOrderMutation,
+} from '~/data-provider';
 import WorkTaskRow, { workTaskPinKey } from './WorkTaskRow';
 import { useLocalize, useLocalStorage } from '~/hooks';
+import { workTasksRefetchInterval } from './polling';
 import { NotificationSeverity } from '~/common';
 import { Collapse } from '~/components/ui';
 
@@ -21,16 +26,18 @@ const MAX_RECENT_WORK_TASKS = 12;
 export default function WorkTasksSection({ isAuthenticated, toggleNav }: WorkTasksSectionProps) {
   const localize = useLocalize();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: activeJobs } = useActiveJobs(isAuthenticated);
+  const activeJobIds = activeJobs?.activeJobIds;
   const [isExpanded, setIsExpanded] = useLocalStorage('workTasksExpanded', true);
   const { showToast } = useToastContext();
-  const queryClient = useQueryClient();
   const tasksQuery = useQuery<TWorkTasksResponse>({
     queryKey: [QueryKeys.workTasks],
     queryFn: ({ signal }) => dataService.getWorkTasks(signal),
     enabled: isAuthenticated,
     retry: false,
     staleTime: 5_000,
-    refetchInterval: 5_000,
+    refetchInterval: (data) => workTasksRefetchInterval(data, activeJobIds),
     refetchIntervalInBackground: false,
   });
   const cancelTask = useMutation(

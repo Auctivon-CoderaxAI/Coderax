@@ -3215,6 +3215,8 @@ export type TStartupConfig = {
   };
   serverDomain: string;
   emailLoginEnabled: boolean;
+  /** Server-checked password-only owner login; the password itself is never exposed. */
+  passwordLoginEnabled?: boolean;
   registrationEnabled: boolean;
   socialLoginEnabled: boolean;
   passwordResetEnabled: boolean;
@@ -3909,10 +3911,154 @@ export const workConfigSchema = z
   })
   .prefault({});
 
+export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
+export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
+
+/**
+ * Coding-agent execution engines. Both are disabled by default, which keeps the
+ * existing native runner untouched until an owner opts in. OpenCode is the
+ * default engine when one is selected; OpenHands is an alternative and never a
+ * silent fallback.
+ */
+export const enginesConfigSchema = z
+  .object({
+    defaultEngine: z.enum(['opencode', 'openhands']).default('opencode'),
+    /** Separate real roots; an engine is confined to the root for its data mode. */
+    workspaces: z
+      .object({
+        privateRoot: z.string().trim().optional(),
+        cloudRoot: z.string().trim().optional(),
+      })
+      .prefault({}),
+    /**
+     * Owner-only Work chat execution. When enabled, an ADMIN's Work turns run
+     * through the configured engine instead of the native agent runner; every
+     * other user, and every turn with a selected agent or attachment, still
+     * takes the native path. Disabled by default.
+     */
+    workChat: z
+      .object({
+        enabled: z.boolean().default(false),
+        engine: z.literal('opencode').default('opencode'),
+      })
+      .prefault({}),
+    opencode: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** An existing `opencode serve` endpoint; Coderax never spawns it. */
+        baseURL: z.string().trim().url().optional(),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+      })
+      .prefault({}),
+    openhands: z
+      .object({
+        enabled: z.boolean().default(false),
+        /** A remote OpenHands Agent Server; the Python runtime is not bundled. */
+        agentServerUrl: z.string().trim().url().optional(),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+export type TEnginesConfig = z.infer<typeof enginesConfigSchema>;
+
+export const DEFAULT_CLOUD_POWER_REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Cloud Power Mode is an explicit, owner-only export path to a free-tier
+ * inference provider. It is disabled by default, and private mode never reaches
+ * it. The model is pinned to the one verified free model, so no paid model can
+ * be configured into existence here.
+ */
+export const cloudPowerConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    provider: z.literal('groq').default('groq'),
+    model: z.literal('openai/gpt-oss-120b').default('openai/gpt-oss-120b'),
+    /** The owner confirms the Groq organisation is on the Free plan. */
+    acknowledgeFreeTierOnly: z.boolean().default(false),
+    maxRequestsPerDay: z.number().int().min(1).max(1_000).default(200),
+    maxTokensPerDay: z.number().int().min(1).max(200_000).default(200_000),
+    requestTimeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(DEFAULT_CLOUD_POWER_REQUEST_TIMEOUT_MS),
+  })
+  .prefault({});
+
+export type TCloudPowerConfig = z.infer<typeof cloudPowerConfigSchema>;
+
+export const DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY = 200;
+export const DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY = 400_000;
+export const DEFAULT_FREE_INFERENCE_MAX_RETRIES = 2;
+export const DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD = 2;
+export const DEFAULT_FREE_INFERENCE_COOLDOWN_MS = 60_000;
+export const DEFAULT_FREE_INFERENCE_REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Zero-cost hosted inference routing. Disabled by default, which reproduces the
+ * behavior before routing existed: nothing calls a hosted free endpoint until
+ * an operator turns it on. There is deliberately no paid-provider field — a
+ * chargeable route cannot be configured into existence here.
+ */
+export const freeInferenceConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** A turn may continue on another verified free endpoint after a failure. */
+    allowFallback: z.boolean().default(true),
+    /**
+     * A Work turn prefers an endpoint with native tool calling; when true a
+     * text-only endpoint may still serve it as a last resort. The run is told
+     * the tools are unavailable rather than silently dropping them.
+     */
+    allowToolsInFallback: z.boolean().default(false),
+    maxRequestsPerDay: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000)
+      .default(DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY),
+    maxTokensPerDay: z
+      .number()
+      .int()
+      .min(1)
+      .max(1_000_000_000)
+      .default(DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY),
+    /** Extra attempts after the first, so at most `maxRetries + 1` calls per turn. */
+    maxRetries: z.number().int().min(0).max(3).default(DEFAULT_FREE_INFERENCE_MAX_RETRIES),
+    failureThreshold: z
+      .number()
+      .int()
+      .min(1)
+      .max(10)
+      .default(DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD),
+    cooldownMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(3_600_000)
+      .default(DEFAULT_FREE_INFERENCE_COOLDOWN_MS),
+    requestTimeoutMs: z
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(DEFAULT_FREE_INFERENCE_REQUEST_TIMEOUT_MS),
+  })
+  .prefault({});
+
+export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
+
 export const configSchema = z.object({
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,
+  engines: enginesConfigSchema,
+  cloudPower: cloudPowerConfigSchema,
+  freeInference: freeInferenceConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   ocr: ocrSchema.optional(),

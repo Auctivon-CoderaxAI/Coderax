@@ -1,4 +1,8 @@
-import { createConfiguredDefaultResolver } from './configuredDefault';
+import {
+  createConfiguredDefaultResolver,
+  resolveConfiguredDefault,
+  resolveConfiguredDefaultModel,
+} from './configuredDefault';
 
 describe('createConfiguredDefaultResolver', () => {
   it('loads the app config when the request has none and leaves it for the agents chain', async () => {
@@ -69,5 +73,34 @@ describe('createConfiguredDefaultResolver', () => {
     expect(() => createConfiguredDefaultResolver(async () => null, undefined as never)).toThrow(
       /requires load and resolve functions/,
     );
+  });
+});
+
+describe('resolveConfiguredDefault', () => {
+  it('returns the default model with the endpoint that advertises it', () => {
+    const config = {
+      modelSpecs: {
+        list: [{ softDefault: true, preset: { model: ' gpt-4o ', endpoint: 'gateway' } }],
+      },
+    };
+    expect(resolveConfiguredDefault(config)).toEqual({ id: 'gpt-4o', provider: 'gateway' });
+    expect(resolveConfiguredDefaultModel(config)).toBe('gpt-4o');
+  });
+
+  it('prefers the hard default and returns null without a concrete model', () => {
+    const config = {
+      modelSpecs: {
+        list: [
+          { softDefault: true, preset: { model: 'qwen', endpoint: 'ollama' } },
+          { default: true, preset: { model: 'llama3:latest', endpoint: 'ollama' } },
+          { name: 'agent-only', preset: { agent_id: 'a' } },
+        ],
+      },
+    };
+    expect(resolveConfiguredDefault(config)).toEqual({ id: 'llama3:latest', provider: 'ollama' });
+    expect(
+      resolveConfiguredDefault({ modelSpecs: { list: [{ default: true, preset: {} }] } }),
+    ).toBeNull();
+    expect(resolveConfiguredDefault(undefined)).toBeNull();
   });
 });

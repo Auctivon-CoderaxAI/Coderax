@@ -1072,6 +1072,8 @@ describe('getArtifactDownloadFilename', () => {
     ['# Hello &amp; goodbye', 'Hello & goodbye.md'],
     ['```bash\n# comment\n```\n# Actual heading', 'Actual heading.md'],
     ['````\n```bash\n# Still code\n```\n````\n# Actual heading', 'Actual heading.md'],
+    ['```\n```js\n# Still code\n```\n# Actual heading', 'Actual heading.md'],
+    ['```code```\n# Actual heading', 'Actual heading.md'],
     ['~~~\n```\n# Still code\n~~~\n# Actual heading', 'Actual heading.md'],
     ['---\n# Metadata comment\n---\n# Actual heading', 'Actual heading.md'],
     ['<div>\n# Hidden heading\n</div>\n\n# Actual heading', 'Actual heading.md'],

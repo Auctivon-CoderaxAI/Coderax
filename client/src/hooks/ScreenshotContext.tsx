@@ -1,5 +1,4 @@
 import { createContext, useRef, useContext, RefObject, ReactNode } from 'react';
-import { toCanvas } from 'html-to-image';
 import { ThemeContext, isDark, readThemeColor } from '@coderax/client';
 import { completeProgressiveRowMounts } from '~/hooks/Messages/useProgressiveRowMount';
 
@@ -71,6 +70,7 @@ export const useScreenshot = () => {
      *  not a colour, so it has to be wrapped before html-to-image sees it. */
     const fallbackBackground = isDark(theme) ? '#171717' : 'white';
     const backgroundColor = readThemeColor('--surface-primary') ?? fallbackBackground;
+    const { toCanvas } = await import('html-to-image');
     const canvas = await toCanvas(node, {
       backgroundColor,
       pixelRatio,

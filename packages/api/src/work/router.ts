@@ -4,10 +4,13 @@ import {
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
 } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
-import type { WorkModelSource } from './models';
+import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
+import type { EngineStatusSnapshot } from '../engines/registry';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { createDisabledRoutingSnapshot } from '../routing/router';
+import { describeWorkReadiness } from './readiness';
 import { listEligibleWorkAgents } from './agents';
 import { buildWorkModelOptions } from './models';
 import { isValidWorkId } from './ids';
@@ -27,7 +30,7 @@ export type WorkDeps = {
    * automatic choice. It is never trusted blindly: the resolved model must
    * also be among the offered free/local models.
    */
-  configuredDefaultModel?: () => Promise<string | null>;
+  configuredDefaultModel?: () => Promise<WorkConfiguredDefaultInput>;
   /**
    * Agents the caller can view, with the model and provider each runs on and
    * its handoff, chain and subagent references. Tenant and ACL scope are the
@@ -45,12 +48,22 @@ export type WorkDeps = {
   getRunState?: (input: { userId: string; conversationId: string }) => Promise<string | null>;
   /** Aborts the native generation for this conversation. */
   cancelRun: (input: { userId: string; conversationId: string }) => Promise<boolean>;
+  /**
+   * The live zero-cost routing state: which provider and model a new turn would
+   * use, why the preferred model is unavailable, and the remaining budget.
+   * Absent means the deployment has not opted into hosted free routing.
+   */
+  routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
+  /** Why free inference is or is not usable, from the server credential state. */
+  freeInference?: () => FreeInferenceCatalogState;
+  /** Safe execution-engine availability; never a path or credential. */
+  engines?: () => Promise<EngineStatusSnapshot> | EngineStatusSnapshot;
 };
 
 const HISTORY_LIMIT = 50;
 
 /** A default that cannot be read leaves automatic routing to the free/local ranking. */
-async function readConfiguredDefault(deps: WorkDeps): Promise<string | null> {
+async function readConfiguredDefault(deps: WorkDeps): Promise<WorkConfiguredDefaultInput> {
   if (!deps.configuredDefaultModel) {
     return null;
   }
@@ -104,6 +117,69 @@ export function createWorkRouter(deps: WorkDeps): Router {
     next();
   });
 
+  /**
+   * The model a new turn would actually use, named with its provider. The
+   * snapshot carries no credentials, no prompts and no provider error text.
+   */
+  router.get('/routing', async (_req: Request, res: Response) => {
+    try {
+      const routing = deps.routing ? await deps.routing() : createDisabledRoutingSnapshot();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ routing });
+    } catch {
+      res.status(503).json({ code: 'WORK_ROUTING_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * One answer to "why can't Work run?" that names the missing prerequisite:
+   * opt-in, credential, offered model, or agent. Never returns a key or value.
+   */
+  router.get('/readiness', async (_req: Request, res: Response) => {
+    try {
+      const [sources, agents] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents ? deps.listAgents() : Promise.resolve([]),
+      ]);
+      const models = buildWorkModelOptions(sources);
+      const eligible = await listEligibleWorkAgents({
+        agents,
+        models,
+        graphLimit: deps.agentGraphLimit ?? DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+        concurrency: deps.agentGraphConcurrency ?? DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
+      });
+      const readiness = describeWorkReadiness({
+        catalog: deps.freeInference ? deps.freeInference() : null,
+        models,
+        agents: eligible,
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ readiness });
+    } catch {
+      res.status(503).json({ code: 'WORK_READINESS_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * Whether OpenCode or OpenHands can run, and why not. A disabled engine is
+   * listed as unavailable instead of disappearing, so the owner can see the
+   * prerequisite without reading server logs.
+   */
+  router.get('/engines', async (_req: Request, res: Response) => {
+    if (!deps.engines) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ defaultEngine: null, engines: [] });
+      return;
+    }
+    try {
+      const snapshot = await deps.engines();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(snapshot);
+    } catch {
+      res.status(503).json({ code: 'WORK_ENGINES_UNAVAILABLE' });
+    }
+  });
+
   router.get('/models', async (_req: Request, res: Response) => {
     try {
       const [sources, configuredDefault] = await Promise.all([
@@ -130,8 +206,12 @@ export function createWorkRouter(deps: WorkDeps): Router {
       return;
     }
     try {
-      const [sources, agents] = await Promise.all([deps.listModels(), deps.listAgents()]);
-      const models = buildWorkModelOptions(sources);
+      const [sources, agents, configuredDefault] = await Promise.all([
+        deps.listModels(),
+        deps.listAgents(),
+        readConfiguredDefault(deps),
+      ]);
+      const models = buildWorkModelOptions(sources, configuredDefault);
       const eligible = await listEligibleWorkAgents({
         agents,
         models,

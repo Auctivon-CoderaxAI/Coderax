@@ -1,8 +1,10 @@
-import { z } from 'zod';
+// `anthropicSchema` is a Zod 4 schema from coderax-data-provider; infer its type from the
+// matching Zod 4 namespace instead of the Zod 3 copy this package resolves by default.
 import { Dispatcher } from 'undici';
 import { AuthKeys, anthropicSchema, TVertexAISchema } from 'coderax-data-provider';
 import type { ThinkingDisplayWireValue } from 'coderax-data-provider';
 import type { AnthropicClientOptions } from '@librechat/agents';
+import type { z } from 'zod/v4';
 import type { GoogleServiceKey } from '../utils/key';
 import type { LLMConfigResult } from './openai';
 

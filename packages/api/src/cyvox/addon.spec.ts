@@ -309,10 +309,12 @@ describe('CyVox privileged Work and Robot boundary', () => {
 });
 
 // This test remains inside the same privileged bridge suite.
-describe('CyVox fast routing contract', () => {
+describe('CyVox zero-cost routing policy', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('sends FAST for a confirmed owner Work task', async () => {
+  /** CyVox accepts AUTO, LOCAL, and FAST. AUTO delegates per-task
+   * classification to CyVox's zero-cost router instead of forcing fast. */
+  it('delegates task classification to CyVox with AUTO for a confirmed owner Work task', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1' }), {
         headers: { 'Content-Type': 'application/json' },
@@ -335,7 +337,7 @@ describe('CyVox fast routing contract', () => {
       task: 'Inspect tests',
       mode: 'Autonomous Run',
       max_steps: 15,
-      routing_mode: 'FAST',
+      routing_mode: 'AUTO',
     });
   });
 });
@@ -377,7 +379,7 @@ describe('CyVox per-task selection contract', () => {
       task: 'Inspect tests',
       mode: 'Coding Team',
       max_steps: 15,
-      routing_mode: 'FAST',
+      routing_mode: 'AUTO',
       model: 'ollama:llama3:latest',
       thinking_effort: 'high',
     });
@@ -402,7 +404,7 @@ describe('CyVox per-task selection contract', () => {
         task: 'Inspect tests',
         mode: 'Autonomous Run',
         max_steps: 15,
-        routing_mode: 'FAST',
+        routing_mode: 'AUTO',
       });
     },
   );
@@ -476,7 +478,7 @@ describe('CyVox per-task selection contract', () => {
       task: 'Inspect tests',
       mode: 'Autonomous Run',
       max_steps: 15,
-      routing_mode: 'FAST',
+      routing_mode: 'AUTO',
       model: 'llama3:latest',
     });
   });

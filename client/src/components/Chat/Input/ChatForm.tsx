@@ -63,10 +63,12 @@ import useAskAnswerMode from '~/hooks/Input/useAskAnswerMode';
 import AskUserQuestionPopover from './AskUserQuestionPopover';
 import useComposerItems from '~/hooks/Input/useComposerItems';
 import useAttachTarget from '~/hooks/Input/useAttachTarget';
+import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import Hints, { composerHintId } from './Composer/Hints';
 import PastedTextDialog from './Files/PastedTextDialog';
 import DuringRunSendButton from './DuringRunSendButton';
 import ProjectLandingChip from '../ProjectLandingChip';
+import { useComposerPreferences } from './preferences';
 import useHasAccess from '~/hooks/Roles/useHasAccess';
 import useDictation from '~/hooks/Input/useDictation';
 import { useGetStartupConfig } from '~/data-provider';
@@ -82,8 +84,6 @@ import AutoPlayAudio from './AutoPlayAudio';
 import Waveform from './Composer/Waveform';
 import { mainTextareaId } from '~/common';
 import CollapseChat from './CollapseChat';
-import { useComposerPreferences } from './preferences';
-import { maximizeChatSpaceAtom } from '~/store/chatLayout';
 import QuoteButton from './QuoteButton';
 import ToolDialogs from './ToolDialogs';
 import StopButton from './StopButton';
@@ -122,6 +122,9 @@ interface ChatFormProps {
   /** Work exposes an agent selector; Chat resolves its model automatically. */
   workMode?: boolean;
   workCanSubmit?: boolean;
+  /** Text staged by the one-time Guest-to-owner Work handoff. */
+  handoffDraft?: string | null;
+  onWorkHandoffDraftApplied?: () => void;
   /** Owned by ChatView: which layout the composer sits in — the welcome screen
    *  floats or bottoms it out, a conversation ends the page with it. */
   isLandingPage: boolean;
@@ -186,6 +189,8 @@ const ChatForm = memo(function ChatForm({
   enterToSend,
   autoSendText,
   speechSettingsInitialized,
+  handoffDraft,
+  onWorkHandoffDraftApplied,
   footerBelow,
   centerFormOnLanding,
   files,
@@ -358,6 +363,15 @@ const ChatForm = memo(function ChatForm({
     // when the question resolves.
     draftId: answerMode.draftId,
   });
+
+  useEffect(() => {
+    if (handoffDraft == null) {
+      return;
+    }
+    methods.setValue('text', handoffDraft, { shouldDirty: true, shouldValidate: true });
+    settleText(handoffDraft);
+    onWorkHandoffDraftApplied?.();
+  }, [handoffDraft, methods, onWorkHandoffDraftApplied, settleText]);
 
   const {
     isPreparing: isPreparingFromUrl,
@@ -1150,6 +1164,9 @@ function ChatFormWrapper({
   project,
   routePending = false,
   workMode = false,
+  workCanSubmit = false,
+  handoffDraft,
+  onWorkHandoffDraftApplied,
   isLandingPage,
   enterToSend: enterToSendProp,
   autoSendText: autoSendTextProp,
@@ -1162,6 +1179,9 @@ function ChatFormWrapper({
   project?: TChatProject;
   routePending?: boolean;
   workMode?: boolean;
+  workCanSubmit?: boolean;
+  handoffDraft?: string | null;
+  onWorkHandoffDraftApplied?: () => void;
   /** Each preference overrides the host's `ComposerPreferencesProvider` value. */
   enterToSend?: boolean;
   autoSendText?: number;
@@ -1255,6 +1275,9 @@ function ChatFormWrapper({
       project={project}
       routePending={routePending}
       workMode={workMode}
+      workCanSubmit={workCanSubmit}
+      handoffDraft={handoffDraft}
+      onWorkHandoffDraftApplied={onWorkHandoffDraftApplied}
       isLandingPage={isLandingPage}
       footerBelow={footerBelow}
       centerFormOnLanding={centerFormOnLanding}

@@ -1,13 +1,8 @@
 import { Star, MapPin } from 'lucide-react';
 import { Tools } from 'coderax-data-provider';
-import type {
-  TAttachment,
-  ImageResult,
-  PlaceResult,
-  ShoppingResult,
-} from 'coderax-data-provider';
+import type { TAttachment, ImageResult, PlaceResult, ShoppingResult } from 'coderax-data-provider';
 import { isMacPlatform } from '~/utils/shortcuts';
-import { isSafeUrl } from '~/utils/markdown';
+import { isSafeUrl } from '~/utils/safeUrl';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 

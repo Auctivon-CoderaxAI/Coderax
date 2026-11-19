@@ -288,22 +288,52 @@ At the beginning of every Freebuff CLI session:
 
 **Opening a PR is not completion. Freebuff is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:58930069f2afeed8bec32313f0b88c524e628fa6f84d03c7aefb14d13b34a4f9 -->
+
 ### 8. Command Reference (use these exact commands)
 
 Run from the repository root with `gh` authenticated (`gh auth status`). `gh` resolves `{owner}/{repo}` itself; replace `PR_NUMBER` with the numeric PR number.
 
 ```bash
 # Check whether the PR is a draft and inspect reviews/checks
-gh pr view --json number,url,isDraft,headRefOid,reviewDecision,reviews,statusCheckRollup
+gh pr view PR_NUMBER --json number,url,isDraft,headRefOid,reviewDecision,reviews,statusCheckRollup
 
 # Convert an existing draft PR to ready for review
 gh pr ready
 
 # Read conversation comments and general reviews
-gh pr view --comments
+gh pr view PR_NUMBER --comments
 
 # Read ALL inline code-review comments
 gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/comments" --paginate
+
+# Read ALL review threads and their resolution state (one JSON object per thread)
+gh api graphql --paginate -F owner='{owner}' -F repo='{repo}' -F number=PR_NUMBER \
+  -f query='query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100, after: $endCursor) {
+          nodes {
+            id
+            isResolved
+            isOutdated
+            path
+            line
+            comments(first: 1) { nodes { id databaseId } }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
+
+# Resolve a review thread only after the fix is pushed to the PR branch
+gh api graphql -f query='
+  mutation($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) { thread { isResolved } }
+  }' -F threadId=THREAD_ID
 
 # Read submitted reviews
 gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/reviews" --paginate
@@ -312,7 +342,7 @@ gh api "repos/{owner}/{repo}/pulls/PR_NUMBER/reviews" --paginate
 gh api "repos/{owner}/{repo}/issues/PR_NUMBER/comments" --paginate
 
 # Inspect CI status
-gh pr checks
+gh pr checks PR_NUMBER
 ```
 
 - Keep `--paginate` on every `gh api` call. One page is not "all feedback" (section 3).
@@ -320,8 +350,10 @@ gh pr checks
   push, and compare approvals against that SHA (section 5).
 - `isDraft` must be `false` before review is requested (section 1). `gh pr ready` targets the PR for
   the branch you are on; pass the PR number explicitly when you are elsewhere.
+- Inspect every thread returned above: `isResolved: false` identifies an unresolved thread.
+  Verify all required threads are resolved before passing the merge gate (section 6).
 - An empty `reviews` or comment list is a result to report, not proof that reviewers accepted the
   request. Confirm the review was actually submitted (section 2).
 
 
-<!-- END freebuff-pr-policy -->
+<!-- /coderabbit-ai-generated:v1 --><!-- END freebuff-pr-policy -->

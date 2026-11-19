@@ -23,6 +23,51 @@ export type WorkModelTarget = {
   provider?: string;
 };
 
+/** The deployment's configured default: the model id and, when known, its endpoint. */
+export type WorkConfiguredDefault = {
+  id: string;
+  provider?: string;
+};
+
+export type WorkConfiguredDefaultInput = string | WorkConfiguredDefault | null | undefined;
+
+/**
+ * Normalize the string form (older callers) and the endpoint-aware object form.
+ * The provider matters when two endpoints advertise the same model id.
+ */
+function readConfiguredDefault(input: WorkConfiguredDefaultInput): {
+  id?: string;
+  provider?: string;
+} {
+  if (!input) {
+    return {};
+  }
+  if (typeof input === 'string') {
+    return { id: input.trim() };
+  }
+  const id = typeof input.id === 'string' ? input.id.trim() : '';
+  const provider = typeof input.provider === 'string' ? input.provider.trim() : '';
+  return { ...(id ? { id } : {}), ...(provider ? { provider } : {}) };
+}
+
+/**
+ * Accepts a resolver result of unknown shape (the route layer passes its
+dependency through) and keeps only a usable default.
+ */
+export function normalizeConfiguredDefault(input: unknown): WorkConfiguredDefaultInput {
+  if (typeof input === 'string') {
+    return input.trim() || null;
+  }
+  if (input == null || typeof input !== 'object') {
+    return null;
+  }
+  const { id, provider } = readConfiguredDefault(input as WorkConfiguredDefault);
+  if (!id) {
+    return null;
+  }
+  return provider ? { id, provider } : { id };
+}
+
 export type WorkModel = {
   id: string;
   label: string;
@@ -52,52 +97,68 @@ export function isLocalModelId(id: string): boolean {
 }
 
 /**
- * Work offers models Coderax can run without charging the user: explicitly
- * free, explicitly local, or a local-runtime identifier. Paid gateway models
- * are excluded rather than silently filtered at execution time, so the picker
- * never advertises something the run would reject.
+ * A model identifier alone cannot establish where inference runs. Work accepts
+ * only sources explicitly marked free or local by the server's model catalog.
  */
 export function isWorkSupportedModel(source: WorkModelSource): boolean {
   const id = (source.id ?? source.name ?? '').trim();
   if (!id || id === WORK_AUTO_MODEL_ID) {
     return false;
   }
-  return source.free === true || source.local === true || isLocalModelId(id);
+  return source.free === true || source.local === true;
 }
 
-/** Deduplicate by id, keep the first label, and sort for a stable picker. */
+/**
+ * The Work submission contract selects concrete models by id alone. Until that
+ * contract supports provider-qualified ids end to end, refuse ambiguous ids
+ * rather than silently routing a request to whichever provider appeared first.
+ * Repeated catalog entries from the same provider remain deduplicated.
+ */
 export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
   const byId = new Map<string, WorkModel>();
+  const ambiguous = new Set<string>();
   for (const source of sources) {
     if (!isWorkSupportedModel(source)) {
       continue;
     }
     const id = (source.id ?? source.name ?? '').trim();
-    if (byId.has(id)) {
+    const provider = source.provider?.trim() || undefined;
+    const existing = byId.get(id);
+    if (existing && existing.provider !== provider) {
+      ambiguous.add(id);
       continue;
     }
-    byId.set(id, {
-      id,
-      label: (source.label ?? id).trim(),
-      ...(source.provider ? { provider: source.provider } : {}),
-    });
+    if (!existing) {
+      byId.set(id, {
+        id,
+        label: (source.label ?? id).trim() || id,
+        ...(provider ? { provider } : {}),
+      });
+    }
   }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...byId.values()]
+    .filter((model) => !ambiguous.has(model.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /**
  * The model the automatic option runs on: the deployment's configured default
  * when that exact model is offered, otherwise the same free/local ranking Chat
- * routes by. Every candidate is already free or local, so ranking can never
- * reach a paid model.
+ * routes by. Every candidate other than the operator's configured default is
+ * free or local, so ranking cannot reach an unverified paid model.
  */
 export function resolveWorkAutoModel(
   models: WorkModel[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel | null {
   const concrete = workConcreteModels(models);
-  const fallbackId = configuredDefault?.trim();
-  const configured = fallbackId ? concrete.find((model) => model.id === fallbackId) : undefined;
+  const { id: fallbackId, provider: fallbackProvider } = readConfiguredDefault(configuredDefault);
+  const configured = fallbackId
+    ? concrete.find(
+        (model) =>
+          model.id === fallbackId && (!fallbackProvider || model.provider === fallbackProvider),
+      )
+    : undefined;
   if (configured) {
     return configured;
   }
@@ -116,13 +177,14 @@ export function resolveWorkAutoModel(
 }
 
 /**
- * The picker's options: the automatic choice first, then the concrete models.
- * Automatic is offered only when there is at least one model to choose from,
- * so it can never be selected against an empty list, and it names its target.
+ * The picker's options: the automatic choice first, then the concrete models,
+ * including an operator default only if it is independently catalogued free/local. Automatic is offered only when
+ * there is at least one model to choose from, so it can never be selected
+ * against an empty list, and it names its target.
  */
 export function buildWorkModelOptions(
   sources: WorkModelSource[],
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModel[] {
   const models = buildWorkModels(sources);
   const target = resolveWorkAutoModel(models, configuredDefault);
@@ -214,7 +276,7 @@ export type WorkModelSelection =
 export function resolveWorkSelection(
   models: WorkModel[],
   selected: string | null | undefined,
-  configuredDefault?: string | null,
+  configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelSelection {
   const concrete = workConcreteModels(models);
 
@@ -225,7 +287,7 @@ export function resolveWorkSelection(
       : { ok: false, reason: 'model_unavailable' };
   }
 
-  /** `concrete` already excludes paid gateway models, so membership is the proof. */
+  /** Only server-catalogued free/local models enter this option list. */
   const fallback = resolveWorkAutoModel(concrete, configuredDefault);
   return fallback
     ? { ok: true, model: fallback, auto: true }

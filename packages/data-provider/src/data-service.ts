@@ -322,6 +322,10 @@ export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };
 
+export const passwordLogin = (payload: t.TPasswordLogin): Promise<t.TLoginResponse> => {
+  return request.post(endpoints.passwordLogin(), payload);
+};
+
 export const logout = (): Promise<m.TLogoutResponse> => {
   return request.post(endpoints.logout());
 };
@@ -1044,6 +1048,14 @@ export function getWorkModels(): Promise<t.TWorkModelsResponse> {
 
 export function getWorkAgents(): Promise<t.TWorkAgentsResponse> {
   return request.get(endpoints.workAgents());
+}
+
+export function getWorkReadiness(): Promise<t.TWorkReadinessResponse> {
+  return request.get(endpoints.workReadiness());
+}
+
+export function getWorkRouting(): Promise<t.TWorkRoutingResponse> {
+  return request.get(endpoints.workRouting());
 }
 
 export function getWorkTasks(signal?: AbortSignal): Promise<t.TWorkTasksResponse> {

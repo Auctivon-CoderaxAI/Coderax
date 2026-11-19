@@ -24,15 +24,15 @@ import {
   ComposerRestoreProvider,
 } from '~/Providers';
 import { MESSAGES_QUERY_STALE_TIME, useGetMessagesByConvoId } from '~/data-provider';
+import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { QueuedTurnPortalProvider } from './Steering/QueuedTurnPortal';
 import ApprovalProvider from './Messages/Content/ApprovalContext';
+import { ComposerPreferencesProvider } from './Input/preferences';
 import ConversationStarters from './Input/ConversationStarters';
 import { landingBandClass, landingColumnClass } from './layout';
 import { pendingApprovalActionFamily } from './approval/state';
 import ProjectBadge from '~/components/Projects/ProjectBadge';
 import { composerLiftFamily } from './Input/Composer/state';
-import { ComposerPreferencesProvider } from './Input/preferences';
-import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import { OwnerTextProvider } from './Messages/PrivateText';
 import Footer, { useConfiguredFooter } from './Footer';
 import TranscriptSkeleton from './Messages/Loading';
@@ -53,6 +53,8 @@ function ChatView({
   routePending = false,
   workMode = false,
   workCanSubmit = false,
+  handoffDraft,
+  onWorkHandoffDraftApplied,
 }: {
   index?: number;
   project?: TChatProject;
@@ -61,6 +63,9 @@ function ChatView({
   /** Work keeps its model selector; Chat selects automatically and shows none. */
   workMode?: boolean;
   workCanSubmit?: boolean;
+  /** One-time text staged while a Guest signs into the owner account for Work. */
+  handoffDraft?: string | null;
+  onWorkHandoffDraftApplied?: () => void;
 }) {
   const { conversationId } = useParams();
   const localize = useLocalize();
@@ -290,6 +295,8 @@ function ChatView({
                                   routePending={routePending}
                                   workMode={workMode}
                                   workCanSubmit={workCanSubmit}
+                                  handoffDraft={handoffDraft}
+                                  onWorkHandoffDraftApplied={onWorkHandoffDraftApplied}
                                   placeholder={chatFormPlaceholder}
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}

@@ -32,6 +32,48 @@ describe('Work admission', () => {
     });
   });
 
+  it('falls back to a free model when the configured default is not marked free', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [
+          { id: 'gpt-4o', provider: 'openAI' },
+          { id: 'local-model', provider: 'ollama', local: true },
+        ],
+        requestedModel: 'auto',
+        configuredDefaultModel: 'gpt-4o',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      context: {
+        isWork: true,
+        workModel: 'local-model',
+        workProvider: 'ollama',
+        allowedModels: [{ id: 'local-model', provider: 'ollama' }],
+      },
+    });
+  });
+
+  it('falls back to a free model when the configured default endpoint is not eligible', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [
+          { id: 'gpt-4o', provider: 'openAI' },
+          { id: 'gpt-4o', provider: 'gateway' },
+          { id: 'local-model', provider: 'ollama', local: true },
+        ],
+        requestedModel: 'auto',
+        configuredDefaultModel: { id: 'gpt-4o', provider: 'gateway' },
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      context: { workModel: 'local-model', workProvider: 'ollama' },
+    });
+  });
+
   it('rejects a selected agent graph that reaches a paid model', async () => {
     const root: WorkGraphAgent = {
       id: 'root',
@@ -109,6 +151,17 @@ describe('Work admission', () => {
     expect(resolveWorkContext(sources, { id: 'local-model' }, 'local-model')).toEqual({
       error: 'WORK_MODEL_NOT_ALLOWED',
     });
+  });
+
+  it('rejects a local-looking model on an unmarked provider', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [{ id: 'ollama/llama3', provider: 'gateway' }],
+        requestedModel: 'ollama/llama3',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({ ok: false, error: 'WORK_MODEL_NOT_ALLOWED' });
   });
 
   it('passes the configured concurrency cap through selected-agent admission', async () => {

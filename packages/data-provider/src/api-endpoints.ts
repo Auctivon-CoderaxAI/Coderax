@@ -141,6 +141,8 @@ export const conversationsRoot = `${BASE_URL}/api/convos`;
 export const workRoot = `${BASE_URL}/api/work`;
 export const workModels = () => `${workRoot}/models`;
 export const workAgents = () => `${workRoot}/agents`;
+export const workReadiness = () => `${workRoot}/readiness`;
+export const workRouting = () => `${workRoot}/routing`;
 export const workTasks = () => `${workRoot}/tasks`;
 export const workTask = (conversationId: string) =>
   `${workTasks()}/${encodeURIComponent(conversationId)}`;
@@ -237,6 +239,8 @@ export const models = () => `${BASE_URL}/api/models`;
 export const tokenizer = () => `${BASE_URL}/api/tokenizer`;
 
 export const login = () => `${BASE_URL}/api/auth/login`;
+
+export const passwordLogin = () => `${BASE_URL}/api/auth/password`;
 
 export const logout = () => `${BASE_URL}/api/auth/logout`;
 

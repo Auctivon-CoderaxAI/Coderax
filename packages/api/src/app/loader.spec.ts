@@ -176,6 +176,34 @@ describe('createCustomConfigLoader interface.theme', () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
+    it('preserves Zod validation issues when rejecting an invalid reload', async () => {
+      await expect(load('unrelated-error', 'reload')).rejects.toMatchObject({
+        name: 'ConfigReloadError',
+        validationErrors: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'unrecognized_keys',
+            keys: expect.arrayContaining(['notAConfigKey']),
+          }),
+        ]),
+      });
+      expect(exit).not.toHaveBeenCalled();
+    });
+
+    it('preserves the exact parser issue list as the reload error payload', async () => {
+      try {
+        await load('unrelated-error', 'reload');
+        throw new Error('Expected invalid config reload to reject');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigReloadError);
+        const reloadError = error as ConfigReloadError;
+        expect(reloadError.validationErrors).toBe(
+          (reloadError.cause as { issues: readonly unknown[] }).issues,
+        );
+        expect(reloadError.validationErrors?.[0]).toHaveProperty('code');
+      }
+      expect(exit).not.toHaveBeenCalled();
+    });
+
     it('still rejects a reload whose other keys are invalid', async () => {
       await expect(load('unrelated-error', 'reload')).rejects.toBeInstanceOf(ConfigReloadError);
       expect(exit).not.toHaveBeenCalled();

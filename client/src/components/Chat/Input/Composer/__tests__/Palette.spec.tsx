@@ -2,7 +2,7 @@ import React from 'react';
 import { RecoilRoot } from 'recoil';
 import { getDefaultStore } from 'jotai';
 import userEvent from '@testing-library/user-event';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
 import type { PaletteEntry } from '~/hooks/Input/usePaletteEntries';
 import type { AttachEntry } from '~/hooks/Input/useAttachItems';
@@ -317,6 +317,12 @@ describe('Palette', () => {
   });
 
   describe('show all', () => {
+    /* Catalog is a lazy chunk. Compiling its module graph can starve the test's
+     * timers on a cold cache, so load it before the timed dialog test. */
+    beforeAll(async () => {
+      await import('../Catalog');
+    }, 120000);
+
     const many = (section: 'skill' | 'mcp', count: number) =>
       Array.from({ length: count }, (_, i) =>
         entry({ key: `${section}:item${i}`, itemId: `item${i}`, label: `item${i}`, section }),
@@ -355,11 +361,15 @@ describe('Palette', () => {
       fireEvent.click(
         screen.getByRole('button', { name: 'com_ui_composer_show_all_label:com_ui_composer_mcp' }),
       );
-      const dialog = await screen.findByRole('dialog');
+      const dialog = await screen.findByRole(
+        'dialog',
+        { name: 'com_ui_mcp_servers' },
+        { timeout: 15000 },
+      );
       expect(dialog).toHaveTextContent('com_ui_mcp_servers');
-      fireEvent.click(screen.getByRole('button', { name: /item6/ }));
+      fireEvent.click(within(dialog).getByRole('button', { name: /item6/ }));
       expect(servers[6].onSelect).toHaveBeenCalledTimes(1);
-    });
+    }, 30000);
 
     it('shows each server status on its row and on its card', async () => {
       const servers = [

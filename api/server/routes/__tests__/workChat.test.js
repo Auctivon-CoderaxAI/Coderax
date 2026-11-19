@@ -6,11 +6,14 @@ const { createWorkApiRouter } = require('../workApi');
 const {
   createWorkChatRouter,
   delegateToAgents,
+  releaseWorkRun,
+  reserveWorkRun,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
+  workChatRunReservationMiddleware,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -56,7 +59,7 @@ test('auto ranks a free/local model when no default is configured', () => {
   }
 });
 
-test('a paid configured default cannot displace an eligible local model', () => {
+test('falls back to a free/local model when the configured default is not eligible', () => {
   assert.deepEqual(resolveWorkContext([PAID, LOCAL], 'auto', 'gpt-4o'), {
     isWork: true,
     workModel: 'llama3:latest',
@@ -79,7 +82,7 @@ test('an allowed pick is kept even when a different default exists', () => {
 });
 
 test('no free or local model at all is reported as such', () => {
-  assert.deepEqual(resolveWorkContext([PAID], 'auto', 'gpt-4o'), { error: 'WORK_NO_FREE_MODEL' });
+  assert.deepEqual(resolveWorkContext([PAID], 'auto', null), { error: 'WORK_NO_FREE_MODEL' });
   assert.deepEqual(resolveWorkContext([], 'auto', 'llama3:latest'), {
     error: 'WORK_NO_FREE_MODEL',
   });
@@ -180,8 +183,8 @@ test('auto without a configured default admits only an eligible local model', as
 
 test('the alias middleware refuses a paid model before the chat handler runs', async () => {
   const middleware = workContextMiddleware(
-    async () => ({ openAI: [{ model: 'gpt-4o' }] }),
-    () => 'gpt-4o',
+    async () => ({ ollama: [{ model: 'llama3:latest' }], openAI: [{ model: 'gpt-4o' }] }),
+    () => null,
   );
   const req = { body: { text: 'plan', model: 'gpt-4o' }, user: {} };
   const res = response();
@@ -504,7 +507,7 @@ test('auto resolves through the real config adapter', async () => {
   assert.equal(req.workContext.workModel, 'qwen2.5');
 });
 
-test('a paid config default never wins auto; it routes to the offered free model', async () => {
+test('a configured default the catalog does not offer cannot win auto', async () => {
   const middleware = workContextMiddleware(
     async () => ({ ollama: [{ model: 'llama3:latest' }] }),
     undefined,
@@ -662,7 +665,7 @@ test('/api/work/chat runs the native path and passes the selected model and prov
   }
 });
 
-test('/api/work/chat refuses a paid model before any native admission runs', async () => {
+test('refuses a paid model that is not the configured default before native admission', async () => {
   let reached = false;
   const app = express();
   app.use(express.json());
@@ -674,8 +677,11 @@ test('/api/work/chat refuses a paid model before any native admission runs', asy
     '/api/work',
     createWorkApiRouter({
       chatRouter: createWorkChatRouter({
-        loadModelsForRequest: async () => ({ openAI: [{ model: 'gpt-4o' }] }),
-        configuredDefaultModel: () => 'gpt-4o',
+        loadModelsForRequest: async () => ({
+          ollama: [{ model: 'llama3:latest' }],
+          openAI: [{ model: 'gpt-4o' }],
+        }),
+        configuredDefaultModel: () => 'llama3:latest',
         seedConversation: async () => ({ seeded: false }),
         agentsRouter: (_req, res) => {
           reached = true;
@@ -1003,6 +1009,50 @@ test('/api/work/chat checks access to the selected agent before reading its mode
   } finally {
     server.close();
   }
+});
+
+test('the shared reservation blocks a native Work run while another runner owns the task', () => {
+  const conversationId = '44444444-4444-4444-8444-444444444444';
+  const scope = { userId: 'reservation-user', tenantId: 'tenant-r', conversationId };
+  assert.equal(reserveWorkRun(scope), true);
+
+  const first = response();
+  first.once = () => undefined;
+  let firstNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    first,
+    () => {
+      firstNextCalls += 1;
+    },
+  );
+  assert.equal(first.statusCode, 409);
+  assert.equal(firstNextCalls, 0);
+  assert.equal(releaseWorkRun(scope), true);
+
+  const second = response();
+  second.once = () => undefined;
+  let secondNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    second,
+    () => {
+      secondNextCalls += 1;
+    },
+  );
+  assert.equal(secondNextCalls, 1);
+  assert.equal(reserveWorkRun(scope), false);
+  assert.equal(releaseWorkRun(scope), true);
 });
 
 test('Work model reads skip chat-only model resolution', async () => {

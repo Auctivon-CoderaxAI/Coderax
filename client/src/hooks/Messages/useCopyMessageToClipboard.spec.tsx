@@ -15,6 +15,11 @@ import store from '~/store';
 jest.mock('copy-to-clipboard');
 
 describe('useCopyMessageToClipboard', () => {
+  /* The rich-text serializer is a lazy chunk. Compile it before the timed tests. */
+  beforeAll(async () => {
+    await import('~/utils/richtext');
+  }, 120000);
+
   const TEXT = '$E=mc^2$';
   const mockSetIsCopied = jest.fn();
   const mockCopy = copy as jest.MockedFunction<typeof copy>;
@@ -58,41 +63,45 @@ describe('useCopyMessageToClipboard', () => {
     return (clipboardData.setData.mock.calls[0]?.[1] ?? '') as string;
   };
 
-  it.each([false, true])('copies rendered wake-up results with rich text %s', (rich) => {
-    const text = `A detached subagent task has completed. Continue the parent task using its durable result below.\n${JSON.stringify({ background_task_id: 'task', subagent_thread_id: 'thread', subagent_type: 'reviewer', status: 'completed', result: '**Visible result**', snapshot: 'private orchestration' })}`;
-    const message: TMessage = {
-      messageId: 'wake',
-      parentMessageId: null,
-      conversationId: 'parent',
-      isCreatedByUser: true,
-      isUserSubmitted: false,
-      text,
-      content: [],
-    };
-    const { result } = renderHook(
-      () => useCopyMessageToClipboard(getMessageClipboardSource(message)),
-      {
-        wrapper: ({ children }: { children: ReactNode }) => (
-          <RecoilRoot
-            initializeState={({ set }) => {
-              set(store.copyRichText, rich);
-              set(store.enableUserMsgMarkdown, false);
-            }}
-          >
-            {children}
-          </RecoilRoot>
-        ),
-      },
-    );
-    act(() => {
-      result.current(mockSetIsCopied);
-    });
-    expect(mockCopy.mock.calls[0][0]).toBe('**Visible result**');
-    if (rich) expect(copiedHtml()).toBe('<p><strong>Visible result</strong></p>');
-    expect(getMessageClipboardSource({ ...message, isUserSubmitted: true }).text).toBe(text);
-    const empty = { ...message, text: text.replace('**Visible result**', '') };
-    expect(hasCopyableText(getMessageClipboardSource(empty))).toBe(false);
-  });
+  it.each([false, true])(
+    'copies rendered wake-up results with rich text %s',
+    async (rich) => {
+      const text = `A detached subagent task has completed. Continue the parent task using its durable result below.\n${JSON.stringify({ background_task_id: 'task', subagent_thread_id: 'thread', subagent_type: 'reviewer', status: 'completed', result: '**Visible result**', snapshot: 'private orchestration' })}`;
+      const message: TMessage = {
+        messageId: 'wake',
+        parentMessageId: null,
+        conversationId: 'parent',
+        isCreatedByUser: true,
+        isUserSubmitted: false,
+        text,
+        content: [],
+      };
+      const { result } = renderHook(
+        () => useCopyMessageToClipboard(getMessageClipboardSource(message)),
+        {
+          wrapper: ({ children }: { children: ReactNode }) => (
+            <RecoilRoot
+              initializeState={({ set }) => {
+                set(store.copyRichText, rich);
+                set(store.enableUserMsgMarkdown, false);
+              }}
+            >
+              {children}
+            </RecoilRoot>
+          ),
+        },
+      );
+      await act(async () => {
+        await result.current(mockSetIsCopied);
+      });
+      expect(mockCopy.mock.calls[0][0]).toBe('**Visible result**');
+      if (rich) expect(copiedHtml()).toBe('<p><strong>Visible result</strong></p>');
+      expect(getMessageClipboardSource({ ...message, isUserSubmitted: true }).text).toBe(text);
+      const empty = { ...message, text: text.replace('**Visible result**', '') };
+      expect(hasCopyableText(getMessageClipboardSource(empty))).toBe(false);
+    },
+    30000,
+  );
 
   it('copies all displayed background results without host metadata', () => {
     const text = `2 background tool tasks have finished. Continue using their durable results below.\n${JSON.stringify(
@@ -129,14 +138,14 @@ describe('useCopyMessageToClipboard', () => {
     expect(mockCopy.mock.calls[0][0]).toBe('First result\n\nSecond result');
   });
 
-  it('copies an assistant message as html when the preference is on', () => {
+  it('copies an assistant message as html when the preference is on', async () => {
     const { result } = renderWithSettings(
       { copyRichText: true, enableUserMsgMarkdown: false },
       false,
     );
 
-    act(() => {
-      result.current(mockSetIsCopied);
+    await act(async () => {
+      await result.current(mockSetIsCopied);
     });
 
     expect(copiedAsHtml()).toBe(true);
@@ -155,20 +164,20 @@ describe('useCopyMessageToClipboard', () => {
     expect(copiedAsHtml()).toBe(false);
   });
 
-  it('copies a user message as html once its markdown rendering is on', () => {
+  it('copies a user message as html once its markdown rendering is on', async () => {
     const { result } = renderWithSettings(
       { copyRichText: true, enableUserMsgMarkdown: true },
       true,
     );
 
-    act(() => {
-      result.current(mockSetIsCopied);
+    await act(async () => {
+      await result.current(mockSetIsCopied);
     });
 
     expect(copiedAsHtml()).toBe(true);
   });
 
-  it('mirrors MarkdownLite for a user message, which has no directives', () => {
+  it('mirrors MarkdownLite for a user message, which has no directives', async () => {
     const initializeState = ({ set }: MutableSnapshot) => {
       set(store.copyRichText, true);
       set(store.enableUserMsgMarkdown, true);
@@ -182,14 +191,14 @@ describe('useCopyMessageToClipboard', () => {
       },
     );
 
-    act(() => {
-      result.current(mockSetIsCopied);
+    await act(async () => {
+      await result.current(mockSetIsCopied);
     });
 
     expect(copiedHtml()).toBe('<p>:::warning<br />text<br />:::</p>');
   });
 
-  it('mirrors Markdown for an assistant message, which unwraps directives', () => {
+  it('mirrors Markdown for an assistant message, which unwraps directives', async () => {
     const initializeState = ({ set }: MutableSnapshot) => {
       set(store.copyRichText, true);
       set(store.enableUserMsgMarkdown, true);
@@ -203,21 +212,21 @@ describe('useCopyMessageToClipboard', () => {
       },
     );
 
-    act(() => {
-      result.current(mockSetIsCopied);
+    await act(async () => {
+      await result.current(mockSetIsCopied);
     });
 
     expect(copiedHtml()).toBe('<p>text</p>');
   });
 
-  it('follows the LaTeX parsing setting for assistant messages', () => {
+  it('follows the LaTeX parsing setting for assistant messages', async () => {
     const withLatex = renderWithSettings(
       { copyRichText: true, enableUserMsgMarkdown: false, latexParsing: true },
       false,
     );
 
-    act(() => {
-      withLatex.result.current(mockSetIsCopied);
+    await act(async () => {
+      await withLatex.result.current(mockSetIsCopied);
     });
 
     expect(copiedHtml()).toBe('<p>E=mc^2</p>');
@@ -230,22 +239,22 @@ describe('useCopyMessageToClipboard', () => {
       false,
     );
 
-    act(() => {
-      withoutLatex.result.current(mockSetIsCopied);
+    await act(async () => {
+      await withoutLatex.result.current(mockSetIsCopied);
     });
 
     expect(copiedHtml()).toBe('<p>$E=mc^2$</p>');
   });
 
-  it('honors a forced variant over the authorship default', () => {
+  it('honors a forced variant over the authorship default', async () => {
     const { result } = renderWithSettings(
       { copyRichText: true, enableUserMsgMarkdown: false, latexParsing: true },
       true,
       'lite',
     );
 
-    act(() => {
-      result.current(mockSetIsCopied);
+    await act(async () => {
+      await result.current(mockSetIsCopied);
     });
 
     expect(copiedAsHtml()).toBe(true);

@@ -1,0 +1,8 @@
+name: coderax-api
+language: javascript
+appmap_dir: tmp/appmap
+packages:
+  - path: server
+    exclude:
+      - node_modules
+      - .yarn

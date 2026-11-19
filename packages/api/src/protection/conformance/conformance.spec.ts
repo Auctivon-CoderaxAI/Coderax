@@ -61,15 +61,24 @@ const caseSchema = z
   })
   .strict();
 
-const fixtures = z
+const fixturesSchema = z
   .object({
     version: z.literal(1),
     canaries: z.array(z.string().min(1)).min(1),
-    patterns: z.array(filterPiiCustomPatternSchema).min(1),
+    // `filterPiiCustomPatternSchema` is built with the data-provider Zod 4 copy, so
+    // embedding it in this Zod 3 schema compares two incompatible class identities.
+    // Accept the entries here and validate each one with its owning schema below.
+    patterns: z.array(z.unknown()).min(1),
     cases: z.array(caseSchema).min(1),
   })
-  .strict()
-  .parse(corpus);
+  .strict();
+
+const parsedFixtures = fixturesSchema.parse(corpus);
+
+const fixtures = {
+  ...parsedFixtures,
+  patterns: parsedFixtures.patterns.map((pattern) => filterPiiCustomPatternSchema.parse(pattern)),
+};
 
 type ConformanceCase = z.infer<typeof caseSchema>;
 

@@ -11,6 +11,7 @@ export * from './file-config';
 export * from './resolve-llm-delivery-path';
 export * from './cyvox-model';
 export * from './model-routing';
+export * from './free-inference';
 export * from './fireworks-glm';
 /* messages  */
 export * from './messages';

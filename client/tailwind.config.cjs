@@ -15,6 +15,10 @@ module.exports = {
   presets: [libreChatTailwindPreset],
   theme: {
     extend: {
+      colors: {
+        gray: { 500: '#595959', 650: '#393939' },
+        green: { 500: '#10a37f' },
+      },
       width: {
         authPageWidth: '370px',
       },
