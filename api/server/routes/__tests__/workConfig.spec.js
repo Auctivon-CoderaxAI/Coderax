@@ -44,6 +44,13 @@ jest.mock(
       persistTerminalWorkState: jest.fn(),
       workStateForJobStatus: jest.fn(),
       getFreeRouterForConfig: jest.fn(() => ({ snapshot: () => ({}) })),
+      createEngineWorkChatHandler: jest.fn(() => (_req, _res, next) => next()),
+      createEngineWorkChatPersistence: jest.fn(),
+      getEngineWorkChatRuntime: jest.fn(() => ({
+        state: () => null,
+        cancel: async () => false,
+        snapshot: () => ({}),
+      })),
     };
   },
   { virtual: true },

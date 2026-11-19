@@ -1,6 +1,5 @@
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
 import {
-  Login,
   VerifyEmail,
   Registration,
   ResetPassword,
@@ -28,15 +27,18 @@ import Studio from './Studio';
 import LandingPage from '~/components/Landing';
 import Root from './Root';
 
-/** Keep the former login URL as a redirect; only explicit administrator/manual
- * access can open the existing account sign-in form. Never show it by default.
- */
+/** Keep the former login URL as a passwordless guest entry. */
 const LegacyLoginEntry = () => {
   const location = useLocation();
-  if (new URLSearchParams(location.search).get('manual') === '1') {
-    return <Login />;
-  }
-  return <Navigate to={{ pathname: '/connect', search: location.search }} replace />;
+  const search = new URLSearchParams(location.search);
+  search.delete('manual');
+  const redirectSearch = search.toString();
+  return (
+    <Navigate
+      to={{ pathname: '/connect', search: redirectSearch ? `?${redirectSearch}` : '' }}
+      replace
+    />
+  );
 };
 
 const AuthLayout = () => (

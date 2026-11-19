@@ -17,6 +17,7 @@ const mockHasSetConversation = { current: true };
 let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
 const mockConfig = {};
 const mockRoles = { USER: {} };
+let mockAuthenticatedUser: { id: string; provider: string } | undefined;
 let mockAssistantListMap = {};
 let mockDefaultModelSpec: unknown = {};
 const mockNewConversation = jest.fn(({ template }: { template?: Partial<TConversation> }) => {
@@ -59,7 +60,7 @@ jest.mock('~/components/Chat/Input/WorkAgentSelector', () => {
 });
 jest.mock('../useAuthRedirect', () => ({
   __esModule: true,
-  default: () => ({ isAuthenticated: true, roles: mockRoles }),
+  default: () => ({ isAuthenticated: true, roles: mockRoles, user: mockAuthenticatedUser }),
 }));
 jest.mock('coderax-data-provider/react-query', () => ({
   useGetModelsQuery: () => ({ data: mockConfig }),
@@ -136,6 +137,7 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
     [
       { path: '/c/:conversationId', element: <Harness /> },
       { path: '/work/:conversationId', element: <Harness workMode /> },
+      { path: '/login', element: <div data-testid="login-page" /> },
     ],
     { initialEntries, initialIndex },
   );
@@ -157,6 +159,7 @@ beforeEach(() => {
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
   mockDefaultModelSpec = {};
+  mockAuthenticatedUser = undefined;
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
 });
@@ -222,6 +225,37 @@ it('copies a new Work selection to the acknowledged conversation without replaci
   await waitFor(() => {
     expect(store.get(workSelectionFamily(targetSelectionKey))).toEqual(existingSelection);
   });
+});
+
+it('keeps a guest Work task on the owner-required state without opening a login form', async () => {
+  mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
+  const { router } = setup(['/work/new?prompt=Fix+the+Work+start+flow&submit=true']);
+
+  await waitFor(() => {
+    expect(screen.getByRole('status')).toHaveTextContent('com_work_owner_signin_required');
+  });
+  expect(router.state.location.pathname).toBe('/work/new');
+  expect(new URLSearchParams(router.state.location.search).get('manual')).toBeNull();
+  expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  expect(mockNewConversation).not.toHaveBeenCalled();
+});
+
+it('shows the owner-required state when a guest switches from Chat to Work in place', async () => {
+  mockAuthenticatedUser = { id: 'guest-1', provider: 'guest' };
+  const { router } = setup(['/c/chat-a']);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+
+  await waitFor(() => {
+    expect(screen.getByRole('status')).toHaveTextContent('com_work_owner_signin_required');
+  });
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(new URLSearchParams(router.state.location.search).get('manual')).toBeNull();
+
+  fireEvent.click(screen.getByRole('button', { name: 'com_ui_chat' }));
+  await waitFor(() => expect(screen.getByTestId('composer')).toBeInTheDocument());
+  expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+  expect(router.state.location.pathname).toBe('/c/chat-a');
 });
 
 it('starts the authenticated transcript query while route metadata is still pending', async () => {

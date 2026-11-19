@@ -5,6 +5,7 @@ import {
 } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
+import type { EngineStatusSnapshot } from '../engines/registry';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
@@ -55,6 +56,8 @@ export type WorkDeps = {
   routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
   /** Why free inference is or is not usable, from the server credential state. */
   freeInference?: () => FreeInferenceCatalogState;
+  /** Safe execution-engine availability; never a path or credential. */
+  engines?: () => Promise<EngineStatusSnapshot> | EngineStatusSnapshot;
 };
 
 const HISTORY_LIMIT = 50;
@@ -154,6 +157,26 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.json({ readiness });
     } catch {
       res.status(503).json({ code: 'WORK_READINESS_UNAVAILABLE' });
+    }
+  });
+
+  /**
+   * Whether OpenCode or OpenHands can run, and why not. A disabled engine is
+   * listed as unavailable instead of disappearing, so the owner can see the
+   * prerequisite without reading server logs.
+   */
+  router.get('/engines', async (_req: Request, res: Response) => {
+    if (!deps.engines) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ defaultEngine: null, engines: [] });
+      return;
+    }
+    try {
+      const snapshot = await deps.engines();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(snapshot);
+    } catch {
+      res.status(503).json({ code: 'WORK_ENGINES_UNAVAILABLE' });
     }
   });
 

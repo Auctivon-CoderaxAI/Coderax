@@ -55,6 +55,34 @@ describe('native work model discovery', () => {
     expect(models).toEqual([{ id: 'llama3:latest', label: 'First' }]);
   });
 
+  it('fails closed when eligible providers advertise the same model id', () => {
+    const sources = [
+      { id: 'shared', provider: 'ollama', local: true },
+      { id: 'shared', provider: 'gateway', free: true },
+      { id: 'safe', provider: 'ollama', local: true },
+    ];
+    const models = buildWorkModels(sources);
+    expect(models).toEqual([{ id: 'safe', label: 'safe', provider: 'ollama' }]);
+    const options = buildWorkModelOptions(sources, { id: 'shared', provider: 'gateway' });
+    expect(options.map((model) => model.id)).toEqual([WORK_AUTO_MODEL_ID, 'safe']);
+    expect(resolveWorkSelection(options, 'shared')).toEqual({
+      ok: false, reason: 'model_unavailable',
+    });
+    expect(resolveWorkAgentModel(options, {
+      id: 'agent', model: 'shared', provider: 'ollama',
+    })).toBeNull();
+    expect(resolveWorkSelection(options, WORK_AUTO_MODEL_ID)).toMatchObject({
+      ok: true, model: { id: 'safe', provider: 'ollama' },
+    });
+  });
+
+  it('retains duplicate entries only when the provider is identical', () => {
+    expect(buildWorkModels([
+      { id: 'shared', label: 'First', provider: 'ollama', local: true },
+      { id: 'shared', label: 'Second', provider: 'ollama', local: true },
+    ])).toEqual([{ id: 'shared', label: 'First', provider: 'ollama' }]);
+  });
+
   it('puts the automatic option first when models are available', () => {
     const options = buildWorkModelOptions([{ id: 'llama3:latest', local: true }]);
     expect(options.map((option) => option.id)).toEqual([WORK_AUTO_MODEL_ID, 'llama3:latest']);
@@ -83,25 +111,18 @@ describe('native work model discovery', () => {
   });
 
   it('offers a configured paid default in the catalog', () => {
-    /** The default is an explicit deployment choice, so it enters the catalog. */
     const models = buildWorkModelOptions(
-      [
-        { id: 'llama3:latest', local: true },
-        { id: 'openai:gpt-4o', provider: 'gateway' },
-      ],
+      [{ id: 'llama3:latest', local: true }, { id: 'openai:gpt-4o', provider: 'gateway' }],
       'openai:gpt-4o',
     );
+    expect(models.map((model) => model.id)).toEqual([WORK_AUTO_MODEL_ID, 'llama3:latest']);
     for (const selected of [WORK_AUTO_MODEL_ID, null, undefined, '']) {
-      expect(resolveWorkSelection(models, selected, 'openai:gpt-4o')).toEqual({
-        ok: true,
-        auto: true,
-        model: { id: 'openai:gpt-4o', label: 'openai:gpt-4o', provider: 'gateway' },
+      expect(resolveWorkSelection(models, selected, 'openai:gpt-4o')).toMatchObject({
+        ok: true, auto: true, model: { id: 'llama3:latest' },
       });
     }
-    /** A paid id that is not the configured default is still refused. */
-    expect(resolveWorkSelection(withPaid(), 'openai:gpt-4o', 'llama3:latest')).toEqual({
-      ok: false,
-      reason: 'model_unavailable',
+    expect(resolveWorkSelection(models, 'openai:gpt-4o')).toEqual({
+      ok: false, reason: 'model_unavailable',
     });
   });
 
@@ -131,39 +152,25 @@ describe('native work model discovery', () => {
 
   it('offers the configured default alongside free and local models', () => {
     const options = buildWorkModelOptions(
-      [
-        { id: 'llama3:latest', label: 'Llama 3', local: true },
-        { id: 'deepseek/deepseek-v4.1-flash-fast', provider: 'deepseek' },
-      ],
-      'deepseek/deepseek-v4.1-flash-fast',
+      [{ id: 'llama3:latest', label: 'Llama 3', local: true },
+       { id: 'deepseek-flash', provider: 'deepseek' }],
+      'deepseek-flash',
     );
-    expect(options.map((option) => option.id)).toEqual([
-      WORK_AUTO_MODEL_ID,
-      'deepseek/deepseek-v4.1-flash-fast',
-      'llama3:latest',
-    ]);
-    expect(options[0].target).toEqual({
-      id: 'deepseek/deepseek-v4.1-flash-fast',
-      label: 'deepseek/deepseek-v4.1-flash-fast',
-      provider: 'deepseek',
-    });
+    expect(options.map((option) => option.id)).toEqual([WORK_AUTO_MODEL_ID, 'llama3:latest']);
+    expect(options[0].target).toEqual({ id: 'llama3:latest', label: 'Llama 3' });
   });
 
   it('keeps an eligible provider when the configured default shares its id', () => {
     const options = buildWorkModelOptions(
-      [
-        { id: 'shared', provider: 'ollama', local: true },
-        { id: 'shared', provider: 'gateway' },
-      ],
+      [{ id: 'shared', provider: 'ollama', local: true },
+       { id: 'shared', provider: 'gateway' }],
       { id: 'shared', provider: 'gateway' },
     );
-    expect(
-      options.filter((model) => model.id === 'shared').map((model) => model.provider),
-    ).toEqual(['gateway', 'ollama']);
-    expect(options[0].target).toEqual({ id: 'shared', label: 'shared', provider: 'gateway' });
-    expect(
-      resolveWorkAgentModel(options, { id: 'agent', model: 'shared', provider: 'ollama' }),
-    ).toMatchObject({ id: 'shared', provider: 'ollama' });
+    expect(options.filter((model) => model.id === 'shared').map((model) => model.provider))
+      .toEqual(['ollama']);
+    expect(options[0].target).toEqual({ id: 'shared', label: 'shared', provider: 'ollama' });
+    expect(resolveWorkAgentModel(options, { id: 'agent', model: 'shared', provider: 'gateway' }))
+      .toBeNull();
   });
 
   it('does not invent a configured pair the catalog does not advertise', () => {
@@ -180,17 +187,18 @@ describe('native work model discovery', () => {
 
   it('resolves the configured default on its own endpoint when the id is shared', () => {
     const options = buildWorkModelOptions(
-      [
-        { id: 'gpt-4o', provider: 'openAI' },
-        { id: 'gpt-4o', provider: 'gateway' },
-        { id: 'llama3:latest', provider: 'ollama', local: true },
-      ],
+      [{ id: 'gpt-4o', provider: 'openAI' },
+       { id: 'gpt-4o', provider: 'gateway' },
+       { id: 'llama3:latest', provider: 'ollama', local: true }],
       { id: 'gpt-4o', provider: 'gateway' },
     );
-    expect(options[0].target).toEqual({ id: 'gpt-4o', label: 'gpt-4o', provider: 'gateway' });
-    expect(
-      resolveWorkSelection(options, WORK_AUTO_MODEL_ID, { id: 'gpt-4o', provider: 'gateway' }),
-    ).toMatchObject({ ok: true, model: { id: 'gpt-4o', provider: 'gateway' } });
+    expect(options[0].target).toEqual({
+      id: 'llama3:latest', label: 'llama3:latest', provider: 'ollama',
+    });
+    expect(resolveWorkSelection(options, WORK_AUTO_MODEL_ID,
+      { id: 'gpt-4o', provider: 'gateway' })).toMatchObject({
+      ok: true, model: { id: 'llama3:latest', provider: 'ollama' },
+    });
   });
 
   it('refuses automatic only when nothing free or local is offered', () => {

@@ -32,7 +32,7 @@ describe('Work admission', () => {
     });
   });
 
-  it('admits the configured default even when it is not marked free', async () => {
+  it('falls back to a free model when the configured default is not marked free', async () => {
     await expect(
       resolveWorkAdmission({
         sources: [
@@ -48,17 +48,14 @@ describe('Work admission', () => {
       ok: true,
       context: {
         isWork: true,
-        workModel: 'gpt-4o',
-        workProvider: 'openAI',
-        allowedModels: [
-          { id: 'gpt-4o', provider: 'openAI' },
-          { id: 'local-model', provider: 'ollama' },
-        ],
+        workModel: 'local-model',
+        workProvider: 'ollama',
+        allowedModels: [{ id: 'local-model', provider: 'ollama' }],
       },
     });
   });
 
-  it('admits the configured default on its configured endpoint when ids collide', async () => {
+  it('falls back to a free model when the configured default endpoint is not eligible', async () => {
     await expect(
       resolveWorkAdmission({
         sources: [
@@ -73,7 +70,7 @@ describe('Work admission', () => {
       }),
     ).resolves.toMatchObject({
       ok: true,
-      context: { workModel: 'gpt-4o', workProvider: 'gateway' },
+      context: { workModel: 'local-model', workProvider: 'ollama' },
     });
   });
 

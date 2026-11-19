@@ -54,3 +54,24 @@ it('copies the latest mode only to an acknowledged server identity, not to an ar
   rerender({ conversationId: 'previous-chat' });
   expect(result.current.mode).toBe('chat');
 });
+
+it('honors an explicit Work deep link over a saved Chat mode', () => {
+  const savedChat = renderHook(() =>
+    useStoredConversationMode({ userId: 'owner', conversationId: 'new', initialMode: 'chat' }),
+  );
+  act(() => savedChat.result.current.setMode('chat'));
+  savedChat.unmount();
+
+  const workLink = renderHook(() =>
+    useStoredConversationMode({
+      userId: 'owner',
+      conversationId: 'new',
+      initialMode: 'work',
+      forceInitialMode: true,
+    }),
+  );
+
+  expect(workLink.result.current.mode).toBe('work');
+  act(() => workLink.result.current.setMode('chat'));
+  expect(workLink.result.current.mode).toBe('chat');
+});

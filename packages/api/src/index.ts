@@ -78,6 +78,10 @@ export * from './memory';
 export * from './modelSpecs';
 /* Agents */
 export * from './agents';
+/* Execution engines */
+export * from './engines';
+/* Cloud Power Mode and private/cloud isolation */
+export * from './cloud';
 /* Assistants */
 export * from './assistants';
 /* Actions */

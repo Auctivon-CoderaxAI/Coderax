@@ -322,6 +322,10 @@ export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };
 
+export const passwordLogin = (payload: t.TPasswordLogin): Promise<t.TLoginResponse> => {
+  return request.post(endpoints.passwordLogin(), payload);
+};
+
 export const logout = (): Promise<m.TLogoutResponse> => {
   return request.post(endpoints.logout());
 };
