@@ -393,6 +393,34 @@ export function isTerminalWorkflowRunStatus(status: WorkflowRunStatus): boolean 
 }
 
 /** Resolves the effective dependencies of a step list. */
+export type WorkflowBuildMode = 'turbo15' | 'autonomous' | 'verified';
+export type WorkflowBuildGate = 'tests' | 'build' | 'review' | 'security';
+
+/** Launch input: a request and saved agents, never a caller-supplied step list. */
+export interface StartWorkflowBuildRequest {
+  request: string;
+  mode: WorkflowBuildMode;
+  agentId: string;
+  roleAgents?: Partial<Record<string, string>>;
+}
+
+export interface WorkflowBuildSummary {
+  planner: 'deterministic' | 'free_model' | 'local_model';
+  requestedMode: WorkflowBuildMode;
+  mode: WorkflowBuildMode;
+  degraded: boolean;
+  reason?: string;
+  taskCount: number;
+  requiredGates: WorkflowBuildGate[];
+  unresolvedRoles: string[];
+}
+
+export interface StartWorkflowBuildResponse {
+  workflow: WorkflowView;
+  run: WorkflowRunView;
+  build: WorkflowBuildSummary;
+}
+
 export function resolveWorkflowDependencies(steps: WorkflowStepInput[]): string[][] {
   return steps.map((step, index) => {
     if (step.dependsOn != null) {

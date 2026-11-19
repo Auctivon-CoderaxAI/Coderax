@@ -1450,6 +1450,12 @@ export function listWorkflowTemplates(): Promise<wf.WorkflowTemplatesResponse> {
   return request.get(endpoints.workflowTemplates());
 }
 
+export function startWorkflowBuild(
+  payload: wf.StartWorkflowBuildRequest,
+): Promise<wf.StartWorkflowBuildResponse> {
+  return request.post(endpoints.workflowBuilds(), payload);
+}
+
 export function listWorkflowRuns(workflowId: string): Promise<wf.WorkflowRunListResponse> {
   return request.get(endpoints.workflowRuns(workflowId));
 }

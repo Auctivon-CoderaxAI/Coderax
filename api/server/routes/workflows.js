@@ -29,6 +29,7 @@ const handle = (handler) => (req, res, next) => Promise.resolve(handler(req, res
 router.get('/', handle(handlers.listWorkflows));
 router.post('/', handle(handlers.createWorkflow));
 router.get('/templates', handle(handlers.listTemplates));
+router.post('/builds', handle(handlers.startBuild));
 
 router.get('/runs/:runId', handle(handlers.getRun));
 router.get('/runs/:runId/stream', handle(handlers.streamRun));
