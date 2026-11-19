@@ -229,6 +229,9 @@ describe('OpenCode adapter', () => {
       }),
     );
 
+    if (started.ok) {
+      throw new Error('expected session startup to time out');
+    }
     expect(started.cleanup).toBeDefined();
     resolveSession?.({ id: 'late-session' });
     await started.cleanup;
