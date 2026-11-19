@@ -36,7 +36,11 @@ describe('config-driven execution engines', () => {
     const snapshot = describeExecutionEngines(
       {
         engines: {
-          opencode: { enabled: true, baseURL: 'http://127.0.0.1:4096' },
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'ollama/qwen2.5-coder:7b',
+          },
           workspaces: {},
         },
       },
@@ -73,7 +77,13 @@ describe('config-driven execution engines', () => {
 
     const enabled = describeExecutionEngines(
       config({
-        engines: { opencode: { enabled: true, baseURL: 'http://127.0.0.1:4096' } },
+        engines: {
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'ollama/qwen2.5-coder:7b',
+          },
+        },
       }),
       loadSdk,
     );

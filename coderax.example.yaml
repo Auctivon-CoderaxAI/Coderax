@@ -1691,3 +1691,23 @@ endpoints:
 # ACL writes retry only conflicts on an individual document.
 # permissions:
 #   maxWriteAttempts: 3 # Integer 1-100, including the first attempt.
+
+# Coding-agent execution engines (OpenCode). Disabled by default.
+# OpenCode must already be served on the host: `opencode serve --hostname 127.0.0.1 --port 4096`.
+# The model is pinned so a run can never fall back to a paid default:
+#   private mode -> a local model (ollama/lmstudio)
+#   cloud mode   -> a free OpenCode Console model, or a local model
+# engines:
+#   defaultEngine: opencode
+#   workspaces:
+#     privateRoot: /srv/coderax/private
+#     cloudRoot: /srv/coderax/cloud
+#   opencode:
+#     enabled: true
+#     baseURL: http://127.0.0.1:4096
+#     model: opencode/deepseek-v4.1-flash-free
+#     timeoutMs: 900000
+#   workChat:
+#     enabled: true
+#     engine: opencode
+#     mode: cloud
