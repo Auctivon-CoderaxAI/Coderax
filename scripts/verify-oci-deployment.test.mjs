@@ -16,7 +16,7 @@ function serviceBlock(source, name) {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line === `  ${name}:`);
   assert.notEqual(start, -1, `missing Compose service ${name}`);
-  const end = lines.findIndex((line, index) => index > start && /^  [a-zA-Z0-9_-]+:$/.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^ {2}[a-zA-Z0-9_-]+:$/.test(line));
   return lines.slice(start, end === -1 ? undefined : end).join('\n');
 }
 
@@ -41,8 +41,16 @@ test('OCI Compose publishes only Caddy and keeps model/app ports private', async
 });
 
 test('Caddy requires the private proxy header and preserves origin and streaming metadata', async () => {
-  const caddy = await read('deploy/oci/Caddyfile');
-  assert.match(caddy, /@unauthorized not header X-Coderax-Proxy-Secret/);
+  const caddy = (await read('deploy/oci/Caddyfile')).replace(/\r\n/g, '\n');
+  assert.match(
+    caddy,
+    /@unauthorized \{[\s\S]*?not header X-Coderax-Proxy-Secret \{\$CODERAX_PROXY_SECRET\}[\s\S]*?not path \/api\/work\/chat\n[\s\S]*?not path \/api\/work\/chat\/\*/,
+  );
+  assert.match(
+    caddy,
+    /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?path \/api\/agents\/chat\/stream\n[\s\S]*?path \/api\/agents\/chat\/stream\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
+  );
+  assert.match(caddy, /header_up Host coderaxai\.vercel\.app/);
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);
   assert.match(caddy, /header_up Host \{http\.request\.header\.X-Forwarded-Host\}/);
   assert.match(caddy, /header_up X-Forwarded-Proto https/);
@@ -53,10 +61,16 @@ test('Caddy requires the private proxy header and preserves origin and streaming
 test('Vercel uses the authenticated proxy for every API and health rewrite', async () => {
   const vercel = JSON.parse(await read('vercel.json'));
   assert.equal(vercel.services.backend.entrypoint, 'api/proxy.js');
-  assert.match(vercel.services.backend.functions['api/proxy.js'].includeFiles, /packages\/api\/dist\/proxy\.cjs/);
+  assert.match(
+    vercel.services.backend.functions['api/proxy.js'].includeFiles,
+    /packages\/api\/dist\/proxy\.cjs/,
+  );
   assert.equal(vercel.services.backend.functions['api/proxy.js'].maxDuration, 300);
   for (const route of ['/api/(.*)', '/oauth/(.*)', '/readyz']) {
-    assert.equal(vercel.rewrites.find((item) => item.source === route)?.destination?.service, 'backend');
+    assert.equal(
+      vercel.rewrites.find((item) => item.source === route)?.destination?.service,
+      'backend',
+    );
   }
 });
 
