@@ -43,12 +43,15 @@ import Root from './Root';
  */
 const LegacyLoginEntry = () => {
   const location = useLocation();
-  const { startupConfig } = useOutletContext<TLoginLayoutContext>();
+  const { startupConfig, startupConfigError } = useOutletContext<TLoginLayoutContext>();
   const search = new URLSearchParams(location.search);
   const manual = search.get('manual') === '1';
   search.delete('manual');
+  if (manual && startupConfig == null && startupConfigError == null) {
+    return null;
+  }
   if (manual && startupConfig?.emailLoginEnabled === true) {
-    return <Login />;
+    return <Login manual />;
   }
   const redirectSearch = search.toString();
   return (

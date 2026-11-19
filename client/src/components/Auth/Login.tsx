@@ -22,7 +22,7 @@ const oauthErrorKeys: Record<string, TranslationKeys> = {
   [ErrorTypes.AUTH_BANNED]: 'com_auth_error_login_ban',
 };
 
-function Login() {
+function Login({ manual = false }: { manual?: boolean }) {
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const { error, setError, login, isAuthReady } = useAuthContext();
@@ -72,6 +72,7 @@ function Login() {
   }, [disableAutoRedirect, searchParams, setSearchParams]);
 
   const shouldAutoRedirect =
+    !manual &&
     startupConfig?.openidLoginEnabled &&
     startupConfig?.openidAutoRedirect &&
     startupConfig?.serverDomain &&
