@@ -120,3 +120,22 @@ it('supports the review surface and normalises anything that names no mode', () 
   expect(normaliseMode(null)).toBeUndefined();
   expect(normaliseMode(7)).toBeUndefined();
 });
+
+it('normalizes an unsupported stored draft mode before adopting its server conversation', () => {
+  localStorage.setItem('conversationModes:owner', JSON.stringify({ new: 'builder' }));
+  const { result, rerender } = renderHook(
+    ({ conversationId }) =>
+      useStoredConversationMode({ userId: 'owner', conversationId, initialMode: 'chat' }),
+    { initialProps: { conversationId: 'new' } },
+  );
+  expect(result.current.mode).toBe('chat');
+
+  act(() => result.current.adoptConversation('server-id'));
+  expect(JSON.parse(localStorage.getItem('conversationModes:owner') ?? '{}')).toEqual({
+    new: 'builder',
+    'server-id': 'chat',
+  });
+
+  rerender({ conversationId: 'server-id' });
+  expect(result.current.mode).toBe('chat');
+});
