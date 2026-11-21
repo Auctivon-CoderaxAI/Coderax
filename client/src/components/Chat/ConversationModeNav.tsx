@@ -1,8 +1,8 @@
-import type { ConversationMode } from './mode';
-import { useConversationMode } from './mode';
+import type { StoredConversationMode } from './mode';
+import { normaliseMode, useConversationMode } from './mode';
 
 type ConversationModeNavProps = {
-  active?: ConversationMode;
+  active?: StoredConversationMode;
   labels: {
     ariaLabel: string;
     chat: string;
@@ -17,7 +17,7 @@ const idleClassName = `${segmentClassName} text-text-secondary hover:text-text-p
 
 export default function ConversationModeNav({ active, labels }: ConversationModeNavProps) {
   const { mode, setMode } = useConversationMode();
-  const selected = active ?? mode;
+  const selected = normaliseMode(active ?? mode) ?? 'chat';
   return (
     <nav
       aria-label={labels.ariaLabel}
@@ -33,9 +33,9 @@ export default function ConversationModeNav({ active, labels }: ConversationMode
       </button>
       <button
         type="button"
-        onClick={() => setMode('work')}
-        aria-pressed={selected === 'work'}
-        className={selected === 'work' ? selectedClassName : idleClassName}
+        onClick={() => setMode('code')}
+        aria-pressed={selected === 'code'}
+        className={selected === 'code' ? selectedClassName : idleClassName}
       >
         {labels.work}
       </button>
