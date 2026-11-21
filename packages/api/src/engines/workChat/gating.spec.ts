@@ -66,6 +66,18 @@ describe('isOwnerEngineWorkChat', () => {
       }),
     ).toBe(true);
   });
+
+  it('requires the exact boolean flag and treats an empty agent field as a selection', () => {
+    expect(
+      isOwnerEngineWorkChat({ config: enabledConfig({ enabled: 'true' }), user: owner, body: {} }),
+    ).toBe(false);
+    expect(
+      isOwnerEngineWorkChat({ config: enabledConfig(), user: owner, body: { agent_id: '' } }),
+    ).toBe(false);
+    expect(
+      isOwnerEngineWorkChat({ config: enabledConfig(), user: owner, body: { spec: '' } }),
+    ).toBe(false);
+  });
 });
 
 describe('isEngineWorkChatPath', () => {

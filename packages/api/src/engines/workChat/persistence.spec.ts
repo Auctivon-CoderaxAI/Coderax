@@ -68,6 +68,38 @@ describe('Work chat persistence adapter', () => {
     });
   });
 
+  it('passes the request scope through and omits tenant when creating without one', async () => {
+    const db = fakeDb();
+    const store = createEngineWorkChatPersistence({
+      db,
+      userId: 'owner',
+      tenantId: null,
+      isTemporary: true,
+      interfaceConfig: { interface: { customWelcome: 'hi' } },
+    });
+
+    await store.getConversation('conversation-1');
+    expect(db.getConvo).toHaveBeenCalledWith('owner', 'conversation-1');
+
+    await store.saveConversation({ conversationId: 'conversation-1', title: 'Fix', create: true });
+    expect(db.saveConvo).toHaveBeenCalledWith(
+      {
+        userId: 'owner',
+        isTemporary: true,
+        interfaceConfig: { interface: { customWelcome: 'hi' } },
+      },
+      { conversationId: 'conversation-1', isWork: true, workModel: 'opencode', title: 'Fix' },
+      { context: 'Work OpenCode chat conversation', appendMessageIds: [] },
+    );
+
+    await store.loadTranscript('conversation-1');
+    expect(db.getMessages).toHaveBeenCalledWith(
+      { user: 'owner', conversationId: 'conversation-1' },
+      'messageId text isCreatedByUser createdAt',
+      { sort: { createdAt: -1 }, limit: 24 },
+    );
+  });
+
   it('creates a Work conversation with its tenant and no upsert suppression', async () => {
     const db = fakeDb();
     const store = storeFor(db, { tenantId: 'tenant-1' });
