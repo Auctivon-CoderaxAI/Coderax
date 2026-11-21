@@ -58,7 +58,6 @@ const NavIconButton = memo(function NavIconButton({
   expanded,
   setActive,
   onExpand,
-  onCollapse,
   onNavigate,
   onLeaveInsights,
 }: {
@@ -67,7 +66,6 @@ const NavIconButton = memo(function NavIconButton({
   expanded: boolean;
   setActive: (id: string) => void;
   onExpand?: () => void;
-  onCollapse?: () => void;
   onNavigate?: () => void;
   onLeaveInsights?: () => void;
 }) {
@@ -93,7 +91,7 @@ const NavIconButton = memo(function NavIconButton({
         onLeaveInsights?.();
       }
     },
-    [link, isActive, setActive, expanded, onExpand, onCollapse, onNavigate, onLeaveInsights],
+    [link, isActive, setActive, expanded, onExpand, onNavigate, onLeaveInsights],
   );
 
   return (
@@ -179,7 +177,6 @@ function ExpandedPanel({
             expanded={expanded ?? true}
             setActive={setActive}
             onExpand={onExpand}
-            onCollapse={onCollapse}
             onNavigate={onNavigate}
             onLeaveInsights={routeActiveId ? onLeaveInsights : undefined}
           />
