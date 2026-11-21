@@ -158,6 +158,7 @@ describe('workflow step delivery admission', () => {
           }
           return true;
         },
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: jest.fn(async () => 'unused'),

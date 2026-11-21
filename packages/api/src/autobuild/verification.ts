@@ -1,10 +1,5 @@
-import type {
-  WorkflowBuildGate,
-  WorkflowBuildSettings,
-  WorkflowRunVerification,
-} from 'coderax-data-provider';
+import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
 import type { WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
-import type { BuildGate, BuildMode } from './modes';
 import { getBuildModePolicy } from './modes';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
 import { summarizeBuild } from './report';
@@ -32,6 +27,8 @@ export interface BuildVerificationConfig {
 export interface BuildVerifierInput {
   run: WorkflowRunRecord;
   steps: WorkflowStepRecord[];
+  /** Aborted when the run lease is lost, so a command stops instead of running twice. */
+  signal?: AbortSignal;
 }
 
 const MAX_BLOCKERS = 20;
@@ -46,7 +43,7 @@ const PULL_REQUEST_URL =
  * A reviewer opens the pull request itself, so the only trustworthy delivery
  * evidence is a URL it reported. The newest step wins.
  */
-export function findPullRequest(steps: WorkflowStepRecord[]): BuildPullRequest | null {
+function findPullRequest(steps: WorkflowStepRecord[]): BuildPullRequest | null {
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const result = steps[index].result;
     if (typeof result !== 'string') {
@@ -62,7 +59,7 @@ export function findPullRequest(steps: WorkflowStepRecord[]): BuildPullRequest |
 
 function toGate(entry: BuildGateEvidence): WorkflowRunVerification['gates'][number] {
   return {
-    gate: entry.gate as WorkflowBuildGate,
+    gate: entry.gate,
     status: entry.status,
     ...(entry.summary == null ? {} : { summary: entry.summary.slice(0, GATE_SUMMARY_MAX_LENGTH) }),
   };
@@ -72,20 +69,15 @@ function failedVerdict(input: {
   mode: WorkflowBuildSettings['mode'];
   checkedAt: string;
   summary: string;
-  gates?: BuildGateEvidence[];
-  blockers?: string[];
 }): WorkflowRunVerification {
-  const blockers = input.blockers ?? [input.summary];
   return {
     status: 'failed',
     mode: input.mode,
     outcome: 'complete_unverified',
     checkedAt: input.checkedAt,
     summary: input.summary.slice(0, SUMMARY_MAX_LENGTH),
-    gates: (input.gates ?? []).map(toGate),
-    blockers: blockers
-      .slice(0, MAX_BLOCKERS)
-      .map((blocker) => blocker.slice(0, GATE_SUMMARY_MAX_LENGTH)),
+    gates: [],
+    blockers: [input.summary.slice(0, GATE_SUMMARY_MAX_LENGTH)],
   };
 }
 
@@ -136,7 +128,7 @@ function snapshotFor(
   pullRequest: BuildPullRequest | null,
 ): BuildSnapshot {
   return {
-    mode: build.mode as BuildMode,
+    mode: build.mode,
     // Verification only runs at settlement, so the run is about to complete.
     status: 'completed',
     steps: steps.map((step) => ({
@@ -152,7 +144,7 @@ function snapshotFor(
     ...(run.startedAt == null ? {} : { startedAt: run.startedAt.toISOString() }),
     deadlineAt: build.deadlineAt ?? null,
     gates,
-    requiredGates: build.requiredGates as BuildGate[],
+    requiredGates: build.requiredGates,
     pullRequest,
   };
 }
@@ -184,6 +176,7 @@ export async function verifyBuildRun(
     ...(config.runner == null ? {} : { runner: config.runner }),
     ...(config.allowedCommands == null ? {} : { allowedCommands: config.allowedCommands }),
     ...(config.defaultTimeoutMs == null ? {} : { defaultTimeoutMs: config.defaultTimeoutMs }),
+    ...(input.signal == null ? {} : { signal: input.signal }),
   });
   if (!executed.ok) {
     return failedVerdict({
@@ -196,11 +189,11 @@ export async function verifyBuildRun(
   const requirePullRequest =
     config.requirePullRequest ??
     build.requirePullRequest ??
-    getBuildModePolicy(build.mode as BuildMode).requirePullRequest;
+    getBuildModePolicy(build.mode).requirePullRequest;
   const pullRequest = findPullRequest(steps);
   const gates: BuildGateEvidence[] = [...executed.value.gates, reviewEvidence(build, steps)];
   const report = summarizeBuild(snapshotFor(run, steps, build, gates, pullRequest), {
-    requiredGates: build.requiredGates as BuildGate[],
+    requiredGates: build.requiredGates,
     requirePullRequest,
   });
 

@@ -265,8 +265,7 @@ export interface WorkflowRunView {
   input?: string;
   steps: WorkflowStepView[];
   error?: string;
-  /** Evidence contract and verdict, present on an autonomous build run. */
-  settings?: WorkflowSettings;
+  /** Present on an autonomous build run once settlement has verified it. */
   verification?: WorkflowRunVerification;
   trigger?: WorkflowRunTrigger;
   events: WorkflowRunEvent[];

@@ -65,7 +65,10 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
 
 /** Adapts the data-schemas run methods to the runner's small store port. */
 export function createWorkflowStore(
-  methods: Pick<WorkflowMethods, 'claimWorkflowRuns' | 'updateWorkflowRun' | 'releaseWorkflowRun'>,
+  methods: Pick<
+    WorkflowMethods,
+    'claimWorkflowRuns' | 'updateWorkflowRun' | 'extendWorkflowRunLease' | 'releaseWorkflowRun'
+  >,
 ): WorkflowEngineStore {
   return {
     claimRuns: async (input) => {
@@ -100,6 +103,8 @@ export function createWorkflowStore(
       });
       return saved != null;
     },
+    extendLease: async ({ runId, leaseToken, now, leaseUntil }) =>
+      methods.extendWorkflowRunLease({ id: runId, leaseToken, leaseUntil, now }),
     releaseRun: async ({ runId, leaseToken, now }) => {
       await methods.releaseWorkflowRun(runId, leaseToken, now);
     },

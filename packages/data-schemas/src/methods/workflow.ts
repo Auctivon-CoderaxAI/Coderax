@@ -158,6 +158,13 @@ export interface WorkflowMethods {
   listWorkflowRuns: (userId: string, workflowId?: string) => Promise<IWorkflowRun[]>;
   claimWorkflowRuns: (input: ClaimWorkflowRunsInput) => Promise<IWorkflowRun[]>;
   updateWorkflowRun: (input: UpdateWorkflowRunInput) => Promise<IWorkflowRun | null>;
+  /** Lease-fenced renewal; false means another worker owns the run now. */
+  extendWorkflowRunLease: (input: {
+    id: string;
+    leaseToken: string;
+    leaseUntil: Date;
+    now: Date;
+  }) => Promise<boolean>;
   releaseWorkflowRun: (id: string, leaseToken: string, now: Date) => Promise<boolean>;
   approveWorkflowStep: (input: ApproveWorkflowStepInput) => Promise<IWorkflowRun | null>;
   pauseWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
@@ -553,6 +560,14 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       return runModel()
         .findOneAndUpdate({ id, leaseToken }, update, { new: true })
         .lean<IWorkflowRun | null>();
+    },
+
+    extendWorkflowRunLease: async ({ id, leaseToken, leaseUntil, now }) => {
+      const result = await runModel().updateOne(
+        { id, leaseToken },
+        { $set: { leaseUntil, updatedAt: now } },
+      );
+      return result.modifiedCount > 0;
     },
 
     releaseWorkflowRun: async (id, leaseToken, now) => {

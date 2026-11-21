@@ -10,7 +10,7 @@ import type {
   WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
-import type { BuildVerificationConfig } from '../autobuild/verification';
+import type { BuildVerificationConfig, BuildVerifierInput } from '../autobuild/verification';
 
 /** The durable, process-independent shape a workflow runner advances. */
 export interface WorkflowStepRecord {
@@ -109,6 +109,13 @@ export interface WorkflowEngineStore {
     now: Date;
     patch: WorkflowRunPatch;
   }) => Promise<boolean>;
+  /** Lease-fenced renewal. False means another worker owns the run now. */
+  extendLease: (input: {
+    runId: string;
+    leaseToken: string;
+    now: Date;
+    leaseUntil: Date;
+  }) => Promise<boolean>;
   releaseRun: (input: { runId: string; leaseToken: string; now: Date }) => Promise<void>;
 }
 
@@ -186,10 +193,7 @@ export interface WorkflowEngineDeps {
    * calls it once every step has settled and only when the run carries
    * `settings.build`; anything but a `verified` verdict fails the run.
    */
-  verifyRun?: (input: {
-    run: WorkflowRunRecord;
-    steps: WorkflowStepRecord[];
-  }) => Promise<WorkflowRunVerification>;
+  verifyRun?: (input: BuildVerifierInput) => Promise<WorkflowRunVerification>;
   schedules?: WorkflowScheduleDeps;
   now?: () => Date;
   random?: () => number;

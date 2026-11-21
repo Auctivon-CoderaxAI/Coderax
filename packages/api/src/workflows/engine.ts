@@ -822,10 +822,17 @@ export function createWorkflowEngine(
      * Asks the host for the run's build evidence. An unwired verifier, a throw,
      * or any verdict but `verified` becomes retained failure evidence: a build
      * run never completes on the strength of its turns alone.
+     *
+     * Verification runs inside the run lease, so the lease is renewed before the
+     * first command and while it runs. A test suite that outlives a 30-second
+     * lease would otherwise be claimed and executed again by another worker, and
+     * this worker's verdict would be fenced out of the write. Losing the lease
+     * aborts the commands and returns without writing anything, so the new owner
+     * is never racing a duplicate run of the same verification.
      */
     const verifySettlement = async (
       build: WorkflowBuildSettings,
-    ): Promise<WorkflowRunVerification> => {
+    ): Promise<WorkflowRunVerification | 'lost'> => {
       const unresolved = (): WorkflowRunVerification => ({
         status: 'failed',
         mode: build.mode,
@@ -839,14 +846,58 @@ export function createWorkflowEngine(
         logger.error('[workflows] build settlement has no verifier', { runId: run.id });
         return unresolved();
       }
+
+      const controller = new AbortController();
+      let lost = false;
+      let renewing = false;
+      const renew = async (): Promise<void> => {
+        if (renewing || lost) {
+          return;
+        }
+        renewing = true;
+        try {
+          const renewedAt = now();
+          const extended = await deps.store.extendLease({
+            runId: run.id,
+            leaseToken,
+            now: renewedAt,
+            leaseUntil: new Date(renewedAt.getTime() + leaseMs),
+          });
+          if (!extended) {
+            lost = true;
+            controller.abort();
+          }
+        } catch (cause) {
+          // Without proof of ownership the commands must stop: continuing could
+          // run them a second time beside the new owner.
+          logger.warn('[workflows] run lease renewal failed', {
+            runId: run.id,
+            error: failureMessage(cause),
+          });
+          lost = true;
+          controller.abort();
+        } finally {
+          renewing = false;
+        }
+      };
+
+      await renew();
+      if (lost) {
+        return 'lost';
+      }
+      const heartbeat = setInterval(() => void renew(), Math.max(250, Math.floor(leaseMs / 3)));
+      heartbeat.unref?.();
       try {
-        return await deps.verifyRun({ run, steps });
+        const verdict = await deps.verifyRun({ run, steps, signal: controller.signal });
+        return lost ? 'lost' : verdict;
       } catch (cause) {
         logger.error('[workflows] build verification failed', {
           runId: run.id,
           error: failureMessage(cause),
         });
-        return unresolved();
+        return lost ? 'lost' : unresolved();
+      } finally {
+        clearInterval(heartbeat);
       }
     };
 
@@ -865,8 +916,14 @@ export function createWorkflowEngine(
         ),
     );
     const build = run.settings?.build;
-    const verification =
-      !unhandledFailure && build != null ? await verifySettlement(build) : undefined;
+    let verification: WorkflowRunVerification | undefined;
+    if (!unhandledFailure && build != null) {
+      const outcome = await verifySettlement(build);
+      if (outcome === 'lost') {
+        return 'lost';
+      }
+      verification = outcome;
+    }
     const unverified = verification != null && verification.status !== 'verified';
     status = unhandledFailure || unverified ? 'failed' : 'completed';
     error = unhandledFailure
