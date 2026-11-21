@@ -184,6 +184,7 @@
     "@langchain/langgraph-checkpoint": "^1.1.2",
     "@langchain/langgraph-checkpoint-mongodb": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@opencode-ai/sdk": "1.19.6",
     "@simplewebauthn/server": "^13.3.2",
     "coderax-data-provider": "*",
     "cluster-key-slot": "^1.1.2",
