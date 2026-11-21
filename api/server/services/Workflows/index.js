@@ -119,9 +119,11 @@ async function handleWorkflowAgentEvent(event) {
   return getEventStarter()(event);
 }
 
-/** Arms the recovery poll with the deployment's configured runner limits. */
-function initializeWorkflowEngine(options) {
-  return getLifecycle().initialize(options);
+/** Arms the recovery poll with the deployment's configured runner limits. The
+ *  configured code environments are checked before the runner starts, so a bad
+ *  build workspace id fails startup instead of every build step later. */
+function initializeWorkflowEngine(options, environments) {
+  return getLifecycle().initialize(options, environments);
 }
 
 function wakeWorkflowEngine() {

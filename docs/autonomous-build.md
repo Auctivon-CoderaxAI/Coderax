@@ -259,6 +259,10 @@ workflows:
     defaultTimeoutMs: 600000
 ```
 
+The workflow engine refuses to arm when `workspaceEnvironmentId` does not name a configured attached
+stateful-code environment. A typo fails startup with the configured ids listed, rather than surfacing
+later as a failed build step.
+
 `gate` is one of `tests`, `build` or `security`; `review` is never a command, it comes from the
 reviewer step named at compile time. Every executable must be a bare name on the allowlist (a path
 is rejected), `cwd` is resolved inside the run's checkout with symlinks followed, and nothing is
