@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
-import type { ChildProcess } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import type { ChildProcess } from 'node:child_process';
 import type { BuildGateEvidence, BuildGateStatus } from './report';
 
 /**
@@ -376,12 +376,16 @@ export function createSpawnCommandRunner(
       let timedOut = false;
       let cancelled = false;
       let settled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        timedOut = true;
+        killTree(child);
+      }, input.timeoutMs);
 
       const cleanup = (): void => {
-        if (timer != null) {
-          clearTimeout(timer);
-        }
+        clearTimeout(timer);
         input.signal?.removeEventListener('abort', onAbort);
       };
       const finish = (exitCode: number | null): void => {
@@ -422,13 +426,6 @@ export function createSpawnCommandRunner(
       });
       child.on('close', (code) => finish(code));
       input.signal?.addEventListener('abort', onAbort, { once: true });
-      timer = setTimeout(() => {
-        if (settled) {
-          return;
-        }
-        timedOut = true;
-        killTree(child);
-      }, input.timeoutMs);
 
       if (input.signal?.aborted === true) {
         onAbort();

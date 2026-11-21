@@ -5,4 +5,5 @@ export * from './plan';
 export * from './planner';
 export * from './start';
 export * from './verify';
+export * from './verification';
 export * from './report';

@@ -177,6 +177,11 @@ export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResu
     });
   }
 
+  const requiredGates = requiredGatesForPlan(mode, plan);
+  // The reviewer is the run's independent review evidence. A plan without one
+  // still compiles, but settlement then fails its review gate instead of
+  // accepting the implementer's own claim.
+  const reviewStepId = [...plan.tasks].reverse().find((task) => task.role === 'reviewer')?.id;
   const startedAt = options.now ?? new Date();
   const deadlineAt =
     policy.deadlineMs == null
@@ -197,10 +202,17 @@ export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResu
         steps,
         settings: {
           maxParallel: Math.min(policy.maxParallel, WORKFLOW_MAX_PARALLEL, plan.tasks.length),
+          build: {
+            mode,
+            requiredGates,
+            ...(deadlineAt == null ? {} : { deadlineAt }),
+            ...(reviewStepId == null ? {} : { reviewStepId }),
+            requirePullRequest: policy.requirePullRequest,
+          },
         },
       },
       policy,
-      requiredGates: requiredGatesForPlan(mode, plan),
+      requiredGates,
       deadlineAt,
       roleAssignments,
       unresolvedRoles: roleAssignments

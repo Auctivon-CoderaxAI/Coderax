@@ -64,8 +64,6 @@ export * from './subagentActivity';
 export * from './subagentIdentity';
 export * from './subagentCompletionWakeup';
 export * from './subagentTaskRouting';
-export * from './swarm';
-export * from './swarmMongoStore';
 export * from './skillConfigurable';
 export * from './skillFiles';
 export * from './codeFilesSession';
