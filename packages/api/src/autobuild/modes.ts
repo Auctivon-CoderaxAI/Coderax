@@ -173,16 +173,6 @@ export function assessRequestComplexity(request: string): ComplexityAssessment {
   };
 }
 
-/** First trimmed, non-empty value; null when none is present. */
-function firstNonEmpty(...values: Array<string | undefined>): string | null {
-  for (const value of values) {
-    if (value != null && value.length > 0) {
-      return value;
-    }
-  }
-  return null;
-}
-
 export interface ModeDecision {
   mode: BuildMode;
   requested: BuildMode;
@@ -210,7 +200,8 @@ export function chooseEffectiveMode(input: {
   const planAssessment = plan == null ? null : assessBuildPlan(plan);
   const explicitRequest = request?.trim();
   const planRequest = plan?.request?.trim();
-  const assessedRequest = firstNonEmpty(explicitRequest, planRequest);
+  const assessedRequest =
+    [explicitRequest, planRequest].find((value) => value != null && value.length > 0) ?? null;
   const requestAssessment =
     assessedRequest == null ? null : assessRequestComplexity(assessedRequest);
 
