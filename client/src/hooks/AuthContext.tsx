@@ -78,6 +78,11 @@ const getLoginErrorText = (error: TResError): string | undefined => {
     : error?.message;
 };
 
+/** Explicit password sign-in must survive a missing refresh session. */
+const isManualLoginRoute = () =>
+  window.location.pathname === `${apiBaseUrl()}/login` &&
+  new URLSearchParams(window.location.search).get('manual') === '1';
+
 const AuthContextProvider = ({
   authConfig,
   children,
@@ -424,6 +429,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -448,6 +454,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -477,7 +484,7 @@ const AuthContextProvider = ({
       endSessionClientState();
       doSetError((userQuery.error as Error).message);
       setIsAuthReady(true);
-      if (authConfig?.optional !== true) {
+      if (authConfig?.optional !== true && !isManualLoginRoute()) {
         navigate(buildLoginRedirectUrl(), { replace: true });
       }
     }

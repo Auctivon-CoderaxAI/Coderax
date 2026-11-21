@@ -2856,49 +2856,6 @@ export const interfaceSchema = z
         }),
       ])
       .optional(),
-    /** Durable workflow runner limits; omitted fields keep built-in defaults. */
-    workflows: z
-      .object({
-        concurrency: z.number().int().min(1).max(64),
-        leaseMs: z.number().int().min(1_000).max(600_000),
-        tickMs: z.number().int().min(100).max(60_000),
-        retryBaseMs: z.number().int().min(100).max(600_000),
-        retryCapMs: z.number().int().min(100).max(3_600_000),
-        stepTimeoutMs: z
-          .number()
-          .int()
-          .min(10_000)
-          .max(24 * 60 * 60_000),
-        scheduleConcurrency: z.number().int().min(1).max(100),
-        /** Settlement verification for autonomous build runs. The workspace
-         *  root and argv are deployment policy, never request input, so a build
-         *  plan cannot turn settlement into arbitrary command execution. */
-        buildVerification: z
-          .object({
-            workspaceRoot: z.string().trim().min(1),
-            /** Attached environment that registers each checkout under
-             *  `workspaceRoot` with its directory name as the workspace id. */
-            workspaceEnvironmentId: z.string().trim().min(1),
-            commands: z
-              .array(
-                z.object({
-                  gate: z.enum(['tests', 'build', 'security']),
-                  command: z.string().trim().min(1).max(256),
-                  args: z.array(z.string().max(2_000)).max(50).optional(),
-                  cwd: z.string().trim().min(1).optional(),
-                  timeoutMs: z.number().int().min(100).max(3_600_000).optional(),
-                  label: z.string().trim().min(1).max(256).optional(),
-                }),
-              )
-              .min(1)
-              .max(20),
-            allowedCommands: z.array(z.string().trim().min(1).max(256)).max(64).optional(),
-            requirePullRequest: z.boolean().optional(),
-            defaultTimeoutMs: z.number().int().min(100).max(3_600_000).optional(),
-          })
-          .optional(),
-      })
-      .optional(),
     /** Client confirmation window for a steer escalation arm, in milliseconds. */
     steerArmConfirmationTimeoutMs: z
       .number()
@@ -4087,6 +4044,46 @@ export const configSchema = z.object({
   freeInference: freeInferenceConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
+  /** Durable workflow runner limits; omitted fields keep built-in defaults. */
+  workflows: z
+    .object({
+      concurrency: z.number().int().min(1).max(64),
+      leaseMs: z.number().int().min(1_000).max(600_000),
+      tickMs: z.number().int().min(100).max(60_000),
+      retryBaseMs: z.number().int().min(100).max(600_000),
+      retryCapMs: z.number().int().min(100).max(3_600_000),
+      stepTimeoutMs: z
+        .number()
+        .int()
+        .min(10_000)
+        .max(24 * 60 * 60_000),
+      scheduleConcurrency: z.number().int().min(1).max(100),
+      /** Settlement verification for autonomous build runs. The workspace
+       *  root and argv are deployment policy, never request input, so a build
+       *  plan cannot turn settlement into arbitrary command execution. */
+      buildVerification: z
+        .object({
+          workspaceRoot: z.string().trim().min(1),
+          commands: z
+            .array(
+              z.object({
+                gate: z.enum(['tests', 'build', 'security']),
+                command: z.string().trim().min(1).max(256),
+                args: z.array(z.string().max(2_000)).max(50).optional(),
+                cwd: z.string().trim().min(1).optional(),
+                timeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+                label: z.string().trim().min(1).max(256).optional(),
+              }),
+            )
+            .min(1)
+            .max(20),
+          allowedCommands: z.array(z.string().trim().min(1).max(256)).max(64).optional(),
+          requirePullRequest: z.boolean().optional(),
+          defaultTimeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   ocr: ocrSchema.optional(),
   webSearch: webSearchSchema.optional(),
   githubCompare: z

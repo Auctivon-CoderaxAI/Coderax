@@ -689,18 +689,23 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     jest.useRealTimers();
   });
 
-  it('keeps the manual sign-in form mounted when refresh fails without a guest session', () => {
+  it('keeps the manual sign-in form mounted when refresh fails without a guest session', async () => {
     window.history.replaceState({}, '', '/login?manual=1');
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
 
-    renderProviderLive();
+    const { getByTestId } = renderProviderLive();
     const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
       unknown,
       { onError: (error: Error) => void },
     ];
 
-    act(() => refreshOptions.onError(new Error('No refresh session')));
+    expect(getByTestId('consumer')).toHaveAttribute('data-auth-ready', 'false');
 
+    await act(async () => {
+      refreshOptions.onError(new Error('No refresh session'));
+    });
+
+    expect(getByTestId('consumer')).toHaveAttribute('data-auth-ready', 'true');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(window.location.search).toBe('?manual=1');
@@ -727,6 +732,29 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
     expect(readTwoFactorSetupToken()).toBe('refreshed token');
   });
+
+  it.each(['missing token', 'request error'])(
+    'preserves explicit password sign-in on refresh %s',
+    (outcome) => {
+      window.history.replaceState({}, '', '/login?manual=1&redirect_to=%2Fc%2Frequested');
+      renderProviderLive();
+      const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+        unknown,
+        { onSuccess: (data: unknown) => void; onError: (error: Error) => void },
+      ];
+
+      act(() => {
+        if (outcome === 'missing token') {
+          refreshOptions.onSuccess({});
+        } else {
+          refreshOptions.onError(new Error('No refresh session'));
+        }
+      });
+
+      expect(mockNavigate).not.toHaveBeenCalled();
+      expect(window.location.search).toBe('?manual=1&redirect_to=%2Fc%2Frequested');
+    },
+  );
 
   it('keeps a required setup route mounted when refresh fails after reload', () => {
     window.history.replaceState({}, '', '/login/2fa/setup');

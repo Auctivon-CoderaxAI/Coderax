@@ -1,53 +1,13 @@
-import { realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type {
-  WorkflowBuildSettings,
-  WorkflowRunVerification,
-  WorkflowSettings,
-  WorkflowStepStatus,
-} from 'coderax-data-provider';
+import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
+import type { BuildVerifierInput, WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
-import type { CommandRunner, VerificationCommand } from './verify';
+import type { BuildVerificationConfig } from './config';
 import { runBuildVerification } from './verify';
 import { getBuildModePolicy } from './modes';
 import { summarizeBuild } from './report';
 
-/**
- * Deployment verification policy. The workspace root and argv are deployment
- * configuration rather than request input, so a build plan can never choose
- * where settlement runs or which executable it invokes.
- */
-export interface BuildVerificationConfig {
-  /** Absolute directory holding one checkout per build workspace. */
-  workspaceRoot: string;
-  /** Attached code environment that hosts those checkouts, one registered
-   *  workspace id per directory name. Build steps run their turns there, so the
-   *  reservation covers editing instead of only settlement. */
-  workspaceEnvironmentId: string;
-  commands: VerificationCommand[];
-  /** Replaces the default executable allowlist when supplied. */
-  allowedCommands?: readonly string[];
-  /** Waives the reviewable-pull-request requirement when false. */
-  requirePullRequest?: boolean;
-  defaultTimeoutMs?: number;
-  /** Process runner override, for hosts and tests that must not spawn. */
-  runner?: CommandRunner;
-}
-
-export interface BuildVerifierInput {
-  run: { settings?: WorkflowSettings; startedAt?: Date };
-  steps: {
-    id: string;
-    title: string;
-    status: WorkflowStepStatus;
-    attempts: number;
-    result?: string;
-    error?: string;
-    reason?: string;
-  }[];
-  /** Aborted when the run lease is lost, so a command stops instead of running twice. */
-  signal?: AbortSignal;
-}
+/* Re-exported so this module keeps its public surface after the cycle break. */
+export type { BuildVerificationConfig, BuildVerifierInput };
 
 const MAX_BLOCKERS = 20;
 const SUMMARY_MAX_LENGTH = 2_048;
@@ -55,43 +15,6 @@ const GATE_SUMMARY_MAX_LENGTH = 512;
 const PULL_REQUEST_MAX_LENGTH = 512;
 
 const PULL_REQUEST_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
-
-/**
- * Resolves the run's own checkout under the deployment root. The workspace is
- * already a single safe directory name, but the symlink-aware containment
- * check keeps a checkout from pointing verification at another build's tree.
- */
-function resolveBuildWorkspace(
-  baseRoot: string,
-  workspace: string,
-): { ok: true; value: string } | { ok: false; message: string } {
-  if (!isAbsolute(baseRoot)) {
-    return { ok: false, message: 'The deployment build root must be an absolute path.' };
-  }
-  let base: string;
-  try {
-    base = realpathSync(resolve(baseRoot));
-  } catch {
-    return { ok: false, message: 'The deployment build root is not an existing directory.' };
-  }
-  let candidate: string;
-  try {
-    candidate = realpathSync(resolve(base, workspace));
-  } catch {
-    return { ok: false, message: `The build workspace ${workspace} has no checkout.` };
-  }
-  const rel = relative(base, candidate);
-  if (rel.length === 0 || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    return {
-      ok: false,
-      message: `The build workspace ${workspace} is outside the deployment build root.`,
-    };
-  }
-  if (rel !== workspace) {
-    return { ok: false, message: `The build workspace ${workspace} aliases another checkout.` };
-  }
-  return { ok: true, value: candidate };
-}
 
 /**
  * A reviewer opens the pull request itself, so the only trustworthy delivery
