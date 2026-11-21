@@ -159,8 +159,18 @@ describe('ExpandedPanel', () => {
   describe('active state (routeActiveId / effectiveActive)', () => {
     const routeLinks = (): NavLink[] => [
       ...createLinks(),
-      { title: 'com_insights_navigation' as const, icon: NotebookPen, id: 'insights', onClick: jest.fn() },
-      { title: 'com_cyvox_robot' as const, icon: NotebookPen, id: 'cyvox-robot', onClick: jest.fn() },
+      {
+        title: 'com_insights_navigation' as const,
+        icon: NotebookPen,
+        id: 'insights',
+        onClick: jest.fn(),
+      },
+      {
+        title: 'com_cyvox_robot' as const,
+        icon: NotebookPen,
+        id: 'cyvox-robot',
+        onClick: jest.fn(),
+      },
     ];
 
     const pressed = (name: string) =>
@@ -204,9 +214,12 @@ describe('ExpandedPanel', () => {
 
     it('activates no link for an unknown cyvox segment', () => {
       renderPanel({ links: routeLinks(), initialPath: '/cyvox/unknown' });
-      ['com_ui_chat_history', 'com_ui_prompts', 'com_insights_navigation', 'com_cyvox_robot'].forEach(
-        (name) => expect(pressed(name)).toBe('false'),
-      );
+      [
+        'com_ui_chat_history',
+        'com_ui_prompts',
+        'com_insights_navigation',
+        'com_cyvox_robot',
+      ].forEach((name) => expect(pressed(name)).toBe('false'));
     });
 
     it('does not treat /cyvox without a trailing segment as a route', () => {
@@ -278,13 +291,13 @@ describe('ExpandedPanel', () => {
     });
   });
 
-
   describe('NavIconButton collapse toggle', () => {
-    it('collapses sidebar when clicking the active icon while expanded', () => {
+    it('keeps chat history expanded when its active icon is clicked', () => {
       const { onCollapse } = renderPanel({ expanded: true });
       const activeButton = screen.getByRole('button', { name: 'com_ui_chat_history' });
       fireEvent.click(activeButton);
-      expect(onCollapse).toHaveBeenCalledTimes(1);
+      expect(onCollapse).not.toHaveBeenCalled();
+      expect(screen.getByTestId('close-sidebar-button')).toBeInTheDocument();
     });
 
     it('switches panel when clicking an inactive icon while expanded', () => {
@@ -329,6 +342,16 @@ describe('ExpandedPanel', () => {
       expect(onClick).toHaveBeenCalledTimes(1);
       expect(onNavigate).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('preserves chat sidebar controls without unrelated launchers', () => {
+    renderPanel({ links: createLinks().slice(0, 1) });
+    expect(screen.getByTestId('close-sidebar-button')).toBeInTheDocument();
+    expect(screen.getByTestId('new-chat-button')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_ui_chat_history' })).toBeInTheDocument();
+    expect(screen.getByTestId('account-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('studio-nav-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nav-agents-marketplace-button')).not.toBeInTheDocument();
   });
 
   describe('NewChatButton panel switch', () => {

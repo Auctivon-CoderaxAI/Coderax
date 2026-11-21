@@ -1,13 +1,12 @@
 import { memo, useCallback, Suspense } from 'react';
-import { PanelsTopLeft, SquarePen } from 'lucide-react';
+import { SquarePen } from 'lucide-react';
 import { Skeleton, Sidebar, Button, TooltipAnchor } from '@coderax/client';
 import type { NavLink } from '~/common';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import { useActivePanel, resolveActivePanel, DEFAULT_PANEL } from '~/Providers';
-import AgentMarketplaceButton from '~/components/Nav/AgentMarketplaceButton';
 import { CLOSE_SIDEBAR_ID } from '~/components/Chat/Menus/OpenSidebar';
-import { lazyWithRecovery } from '~/lib/assets/lazy';
 import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
+import { lazyWithRecovery } from '~/lib/assets/lazy';
 import useNewChat from '~/hooks/Chat/useNewChat';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -59,7 +58,6 @@ const NavIconButton = memo(function NavIconButton({
   expanded,
   setActive,
   onExpand,
-  onCollapse,
   onNavigate,
   onLeaveInsights,
 }: {
@@ -68,7 +66,6 @@ const NavIconButton = memo(function NavIconButton({
   expanded: boolean;
   setActive: (id: string) => void;
   onExpand?: () => void;
-  onCollapse?: () => void;
   onNavigate?: () => void;
   onLeaveInsights?: () => void;
 }) {
@@ -81,8 +78,8 @@ const NavIconButton = memo(function NavIconButton({
         onNavigate?.();
         return;
       }
+      // Only the explicit sidebar toggle closes the expanded chat history.
       if (isActive && expanded) {
-        onCollapse?.();
         return;
       }
       if (!isActive) {
@@ -94,7 +91,7 @@ const NavIconButton = memo(function NavIconButton({
         onLeaveInsights?.();
       }
     },
-    [link, isActive, setActive, expanded, onExpand, onCollapse, onNavigate, onLeaveInsights],
+    [link, isActive, setActive, expanded, onExpand, onNavigate, onLeaveInsights],
   );
 
   return (
@@ -171,22 +168,6 @@ function ExpandedPanel({
         }
       />
       <NewChatButton setActive={setActive} switchToHistory={switchToHistory} />
-      <AgentMarketplaceButton />
-      <TooltipAnchor
-        side="right"
-        description="Visual App Studio"
-        render={
-          <a
-            href="/studio"
-            aria-label="Open Visual App Studio"
-            data-testid="studio-nav-link"
-            className="hover:bg-surface-hover flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
-          >
-            <PanelsTopLeft className="text-text-primary h-5 w-5" aria-hidden="true" />
-          </a>
-        }
-      />
-      <div className="border-border-inset mx-2 border-b" />
       <div className="flex flex-col gap-1 overflow-y-auto">
         {links.map((link) => (
           <NavIconButton
@@ -196,7 +177,6 @@ function ExpandedPanel({
             expanded={expanded ?? true}
             setActive={setActive}
             onExpand={onExpand}
-            onCollapse={onCollapse}
             onNavigate={onNavigate}
             onLeaveInsights={routeActiveId ? onLeaveInsights : undefined}
           />
