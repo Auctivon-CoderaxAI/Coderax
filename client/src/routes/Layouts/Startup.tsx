@@ -7,6 +7,7 @@ import {
   getPostLoginRedirect,
   getPostLoginFallback,
   isRequiredTwoFactorSetupRoute,
+  isManualLoginEntry,
 } from '~/utils';
 import { TranslationKeys, useLocalize } from '~/hooks';
 import { useGetStartupConfig } from '~/data-provider';
@@ -50,7 +51,12 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
    */
   useEffect(() => {
     const isGuestEntry = location.pathname === '/connect';
-    if (!isAuthenticated || isRequiredTwoFactorSetupRoute() || isGuestEntry) {
+    if (
+      !isAuthenticated ||
+      isRequiredTwoFactorSetupRoute() ||
+      isGuestEntry ||
+      isManualLoginEntry()
+    ) {
       return;
     }
     const destination =
