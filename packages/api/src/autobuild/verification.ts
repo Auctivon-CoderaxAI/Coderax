@@ -1,43 +1,23 @@
 import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
-import type { WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
+import type {
+  BuildVerificationConfig,
+  BuildVerifierInput,
+  WorkflowRunRecord,
+  WorkflowStepRecord,
+} from '../workflows/types';
 import { getBuildModePolicy } from './modes';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
 import { summarizeBuild } from './report';
-import type { CommandRunner, VerificationCommand } from './verify';
 import { runBuildVerification } from './verify';
 
-/**
- * Deployment verification policy. The workspace root and argv are deployment
- * configuration rather than request input, so a build plan can never choose
- * where settlement runs or which executable it invokes.
- */
-export interface BuildVerificationConfig {
-  /** Absolute workspace the commands run in. */
-  workspaceRoot: string;
-  commands: VerificationCommand[];
-  /** Replaces the default executable allowlist when supplied. */
-  allowedCommands?: readonly string[];
-  /** Waives the reviewable-pull-request requirement when false. */
-  requirePullRequest?: boolean;
-  defaultTimeoutMs?: number;
-  /** Process runner override, for hosts and tests that must not spawn. */
-  runner?: CommandRunner;
-}
-
-export interface BuildVerifierInput {
-  run: WorkflowRunRecord;
-  steps: WorkflowStepRecord[];
-  /** Aborted when the run lease is lost, so a command stops instead of running twice. */
-  signal?: AbortSignal;
-}
+export type { BuildVerificationConfig, BuildVerifierInput } from '../workflows/types';
 
 const MAX_BLOCKERS = 20;
 const SUMMARY_MAX_LENGTH = 2_048;
 const GATE_SUMMARY_MAX_LENGTH = 512;
 const PULL_REQUEST_MAX_LENGTH = 512;
 
-const PULL_REQUEST_URL =
-  /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
+const PULL_REQUEST_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
 
 /**
  * A reviewer opens the pull request itself, so the only trustworthy delivery

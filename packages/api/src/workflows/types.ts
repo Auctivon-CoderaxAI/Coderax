@@ -10,7 +10,32 @@ import type {
   WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
-import type { BuildVerificationConfig, BuildVerifierInput } from '../autobuild/verification';
+import type { CommandRunner, VerificationCommand } from '../autobuild/verify';
+
+/**
+ * Deployment verification policy. The workspace root and argv are deployment
+ * configuration rather than request input, so a build plan can never choose
+ * where settlement runs or which executable it invokes.
+ */
+export interface BuildVerificationConfig {
+  /** Absolute workspace the commands run in. */
+  workspaceRoot: string;
+  commands: VerificationCommand[];
+  /** Replaces the default executable allowlist when supplied. */
+  allowedCommands?: readonly string[];
+  /** Waives the reviewable-pull-request requirement when false. */
+  requirePullRequest?: boolean;
+  defaultTimeoutMs?: number;
+  /** Process runner override, for hosts and tests that must not spawn. */
+  runner?: CommandRunner;
+}
+
+export interface BuildVerifierInput {
+  run: WorkflowRunRecord;
+  steps: WorkflowStepRecord[];
+  /** Aborted when the run lease is lost, so a command stops instead of running twice. */
+  signal?: AbortSignal;
+}
 
 /** The durable, process-independent shape a workflow runner advances. */
 export interface WorkflowStepRecord {
