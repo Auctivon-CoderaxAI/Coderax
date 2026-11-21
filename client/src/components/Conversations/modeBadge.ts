@@ -1,5 +1,5 @@
 import type { TranslationKeys } from '~/hooks/useLocalize';
-import type { ConversationMode } from '~/components/Chat/mode';
+import type { StoredConversationMode } from '~/components/Chat/mode';
 
 export type ConversationModeBadgeDescriptor = {
   mode: 'code';
@@ -12,7 +12,7 @@ export type ConversationModeBadgeDescriptor = {
  * conversation starts in, so marking it would put the same badge on the whole list.
  */
 export function resolveConversationModeBadge(
-  mode: ConversationMode | 'code' | 'review' | null | undefined,
+  mode: StoredConversationMode | null | undefined,
 ): ConversationModeBadgeDescriptor | null {
   if (mode === 'work' || mode === 'code') {
     return { mode: 'code', labelKey: 'com_ui_work' };
