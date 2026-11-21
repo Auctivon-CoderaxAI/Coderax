@@ -68,6 +68,7 @@ describe('verifyBuildRun', () => {
 
   const config = (overrides: { runner?: CommandRunner } = {}) => ({
     workspaceRoot,
+    workspaceEnvironmentId: 'build-machine',
     commands: [{ gate: 'tests' as const, command: 'npm', args: ['test'] }],
     runner: overrides.runner ?? runner(0),
   });
@@ -191,7 +192,11 @@ describe('verifyBuildRun', () => {
   it('fails when the verification commands cannot run', async () => {
     const verdict = await verifyBuildRun(
       { run: run(), steps: [step()] },
-      { workspaceRoot: join(workspaceRoot, 'missing'), commands: config().commands },
+      {
+        workspaceRoot: join(workspaceRoot, 'missing'),
+        workspaceEnvironmentId: 'build-machine',
+        commands: config().commands,
+      },
     );
 
     expect(verdict.status).toBe('failed');

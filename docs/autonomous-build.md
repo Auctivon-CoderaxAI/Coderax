@@ -155,9 +155,13 @@ active turn, then releases it; if that cleanup cannot be completed the reservati
 than admitting a second writer. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
 
-The reservation governs run admission and settlement verification. Agent step tool roots are still
-chosen by the execution layer; binding reads, writes and commands to `settings.build.workspace` is a
-separate follow-up, so provisioning must point the run's conversation at the bound checkout.
+Every step turn is bound to the same checkout. The workflow step enqueuer attaches
+`codeWorkspaces: [{ environmentId: buildVerification.workspaceEnvironmentId, workspaceId: <workspace> }]`
+to the step's fire envelope, and the agent run resolves its reads, writes and commands through that
+selection, so two builds with different workspace names cannot edit one tree. The attached worker
+rejects a turn whose workspace id it does not register, which is the fail-closed path for a checkout
+that was never provisioned. The selection is host-controlled trigger context, like `chatProjectId`;
+a model or build request cannot choose it.
 
 Before enabling the unique reservation index on an existing deployment, pause new build launches
 and check for active workspace-bound runs created before this release:
@@ -201,11 +205,12 @@ run's checkout. When every step has settled, the workflow engine calls its
   request URL and summary — and is returned in `WorkflowRunView`, so an operator sees why a build
   did not complete.
 
-The workspace base root, the commands and the executable allowlist come from
-`config.workflows.buildVerification` in `coderax.yaml`, never from the build request body: a plan
-cannot choose where settlement runs or which executable it invokes. The request only names the
-repository and the workspace directory under that root, and the verifier confines itself to it. Without that configuration the
-port is not wired, so every build run fails closed instead of completing unverified.
+The workspace base root, the attached machine that hosts it, the commands and the executable
+allowlist come from `config.workflows.buildVerification` in `coderax.yaml`, never from the build
+request body: a plan cannot choose where the steps edit or where settlement runs, or which executable
+it invokes. The request only names the repository and the workspace directory under that root, and
+both the step binding and the verifier confine themselves to it. Without that configuration the port
+is not wired, so every build run fails closed instead of completing unverified.
 
 ```yaml
 # coderax.yaml
@@ -224,6 +229,11 @@ workflows:
     # Absolute directory holding one checkout per build workspace. Required.
     # A build runs in <workspaceRoot>/<workspace binding>.
     workspaceRoot: /srv/coderax/workspaces
+    # Attached code environment that hosts those checkouts. Required. Register
+    # each <workspaceRoot>/<name> directory on it with `name` as the workspace
+    # id, so a step's bound workspace resolves to the same tree the verifier
+    # checks. A step whose workspace id is not registered fails closed.
+    workspaceEnvironmentId: build-machine
     commands:
       - gate: tests
         command: npm
@@ -252,8 +262,9 @@ spawned through a shell, so the block cannot widen its own authority.
 
 ## Not implemented in this change
 
-- **No checkout provisioning.** The deployment creates each `<workspaceRoot>/<workspace>` checkout;
-  the launcher binds a build to it but does not clone or clean it.
+- **No checkout provisioning.** The deployment creates each `<workspaceRoot>/<workspace>` checkout
+  and registers it on `workspaceEnvironmentId` under the same id; the launcher binds a build to it but
+  does not clone or clean it.
 
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
   local completion, but no server-side free-model provider is configured yet.

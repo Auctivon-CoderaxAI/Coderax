@@ -20,6 +20,10 @@ import { summarizeBuild } from './report';
 export interface BuildVerificationConfig {
   /** Absolute directory holding one checkout per build workspace. */
   workspaceRoot: string;
+  /** Attached code environment that hosts those checkouts, one registered
+   *  workspace id per directory name. Build steps run their turns there, so the
+   *  reservation covers editing instead of only settlement. */
+  workspaceEnvironmentId: string;
   commands: VerificationCommand[];
   /** Replaces the default executable allowlist when supplied. */
   allowedCommands?: readonly string[];

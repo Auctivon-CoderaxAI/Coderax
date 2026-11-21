@@ -2876,6 +2876,9 @@ export const interfaceSchema = z
         buildVerification: z
           .object({
             workspaceRoot: z.string().trim().min(1),
+            /** Attached environment that registers each checkout under
+             *  `workspaceRoot` with its directory name as the workspace id. */
+            workspaceEnvironmentId: z.string().trim().min(1),
             commands: z
               .array(
                 z.object({
