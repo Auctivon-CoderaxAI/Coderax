@@ -474,14 +474,31 @@ async function main() {
     /* Resolve the entry script the way the browser does: through the shell's
        <base href>, not the conversation path. Without one, a relative entry asks
        for /c/assets/... and the HTML fallback below is not JavaScript. */
-    const entry =
-      html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/i)?.[1] ??
-      html.match(/<script[^>]+src="([^"]+\.js)"/i)?.[1];
-    if (!entry) {
-      throw new LayerError('route', 'the shell has no module entry script to resolve');
-    }
     const baseHref = html.match(/<base[^>]+href="([^"]*)"/i)?.[1] ?? '';
-    const entryUrl = new URL(entry, new URL(baseHref, url));
+    const baseUrl = new URL(baseHref, url);
+    let entryUrl;
+    let fallbackUrl;
+    for (const [tag] of html.matchAll(/<script\b[^>]*>/gi)) {
+      const src = tag.match(/\ssrc\s*=\s*(["'])(.*?)\1/i)?.[2];
+      if (!src) {
+        continue;
+      }
+      const candidate = new URL(src, baseUrl);
+      if (candidate.pathname.endsWith('/@vite/client')) {
+        continue;
+      }
+      if (/\stype\s*=\s*(["'])module\1/i.test(tag)) {
+        entryUrl = candidate;
+        break;
+      }
+      if (!fallbackUrl && candidate.pathname.endsWith('.js')) {
+        fallbackUrl = candidate;
+      }
+    }
+    entryUrl ??= fallbackUrl;
+    if (!entryUrl) {
+      throw new LayerError('route', 'the shell has no application entry script to resolve');
+    }
     const asset = await fetch(entryUrl, {
       headers: { 'user-agent': BROWSER_UA },
       signal: AbortSignal.timeout(15_000),

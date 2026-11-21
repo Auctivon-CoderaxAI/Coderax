@@ -2,7 +2,10 @@
 
 `npm run dev:up` starts the whole local stack, waits for every service to be ready,
 records each PID and writes each log. `npm run dev:down` stops the same processes.
-The supervisor uses Linux `/proc` to verify process identity.
+`dev:up` is supported on Linux with readable `/proc` process and boot information.
+It exits before starting services when that information is unavailable (including
+on macOS and native Windows). `dev:down` only signals processes whose identity it
+can verify.
 
 ## Commands
 
