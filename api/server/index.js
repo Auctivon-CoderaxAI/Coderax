@@ -292,11 +292,18 @@ const startServer = async () => {
    * startup checks have applied `rateLimits` from coderax.yaml. */
   const routes = require('./routes');
 
+  /* `SERVE_CLIENT=false` runs the API without a built client. A dev frontend (Vite)
+   * serves the shell and proxies /api here, so the API must not need a placeholder
+   * client/dist/index.html to boot. */
+  const serveClientShell = process.env.SERVE_CLIENT !== 'false';
   const indexPath = path.join(appConfig.paths.dist, 'index.html');
-  const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);
+  const clientShellAvailable =
+    serveClientShell && (!process.env.VERCEL || fs.existsSync(indexPath));
   let indexHTML = clientShellAvailable ? fs.readFileSync(indexPath, 'utf8') : '';
 
-  if (!clientShellAvailable) {
+  if (!serveClientShell) {
+    logger.info('SERVE_CLIENT=false: serving API routes only; non-API requests return 404.');
+  } else if (!clientShellAvailable) {
     logger.warn(
       'Vercel backend service has no client shell; non-API requests are handled by the frontend service.',
     );

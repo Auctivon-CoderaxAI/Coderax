@@ -1,0 +1,431 @@
+#!/usr/bin/env node
+/**
+ * Local environment supervisor.
+ *
+ *   npm run dev:up       start Mongo, the model, the API and Vite; wait for each
+ *   npm run dev:down     stop them in reverse order
+ *   npm run dev:status   show recorded PIDs, ports and readiness
+ *
+ * PIDs live in .dev/run/<name>.json, logs in .dev/logs/<name>.log.
+ */
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+
+import {
+  DEV_DIR,
+  LOG_DIR,
+  ROOT,
+  clearRecord,
+  isAlive,
+  listenerPid,
+  loadEnv,
+  logPath,
+  logTail,
+  npmCommand,
+  readRecord,
+  signal,
+  tcpOpen,
+  waitFor,
+  writeRecord,
+} from './lib.mjs';
+import { createServices, ports } from './services.mjs';
+
+const command = process.argv[2] ?? 'status';
+
+class ServiceError extends Error {
+  constructor(service, message) {
+    super(message);
+    this.service = service;
+  }
+}
+
+function envTemplate() {
+  const secret = () => crypto.randomBytes(48).toString('hex');
+  return `# Local development defaults written by \`npm run dev:up\` on first run.
+# Restart the supervisor after changing ports.
+HOST=127.0.0.1
+PORT=3080
+DEV_VITE_PORT=3090
+DEV_MONGO_PORT=27017
+DEV_MODEL_PORT=8080
+DEV_MODEL_ID=qwen2.5-1.5b-instruct
+
+MONGO_URI=mongodb://127.0.0.1:27017/Coderax
+DOMAIN_CLIENT=http://localhost:3090
+DOMAIN_SERVER=http://localhost:3080
+
+# Vite serves the client shell in development, so the API boots without client/dist.
+SERVE_CLIENT=false
+# Hosts the Vite dev server may answer for (comma separated); set this to a preview hostname.
+VITE_ALLOWED_HOSTS=
+
+ALLOW_EMAIL_LOGIN=true
+ALLOW_REGISTRATION=true
+ALLOW_SOCIAL_LOGIN=false
+# One API process in this environment; the schedule engine refuses to arm otherwise.
+SCHEDULES_SINGLE_PROCESS=true
+
+JWT_SECRET=${secret()}
+JWT_REFRESH_SECRET=${secret()}
+CREDS_KEY=${crypto.randomBytes(32).toString('hex')}
+CREDS_IV=${crypto.randomBytes(16).toString('hex')}
+
+# The supervisor creates this user (email verified) when it does not exist yet.
+DEV_USER_EMAIL=dev@coderax.local
+DEV_USER_PASSWORD=coderax-dev
+DEV_USER_USERNAME=dev
+`;
+}
+
+function configTemplate(env) {
+  const modelPort = ports(env).model;
+  const modelId = env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct';
+  return `# Local llama.cpp endpoint written by \`npm run dev:up\` on first run.
+version: 1.3.17
+endpoints:
+  custom:
+    - name: 'llamacpp'
+      apiKey: 'local'
+      baseURL: 'http://127.0.0.1:${modelPort}/v1'
+      models:
+        default:
+          - '${modelId}'
+        fetch: true
+      titleConvo: false
+      modelDisplayLabel: 'llama.cpp (local)'
+`;
+}
+
+function ensureEnv() {
+  const file = path.join(ROOT, '.env');
+  if (existsSync(file)) {
+    return loadEnv();
+  }
+  writeFileSync(file, envTemplate());
+  console.log('▸ wrote .env with local development defaults');
+  return loadEnv();
+}
+
+function ensureConfig(env) {
+  const file = path.join(ROOT, 'coderax.yaml');
+  if (existsSync(file)) {
+    return;
+  }
+  writeFileSync(file, configTemplate(env));
+  console.log(`▸ wrote coderax.yaml with the local llama.cpp endpoint`);
+}
+
+const BUILD_OUTPUTS = [
+  'packages/data-provider/dist',
+  'packages/data-schemas/dist',
+  'packages/api/dist',
+  'packages/client/dist',
+];
+
+function ensureBuild() {
+  const missing = BUILD_OUTPUTS.filter((output) => !existsSync(path.join(ROOT, output)));
+  if (missing.length === 0) {
+    return;
+  }
+  console.log(`▸ building workspace packages (missing: ${missing.join(', ')})`);
+  const result = spawnSync(npmCommand(), ['run', 'build:packages'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      '`npm run build:packages` failed; fix the build before starting the environment',
+    );
+  }
+}
+
+function modelPaths(env) {
+  const dir = env.DEV_MODEL_DIR || path.join(DEV_DIR, 'model');
+  return {
+    dir,
+    bin: env.LLAMA_SERVER_BIN || path.join(dir, 'bin', 'llama-server'),
+    gguf: env.LLAMA_MODEL_PATH || path.join(dir, 'qwen2.5-1.5b-q4.gguf'),
+  };
+}
+
+function ensureModel(env) {
+  const { bin, gguf } = modelPaths(env);
+  const missing = [!existsSync(bin) && bin, !existsSync(gguf) && gguf].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(
+      `Local model artifacts are missing:\n  ${missing.join(
+        '\n  ',
+      )}\nFetch them with \`npm run dev:model:setup\` (about 1 GB plus a llama.cpp build).`,
+    );
+  }
+}
+
+function ensureDevUser(env) {
+  if (env.DEV_SKIP_USER === '1') {
+    return;
+  }
+  const email = env.DEV_USER_EMAIL || 'dev@coderax.local';
+  const username = env.DEV_USER_USERNAME || 'dev';
+  const password = env.DEV_USER_PASSWORD || 'coderax-dev';
+  const result = spawnSync(
+    process.execPath,
+    ['config/create-user.js', email, 'Dev User', username, password, '--email-verified=true'],
+    { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8' },
+  );
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  if (result.status === 0) {
+    console.log(`✔ dev user ${email} created`);
+  } else if (/already exists/i.test(output)) {
+    console.log(`• dev user ${email} already exists`);
+  } else {
+    const detail = output.trim().split('\n').slice(-2).join(' ');
+    console.warn(`! could not create dev user ${email}: ${detail || `exit ${result.status}`}`);
+  }
+}
+
+function recordFor(service, pid) {
+  return {
+    service: service.name,
+    pid,
+    port: service.port,
+    command: [service.command, ...service.args].join(' '),
+    cwd: service.cwd,
+    startedAt: new Date().toISOString(),
+    log: logPath(service.name),
+  };
+}
+
+/** Returns true when this call started the service. */
+async function startService(service) {
+  const record = readRecord(service.name);
+  if (record && isAlive(record.pid)) {
+    if (await service.ready()) {
+      console.log(`• ${service.name} already running (pid ${record.pid})`);
+      return false;
+    }
+    process.stdout.write(`▸ ${service.name} pid ${record.pid} is alive; waiting for readiness `);
+    const ready = await waitFor(service.ready, { timeoutMs: service.timeoutMs });
+    console.log(ready ? 'ready' : 'FAILED');
+    if (!ready) {
+      throw new ServiceError(service, `${service.name} (pid ${record.pid}) never became ready`);
+    }
+    return false;
+  }
+  if (record) {
+    clearRecord(service.name);
+  }
+
+  if (await tcpOpen(service.port)) {
+    const holder = listenerPid(service.port);
+    throw new ServiceError(
+      service,
+      `port ${service.port} is already in use by a process dev:up did not start` +
+        (holder ? ` (pid ${holder})` : '') +
+        `; stop it or change the port in .env`,
+    );
+  }
+
+  mkdirSync(LOG_DIR, { recursive: true });
+  const log = logPath(service.name);
+  const handle = openSync(log, 'w');
+  let spawnError = null;
+  let child;
+  try {
+    child = spawn(service.command, service.args, {
+      cwd: service.cwd,
+      env: { ...process.env, ...service.env },
+      detached: true,
+      stdio: ['ignore', handle, handle],
+    });
+  } finally {
+    closeSync(handle);
+  }
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+  if (!child.pid) {
+    throw new ServiceError(
+      service,
+      `${service.name} did not start: ${spawnError?.message ?? 'no pid'}`,
+    );
+  }
+  child.unref();
+  writeRecord(service.name, recordFor(service, child.pid));
+  process.stdout.write(`▸ ${service.name} starting (pid ${child.pid}) `);
+
+  const deadline = Date.now() + service.timeoutMs;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (spawnError || child.exitCode !== null) {
+      break;
+    }
+    if (await service.ready().catch(() => false)) {
+      ready = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  console.log(ready ? 'ready' : 'FAILED');
+  if (!ready) {
+    await stopService(service);
+    let reason = '';
+    if (spawnError) {
+      reason = `: ${spawnError.message}`;
+    } else if (child.exitCode !== null) {
+      reason = `: process exited with code ${child.exitCode}`;
+    }
+    throw new ServiceError(
+      service,
+      `${service.name} did not become ready within ${Math.round(
+        service.timeoutMs / 1000,
+      )}s${reason}`,
+    );
+  }
+  return true;
+}
+
+async function stopService(service) {
+  const record = readRecord(service.name);
+  if (!record) {
+    console.log(`• ${service.name}: no PID recorded`);
+    return;
+  }
+  if (!isAlive(record.pid)) {
+    clearRecord(service.name);
+    console.log(`• ${service.name}: stale pid ${record.pid} (not running)`);
+    return;
+  }
+  process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
+  signal(record.pid, 'SIGTERM');
+  let stopped = await waitFor(async () => !isAlive(record.pid), { timeoutMs: 10_000 });
+  if (!stopped) {
+    process.stdout.write('SIGKILL ');
+    signal(record.pid, 'SIGKILL');
+    stopped = await waitFor(async () => !isAlive(record.pid), { timeoutMs: 3000 });
+  }
+  clearRecord(service.name);
+  await waitFor(async () => !(await tcpOpen(service.port)), { timeoutMs: 5000 });
+  console.log(stopped ? 'stopped' : 'still running, check the log');
+}
+
+async function status(services, env) {
+  const rows = [];
+  let allReady = true;
+  for (const service of services) {
+    const record = readRecord(service.name);
+    const alive = record ? isAlive(record.pid) : false;
+    const ready = await service.ready().catch(() => false);
+    const holder = !alive && !ready ? listenerPid(service.port) : null;
+    let state = 'stopped';
+    if (ready) {
+      state = alive ? 'ready' : 'untracked';
+    } else if (alive) {
+      state = 'starting';
+    }
+    let pidLabel = '-';
+    if (alive) {
+      pidLabel = String(record.pid);
+    } else if (record) {
+      pidLabel = `stale ${record.pid}`;
+    }
+    if (!ready) {
+      allReady = false;
+    }
+    rows.push({
+      service: service.name,
+      pid: pidLabel,
+      port: String(service.port),
+      state,
+      detail: holder ? `port held by pid ${holder}` : service.detail,
+    });
+  }
+
+  const width = (key) => Math.max(key.length, ...rows.map((row) => String(row[key]).length));
+  const columns = ['service', 'pid', 'port', 'state'];
+  const widths = Object.fromEntries(columns.map((key) => [key, width(key)]));
+  console.log(columns.map((key) => key.padEnd(widths[key])).join('  ') + '  detail');
+  for (const row of rows) {
+    console.log(
+      columns.map((key) => String(row[key]).padEnd(widths[key])).join('  ') + `  ${row.detail}`,
+    );
+  }
+  console.log(`\nlogs: ${LOG_DIR}`);
+  if (env.DOMAIN_CLIENT) {
+    console.log(`app:  ${env.DOMAIN_CLIENT}`);
+  }
+  return allReady;
+}
+
+async function up() {
+  const env = ensureEnv();
+  ensureConfig(env);
+  ensureBuild();
+  ensureModel(env);
+
+  const services = createServices(env);
+  mkdirSync(DEV_DIR, { recursive: true });
+  const started = [];
+  try {
+    for (const service of services) {
+      if (await startService(service)) {
+        started.push(service);
+      }
+    }
+  } catch (error) {
+    console.error(`\n✖ ${error.message}`);
+    if (error.service) {
+      console.error(logTail(logPath(error.service.name), 20));
+    }
+    for (const service of started.reverse()) {
+      await stopService(service);
+    }
+    process.exit(1);
+  }
+
+  ensureDevUser(env);
+  console.log('');
+  await status(services, env);
+  console.log('\n✔ local environment is up');
+  process.exit(0);
+}
+
+async function down() {
+  const env = loadEnv();
+  const services = createServices(env);
+  for (const service of [...services].reverse()) {
+    await stopService(service);
+  }
+  console.log('\n✔ local environment is down');
+}
+
+function usage() {
+  console.log(`Usage: node scripts/dev/index.mjs <up|down|status>
+
+  up      start Mongo, the model, the API and Vite; poll readiness and record PIDs
+  down    stop them in reverse order (SIGTERM, then SIGKILL after 10s)
+  status  show recorded PIDs, ports and readiness (exit 1 unless all are ready)`);
+}
+
+const main = async () => {
+  if (command === 'up') {
+    await up();
+  } else if (command === 'down') {
+    await down();
+  } else if (command === 'status') {
+    const env = loadEnv();
+    const services = createServices(env);
+    const ready = await status(services, env);
+    process.exit(ready ? 0 : 1);
+  } else {
+    usage();
+    process.exit(1);
+  }
+};
+
+main().catch((error) => {
+  console.error(`✖ ${error.message}`);
+  process.exit(1);
+});
