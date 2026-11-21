@@ -280,11 +280,12 @@ describe('ExpandedPanel', () => {
 
 
   describe('NavIconButton collapse toggle', () => {
-    it('collapses sidebar when clicking the active icon while expanded', () => {
+    it('keeps chat history expanded when its active icon is clicked', () => {
       const { onCollapse } = renderPanel({ expanded: true });
       const activeButton = screen.getByRole('button', { name: 'com_ui_chat_history' });
       fireEvent.click(activeButton);
-      expect(onCollapse).toHaveBeenCalledTimes(1);
+      expect(onCollapse).not.toHaveBeenCalled();
+      expect(screen.getByTestId('close-sidebar-button')).toBeInTheDocument();
     });
 
     it('switches panel when clicking an inactive icon while expanded', () => {
@@ -329,6 +330,16 @@ describe('ExpandedPanel', () => {
       expect(onClick).toHaveBeenCalledTimes(1);
       expect(onNavigate).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('preserves chat sidebar controls without unrelated launchers', () => {
+    renderPanel({ links: createLinks().slice(0, 1) });
+    expect(screen.getByTestId('close-sidebar-button')).toBeInTheDocument();
+    expect(screen.getByTestId('new-chat-button')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'com_ui_chat_history' })).toBeInTheDocument();
+    expect(screen.getByTestId('account-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('studio-nav-link')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nav-agents-marketplace-button')).not.toBeInTheDocument();
   });
 
   describe('NewChatButton panel switch', () => {
