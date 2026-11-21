@@ -208,3 +208,6 @@ scripts/activity-labels/results/
 # Generated private repository-agent inventory (never commit)
 /portfolio-registry.local.json
 /portfolio-registry.*.local.json
+
+# Local development services (MongoDB data, logs)
+.dev/

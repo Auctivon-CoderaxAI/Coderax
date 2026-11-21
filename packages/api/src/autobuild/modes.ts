@@ -15,7 +15,7 @@ export const BUILD_GATES = ['tests', 'build', 'review', 'security'] as const;
 export type BuildGate = (typeof BUILD_GATES)[number];
 
 /** The turbo target: a verified MVP, not merely a finished-looking run. */
-export const TURBO_15_BUDGET_MS = 15 * 60_000;
+export const TURBO_15_BUDGET_MS: number = 15 * 60_000;
 
 /** A dependency chain longer than this cannot target a 15-minute MVP honestly. */
 export const TURBO_MAX_CRITICAL_PATH = 6;
