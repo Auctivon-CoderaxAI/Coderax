@@ -193,6 +193,16 @@ describe('workflow persistence', () => {
     expect(winner.value.id).toBeDefined();
 
     await methods.cancelWorkflowRun(winner.value.id, winnerUserId, new Date());
+    // Cancellation keeps the checkout until the handler has stopped the writer.
+    expect((await methods.getWorkflowRun(winner.value.id, winnerUserId))?.workspaceKey).toBe(
+      workspace,
+    );
+    await expect(launch(loserUserId, loserWorkflow, 'blocked-conversation')).rejects.toBeInstanceOf(
+      WorkflowWorkspaceConflictError,
+    );
+    await expect(methods.releaseWorkflowWorkspace(winner.value.id, winnerUserId)).resolves.toBe(
+      true,
+    );
     const retry = await launch(loserUserId, loserWorkflow, 'retry-conversation');
     expect(retry.workspaceKey).toBe(workspace);
   });

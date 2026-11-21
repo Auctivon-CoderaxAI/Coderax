@@ -358,6 +358,104 @@ describe('workflow engine with Mongo persistence', () => {
     expect(firstRuns.length + secondRuns.length).toBe(1);
   });
 
+  it('holds a build workspace until cancellation has stopped the active turn', async () => {
+    const userId = owner();
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'cancel-checkout',
+      },
+    };
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Cancel build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const conversationId = 'cancel-build-conversation';
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId,
+      settings,
+      trigger: { type: 'manual' },
+    });
+    const now = new Date();
+    const [leased] = await methods.claimWorkflowRuns({
+      workerId: 'cancel-worker',
+      leaseToken: 'cancel-lease',
+      now,
+      leaseUntil: new Date(now.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(leased?.id).toBe(run.id);
+    if (leased == null) {
+      throw new Error('cancel run was not leased');
+    }
+    const active = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'cancel-lease',
+      now,
+      patch: {
+        status: 'running',
+        steps: leased.steps.map((step) => ({
+          ...step,
+          status: 'running' as const,
+          attempts: 1,
+          conversationId,
+        })),
+      },
+    });
+    expect(active?.workspaceKey).toBe('cancel-checkout');
+
+    let heldDuringAbort: string | undefined;
+    const abortActiveRun = jest.fn(async () => {
+      heldDuringAbort = (await methods.getWorkflowRun(run.id, userId))?.workspaceKey;
+    });
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: () => undefined,
+      abortActiveRun,
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.cancelRun>[1];
+    await handlers.cancelRun(
+      {
+        user: { id: userId },
+        params: { runId: run.id },
+      } as unknown as Parameters<typeof handlers.cancelRun>[0],
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(abortActiveRun).toHaveBeenCalledWith(conversationId);
+    expect(heldDuringAbort).toBe('cancel-checkout');
+    const cancelled = await methods.getWorkflowRun(run.id, userId);
+    expect(cancelled?.status).toBe('cancelled');
+    expect(cancelled?.workspaceKey).toBeUndefined();
+
+    const next = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'after-cancel-conversation',
+      settings,
+      trigger: { type: 'manual' },
+    });
+    expect(next.workspaceKey).toBe('cancel-checkout');
+  });
+
   it('retires queued deliveries after durable cancellation and aborts active turns', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({

@@ -171,6 +171,11 @@ export interface WorkflowMethods {
   pauseWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   resumeWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   cancelWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
+  /**
+   * Releases a cancelled run's checkout after its queued deliveries and active
+   * turn have been stopped. A cancelled run keeps the reservation until then.
+   */
+  releaseWorkflowWorkspace: (id: string, userId: string) => Promise<boolean>;
   /** Workflows owned by the principal that subscribe to this event. */
   listWorkflowsForEvent: (input: WorkflowEventLookupInput) => Promise<IWorkflow[]>;
   /** Starts one durable run per event occurrence; null means it already exists. */
@@ -785,11 +790,19 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           { id, user: objectId(userId), status: { $nin: TERMINAL_RUN_STATUSES } },
           {
             $set: { status: 'cancelled', steps, events, settledAt: now, updatedAt: now },
-            $unset: { leaseBy: '', leaseToken: '', leaseUntil: '', workspaceKey: '' },
+            $unset: { leaseBy: '', leaseToken: '', leaseUntil: '' },
           },
           { new: true },
         )
         .lean<IWorkflowRun | null>();
+    },
+
+    releaseWorkflowWorkspace: async (id, userId) => {
+      const result = await runModel().updateOne(
+        { id, user: objectId(userId), status: 'cancelled' },
+        { $unset: { workspaceKey: '' } },
+      );
+      return result.modifiedCount > 0;
     },
 
     listWorkflowsForEvent: async (input) => {

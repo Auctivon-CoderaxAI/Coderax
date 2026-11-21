@@ -331,12 +331,13 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     return cursor == null;
   };
 
+  /** True only when every known writer for this run has been stopped. */
   const stopActiveTurns = async (run: {
     conversationId?: string;
     steps: Array<{ conversationId?: string; status: string }>;
-  }): Promise<void> => {
+  }): Promise<boolean> => {
     if (deps.abortActiveRun == null) {
-      return;
+      return true;
     }
     const conversations = new Set<string>();
     for (const step of run.steps) {
@@ -350,7 +351,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     if (conversations.size === 0 && run.conversationId != null) {
       conversations.add(run.conversationId);
     }
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       Array.from(conversations).map(async (conversationId) => {
         try {
           await deps.abortActiveRun?.(conversationId);
@@ -359,9 +360,11 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             conversationId,
             error: cause instanceof Error ? cause.message : String(cause),
           });
+          throw cause;
         }
       }),
     );
+    return results.every((result) => result.status === 'fulfilled');
   };
 
   return {
@@ -1008,29 +1011,46 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           res.status(404).json({ error: 'Run not found' });
           return;
         }
-        const retire = deps.retireQueuedDelivery;
-        if (retire != null) {
-          await Promise.all(
-            existing.steps.map(async (step) => {
-              if (
-                (step.status !== 'running' && step.status !== 'queued') ||
-                step.deliveryKey == null
-              ) {
-                return;
-              }
-              try {
-                await retire(step.deliveryKey, existing.workflowId);
-              } catch (cause) {
-                logger.warn('[workflows] queued delivery retirement failed', {
-                  runId,
-                  stepId: step.id,
-                  error: cause instanceof Error ? cause.message : String(cause),
-                });
-              }
-            }),
-          );
+        let stopped = false;
+        try {
+          const retire = deps.retireQueuedDelivery;
+          if (retire != null) {
+            await Promise.all(
+              existing.steps.map(async (step) => {
+                if (
+                  (step.status !== 'running' && step.status !== 'queued') ||
+                  step.deliveryKey == null
+                ) {
+                  return;
+                }
+                try {
+                  await retire(step.deliveryKey, existing.workflowId);
+                } catch (cause) {
+                  logger.warn('[workflows] queued delivery retirement failed', {
+                    runId,
+                    stepId: step.id,
+                    error: cause instanceof Error ? cause.message : String(cause),
+                  });
+                }
+              }),
+            );
+          }
+          stopped = await stopActiveTurns(existing);
+        } finally {
+          // The checkout stays reserved while retirement and abort are in
+          // flight, so a new build cannot start before the old writer stops.
+          if (stopped) {
+            await deps.methods.releaseWorkflowWorkspace(runId, owner).catch((cause) => {
+              logger.warn('[workflows] workspace release after cancellation failed', {
+                runId,
+                error: cause instanceof Error ? cause.message : String(cause),
+              });
+            });
+          } else {
+            // Fail closed: a writer we could not stop must not share its checkout.
+            logger.warn('[workflows] workspace held because a writer did not stop', { runId });
+          }
         }
-        await stopActiveTurns(existing);
         res.status(200).json({ run: toRunView(run) });
       } catch (error) {
         logger.error('[workflows] failed to cancel run', error);

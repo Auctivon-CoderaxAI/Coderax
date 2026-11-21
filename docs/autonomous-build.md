@@ -149,9 +149,15 @@ deployment build root. The reservation is global, not per user: every account sh
 `workspaceRoot`, so a second unsettled run bound to the same workspace is rejected with `409`. The
 run insert itself carries a unique `workspaceKey`, so two simultaneous launches — from any users —
 cannot both pass the check; the loser gets the same `409` and the workflow created for a rejected
-launch is removed. The reservation is released centrally when the run becomes terminal, including
-cancellation. The Workflows view has a **New autonomous build** launcher; on success it
+launch is removed. A completed or failed run releases the reservation at settlement. A cancelled
+run keeps it until the cancellation handler has retired its queued deliveries and aborted its
+active turn, then releases it; if that cleanup cannot be completed the reservation stays held rather
+than admitting a second writer. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
+
+The reservation governs run admission and settlement verification. Agent step tool roots are still
+chosen by the execution layer; binding reads, writes and commands to `settings.build.workspace` is a
+separate follow-up, so provisioning must point the run's conversation at the bound checkout.
 
 Before enabling the unique reservation index on an existing deployment, pause new build launches
 and check for active workspace-bound runs created before this release:
