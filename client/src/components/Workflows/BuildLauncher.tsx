@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { Rocket } from 'lucide-react';
-import type { FormEvent } from 'react';
 import type { WorkflowBuildMode } from 'coderax-data-provider';
+import type { FormEvent } from 'react';
 import type { TranslationKeys } from '~/hooks';
 import { useStartWorkflowBuildMutation } from '~/data-provider';
 import { useLocalize } from '~/hooks';
@@ -11,6 +11,8 @@ const MODE_LABELS: Record<WorkflowBuildMode, TranslationKeys> = {
   autonomous: 'com_ui_workflow_build_mode_autonomous',
   verified: 'com_ui_workflow_build_mode_verified',
 };
+
+const WORKSPACE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 function responseError(error: unknown): string | undefined {
   const response = (error as { response?: { data?: { error?: unknown } } } | null)?.response;
@@ -30,22 +32,46 @@ export default function BuildLauncher({
   const requestId = useId();
   const modeId = useId();
   const agentId = useId();
+  const repositoryId = useId();
+  const baseRefId = useId();
+  const workspaceId = useId();
   const [request, setRequest] = useState('');
   const [mode, setMode] = useState<WorkflowBuildMode>('autonomous');
   const [agent, setAgent] = useState(agents[0]?.id ?? '');
+  const [repository, setRepository] = useState('');
+  const [baseRef, setBaseRef] = useState('');
+  const [workspace, setWorkspace] = useState('');
   const mutation = useStartWorkflowBuildMutation();
   const selectedAgent = agent.length > 0 ? agent : (agents[0]?.id ?? '');
+  const separator = repository.indexOf('/');
+  const repositoryOwner = separator > 0 ? repository.slice(0, separator).trim() : '';
+  const repositoryName = separator > 0 ? repository.slice(separator + 1).trim() : '';
+  const repositoryValid =
+    repositoryOwner.length > 0 && repositoryName.length > 0 && !repositoryName.includes('/');
+  const workspaceValid = WORKSPACE_PATTERN.test(workspace.trim());
+  const complete =
+    request.trim().length > 0 && selectedAgent.length > 0 && repositoryValid && workspaceValid;
   const failure =
     responseError(mutation.error) ??
     (mutation.isError ? localize('com_ui_workflow_build_failed') : undefined);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (request.trim().length === 0 || selectedAgent.length === 0 || mutation.isLoading) {
+    if (!complete || mutation.isLoading) {
       return;
     }
     mutation.mutate(
-      { request: request.trim(), mode, agentId: selectedAgent },
+      {
+        request: request.trim(),
+        mode,
+        agentId: selectedAgent,
+        repository: {
+          owner: repositoryOwner,
+          name: repositoryName,
+          ...(baseRef.trim().length === 0 ? {} : { baseRef: baseRef.trim() }),
+        },
+        workspace: workspace.trim(),
+      },
       { onSuccess: ({ workflow }) => onStarted(workflow.id) },
     );
   };
@@ -82,6 +108,59 @@ export default function BuildLauncher({
             value={request}
             onChange={(event) => setRequest(event.target.value)}
           />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor={repositoryId}>
+              {localize('com_ui_workflow_build_repository')}
+            </label>
+            <input
+              id={repositoryId}
+              className="border-border-medium bg-surface-primary w-full rounded-lg border px-3 py-2 text-sm"
+              type="text"
+              required
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={localize('com_ui_workflow_build_repository_placeholder')}
+              value={repository}
+              onChange={(event) => setRepository(event.target.value)}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium" htmlFor={baseRefId}>
+              {localize('com_ui_workflow_build_base_ref')}
+            </label>
+            <input
+              id={baseRefId}
+              className="border-border-medium bg-surface-primary w-full rounded-lg border px-3 py-2 text-sm"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={localize('com_ui_workflow_build_base_ref_placeholder')}
+              value={baseRef}
+              onChange={(event) => setBaseRef(event.target.value)}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium" htmlFor={workspaceId}>
+              {localize('com_ui_workflow_build_workspace')}
+            </label>
+            <input
+              id={workspaceId}
+              className="border-border-medium bg-surface-primary w-full rounded-lg border px-3 py-2 text-sm"
+              type="text"
+              required
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={localize('com_ui_workflow_build_workspace_placeholder')}
+              value={workspace}
+              onChange={(event) => setWorkspace(event.target.value)}
+            />
+            <p className="text-text-secondary mt-1 text-xs">
+              {localize('com_ui_workflow_build_workspace_hint')}
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -135,9 +214,7 @@ export default function BuildLauncher({
           <button
             type="submit"
             className="bg-surface-submit flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-50"
-            disabled={
-              mutation.isLoading || request.trim().length === 0 || selectedAgent.length === 0
-            }
+            disabled={mutation.isLoading || !complete}
           >
             <Rocket className="h-4 w-4" aria-hidden />
             {mutation.isLoading

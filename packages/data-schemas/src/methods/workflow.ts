@@ -156,6 +156,11 @@ export interface WorkflowMethods {
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<IWorkflowRun>;
   getWorkflowRun: (id: string, userId: string) => Promise<IWorkflowRun | null>;
   listWorkflowRuns: (userId: string, workflowId?: string) => Promise<IWorkflowRun[]>;
+  /** True while an unresolved run is bound to this build workspace. */
+  hasActiveWorkflowRunForWorkspace: (input: {
+    userId: string;
+    workspace: string;
+  }) => Promise<boolean>;
   claimWorkflowRuns: (input: ClaimWorkflowRunsInput) => Promise<IWorkflowRun[]>;
   updateWorkflowRun: (input: UpdateWorkflowRunInput) => Promise<IWorkflowRun | null>;
   /** Lease-fenced renewal; false means another worker owns the run now. */
@@ -500,6 +505,13 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         .limit(WORKFLOW_RUNS_PAGE_MAX)
         .lean<IWorkflowRun[]>();
     },
+
+    hasActiveWorkflowRunForWorkspace: async ({ userId, workspace }) =>
+      (await runModel().exists({
+        user: objectId(userId),
+        status: { $nin: TERMINAL_RUN_STATUSES },
+        'settings.build.workspace': workspace,
+      })) != null,
 
     claimWorkflowRuns: async ({ workerId, leaseToken, now, leaseUntil, limit }) => {
       const filter = {

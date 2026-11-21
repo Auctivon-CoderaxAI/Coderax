@@ -1,7 +1,10 @@
 import { Schema } from 'mongoose';
 import {
+  WORKFLOW_BUILD_BASE_REF_MAX_LENGTH,
   WORKFLOW_BUILD_GATES,
   WORKFLOW_BUILD_MODES,
+  WORKFLOW_BUILD_REPOSITORY_PART_MAX_LENGTH,
+  WORKFLOW_BUILD_WORKSPACE_MAX_LENGTH,
   WORKFLOW_DESCRIPTION_MAX_LENGTH,
   WORKFLOW_INSTRUCTION_MAX_LENGTH,
   WORKFLOW_MAX_PARALLEL,
@@ -50,10 +53,21 @@ const workflowEventTriggerSchema = new Schema(
   { _id: false },
 );
 
+const workflowBuildRepositorySchema = new Schema(
+  {
+    owner: { type: String, required: true, maxlength: WORKFLOW_BUILD_REPOSITORY_PART_MAX_LENGTH },
+    name: { type: String, required: true, maxlength: WORKFLOW_BUILD_REPOSITORY_PART_MAX_LENGTH },
+    baseRef: { type: String, maxlength: WORKFLOW_BUILD_BASE_REF_MAX_LENGTH },
+  },
+  { _id: false },
+);
+
 const workflowBuildSchema = new Schema(
   {
     mode: { type: String, enum: WORKFLOW_BUILD_MODES, required: true },
     requiredGates: { type: [String], enum: WORKFLOW_BUILD_GATES, default: [] },
+    repository: { type: workflowBuildRepositorySchema },
+    workspace: { type: String, maxlength: WORKFLOW_BUILD_WORKSPACE_MAX_LENGTH },
     deadlineAt: { type: String, maxlength: 40 },
     reviewStepId: { type: String, maxlength: WORKFLOW_STEP_ID_MAX_LENGTH },
     requirePullRequest: { type: Boolean },
@@ -230,6 +244,8 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
 
 workflowRunSchema.index({ user: 1, createdAt: -1 });
 workflowRunSchema.index({ workflowId: 1, createdAt: -1 });
+/** The build launcher's exclusive checkout check across all of a user's runs. */
+workflowRunSchema.index({ user: 1, 'settings.build.workspace': 1, status: 1 });
 /** The runner's claim query: active runs whose lease has lapsed. */
 workflowRunSchema.index({ status: 1, leaseUntil: 1 });
 /** One automatic occurrence can only ever create one run, across replicas. */

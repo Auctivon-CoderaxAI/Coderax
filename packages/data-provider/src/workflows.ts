@@ -72,11 +72,23 @@ export interface WorkflowStepCondition {
   resultIncludes?: string;
 }
 
+/** Bounds for the repository and checkout a build run is bound to. */
+export const WORKFLOW_BUILD_REPOSITORY_PART_MAX_LENGTH = 100;
+export const WORKFLOW_BUILD_BASE_REF_MAX_LENGTH = 100;
+export const WORKFLOW_BUILD_WORKSPACE_MAX_LENGTH = 128;
+
 /** Execution modes an autonomous build run can be compiled under. */
 export const WORKFLOW_BUILD_MODES = ['turbo15', 'autonomous', 'verified'] as const;
 
 /** Evidence a build must produce before its run may settle as complete. */
 export const WORKFLOW_BUILD_GATES = ['tests', 'build', 'review', 'security'] as const;
+
+/** The repository a build edits and the base its pull request targets. */
+export interface WorkflowBuildRepository {
+  owner: string;
+  name: string;
+  baseRef?: string;
+}
 
 /**
  * Present only on runs compiled from a build plan. Settlement reads it to decide
@@ -86,6 +98,10 @@ export const WORKFLOW_BUILD_GATES = ['tests', 'build', 'review', 'security'] as 
 export interface WorkflowBuildSettings {
   mode: WorkflowBuildMode;
   requiredGates: WorkflowBuildGate[];
+  /** Settlement refuses a run whose delivery cannot be attributed to a repository. */
+  repository?: WorkflowBuildRepository;
+  /** Checkout directory under the deployment build root, unique per run. */
+  workspace?: string;
   /** ISO deadline the mode targeted; a missed target is reported, never hidden. */
   deadlineAt?: string;
   /** The step whose retained output is the independent review evidence. */
@@ -449,12 +465,15 @@ export function isTerminalWorkflowRunStatus(status: WorkflowRunStatus): boolean 
 export type WorkflowBuildMode = (typeof WORKFLOW_BUILD_MODES)[number];
 export type WorkflowBuildGate = (typeof WORKFLOW_BUILD_GATES)[number];
 
-/** Launch input: a request and saved agents, never a caller-supplied step list. */
+/** Launch input: a request, saved agents and the checkout the build edits. */
 export interface StartWorkflowBuildRequest {
   request: string;
   mode: WorkflowBuildMode;
   agentId: string;
   roleAgents?: Partial<Record<string, string>>;
+  repository: WorkflowBuildRepository;
+  /** Directory name under the deployment build root, unique per running build. */
+  workspace: string;
 }
 
 export interface WorkflowBuildSummary {

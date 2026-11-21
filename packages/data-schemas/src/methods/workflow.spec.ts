@@ -59,6 +59,58 @@ describe('workflow persistence', () => {
     expect(cleared?.schedule).toBeUndefined();
   });
 
+  it('persists the build repository and per-run workspace binding', async () => {
+    const userId = owner();
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+        workspace: 'build-checkout',
+      },
+    };
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Bound build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship the bound change' }],
+      settings,
+    });
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'conversation-workspace',
+      settings,
+    });
+
+    const reloaded = await methods.getWorkflowRun(run.id, userId);
+    expect(reloaded?.settings?.build).toMatchObject({
+      repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+      workspace: 'build-checkout',
+    });
+
+    const [listed] = await methods.listWorkflowRuns(userId, workflow.id);
+    expect(listed.settings?.build?.workspace).toBe('build-checkout');
+
+    expect(
+      await methods.hasActiveWorkflowRunForWorkspace({ userId, workspace: 'build-checkout' }),
+    ).toBe(true);
+    expect(
+      await methods.hasActiveWorkflowRunForWorkspace({
+        userId: owner(),
+        workspace: 'build-checkout',
+      }),
+    ).toBe(false);
+
+    await methods.cancelWorkflowRun(run.id, userId, new Date());
+    expect(
+      await methods.hasActiveWorkflowRunForWorkspace({ userId, workspace: 'build-checkout' }),
+    ).toBe(false);
+  });
+
   it('leases runs, records approvals and supports pause and resume', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({

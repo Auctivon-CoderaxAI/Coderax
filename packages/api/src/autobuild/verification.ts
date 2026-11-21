@@ -1,10 +1,12 @@
+import { realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
-import type { WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
-import { getBuildModePolicy } from './modes';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
-import { summarizeBuild } from './report';
+import type { WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
 import type { CommandRunner, VerificationCommand } from './verify';
 import { runBuildVerification } from './verify';
+import { getBuildModePolicy } from './modes';
+import { summarizeBuild } from './report';
 
 /**
  * Deployment verification policy. The workspace root and argv are deployment
@@ -12,7 +14,7 @@ import { runBuildVerification } from './verify';
  * where settlement runs or which executable it invokes.
  */
 export interface BuildVerificationConfig {
-  /** Absolute workspace the commands run in. */
+  /** Absolute directory holding one checkout per build workspace. */
   workspaceRoot: string;
   commands: VerificationCommand[];
   /** Replaces the default executable allowlist when supplied. */
@@ -36,8 +38,41 @@ const SUMMARY_MAX_LENGTH = 2_048;
 const GATE_SUMMARY_MAX_LENGTH = 512;
 const PULL_REQUEST_MAX_LENGTH = 512;
 
-const PULL_REQUEST_URL =
-  /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
+const PULL_REQUEST_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
+
+/**
+ * Resolves the run's own checkout under the deployment root. The workspace is
+ * already a single safe directory name, but the symlink-aware containment
+ * check keeps a checkout from pointing verification at another build's tree.
+ */
+function resolveBuildWorkspace(
+  baseRoot: string,
+  workspace: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  if (!isAbsolute(baseRoot)) {
+    return { ok: false, message: 'The deployment build root must be an absolute path.' };
+  }
+  let base: string;
+  try {
+    base = realpathSync(resolve(baseRoot));
+  } catch {
+    return { ok: false, message: 'The deployment build root is not an existing directory.' };
+  }
+  let candidate: string;
+  try {
+    candidate = realpathSync(resolve(base, workspace));
+  } catch {
+    return { ok: false, message: `The build workspace ${workspace} has no checkout.` };
+  }
+  const rel = relative(base, candidate);
+  if (rel.length === 0 || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    return {
+      ok: false,
+      message: `The build workspace ${workspace} is outside the deployment build root.`,
+    };
+  }
+  return { ok: true, value: candidate };
+}
 
 /**
  * A reviewer opens the pull request itself, so the only trustworthy delivery
@@ -169,9 +204,27 @@ export async function verifyBuildRun(
       summary: 'This run has no build plan, so it cannot produce build evidence.',
     });
   }
+  if (build.repository == null) {
+    return failedVerdict({
+      mode: build.mode,
+      checkedAt,
+      summary: 'This run has no repository binding, so its delivery cannot be attributed.',
+    });
+  }
+  if (build.workspace == null) {
+    return failedVerdict({
+      mode: build.mode,
+      checkedAt,
+      summary: 'This run has no workspace binding, so verification has no checkout to run in.',
+    });
+  }
+  const workspace = resolveBuildWorkspace(config.workspaceRoot, build.workspace);
+  if (!workspace.ok) {
+    return failedVerdict({ mode: build.mode, checkedAt, summary: workspace.message });
+  }
 
   const executed = await runBuildVerification({
-    workspaceRoot: config.workspaceRoot,
+    workspaceRoot: workspace.value,
     commands: config.commands,
     ...(config.runner == null ? {} : { runner: config.runner }),
     ...(config.allowedCommands == null ? {} : { allowedCommands: config.allowedCommands }),

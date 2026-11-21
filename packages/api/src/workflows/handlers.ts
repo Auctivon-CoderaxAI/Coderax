@@ -331,6 +331,18 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     return cursor == null;
   };
 
+  /**
+   * A build workspace is a checkout one run may edit at a time. Two active runs
+   * on the same binding would verify each other's edits, so the launcher rejects
+   * the second before a queued run exists.
+   */
+  const workspaceInUse = async (owner: string, workspace: string | undefined): Promise<boolean> => {
+    if (workspace == null) {
+      return false;
+    }
+    return deps.methods.hasActiveWorkflowRunForWorkspace({ userId: owner, workspace });
+  };
+
   const stopActiveTurns = async (run: {
     conversationId?: string;
     steps: Array<{ conversationId?: string; status: string }>;
@@ -420,6 +432,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             res.status(403).json({ error: 'You cannot run that agent' });
             return;
           }
+        }
+        if (await workspaceInUse(owner, parsed.value.workspace)) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
         }
         const workflow = await deps.methods.createWorkflow({
           userId: owner,
@@ -692,6 +710,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             res.status(403).json({ error: 'You cannot run that agent' });
             return;
           }
+        }
+        if (await workspaceInUse(owner, workflow.settings?.build?.workspace)) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
         }
         const run = await deps.methods.createWorkflowRun({
           userId: owner,
