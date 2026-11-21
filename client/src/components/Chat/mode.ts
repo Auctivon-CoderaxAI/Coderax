@@ -33,8 +33,8 @@ export function getConversationModesAtom(userId: string) {
   return modesAtom;
 }
 
-function isConversationMode(value: unknown): value is ConversationMode {
-  return value === 'chat' || value === 'work';
+function isConversationMode(value: unknown): value is ConversationMode | 'code' | 'review' {
+  return value === 'chat' || value === 'work' || value === 'code' || value === 'review';
 }
 
 /**
@@ -44,7 +44,7 @@ function isConversationMode(value: unknown): value is ConversationMode {
 export function useSavedConversationMode(
   userId: string | undefined,
   conversationId: string | undefined,
-): ConversationMode | undefined {
+): ConversationMode | 'code' | 'review' | undefined {
   const modesAtom = useMemo(() => getConversationModesAtom(userId ?? ''), [userId]);
   const modes = useAtomValue(modesAtom);
   if (!conversationId) {
