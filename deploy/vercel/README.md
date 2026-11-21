@@ -128,12 +128,14 @@ A manual `vercel deploy --prod` must run from a checkout that is actually at
 
 ## Pinned Vercel CLI
 
-The workflow installs `vercel@66.6.0`, taken from the `VERCEL_CLI_VERSION`
-workflow variable, and fails if `vercel --version` does not report that number.
+The workflow installs `vercel@66.6.0`, taken from the `VERCEL_CLI_VERSION` env
+value in the workflow file, and fails if `vercel --version` does not report that
+number.
 The pin is deliberate: the CLI uploads a **Vercel Services** project, so a major
 bump changes the deploy path instead of being a routine upgrade.
 
-To bump it, change `VERCEL_CLI_VERSION` and this section together and merge to
+To bump it, change the `VERCEL_CLI_VERSION` env value in the workflow and this
+section together, merge to
 `main`, then dispatch the workflow and confirm the alias check passes. Before
 merging, check that `vercel deploy --help` at the new version still lists
 `--prod`, `--yes` and `--archive`.
