@@ -34,6 +34,7 @@ import {
   clearRetainedFileDeletions,
   openFileDeletionRetention,
   isRequiredTwoFactorSetupRoute,
+  isManualLoginEntry,
 } from '~/utils';
 import {
   useGetRole,
@@ -43,8 +44,8 @@ import {
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
-import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
+import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
 import useTimeout from './useTimeout';
 import store from '~/store';
@@ -300,6 +301,7 @@ const AuthContextProvider = ({
     if (
       authConfig?.test === true ||
       authConfig?.optional === true ||
+      isManualLoginEntry() ||
       isRequiredTwoFactorSetupRoute() ||
       pathname.startsWith('/login/2fa')
     ) {
@@ -408,8 +410,12 @@ const AuthContextProvider = ({
               : rawPath;
           const currentUrl = `${strippedPath}${window.location.search}`;
           const fallbackRedirect = isSafeRedirect(currentUrl) ? currentUrl : '/c/new';
-          const redirect =
-            getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? fallbackRedirect;
+          /** The manual form owns the page: navigating to the fallback would replace it
+           *  with the conversation before an existing account can sign in. */
+          const redirect = isManualLoginEntry()
+            ? undefined
+            : (getPostLoginRedirect(new URLSearchParams(window.location.search)) ??
+              fallbackRedirect);
           setUserContext({ user, token, isAuthenticated: true, redirect });
           return;
         }
@@ -428,7 +434,9 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          navigate(buildLoginRedirectUrl(), { replace: true });
+          if (!isManualLoginEntry()) {
+            navigate(buildLoginRedirectUrl(), { replace: true });
+          }
         });
       },
       onError: (error) => {
@@ -450,7 +458,9 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          navigate(buildLoginRedirectUrl(), { replace: true });
+          if (!isManualLoginEntry()) {
+            navigate(buildLoginRedirectUrl(), { replace: true });
+          }
         });
       },
     });
