@@ -68,7 +68,6 @@ async function authenticate(config: FullConfig, user: User) {
       throw new Error('🤖: baseURL is not defined');
     }
     const conversationURL = appURL(baseURL, 'c/new');
-    const loginURL = appURL(baseURL, 'login?manual=1');
 
     // Set localStorage before navigating to the page
     await page.context().addInitScript(() => {
@@ -94,8 +93,19 @@ async function authenticate(config: FullConfig, user: User) {
     }
     console.log('🤖: ✔️  user successfully registered');
 
-    await page.goto(loginURL, { timeout });
-    await login(page, user);
+    // Bootstrap the named user's browser session without competing with the guest redirect.
+    const response = await page.request.post(appURL(baseURL, 'api/auth/login'), {
+      data: { email: user.email, password: user.password },
+      timeout,
+    });
+    if (!response.ok()) {
+      throw new Error(`🤖: E2E login failed (HTTP ${response.status()})`);
+    }
+    const { token } = (await response.json()) as { token?: string };
+    if (!token) {
+      throw new Error('🤖: E2E login did not establish a session');
+    }
+    await page.goto(conversationURL, { timeout });
     await page.waitForURL(conversationURL, { timeout });
     console.log('🤖: ✔️  user successfully authenticated');
 
