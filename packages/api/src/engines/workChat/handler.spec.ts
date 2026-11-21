@@ -577,7 +577,7 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
-  it('surfaces an existing-conversation read failure as unavailable', async () => {
+  it('surfaces an existing-conversation read failure as a store outage', async () => {
     const { store, getConversation, saveConversation } = fakeStore();
     getConversation.mockRejectedValueOnce(new Error('database offline'));
     const { runner, start, release } = fakeRunner();
@@ -592,7 +592,7 @@ describe('createEngineWorkChatHandler', () => {
     });
 
     expect(response.statusCode).toBe(503);
-    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_UNAVAILABLE' });
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_STORE_UNAVAILABLE' });
     expect(response.chunks).toHaveLength(0);
     expect(start).not.toHaveBeenCalled();
     expect(saveConversation).not.toHaveBeenCalled();
@@ -680,7 +680,7 @@ describe('createEngineWorkChatHandler', () => {
     });
 
     expect(response.statusCode).toBe(503);
-    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_UNAVAILABLE' });
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_STORE_UNAVAILABLE' });
     expect(response.chunks).toHaveLength(0);
     expect(saveConversation).toHaveBeenCalledTimes(1);
     expect(handle.cancel).toHaveBeenCalled();
