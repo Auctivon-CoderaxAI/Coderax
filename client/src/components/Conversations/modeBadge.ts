@@ -2,7 +2,7 @@ import type { TranslationKeys } from '~/hooks/useLocalize';
 import type { ConversationMode } from '~/components/Chat/mode';
 
 export type ConversationModeBadgeDescriptor = {
-  mode: ConversationMode;
+  mode: 'code';
   /** Already in the catalogue, so the badge needs no new locale entry. */
   labelKey: TranslationKeys;
 };
@@ -12,10 +12,10 @@ export type ConversationModeBadgeDescriptor = {
  * conversation starts in, so marking it would put the same badge on the whole list.
  */
 export function resolveConversationModeBadge(
-  mode: ConversationMode | null | undefined,
+  mode: ConversationMode | 'code' | 'review' | null | undefined,
 ): ConversationModeBadgeDescriptor | null {
-  if (mode === 'work') {
-    return { mode, labelKey: 'com_ui_work' };
+  if (mode === 'work' || mode === 'code') {
+    return { mode: 'code', labelKey: 'com_ui_work' };
   }
   return null;
 }
