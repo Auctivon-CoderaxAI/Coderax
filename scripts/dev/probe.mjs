@@ -10,10 +10,10 @@
  *
  * The guest layer mirrors what the browser does at /connect: it opens a guest
  * session, reads /api/user with that token and asks /api/models for the catalog.
- * The route layer requests a conversation deep link as a fresh page load, then
- * resolves the shell's entry script from that same path. The convo layer re-reads
- * the conversation and its messages with the same token, so a deep link that
- * opens an empty conversation fails here instead of in the browser.
+ * The route layer requests a conversation deep link as a fresh page load, resolves
+ * the shell's entry script from that same path, then re-reads the conversation and
+ * its messages with the same token, so a deep link that opens an empty conversation
+ * fails here instead of in the browser.
  */
 import net from 'node:net';
 
@@ -532,29 +532,25 @@ async function main() {
           `${assetType || 'no content type'} instead of JavaScript`,
       );
     }
-    return `hard load /c/<id> served the shell; ${entryUrl.pathname} -> ${asset.status} ${assetType}`;
-  });
-
-  await layer('convo', async () => {
-    if (!conversationId) {
-      throw new LayerError('convo', 'the chat layer did not report a conversation id');
-    }
+    /* A shell that renders an empty conversation passes every check above: re-read
+       the conversation and its messages with the same token the browser's session
+       uses, so the deep link is shown to load real content. */
     const convoHeaders = { ...headers, 'user-agent': BROWSER_UA };
-    const url = `${base}/api/convos/${encodeURIComponent(conversationId)}`;
-    const response = await fetch(url, {
+    const convoUrl = `${base}/api/convos/${encodeURIComponent(conversationId)}`;
+    const convoResponse = await fetch(convoUrl, {
       headers: convoHeaders,
       signal: AbortSignal.timeout(15_000),
     });
-    if (!response.ok) {
+    if (!convoResponse.ok) {
       throw new LayerError(
-        'convo',
-        `GET /api/convos/<id> -> HTTP ${response.status}: the deep link would open no conversation`,
+        'route',
+        `GET /api/convos/<id> -> HTTP ${convoResponse.status}: the deep link would open no conversation`,
       );
     }
-    const convo = await response.json();
+    const convo = await convoResponse.json();
     if (convo?.conversationId !== conversationId) {
       throw new LayerError(
-        'convo',
+        'route',
         `GET /api/convos/<id> returned conversation "${convo?.conversationId ?? 'none'}"`,
       );
     }
@@ -563,23 +559,26 @@ async function main() {
       signal: AbortSignal.timeout(15_000),
     });
     if (!listed.ok) {
-      throw new LayerError('convo', `GET /api/messages/<id> -> HTTP ${listed.status}`);
+      throw new LayerError('route', `GET /api/messages/<id> -> HTTP ${listed.status}`);
     }
     const messages = await listed.json();
     if (!Array.isArray(messages) || messages.length === 0) {
-      throw new LayerError('convo', 'the conversation has no messages to load');
+      throw new LayerError('route', 'the deep-linked conversation has no messages to load');
     }
     const texts = messages.map(messageText);
     if (!texts.some((text) => text.includes(PROMPT))) {
-      throw new LayerError('convo', 'the stored messages do not contain the prompt the probe sent');
+      throw new LayerError('route', 'the stored messages do not contain the prompt the probe sent');
     }
     if (!texts.some((text) => text.includes(assistantReply))) {
       throw new LayerError(
-        'convo',
+        'route',
         'the stored messages do not contain the reply the probe received',
       );
     }
-    return `${messages.length} messages incl. the prompt and reply`;
+    return (
+      `hard load /c/<id> served the shell; ${entryUrl.pathname} -> ${asset.status} ${assetType}; ` +
+      `${messages.length} messages incl. the prompt and reply`
+    );
   });
 
   console.log('\n✔ all layers healthy');

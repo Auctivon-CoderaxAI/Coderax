@@ -15,7 +15,7 @@ remove the records. `dev:down` exits nonzero if it cannot confirm shutdown.
 | `npm run dev:up`          | Builds missing workspace packages, then starts Mongo, the model, the API and the client; polls readiness for each and records its PID.                                                                     |
 | `npm run dev:down`        | Stops the client, the API, the model and Mongo in reverse order (SIGTERM, then SIGKILL after 10s). Mongo data and the model stay on disk.                                                                  |
 | `npm run dev:status`      | Prints service, PID, port, state and log location. Exits non-zero unless every service is ready.                                                                                                           |
-| `npm run dev:probe`       | Signs in, opens the guest session the browser uses, reads `/api/models`, sends one chat completion, re-reads the conversation and its messages, hard-loads its deep link, and names the layer that failed. |
+| `npm run dev:probe`       | Signs in, opens the guest session the browser uses, reads `/api/models`, sends one chat completion, hard-loads its deep link, re-reads the conversation and its messages, and names the layer that failed. |
 | `npm run dev:model`       | Runs the local llama.cpp server in the foreground (the same start script `dev:up` uses).                                                                                                                   |
 | `npm run dev:model:setup` | Downloads the GGUF and builds `llama-server` at the paths `.env` configures, when they are missing.                                                                                                        |
 
@@ -147,11 +147,10 @@ remove that empty directory only after confirming neither command is running.
    load, not client-side routing), expects the shell, and resolves its app entry
    script (not Vite's HMR client or the RUM bootstrap) through the shell's
    `<base href>` as a browser would; a missing base makes it ask for `/c/assets/...`
-   and fail here instead of in the browser.
-9. `convo` - `GET /api/convos/<conversation id>` and `GET /api/messages/<conversation id>`
-   with the same token. The conversation must resolve and its stored messages must
-   contain both the prompt the probe sent and the reply it received, so the deep link
-   opens a real conversation rather than an empty shell.
+   and fail here instead of in the browser. It then re-reads `GET /api/convos/<id>`
+   and `GET /api/messages/<id>` with the same token: the conversation must resolve
+   and its stored messages must contain both the prompt the probe sent and the reply
+   it received, so the deep link opens a real conversation rather than an empty shell.
 
 Environment overrides: `DEV_ENDPOINT` (default `llamacpp`), `LLAMA_BASE_URL`,
 `DEV_PROBE_BASE`, `DEV_PROBE_CLIENT` (default the `DEV_VITE_PORT` origin),
