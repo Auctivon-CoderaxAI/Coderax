@@ -2855,3 +2855,62 @@ describe('GitHub comparison configuration', () => {
   });
 });
 
+describe('build settlement verification configuration', () => {
+  /** The workflows block requires every runner limit whenever it is present. */
+  const workflows = {
+    concurrency: 4,
+    leaseMs: 30_000,
+    tickMs: 1_000,
+    retryBaseMs: 2_000,
+    retryCapMs: 60_000,
+    stepTimeoutMs: 1_800_000,
+    scheduleConcurrency: 5,
+  };
+
+  const buildVerification = {
+    workspaceRoot: '/srv/builds',
+    commands: [
+      { gate: 'tests', command: 'npm', args: ['test', '--', '--ci'], timeoutMs: 600_000 },
+      { gate: 'build', command: 'npm', args: ['run', 'build'], label: 'Production build' },
+      { gate: 'security', command: 'npm', args: ['audit', '--omit=dev'] },
+    ],
+    allowedCommands: ['npm', 'node'],
+    requirePullRequest: true,
+    defaultTimeoutMs: 120_000,
+  };
+
+  it('parses every executable gate with its workspace root', () => {
+    const parsed = configSchema.parse({
+      version: '1.0',
+      workflows: { ...workflows, buildVerification },
+    });
+
+    expect(parsed.workflows?.buildVerification).toEqual(buildVerification);
+  });
+
+  it.each(['lint', 'review'])('rejects a command gate %p that cannot be executed', (gate) => {
+    const result = configSchema.safeParse({
+      version: '1.0',
+      workflows: {
+        ...workflows,
+        buildVerification: {
+          ...buildVerification,
+          commands: [...buildVerification.commands, { gate, command: 'npm' }],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a verifier without a workspace root', () => {
+    const { workspaceRoot: _workspaceRoot, ...unrooted } = buildVerification;
+    expect(
+      configSchema.safeParse({
+        version: '1.0',
+        workflows: { ...workflows, buildVerification: unrooted },
+      }).success,
+    ).toBe(false);
+  });
+});
+

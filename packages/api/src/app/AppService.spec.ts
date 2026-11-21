@@ -74,6 +74,27 @@ describe('AppService', () => {
     expect((await AppService({ config: {} })).githubCompare).toBeUndefined();
   });
 
+  it('passes the workflow runner configuration through to the app config', async () => {
+    const workflows = {
+      concurrency: 2,
+      leaseMs: 60_000,
+      tickMs: 1_000,
+      retryBaseMs: 2_000,
+      retryCapMs: 60_000,
+      stepTimeoutMs: 1_800_000,
+      scheduleConcurrency: 3,
+      buildVerification: {
+        workspaceRoot: '/srv/builds',
+        commands: [{ gate: 'tests' as const, command: 'npm', args: ['test'] }],
+      },
+    };
+
+    const result = await AppService({ config: { workflows } });
+
+    expect(result.workflows).toEqual(workflows);
+    expect((await AppService({ config: {} })).workflows).toBeUndefined();
+  });
+
   it('preserves the YAML passkey cap in the effective configuration', async () => {
     const result = await AppService({ config: { passkeys: { perUserMax: 2 } } });
     expect(result?.passkeys).toEqual({ perUserMax: 2 });

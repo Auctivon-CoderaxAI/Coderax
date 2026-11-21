@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import type { WorkflowRunVerification } from 'coderax-data-provider';
 import { createWorkflowModel, createWorkflowRunModel } from '~/models/workflow';
 import { createWorkflowMethods } from './workflow';
 
@@ -507,5 +508,81 @@ describe('workflow persistence', () => {
     expect((await methods.listWorkflows(otherUserId)).map((entry) => entry.id)).toEqual([
       surviving.id,
     ]);
+  });
+
+  it('round-trips a build verification verdict through the run store', async () => {
+    const userId = owner();
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Verified build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship the verified change' }],
+    });
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'conversation-verification',
+    });
+    /** Absence is meaningful: the run has not been checked yet. */
+    expect(run.verification).toBeUndefined();
+
+    const now = new Date('2026-11-20T12:00:00.000Z');
+    const [claimed] = await methods.claimWorkflowRuns({
+      workerId: 'worker-verification',
+      leaseToken: 'lease-verification',
+      now,
+      leaseUntil: new Date(now.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(claimed?.id).toBe(run.id);
+
+    const verification: WorkflowRunVerification = {
+      status: 'failed',
+      mode: 'verified',
+      outcome: 'partial',
+      checkedAt: '2026-11-20T11:59:30.000Z',
+      summary: 'Tests and build passed; the security audit did not.',
+      gates: [
+        { gate: 'tests', status: 'passed', summary: '1842 tests passed' },
+        { gate: 'build', status: 'passed' },
+        { gate: 'security', status: 'failed', summary: '2 high severity advisories' },
+        { gate: 'review', status: 'not_run' },
+      ],
+      blockers: ['2 high severity advisories', 'Independent review evidence missing'],
+      pullRequestUrl: 'https://github.com/Auctivon-CoderaxAI/Coderax/pull/226',
+    };
+    const settled = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'lease-verification',
+      now,
+      patch: {
+        status: 'failed',
+        error: 'Build evidence did not verify',
+        verification,
+        settledAt: now,
+      },
+    });
+    expect(settled?.status).toBe('failed');
+    expect(settled?.verification).toEqual(verification);
+
+    const reloaded = await methods.getWorkflowRun(run.id, userId);
+    expect(reloaded?.verification).toEqual(verification);
+    expect(reloaded?.settledAt?.toISOString()).toBe(now.toISOString());
+
+    const [listed] = await methods.listWorkflowRuns(userId, workflow.id);
+    expect(listed.id).toBe(run.id);
+    expect(listed.verification).toEqual(verification);
+
+    /** A later settlement write must not silently drop the retained verdict. */
+    const extended = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'lease-verification',
+      now: new Date(now.getTime() + 1_000),
+      patch: { error: 'Build evidence did not verify: security' },
+    });
+    expect(extended?.verification).toEqual(verification);
   });
 });
