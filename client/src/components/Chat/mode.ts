@@ -2,25 +2,27 @@ import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { createStorageAtom } from '~/store/jotai-utils';
 
-export type ConversationMode = 'chat' | 'work';
+/** Product surfaces a conversation can be worked in. */
+export const CONVERSATION_MODES = ['chat', 'code', 'review'] as const;
 
-/** Modes saved per conversation id, under the account that saved them. */
-export type ConversationModeRecord = Record<string, ConversationMode>;
+export type ConversationMode = (typeof CONVERSATION_MODES)[number];
 
-/**
- * `createStorageAtom` hands back a new atom on every call, and two atoms over the
- * same key do not see each other's writes inside one tab. The mode switcher and the
- * sidebar badges have to agree the instant the user flips one, so both read the
- * account's single atom from here instead of each creating its own.
- */
+/** `work` is the name `code` carried before modes existed; it is never stored again. */
+export type LegacyConversationMode = 'work';
+
+/** Anything a stored record, an older server row or a legacy route can still carry. */
+export type StoredConversationMode = ConversationMode | LegacyConversationMode;
+
+export type ConversationModeRecord = Partial<Record<string, StoredConversationMode>>;
+
+export const conversationModesStorageKey = (userId: string) => `conversationModes:${userId}`;
+
+/** Keep exactly one Jotai storage atom per account so sidebar rows and the
+ * active conversation observe mode changes in the same tab. */
 const conversationModesAtoms = new Map<
   string,
   ReturnType<typeof createStorageAtom<ConversationModeRecord>>
 >();
-
-export function conversationModesStorageKey(userId: string) {
-  return `conversationModes:${userId}`;
-}
 
 export function getConversationModesAtom(userId: string) {
   const key = conversationModesStorageKey(userId);
@@ -33,31 +35,52 @@ export function getConversationModesAtom(userId: string) {
   return modesAtom;
 }
 
-function isConversationMode(value: unknown): value is ConversationMode | 'code' | 'review' {
-  return value === 'chat' || value === 'work' || value === 'code' || value === 'review';
-}
-
-/**
- * One conversation's saved mode, or undefined when the user never chose one.
- * Read-only: a row nobody switched stays unbadged, and the sidebar never writes.
- */
+/** A sidebar row never writes a mode; it only reads this account's saved value.
+ * Normalize old 'work' entries as canonical 'code', but leave absent/invalid
+ * entries unbadged instead of guessing the route's default. */
 export function useSavedConversationMode(
   userId: string | undefined,
   conversationId: string | undefined,
-): ConversationMode | 'code' | 'review' | undefined {
+): ConversationMode | undefined {
   const modesAtom = useMemo(() => getConversationModesAtom(userId ?? ''), [userId]);
   const modes = useAtomValue(modesAtom);
   if (!conversationId) {
     return undefined;
   }
-  const saved = modes?.[conversationId];
-  return isConversationMode(saved) ? saved : undefined;
+  return normaliseMode(modes?.[conversationId]);
+}
+
+/** Canonical mode for any stored or submitted value; `undefined` when it names none. */
+export function normaliseMode(value: unknown): ConversationMode | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const mode = value.trim().toLowerCase();
+  if (mode === 'work') {
+    return 'code';
+  }
+  return (CONVERSATION_MODES as readonly string[]).includes(mode)
+    ? (mode as ConversationMode)
+    : undefined;
+}
+
+/** Adds or replaces one conversation's mode under its canonical name. */
+export function recordMode(
+  record: ConversationModeRecord,
+  conversationId: string,
+  mode: StoredConversationMode,
+): ConversationModeRecord {
+  const canonical = normaliseMode(mode);
+  if (canonical == null) {
+    return record;
+  }
+  return { ...record, [conversationId]: canonical };
 }
 
 export const ConversationModeContext = createContext<{
   selectionKey: string;
   mode: ConversationMode;
-  setMode: (mode: ConversationMode) => void;
+  setMode: (mode: StoredConversationMode) => void;
   adoptConversation: (conversationId: string) => void;
 }>({
   selectionKey: '',
@@ -77,7 +100,7 @@ export function useStoredConversationMode({
 }: {
   userId: string;
   conversationId: string;
-  initialMode: ConversationMode;
+  initialMode: StoredConversationMode;
   forceInitialMode?: boolean;
 }) {
   const modesAtom = useMemo(() => getConversationModesAtom(userId), [userId]);
@@ -86,11 +109,9 @@ export function useStoredConversationMode({
   const forcedModeKey = JSON.stringify([userId, conversationId]);
   const forcedModeKeyRef = useRef<string | null>(null);
   const shouldForceInitialMode = forceInitialMode && forcedModeKeyRef.current !== forcedModeKey;
-  const mode = shouldForceInitialMode
-    ? initialMode
-    : saved === 'chat' || saved === 'work'
-      ? saved
-      : initialMode;
+  const mode: ConversationMode = shouldForceInitialMode
+    ? (normaliseMode(initialMode) ?? 'chat')
+    : (normaliseMode(saved) ?? normaliseMode(initialMode) ?? 'chat');
 
   useEffect(() => {
     if (!shouldForceInitialMode) {
@@ -98,9 +119,9 @@ export function useStoredConversationMode({
     }
     forcedModeKeyRef.current = forcedModeKey;
     setModes((current) =>
-      current?.[conversationId] === initialMode
+      current?.[conversationId] === normaliseMode(initialMode)
         ? current
-        : { ...current, [conversationId]: initialMode },
+        : recordMode(current ?? {}, conversationId, initialMode),
     );
   }, [conversationId, forcedModeKey, initialMode, setModes, shouldForceInitialMode]);
 
@@ -108,11 +129,17 @@ export function useStoredConversationMode({
     () => ({
       selectionKey: JSON.stringify([userId, conversationId]),
       mode,
-      setMode: (next: ConversationMode) =>
-        setModes((current) => ({ ...current, [conversationId]: next })),
+      setMode: (next: StoredConversationMode) => {
+        if (normaliseMode(next) === undefined) {
+          return;
+        }
+        setModes((current) => recordMode(current ?? {}, conversationId, next));
+      },
       adoptConversation: (id: string) => {
         if (conversationId === 'new' && id !== 'new' && id !== '') {
-          setModes((current) => ({ ...current, [id]: current?.[conversationId] ?? mode }));
+          setModes((current) =>
+            recordMode(current ?? {}, id, normaliseMode(current?.[conversationId]) ?? mode),
+          );
         }
       },
     }),
