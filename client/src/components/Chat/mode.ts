@@ -37,7 +37,11 @@ export function recordMode(
   conversationId: string,
   mode: StoredConversationMode,
 ): ConversationModeRecord {
-  return { ...record, [conversationId]: normaliseMode(mode) ?? mode };
+  const canonical = normaliseMode(mode);
+  if (canonical == null) {
+    return record;
+  }
+  return { ...record, [conversationId]: canonical };
 }
 
 export const ConversationModeContext = createContext<{
@@ -103,7 +107,9 @@ export function useStoredConversationMode({
       },
       adoptConversation: (id: string) => {
         if (conversationId === 'new' && id !== 'new' && id !== '') {
-          setModes((current) => recordMode(current ?? {}, id, current?.[conversationId] ?? mode));
+          setModes((current) =>
+            recordMode(current ?? {}, id, normaliseMode(current?.[conversationId]) ?? mode),
+          );
         }
       },
     }),
