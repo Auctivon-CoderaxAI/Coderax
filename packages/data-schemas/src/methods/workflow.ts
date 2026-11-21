@@ -25,6 +25,7 @@ import type {
   IWorkflowSchedule,
   IWorkflowStepRun,
 } from '~/types/workflow';
+import { createIndexesWithRetry } from '~/utils/retry';
 export type WorkflowScheduleWrite = Omit<
   IWorkflowSchedule,
   'leaseBy' | 'leaseUntil' | 'claimToken'
@@ -170,6 +171,11 @@ export interface WorkflowMethods {
   pauseWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   resumeWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
   cancelWorkflowRun: (id: string, userId: string, now: Date) => Promise<IWorkflowRun | null>;
+  /**
+   * Releases a cancelled run's checkout after its queued deliveries and active
+   * turn have been stopped. A cancelled run keeps the reservation until then.
+   */
+  releaseWorkflowWorkspace: (id: string, userId: string) => Promise<boolean>;
   /** Workflows owned by the principal that subscribe to this event. */
   listWorkflowsForEvent: (input: WorkflowEventLookupInput) => Promise<IWorkflow[]>;
   /** Starts one durable run per event occurrence; null means it already exists. */
@@ -298,6 +304,50 @@ function isDuplicateKey(error: unknown): boolean {
   return (error as { code?: number } | null)?.code === 11000;
 }
 
+/**
+ * Raised when an insert would give two unsettled runs the same checkout. The
+ * run's unique workspace key is the reservation, so this is an expected
+ * conflict rather than a storage failure.
+ */
+export class WorkflowWorkspaceConflictError extends Error {
+  readonly code = 'WORKFLOW_WORKSPACE_CONFLICT';
+  readonly workspace: string;
+
+  constructor(workspace: string) {
+    super(`Build workspace "${workspace}" is already reserved by an active run`);
+    this.name = 'WorkflowWorkspaceConflictError';
+    this.workspace = workspace;
+  }
+}
+
+function workspaceReservationKey(settings: WorkflowSettings | undefined): string | undefined {
+  const workspace = settings?.build?.workspace;
+  return workspace != null && workspace.length > 0 ? workspace : undefined;
+}
+
+/**
+ * A unique index is the only constraint a concurrent insert can violate that
+ * is a normal reservation conflict. Read the key from the driver error rather
+ * than treating every duplicate-key failure as one.
+ */
+function isWorkspaceReservationConflict(error: unknown): boolean {
+  if (!isDuplicateKey(error)) {
+    return false;
+  }
+  const candidate = error as {
+    keyPattern?: Record<string, unknown>;
+    keyValue?: Record<string, unknown>;
+    message?: string;
+  };
+  if (candidate.keyPattern != null) {
+    return Object.prototype.hasOwnProperty.call(candidate.keyPattern, 'workspaceKey');
+  }
+  if (candidate.keyValue != null) {
+    return Object.prototype.hasOwnProperty.call(candidate.keyValue, 'workspaceKey');
+  }
+  return candidate.message?.includes('workspaceKey') ?? false;
+}
+
 export function createWorkflowMethods(mongoose: typeof import('mongoose')): WorkflowMethods {
   const Workflow = () => mongoose.models.Workflow as Model<IWorkflowDocument> | undefined;
   const WorkflowRun = () => mongoose.models.WorkflowRun as Model<IWorkflowRun> | undefined;
@@ -319,6 +369,22 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
   };
 
   const objectId = (value: string): Types.ObjectId => new mongoose.Types.ObjectId(value);
+
+  /**
+   * The reservation is enforced by a unique index, and a background index
+   * build is not enough: an insert can race it. Build the constraint before the
+   * first run insert, then reuse the completed build for this process.
+   */
+  let runIndexes: Promise<void> | null = null;
+  const ensureRunIndexes = (): Promise<void> => {
+    if (runIndexes == null) {
+      runIndexes = createIndexesWithRetry(runModel()).catch((error) => {
+        runIndexes = null;
+        throw error;
+      });
+    }
+    return runIndexes;
+  };
 
   return {
     createWorkflow: async (input) => {
@@ -434,6 +500,8 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
     },
 
     createWorkflowRun: async (input) => {
+      await ensureRunIndexes();
+      const workspaceKey = workspaceReservationKey(input.settings);
       if (input.dedupeKey != null) {
         const existing = await runModel()
           .findOne({ dedupeKey: input.dedupeKey })
@@ -458,6 +526,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           conversationId: input.conversationId,
           ...(input.input == null ? {} : { input: input.input }),
           ...(input.settings == null ? {} : { settings: input.settings }),
+          ...(workspaceKey == null ? {} : { workspaceKey }),
           ...(input.trigger == null ? {} : { trigger: input.trigger }),
           workflowAncestry: input.workflowAncestry ?? [input.workflowId],
           ...(input.onCompleteWorkflowId == null
@@ -471,6 +540,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           ],
         });
       } catch (error) {
+        if (isWorkspaceReservationConflict(error) && workspaceKey != null) {
+          throw new WorkflowWorkspaceConflictError(workspaceKey);
+        }
         if (input.dedupeKey != null && isDuplicateKey(error)) {
           const existing = await runModel()
             .findOne({ dedupeKey: input.dedupeKey })
@@ -552,6 +624,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       if (patch.pauseRequestedAt === null) {
         delete $set.pauseRequestedAt;
         $unset.pauseRequestedAt = '';
+      }
+      if (patch.status != null && TERMINAL_RUN_STATUSES.includes(patch.status)) {
+        $unset.workspaceKey = '';
       }
       const update: Record<string, unknown> = { $set };
       if (Object.keys($unset).length > 0) {
@@ -722,6 +797,14 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         .lean<IWorkflowRun | null>();
     },
 
+    releaseWorkflowWorkspace: async (id, userId) => {
+      const result = await runModel().updateOne(
+        { id, user: objectId(userId), status: 'cancelled' },
+        { $unset: { workspaceKey: '' } },
+      );
+      return result.modifiedCount > 0;
+    },
+
     listWorkflowsForEvent: async (input) => {
       const filter: Record<string, unknown> = {
         user: objectId(input.userId),
@@ -747,6 +830,8 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       if (workflow == null) {
         return null;
       }
+      await ensureRunIndexes();
+      const workspaceKey = workspaceReservationKey(workflow.settings);
       const trigger = (workflow.eventTriggers ?? []).find(
         (entry) =>
           entry.eventType === input.eventType &&
@@ -776,6 +861,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           conversationId: randomUUID(),
           ...(inputText.length === 0 ? {} : { input: inputText }),
           ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          ...(workspaceKey == null ? {} : { workspaceKey }),
           ...(workflow.onCompleteWorkflowId == null
             ? {}
             : { onCompleteWorkflowId: workflow.onCompleteWorkflowId }),
@@ -795,6 +881,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         });
         return created.toObject() as IWorkflowRun;
       } catch (error) {
+        if (isWorkspaceReservationConflict(error) && workspaceKey != null) {
+          throw new WorkflowWorkspaceConflictError(workspaceKey);
+        }
         if (!isDuplicateKey(error)) {
           throw error;
         }
@@ -861,6 +950,8 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       if (workflow == null) {
         return null;
       }
+      await ensureRunIndexes();
+      const workspaceKey = workspaceReservationKey(workflow.settings);
       const dedupeKey = `workflow-schedule:${workflowId}:${scheduledFor.toISOString()}`;
       const existingRun = () => runModel().findOne({ dedupeKey }).lean<IWorkflowRun | null>();
       // A retry can reacquire the claim after the run insert succeeded but the
@@ -887,6 +978,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           currentStep: 0,
           steps: workflow.steps.map((step, index) => normalizeStep(step, index, workflow.steps)),
           ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          ...(workspaceKey == null ? {} : { workspaceKey }),
           ...(workflow.schedule?.input == null ? {} : { input: workflow.schedule.input }),
           ...(workflow.onCompleteWorkflowId == null
             ? {}
@@ -907,6 +999,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         });
         created = (created as unknown as { toObject: () => IWorkflowRun }).toObject();
       } catch (error) {
+        if (isWorkspaceReservationConflict(error) && workspaceKey != null) {
+          throw new WorkflowWorkspaceConflictError(workspaceKey);
+        }
         if (!isDuplicateKey(error)) {
           throw error;
         }

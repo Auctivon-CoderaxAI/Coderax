@@ -8,6 +8,7 @@ import type { WorkflowStepInput } from 'coderax-data-provider';
 import type { CreateWorkflowPayload } from '../workflows/definition';
 import type { BuildGate, BuildMode, BuildModePolicy } from './modes';
 import type { BuildPlan, BuildRole, BuildTask } from './plan';
+import { isBuildWorkspace, normalizeBuildRepository } from './workspace';
 import { getBuildModePolicy, requiredGatesForPlan } from './modes';
 
 export interface BuildRepositoryContext {
@@ -23,6 +24,8 @@ export interface CompileBuildOptions {
   orchestratorAgentId: string;
   roleAgents?: Partial<Record<BuildRole, string>>;
   repository?: BuildRepositoryContext;
+  /** The checkout directory, relative to the deployment build root. */
+  workspace?: string;
   now?: Date;
 }
 
@@ -97,12 +100,14 @@ function compileInstruction(
   plan: BuildPlan,
   mode: BuildMode,
   repository: BuildRepositoryContext | undefined,
+  workspace: string | null,
 ): string {
   const sections = [
     task.instruction,
     ['Acceptance criteria:', ...task.acceptance.map((criterion) => `- ${criterion}`)].join('\n'),
     `Execution mode: ${mode}. ${MODE_GUIDANCE[mode]}`,
     repositoryContext(repository),
+    workspace == null ? null : `Build workspace: ${workspace}. Keep every edit in this checkout.`,
     'Report the exact commands you ran, their outcomes, and the files you changed. Do not claim a task, test, build or deployment succeeded without recorded evidence.',
   ].filter((section): section is string => section != null && section.length > 0);
   const requestExcerpt = sanitizeInline(plan.request, 1_000);
@@ -128,7 +133,12 @@ function roleAssignment(
  * with which specialist, and under which evidence contract.
  */
 export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResult {
-  const { plan, mode, orchestratorAgentId, roleAgents, repository } = options;
+  const { plan, mode, orchestratorAgentId, roleAgents } = options;
+  const repository = normalizeBuildRepository(options.repository);
+  const workspace =
+    options.workspace != null && isBuildWorkspace(options.workspace.trim())
+      ? options.workspace.trim()
+      : null;
   const orchestrator = orchestratorAgentId?.trim() ?? '';
   if (orchestrator.length === 0) {
     return {
@@ -154,7 +164,7 @@ export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResu
 
   const steps: WorkflowStepInput[] = [];
   for (const task of plan.tasks) {
-    const instruction = compileInstruction(task, plan, mode, repository);
+    const instruction = compileInstruction(task, plan, mode, repository ?? undefined, workspace);
     if (instruction.length > WORKFLOW_INSTRUCTION_MAX_LENGTH) {
       return {
         ok: false,
@@ -205,6 +215,8 @@ export function compileBuildPlan(options: CompileBuildOptions): CompileBuildResu
           build: {
             mode,
             requiredGates,
+            ...(repository == null ? {} : { repository }),
+            ...(workspace == null ? {} : { workspace }),
             ...(deadlineAt == null ? {} : { deadlineAt }),
             ...(reviewStepId == null ? {} : { reviewStepId }),
             requirePullRequest: policy.requirePullRequest,

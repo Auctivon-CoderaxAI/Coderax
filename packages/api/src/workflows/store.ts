@@ -118,6 +118,10 @@ export interface WorkflowStepEnqueuerDeps {
     envelope: unknown,
     options?: { orderingKey?: string },
   ) => Promise<{ deliveryKey?: string } | unknown>;
+  /** Attached code environment whose registered workspace ids name the build
+   *  checkouts. Without it a build step has no checkout to bind to, so the run
+   *  cannot claim its edits are confined to the reserved workspace. */
+  buildWorkspaceEnvironmentId?: string;
 }
 
 /**
@@ -136,6 +140,12 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
     const attempt = step.attempts;
     const deliveryId = `wf:${run.id}:${step.id}:${attempt}`;
     const conversationId = step.conversationId ?? run.conversationId;
+    const buildWorkspace = run.settings?.build?.workspace;
+    const buildWorkspaceEnvironmentId = deps.buildWorkspaceEnvironmentId;
+    const codeWorkspaces =
+      buildWorkspace == null || buildWorkspaceEnvironmentId == null
+        ? undefined
+        : [{ environmentId: buildWorkspaceEnvironmentId, workspaceId: buildWorkspace }];
     const envelope = createAgentTriggerEnvelope({
       mode: 'fire',
       requestId: randomUUID(),
@@ -155,6 +165,7 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
       input: step.instruction,
       run: {
         ...(conversationId == null ? {} : { conversationId }),
+        ...(codeWorkspaces == null ? {} : { codeWorkspaces }),
         metadata: {
           workflowRunId: run.id,
           workflowStepId: step.id,

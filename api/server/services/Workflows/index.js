@@ -33,14 +33,20 @@ function buildEngine(options) {
   return createWorkflowEngine(
     {
       store: createWorkflowStore(methods),
-      enqueueStep: createWorkflowStepEnqueuer({ enqueueTrigger: enqueueAgentTrigger }),
+      enqueueStep: createWorkflowStepEnqueuer({
+        enqueueTrigger: enqueueAgentTrigger,
+        // Build steps edit the run's reserved checkout, so their turns are
+        // bound to the workspace id that names it on that attached machine.
+        buildWorkspaceEnvironmentId: options?.buildVerification?.workspaceEnvironmentId,
+      }),
       getGeneration: (conversationId) => GenerationJobManager.getJob(conversationId),
       abortGeneration: (conversationId, abortOptions) =>
         abortWorkflowTurn(conversationId, abortOptions?.expectedCreatedAt),
       readStepResult: createWorkflowStepResultReader(methods),
-      // Settlement verification is deployment policy: the workspace and argv
-      // come from config, never from a build request body. Without it a build
-      // run fails closed instead of settling complete unverified.
+      // Settlement verification is deployment policy: the workspace, the
+      // attached machine that hosts it and the argv come from config, never
+      // from a build request body. Without it a build run fails closed instead
+      // of settling complete unverified.
       verifyRun:
         options?.buildVerification == null
           ? undefined

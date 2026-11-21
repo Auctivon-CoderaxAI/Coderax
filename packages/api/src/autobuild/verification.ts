@@ -20,7 +20,7 @@ const PULL_REQUEST_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]
  * A reviewer opens the pull request itself, so the only trustworthy delivery
  * evidence is a URL it reported. The newest step wins.
  */
-function findPullRequest(steps: WorkflowStepRecord[]): BuildPullRequest | null {
+function findPullRequest(steps: BuildVerifierInput['steps']): BuildPullRequest | null {
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const result = steps[index].result;
     if (typeof result !== 'string') {
@@ -65,7 +65,7 @@ function failedVerdict(input: {
  */
 function reviewEvidence(
   build: WorkflowBuildSettings,
-  steps: WorkflowStepRecord[],
+  steps: BuildVerifierInput['steps'],
 ): BuildGateEvidence {
   if (build.reviewStepId == null) {
     return {
@@ -98,8 +98,8 @@ function reviewEvidence(
 }
 
 function snapshotFor(
-  run: WorkflowRunRecord,
-  steps: WorkflowStepRecord[],
+  run: BuildVerifierInput['run'],
+  steps: BuildVerifierInput['steps'],
   build: WorkflowBuildSettings,
   gates: BuildGateEvidence[],
   pullRequest: BuildPullRequest | null,
@@ -146,9 +146,27 @@ export async function verifyBuildRun(
       summary: 'This run has no build plan, so it cannot produce build evidence.',
     });
   }
+  if (build.repository == null) {
+    return failedVerdict({
+      mode: build.mode,
+      checkedAt,
+      summary: 'This run has no repository binding, so its delivery cannot be attributed.',
+    });
+  }
+  if (build.workspace == null) {
+    return failedVerdict({
+      mode: build.mode,
+      checkedAt,
+      summary: 'This run has no workspace binding, so verification has no checkout to run in.',
+    });
+  }
+  const workspace = resolveBuildWorkspace(config.workspaceRoot, build.workspace);
+  if (!workspace.ok) {
+    return failedVerdict({ mode: build.mode, checkedAt, summary: workspace.message });
+  }
 
   const executed = await runBuildVerification({
-    workspaceRoot: config.workspaceRoot,
+    workspaceRoot: workspace.value,
     commands: config.commands,
     ...(config.runner == null ? {} : { runner: config.runner }),
     ...(config.allowedCommands == null ? {} : { allowedCommands: config.allowedCommands }),

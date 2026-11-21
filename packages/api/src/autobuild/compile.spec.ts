@@ -1,7 +1,7 @@
 import { WORKFLOW_INSTRUCTION_MAX_LENGTH } from 'coderax-data-provider';
 import type { BuildPlan } from './plan';
-import { parseBuildPlan } from './plan';
 import { compileBuildPlan } from './compile';
+import { parseBuildPlan } from './plan';
 
 const task = (id: string, overrides: Record<string, unknown> = {}) => ({
   id,
@@ -77,6 +77,7 @@ describe('compileBuildPlan', () => {
       mode: 'autonomous',
       orchestratorAgentId: 'agent-lead',
       repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+      workspace: 'build-checkout',
     });
 
     expect(compiled.ok).toBe(true);
@@ -89,7 +90,12 @@ describe('compileBuildPlan', () => {
     expect(instruction).toContain('Do not claim a task, test, build or deployment succeeded');
     expect(instruction).toContain('open a pull request');
     expect(instruction).toContain('Never push directly to the protected branch');
+    expect(instruction).toContain('Build workspace: build-checkout');
     expect(instruction).toContain('Build request: Build the service');
+    expect(compiled.value.workflow.settings?.build).toMatchObject({
+      repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+      workspace: 'build-checkout',
+    });
   });
 
   it('bounds an injected repository name to one line', () => {

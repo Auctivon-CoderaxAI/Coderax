@@ -759,6 +759,7 @@ async function startRun(
             chatProjectId: run.chatProjectId,
           }),
           ...(run?.files != null && { files: run.files }),
+          ...(run?.codeWorkspaces != null && { codeWorkspaces: run.codeWorkspaces }),
           ...(typeof timezone === 'string' && timezone.trim().length > 0
             ? { timezone: timezone.trim() }
             : {}),

@@ -37,6 +37,12 @@ describe('workflow engine with Mongo persistence', () => {
     await mongoose.connection.dropDatabase();
   });
 
+  beforeEach(async () => {
+    // dropDatabase removes the unique reservation index; rebuild it so every
+    // test exercises the same atomic constraint as production.
+    await mongoose.models.WorkflowRun.syncIndexes();
+  });
+
   const owner = () => new mongoose.Types.ObjectId().toString();
 
   function engineFor(options: {
@@ -203,6 +209,251 @@ describe('workflow engine with Mongo persistence', () => {
     expect(startResponse.json).toHaveBeenCalledWith({ error: 'You cannot run that agent' });
     expect(await methods.listWorkflowRuns(userId, existing.id)).toEqual([]);
     expect(wake).not.toHaveBeenCalled();
+  });
+
+  it('rejects a second active run on the same build workspace', async () => {
+    const userId = owner();
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'shared-checkout',
+      },
+    };
+    const running = await methods.createWorkflow({
+      userId,
+      name: 'Running build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    await methods.createWorkflowRun({
+      userId,
+      workflowId: running.id,
+      workflowName: running.name,
+      agentId: running.agentId,
+      steps: running.steps,
+      conversationId: 'busy-build',
+      settings,
+      trigger: { type: 'manual' },
+    });
+    const waiting = await methods.createWorkflow({
+      userId,
+      name: 'Second build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const wake = jest.fn();
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake,
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.startRun>[1];
+    const request = {
+      user: { id: userId },
+      params: { id: waiting.id },
+      body: {},
+    } as unknown as Parameters<typeof handlers.startRun>[0];
+
+    await handlers.startRun(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(response.json).toHaveBeenCalledWith({
+      error: 'That build workspace is already in use by an active run',
+    });
+    expect(await methods.listWorkflowRuns(userId, waiting.id)).toEqual([]);
+    expect(wake).not.toHaveBeenCalled();
+
+    const launchResponse = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.startBuild>[1];
+    const launchRequest = {
+      user: { id: userId },
+      body: {
+        request: 'Add a health endpoint',
+        mode: 'autonomous',
+        agentId: 'agent-1',
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'shared-checkout',
+      },
+    } as unknown as Parameters<typeof handlers.startBuild>[0];
+
+    await handlers.startBuild(launchRequest, launchResponse);
+
+    expect(launchResponse.status).toHaveBeenCalledWith(409);
+    expect(launchResponse.json).toHaveBeenCalledWith({
+      error: 'That build workspace is already in use by an active run',
+    });
+    expect(await methods.listWorkflows(userId)).toHaveLength(2);
+
+    // The database reservation, not a preflight read, is authoritative.
+    await mongoose.model('WorkflowRun').createIndexes();
+    jest.clearAllMocks();
+    await handlers.startRun(request, response);
+    await handlers.startBuild(launchRequest, launchResponse);
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(launchResponse.status).toHaveBeenCalledWith(409);
+    expect(await methods.listWorkflowRuns(userId)).toHaveLength(1);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it('reserves a build workspace atomically across users', async () => {
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'contended-checkout',
+      },
+    };
+    const firstUser = owner();
+    const secondUser = owner();
+    const first = await methods.createWorkflow({
+      userId: firstUser,
+      name: 'First build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const second = await methods.createWorkflow({
+      userId: secondUser,
+      name: 'Second build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: jest.fn(),
+    });
+    const start = async (userId: string, workflowId: string) => {
+      const response = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+      } as unknown as Parameters<typeof handlers.startRun>[1];
+      await handlers.startRun(
+        {
+          user: { id: userId },
+          params: { id: workflowId },
+          body: {},
+        } as unknown as Parameters<typeof handlers.startRun>[0],
+        response,
+      );
+      return (response.status as jest.Mock).mock.calls[0]?.[0];
+    };
+
+    const statuses = await Promise.all([start(firstUser, first.id), start(secondUser, second.id)]);
+    expect(statuses.sort((left, right) => Number(left) - Number(right))).toEqual([202, 409]);
+
+    const firstRuns = await methods.listWorkflowRuns(firstUser, first.id);
+    const secondRuns = await methods.listWorkflowRuns(secondUser, second.id);
+    expect(firstRuns.length + secondRuns.length).toBe(1);
+  });
+
+  it('holds a build workspace until cancellation has stopped the active turn', async () => {
+    const userId = owner();
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'cancel-checkout',
+      },
+    };
+    const workflow = await methods.createWorkflow({
+      userId,
+      name: 'Cancel build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const conversationId = 'cancel-build-conversation';
+    const run = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId,
+      settings,
+      trigger: { type: 'manual' },
+    });
+    const now = new Date();
+    const [leased] = await methods.claimWorkflowRuns({
+      workerId: 'cancel-worker',
+      leaseToken: 'cancel-lease',
+      now,
+      leaseUntil: new Date(now.getTime() + 30_000),
+      limit: 1,
+    });
+    expect(leased?.id).toBe(run.id);
+    if (leased == null) {
+      throw new Error('cancel run was not leased');
+    }
+    const active = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'cancel-lease',
+      now,
+      patch: {
+        status: 'running',
+        steps: leased.steps.map((step) => ({
+          ...step,
+          status: 'running' as const,
+          attempts: 1,
+          conversationId,
+        })),
+      },
+    });
+    expect(active?.workspaceKey).toBe('cancel-checkout');
+
+    let heldDuringAbort: string | undefined;
+    const abortActiveRun = jest.fn(async () => {
+      heldDuringAbort = (await methods.getWorkflowRun(run.id, userId))?.workspaceKey;
+    });
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: () => undefined,
+      abortActiveRun,
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    } as unknown as Parameters<typeof handlers.cancelRun>[1];
+    await handlers.cancelRun(
+      {
+        user: { id: userId },
+        params: { runId: run.id },
+      } as unknown as Parameters<typeof handlers.cancelRun>[0],
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(abortActiveRun).toHaveBeenCalledWith(conversationId);
+    expect(heldDuringAbort).toBe('cancel-checkout');
+    const cancelled = await methods.getWorkflowRun(run.id, userId);
+    expect(cancelled?.status).toBe('cancelled');
+    expect(cancelled?.workspaceKey).toBeUndefined();
+
+    const next = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'after-cancel-conversation',
+      settings,
+      trigger: { type: 'manual' },
+    });
+    expect(next.workspaceKey).toBe('cancel-checkout');
   });
 
   it('retires queued deliveries after durable cancellation and aborts active turns', async () => {

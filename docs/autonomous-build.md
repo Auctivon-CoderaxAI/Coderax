@@ -127,7 +127,7 @@ from actual runs, not from estimates.
 
 `runBuildVerification({ workspaceRoot, commands, signal })` executes commands instead of assuming a
 pass. It validates every executable against an allowlist, rejects executable paths, resolves `cwd`
-with symlinks and rejects paths outside the workspace, spawns with `shell: false` on POSIX (on
+with symlinks and rejects paths outside the run's checkout, spawns with `shell: false` on POSIX (on
 Windows a shell resolves `.cmd` shims only when the arguments are restricted to shell-safe tokens),
 enforces a timeout with a process-tree kill, bounds and redacts output, and converts exit codes into
 `BuildGateEvidence`. `tests`, `build` and `security` are executable gates; `review` remains a
@@ -142,30 +142,75 @@ the validation message, restores the original request, chooses the effective mod
 workflow. `createHeuristicBuildPlan()` is the deterministic zero-cost fallback when no free or local
 completion is configured.
 
-`POST /api/workflows/builds` accepts a project request, mode and saved orchestrator agent, validates
-the request, compiles a deterministic plan, authorizes every bound agent, then creates and starts the
-ordinary durable workflow. The Workflows view has a **New autonomous build** launcher; on success it
+`POST /api/workflows/builds` accepts a project request, mode, saved orchestrator agent, repository
+and workspace, validates the request, compiles a deterministic plan, authorizes every bound agent,
+then creates and starts the ordinary durable workflow. A workspace is one directory name under the
+deployment build root. The reservation is global, not per user: every account shares the
+`workspaceRoot`, so a second unsettled run bound to the same workspace is rejected with `409`. The
+run insert itself carries a unique `workspaceKey`, so two simultaneous launches — from any users —
+cannot both pass the check; the loser gets the same `409` and the workflow created for a rejected
+launch is removed. A completed or failed run releases the reservation at settlement. A cancelled
+run keeps it until the cancellation handler has retired its queued deliveries and aborted its
+active turn, then releases it; if that cleanup cannot be completed the reservation stays held rather
+than admitting a second writer. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
+
+Every step turn is bound to the same checkout. The workflow step enqueuer attaches
+`codeWorkspaces: [{ environmentId: buildVerification.workspaceEnvironmentId, workspaceId: <workspace> }]`
+to the step's fire envelope, and the agent run resolves its reads, writes and commands through that
+selection, so two builds with different workspace names cannot edit one tree. The attached worker
+rejects a turn whose workspace id it does not register, which is the fail-closed path for a checkout
+that was never provisioned. The selection is host-controlled trigger context, like `chatProjectId`;
+a model or build request cannot choose it.
+
+Before enabling the unique reservation index on an existing deployment, pause new build launches
+and check for active workspace-bound runs created before this release:
+
+```javascript
+db.workflowruns.aggregate([
+  {
+    $match: {
+      'settings.build.workspace': { $type: 'string' },
+      workspaceKey: { $exists: false },
+      status: { $nin: ['completed', 'failed', 'cancelled'] },
+    },
+  },
+  { $group: { _id: '$settings.build.workspace', count: { $sum: 1 } } },
+]);
+```
+
+Let those runs finish or cancel them, then confirm the unique index on `workspaceKey` has built
+successfully before resuming launches. The index is sparse, so runs without a binding are ignored.
 
 ## Settlement verification
 
 `compileBuildPlan()` records the evidence contract on the run itself as `settings.build`: the mode,
-the plan's required gates, the deadline, the reviewer step id and the pull-request rule. When every
-step has settled, the workflow engine calls its `verifyRun` port before it may set `completed`.
+the repository, the run's workspace binding, the plan's required gates, the deadline, the reviewer
+step id and the pull-request rule. Scheduled, event-triggered and chained runs acquire the same
+workspace reservation when their run is inserted, so they cannot bypass the launcher's check. A
+scheduled occurrence whose workspace is busy releases its claim and retries; an event-triggered
+occurrence raises the reservation conflict to its delivery lane instead of starting against another
+run's checkout. When every step has settled, the workflow engine calls its
+`verifyRun` port before it may set `completed`.
 
-- `verifyBuildRun(input, config)` runs the deployment's commands through `runBuildVerification`,
-  adds the reviewer step's retained output as the `review` gate, reads the pull-request URL from the
-  reviewer's retained result, and judges the whole run with `summarizeBuild`.
+- `verifyBuildRun(input, config)` resolves the run's own checkout as
+  `<workspaceRoot>/<workspace>` with symlink-aware containment, runs the deployment's commands there
+  through `runBuildVerification`, adds the reviewer step's retained output as the `review` gate,
+  reads the pull-request URL from the reviewer's retained result, and judges the whole run with
+  `summarizeBuild`. A run without a repository or workspace binding, or whose workspace is missing
+  or escapes the deployment root, fails closed instead of checking another build's tree.
 - Only a `verified` verdict permits `completed`. A missing verifier, a thrown error, or any other
   verdict fails the run with a safe, fixed message.
 - The verdict is retained on the run as `verification` — status, outcome, gates, blockers, pull
   request URL and summary — and is returned in `WorkflowRunView`, so an operator sees why a build
   did not complete.
 
-The workspace root, the commands and the executable allowlist come from
-`config.workflows.buildVerification` in `coderax.yaml`, never from the build request body: a plan
-cannot choose where settlement runs or which executable it invokes. Without that configuration the
-port is not wired, so every build run fails closed instead of completing unverified.
+The workspace base root, the attached machine that hosts it, the commands and the executable
+allowlist come from `config.workflows.buildVerification` in `coderax.yaml`, never from the build
+request body: a plan cannot choose where the steps edit or where settlement runs, or which executable
+it invokes. The request only names the repository and the workspace directory under that root, and
+both the step binding and the verifier confine themselves to it. Without that configuration the port
+is not wired, so every build run fails closed instead of completing unverified.
 
 ```yaml
 # coderax.yaml
@@ -181,8 +226,14 @@ workflows:
   stepTimeoutMs: 1800000
   scheduleConcurrency: 5
   buildVerification:
-    # Absolute path to the checkout the commands run in. Required.
-    workspaceRoot: /srv/coderax/workspaces/build
+    # Absolute directory holding one checkout per build workspace. Required.
+    # A build runs in <workspaceRoot>/<workspace binding>.
+    workspaceRoot: /srv/coderax/workspaces
+    # Attached code environment that hosts those checkouts. Required. Register
+    # each <workspaceRoot>/<name> directory on it with `name` as the workspace
+    # id, so a step's bound workspace resolves to the same tree the verifier
+    # checks. A step whose workspace id is not registered fails closed.
+    workspaceEnvironmentId: build-machine
     commands:
       - gate: tests
         command: npm
@@ -206,10 +257,14 @@ workflows:
 
 `gate` is one of `tests`, `build` or `security`; `review` is never a command, it comes from the
 reviewer step named at compile time. Every executable must be a bare name on the allowlist (a path
-is rejected), `cwd` is resolved inside `workspaceRoot` with symlinks followed, and nothing is
+is rejected), `cwd` is resolved inside the run's checkout with symlinks followed, and nothing is
 spawned through a shell, so the block cannot widen its own authority.
 
 ## Not implemented in this change
+
+- **No checkout provisioning.** The deployment creates each `<workspaceRoot>/<workspace>` checkout
+  and registers it on `workspaceEnvironmentId` under the same id; the launcher binds a build to it but
+  does not clone or clean it.
 
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
   local completion, but no server-side free-model provider is configured yet.

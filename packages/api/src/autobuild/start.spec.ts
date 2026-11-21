@@ -8,6 +8,8 @@ describe('parseStartBuild', () => {
         mode: 'turbo15',
         agentId: 'agent-1',
         roleAgents: { backend: 'agent-2' },
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+        workspace: 'api-checkout',
       }),
     ).toEqual({
       ok: true,
@@ -16,8 +18,47 @@ describe('parseStartBuild', () => {
         mode: 'turbo15',
         agentId: 'agent-1',
         roleAgents: { backend: 'agent-2' },
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+        workspace: 'api-checkout',
       },
     });
+  });
+
+  it('requires a repository and a safe workspace binding', () => {
+    const base = {
+      request: 'Add a health endpoint',
+      mode: 'autonomous',
+      agentId: 'agent-1',
+      workspace: 'api-checkout',
+    };
+
+    expect(parseStartBuild(base)).toMatchObject({ ok: false });
+    expect(
+      parseStartBuild({
+        ...base,
+        repository: { owner: 'owner', name: 'repo' },
+        workspace: undefined,
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseStartBuild({
+        ...base,
+        repository: { owner: 'owner', name: 'repo' },
+        workspace: '../escape',
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseStartBuild({
+        ...base,
+        repository: { owner: 'owner', name: '../repo' },
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      parseStartBuild({
+        ...base,
+        repository: { owner: 'owner', name: 'repo', baseRef: '--force' },
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   it('rejects an empty request, unknown mode and unknown role', () => {
@@ -50,12 +91,18 @@ describe('prepareBuildLaunch', () => {
       request: 'Add a health endpoint to the API',
       mode: 'autonomous',
       agentId: 'agent-1',
+      repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+      workspace: 'api-checkout',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.plan.tasks.length).toBeGreaterThanOrEqual(4);
     expect(result.value.compiled.workflow.agentId).toBe('agent-1');
     expect(result.value.compiled.workflow.steps.length).toBe(result.value.plan.tasks.length);
+    expect(result.value.compiled.workflow.settings?.build).toMatchObject({
+      repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax', baseRef: 'main' },
+      workspace: 'api-checkout',
+    });
     expect(result.value.compiled.requiredGates).toEqual(
       expect.arrayContaining(['tests', 'build', 'review']),
     );
@@ -68,6 +115,8 @@ describe('prepareBuildLaunch', () => {
         'Add OAuth login, a database migration, a settings UI, a CI deployment pipeline, security review and a new API for sessions',
       mode: 'turbo15',
       agentId: 'agent-1',
+      repository: { owner: 'owner', name: 'repo' },
+      workspace: 'api-checkout',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -82,6 +131,8 @@ describe('prepareBuildLaunch', () => {
       mode: 'autonomous',
       agentId: 'agent-1',
       roleAgents: { database: 'agent-db' },
+      repository: { owner: 'owner', name: 'repo' },
+      workspace: 'api-checkout',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;

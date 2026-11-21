@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { logger } from '@coderax/data-schemas';
 import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
+import { logger, WorkflowWorkspaceConflictError } from '@coderax/data-schemas';
 import type {
   WorkflowArtifact,
   WorkflowEventTrigger,
@@ -331,12 +331,13 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     return cursor == null;
   };
 
+  /** True only when every known writer for this run has been stopped. */
   const stopActiveTurns = async (run: {
     conversationId?: string;
     steps: Array<{ conversationId?: string; status: string }>;
-  }): Promise<void> => {
+  }): Promise<boolean> => {
     if (deps.abortActiveRun == null) {
-      return;
+      return true;
     }
     const conversations = new Set<string>();
     for (const step of run.steps) {
@@ -350,7 +351,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     if (conversations.size === 0 && run.conversationId != null) {
       conversations.add(run.conversationId);
     }
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       Array.from(conversations).map(async (conversationId) => {
         try {
           await deps.abortActiveRun?.(conversationId);
@@ -359,9 +360,11 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             conversationId,
             error: cause instanceof Error ? cause.message : String(cause),
           });
+          throw cause;
         }
       }),
     );
+    return results.every((result) => result.status === 'fulfilled');
   };
 
   return {
@@ -414,6 +417,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           agentIds.add(step.agentId);
         }
       }
+      let createdWorkflowId: string | null = null;
       try {
         for (const agentId of agentIds) {
           if (!(await deps.canRunAgent(agentId, req))) {
@@ -430,6 +434,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           steps: payload.steps,
           ...(payload.settings == null ? {} : { settings: payload.settings }),
         });
+        createdWorkflowId = workflow.id;
         const run = await deps.methods.createWorkflowRun({
           userId: owner,
           ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
@@ -442,6 +447,8 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           trigger: { type: 'manual' },
           input: parsed.value.request,
         });
+        // The run now owns the workflow; a later failure must not delete it.
+        createdWorkflowId = null;
         deps.wake();
         res.status(202).json({
           workflow: toWorkflowView(workflow),
@@ -460,6 +467,20 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           },
         });
       } catch (error) {
+        if (createdWorkflowId != null) {
+          await deps.methods.deleteWorkflow(createdWorkflowId, owner).catch((cleanupError) => {
+            logger.warn('[workflows] failed to clean up unstarted build workflow', {
+              workflowId: createdWorkflowId,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          });
+        }
+        if (error instanceof WorkflowWorkspaceConflictError) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
         logger.error('[workflows] failed to start autonomous build', error);
         unavailable(res);
       }
@@ -711,6 +732,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         deps.wake();
         res.status(202).json({ run: toRunView(run) });
       } catch (error) {
+        if (error instanceof WorkflowWorkspaceConflictError) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
         logger.error('[workflows] failed to start run', error);
         unavailable(res);
       }
@@ -984,29 +1011,46 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           res.status(404).json({ error: 'Run not found' });
           return;
         }
-        const retire = deps.retireQueuedDelivery;
-        if (retire != null) {
-          await Promise.all(
-            existing.steps.map(async (step) => {
-              if (
-                (step.status !== 'running' && step.status !== 'queued') ||
-                step.deliveryKey == null
-              ) {
-                return;
-              }
-              try {
-                await retire(step.deliveryKey, existing.workflowId);
-              } catch (cause) {
-                logger.warn('[workflows] queued delivery retirement failed', {
-                  runId,
-                  stepId: step.id,
-                  error: cause instanceof Error ? cause.message : String(cause),
-                });
-              }
-            }),
-          );
+        let stopped = false;
+        try {
+          const retire = deps.retireQueuedDelivery;
+          if (retire != null) {
+            await Promise.all(
+              existing.steps.map(async (step) => {
+                if (
+                  (step.status !== 'running' && step.status !== 'queued') ||
+                  step.deliveryKey == null
+                ) {
+                  return;
+                }
+                try {
+                  await retire(step.deliveryKey, existing.workflowId);
+                } catch (cause) {
+                  logger.warn('[workflows] queued delivery retirement failed', {
+                    runId,
+                    stepId: step.id,
+                    error: cause instanceof Error ? cause.message : String(cause),
+                  });
+                }
+              }),
+            );
+          }
+          stopped = await stopActiveTurns(existing);
+        } finally {
+          // The checkout stays reserved while retirement and abort are in
+          // flight, so a new build cannot start before the old writer stops.
+          if (stopped) {
+            await deps.methods.releaseWorkflowWorkspace(runId, owner).catch((cause) => {
+              logger.warn('[workflows] workspace release after cancellation failed', {
+                runId,
+                error: cause instanceof Error ? cause.message : String(cause),
+              });
+            });
+          } else {
+            // Fail closed: a writer we could not stop must not share its checkout.
+            logger.warn('[workflows] workspace held because a writer did not stop', { runId });
+          }
         }
-        await stopActiveTurns(existing);
         res.status(200).json({ run: toRunView(run) });
       } catch (error) {
         logger.error('[workflows] failed to cancel run', error);

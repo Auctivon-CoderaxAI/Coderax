@@ -1,7 +1,9 @@
 import { WORKFLOW_RUN_INPUT_MAX_LENGTH } from 'coderax-data-provider';
+import type { WorkflowBuildRepository } from 'coderax-data-provider';
 import type { BuildMode, BuildModeDecision } from './modes';
 import type { BuildPlan, BuildRole } from './plan';
 import type { CompiledBuild } from './compile';
+import { isBuildBaseRef, isBuildRepositoryPart, isBuildWorkspace } from './workspace';
 import { BUILD_MODES, chooseEffectiveMode } from './modes';
 import { createHeuristicBuildPlan } from './planner';
 import { compileBuildPlan } from './compile';
@@ -12,6 +14,8 @@ export interface StartBuildRequest {
   mode: BuildMode;
   agentId: string;
   roleAgents?: Partial<Record<BuildRole, string>>;
+  repository: WorkflowBuildRepository;
+  workspace: string;
 }
 
 export type StartBuildParseResult =
@@ -33,6 +37,30 @@ const MAX_ROLE_AGENTS = BUILD_ROLES.length;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value != null && !Array.isArray(value);
+}
+
+function parseRepository(
+  value: unknown,
+): { ok: true; value: WorkflowBuildRepository } | { ok: false; error: string } {
+  if (!isRecord(value)) {
+    return { ok: false, error: 'A repository owner and name are required' };
+  }
+  const owner = typeof value.owner === 'string' ? value.owner.trim() : '';
+  if (!isBuildRepositoryPart(owner)) {
+    return { ok: false, error: 'Enter a valid repository owner' };
+  }
+  const name = typeof value.name === 'string' ? value.name.trim() : '';
+  if (!isBuildRepositoryPart(name)) {
+    return { ok: false, error: 'Enter a valid repository name' };
+  }
+  const baseRef = typeof value.baseRef === 'string' ? value.baseRef.trim() : '';
+  if (baseRef.length > 0 && !isBuildBaseRef(baseRef)) {
+    return { ok: false, error: 'Enter a valid repository base branch' };
+  }
+  return {
+    ok: true,
+    value: { owner, name, ...(baseRef.length === 0 ? {} : { baseRef }) },
+  };
 }
 
 /**
@@ -61,6 +89,18 @@ export function parseStartBuild(value: unknown): StartBuildParseResult {
   const agentId = typeof value.agentId === 'string' ? value.agentId.trim() : '';
   if (agentId.length === 0 || agentId.length > MAX_AGENT_ID_LENGTH) {
     return { ok: false, error: 'Choose a saved orchestrator agent' };
+  }
+
+  const repository = parseRepository(value.repository);
+  if (!repository.ok) {
+    return { ok: false, error: repository.error };
+  }
+  const workspace = typeof value.workspace === 'string' ? value.workspace.trim() : '';
+  if (!isBuildWorkspace(workspace)) {
+    return {
+      ok: false,
+      error: 'Choose a workspace name using letters, numbers, dots, dashes or underscores',
+    };
   }
 
   const roleAgents: Partial<Record<BuildRole, string>> = {};
@@ -92,6 +132,8 @@ export function parseStartBuild(value: unknown): StartBuildParseResult {
       request,
       mode: mode as BuildMode,
       agentId,
+      repository: repository.value,
+      workspace,
       ...(Object.keys(roleAgents).length === 0 ? {} : { roleAgents }),
     },
   };
@@ -115,6 +157,8 @@ export function prepareBuildLaunch(input: StartBuildRequest): PrepareBuildResult
     plan: planned.value,
     mode: decision.mode,
     orchestratorAgentId: input.agentId,
+    repository: input.repository,
+    workspace: input.workspace,
     ...(input.roleAgents == null ? {} : { roleAgents: input.roleAgents }),
   });
   if (!compiled.ok) {
