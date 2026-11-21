@@ -13,9 +13,7 @@ export const LOG_DIR = path.join(DEV_DIR, 'logs');
 export const npmCommand = () => (process.platform === 'win32' ? 'npm.cmd' : 'npm');
 
 // Use the same parser and dependency as the API.
-const { parse: parseEnv } = createRequire(new URL('../../api/package.json', import.meta.url))(
-  'dotenv',
-);
+const { parse: parseEnv } = createRequire(path.join(ROOT, 'api', 'package.json'))('dotenv');
 export { parseEnv };
 
 /** `.env` values, with the real process environment taking precedence. */

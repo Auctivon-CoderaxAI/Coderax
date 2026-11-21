@@ -217,30 +217,33 @@ function ensureDevUser(env) {
 
 const commandLine = (service) => [service.command, ...service.args].join(' ');
 
-const currentBoot = pidStartTime(process.pid) ? bootId() : null;
+// Null where /proc is unavailable; every identity check already tolerates that.
+const currentBoot = bootId();
 
-// Record only listener and access settings, never credentials or the full environment.
+/* Settings that change where a service listens or who may reach it. Reusing a
+   process started with different values would leave the old listener running. */
+const RESTART_KEYS = {
+  api: ['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN'],
+  vite: ['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS'],
+  model: ['DEV_MODEL_HOST'],
+};
+
+// Record only these, never credentials or the full environment.
 function accessSettings(service) {
-  const settings = (keys) => keys.map((key) => service.env[key] ?? null);
+  const values = (RESTART_KEYS[service.name] ?? []).map((key) => service.env[key] ?? '');
   if (service.name === 'api') {
+    // The API is pinned to this MongoDB; moving either side must restart it.
     const { hostname, port } = new URL(service.env.MONGO_URI);
-    return JSON.stringify([
-      ...settings(['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN']),
-      hostname,
-      port || '27017',
-    ]);
+    values.push(hostname, port || '27017');
   }
-  if (service.name === 'vite') {
-    return JSON.stringify(settings(['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS']));
-  }
-  return JSON.stringify(service.name === 'model' ? settings(['DEV_MODEL_HOST']) : []);
+  return values.join('\n');
 }
 
 function recordFor(service, pid) {
   return {
     service: service.name,
     pid,
-    pidStart: currentBoot ? pidStartTime(pid) : null,
+    pidStart: pidStartTime(pid),
     bootId: currentBoot,
     port: service.port,
     probeHost: service.probeHost,
@@ -492,7 +495,6 @@ async function up() {
   ensureModel(env);
 
   const services = createServices(env);
-  mkdirSync(DEV_DIR, { recursive: true });
   const started = [];
   try {
     for (const service of services) {
