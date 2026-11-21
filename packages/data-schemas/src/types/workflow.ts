@@ -4,6 +4,7 @@ import type {
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunTrigger,
+  WorkflowRunVerification,
   WorkflowSettings,
   WorkflowStepCondition,
   WorkflowStepInput,
@@ -101,6 +102,8 @@ export interface IWorkflowRun {
   conversationId?: string;
   input?: string;
   trigger?: WorkflowRunTrigger;
+  /** Retained build settlement verdict; absent when the run was never checked. */
+  verification?: WorkflowRunVerification;
   events: IWorkflowRunEvent[];
   /** Workflow ids already traversed by this automatic chain. */
   workflowAncestry?: string[];

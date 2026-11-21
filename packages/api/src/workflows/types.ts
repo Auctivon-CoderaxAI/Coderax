@@ -1,13 +1,16 @@
 import type {
   TScheduleCadence,
+  WorkflowBuildSettings,
   WorkflowRunEvent,
   WorkflowRunStatus,
   WorkflowRunTrigger,
+  WorkflowRunVerification,
   WorkflowSettings,
   WorkflowStepCondition,
   WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
+import type { BuildVerificationConfig } from '../autobuild/verification';
 
 /** The durable, process-independent shape a workflow runner advances. */
 export interface WorkflowStepRecord {
@@ -53,6 +56,8 @@ export interface WorkflowRunRecord {
   conversationId?: string;
   input?: string;
   trigger?: WorkflowRunTrigger;
+  /** Retained build settlement verdict; absent when no verification ran. */
+  verification?: WorkflowRunVerification;
   events: WorkflowRunEvent[];
   /** Workflow ids already traversed by this automatic chain. */
   workflowAncestry?: string[];
@@ -72,6 +77,7 @@ export interface WorkflowRunPatch {
   events?: WorkflowRunEvent[];
   error?: string | null;
   chainPending?: boolean;
+  verification?: WorkflowRunVerification;
   pauseRequestedAt?: Date | null;
   startedAt?: Date;
   settledAt?: Date | null;
@@ -142,6 +148,9 @@ export interface WorkflowScheduleDeps {
 
 export interface WorkflowEngineOptions {
   concurrency?: number;
+  /** Deployment policy that hardens build settlement. Absent means no verifier
+   *  is wired, so a build run fails closed instead of completing unverified. */
+  buildVerification?: BuildVerificationConfig;
   leaseMs?: number;
   tickMs?: number;
   retryBaseMs?: number;
@@ -172,6 +181,15 @@ export interface WorkflowEngineDeps {
   }) => Promise<string | null>;
   /** Notifies the host after a run reaches a terminal status. */
   onRunSettled?: (run: WorkflowRunRecord) => Promise<void>;
+  /**
+   * Produces the evidence a build run needs before it may complete. The engine
+   * calls it once every step has settled and only when the run carries
+   * `settings.build`; anything but a `verified` verdict fails the run.
+   */
+  verifyRun?: (input: {
+    run: WorkflowRunRecord;
+    steps: WorkflowStepRecord[];
+  }) => Promise<WorkflowRunVerification>;
   schedules?: WorkflowScheduleDeps;
   now?: () => Date;
   random?: () => number;

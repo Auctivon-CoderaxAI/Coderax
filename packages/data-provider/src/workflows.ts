@@ -72,11 +72,63 @@ export interface WorkflowStepCondition {
   resultIncludes?: string;
 }
 
+/** Execution modes an autonomous build run can be compiled under. */
+export const WORKFLOW_BUILD_MODES = ['turbo15', 'autonomous', 'verified'] as const;
+
+/** Evidence a build must produce before its run may settle as complete. */
+export const WORKFLOW_BUILD_GATES = ['tests', 'build', 'review', 'security'] as const;
+
+/**
+ * Present only on runs compiled from a build plan. Settlement reads it to decide
+ * whether the run needs independent evidence before `completed`, so a build can
+ * never settle complete merely because its steps finished.
+ */
+export interface WorkflowBuildSettings {
+  mode: WorkflowBuildMode;
+  requiredGates: WorkflowBuildGate[];
+  /** ISO deadline the mode targeted; a missed target is reported, never hidden. */
+  deadlineAt?: string;
+  /** The step whose retained output is the independent review evidence. */
+  reviewStepId?: string;
+  /** Delivery requires a reviewable pull request unless explicitly waived. */
+  requirePullRequest?: boolean;
+}
+
 export interface WorkflowSettings {
   /** Maximum steps of this workflow in flight at once. */
   maxParallel?: number;
   /** Default timeout for a step whose generation never settles. */
   stepTimeoutMs?: number;
+  /** Present only on an autonomous build run. */
+  build?: WorkflowBuildSettings;
+}
+
+export const WORKFLOW_VERIFICATION_STATUSES = ['verified', 'failed'] as const;
+
+export type WorkflowVerificationStatus = (typeof WORKFLOW_VERIFICATION_STATUSES)[number];
+
+/** One gate's evidence, retained on the run after settlement. */
+export interface WorkflowVerificationGate {
+  gate: WorkflowBuildGate;
+  status: 'passed' | 'failed' | 'not_run';
+  summary?: string;
+}
+
+/**
+ * The retained verification verdict. Absence means the run was never checked;
+ * `failed` is the only safe verdict for a build that is out of time, drifted
+ * from its plan, or lost its evidence.
+ */
+export interface WorkflowRunVerification {
+  status: WorkflowVerificationStatus;
+  mode: WorkflowBuildMode;
+  /** The build report's outcome, for example `verified_complete` or `partial`. */
+  outcome: string;
+  checkedAt: string;
+  summary: string;
+  gates: WorkflowVerificationGate[];
+  blockers: string[];
+  pullRequestUrl?: string;
 }
 
 export interface WorkflowScheduleInput {
@@ -213,6 +265,9 @@ export interface WorkflowRunView {
   input?: string;
   steps: WorkflowStepView[];
   error?: string;
+  /** Evidence contract and verdict, present on an autonomous build run. */
+  settings?: WorkflowSettings;
+  verification?: WorkflowRunVerification;
   trigger?: WorkflowRunTrigger;
   events: WorkflowRunEvent[];
   pauseRequestedAt?: string;
@@ -392,9 +447,8 @@ export function isTerminalWorkflowRunStatus(status: WorkflowRunStatus): boolean 
   return TERMINAL_WORKFLOW_RUN_STATUSES.includes(status);
 }
 
-/** Resolves the effective dependencies of a step list. */
-export type WorkflowBuildMode = 'turbo15' | 'autonomous' | 'verified';
-export type WorkflowBuildGate = 'tests' | 'build' | 'review' | 'security';
+export type WorkflowBuildMode = (typeof WORKFLOW_BUILD_MODES)[number];
+export type WorkflowBuildGate = (typeof WORKFLOW_BUILD_GATES)[number];
 
 /** Launch input: a request and saved agents, never a caller-supplied step list. */
 export interface StartWorkflowBuildRequest {

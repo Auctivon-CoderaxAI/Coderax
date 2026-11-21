@@ -11,6 +11,7 @@ import type {
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunTrigger,
+  WorkflowRunVerification,
   WorkflowSettings,
   WorkflowStepInput,
   WorkflowStepStatus,
@@ -103,6 +104,8 @@ export interface WorkflowRunPatch {
   events?: IWorkflowRunEvent[];
   error?: string | null;
   chainPending?: boolean;
+  /** Build settlement verdict, written once when the run turns terminal. */
+  verification?: WorkflowRunVerification;
   leaseUntil?: Date;
   pauseRequestedAt?: Date | null;
   startedAt?: Date;

@@ -1,5 +1,7 @@
 import { Schema } from 'mongoose';
 import {
+  WORKFLOW_BUILD_GATES,
+  WORKFLOW_BUILD_MODES,
   WORKFLOW_DESCRIPTION_MAX_LENGTH,
   WORKFLOW_INSTRUCTION_MAX_LENGTH,
   WORKFLOW_MAX_PARALLEL,
@@ -14,6 +16,7 @@ import {
   WORKFLOW_STEP_TIMEOUT_MS_MAX,
   WORKFLOW_STEP_TIMEOUT_MS_MIN,
   WORKFLOW_STEP_TITLE_MAX_LENGTH,
+  WORKFLOW_VERIFICATION_STATUSES,
 } from 'coderax-data-provider';
 import type { IWorkflowDocument, IWorkflowRunDocument } from '~/types/workflow';
 
@@ -47,6 +50,17 @@ const workflowEventTriggerSchema = new Schema(
   { _id: false },
 );
 
+const workflowBuildSchema = new Schema(
+  {
+    mode: { type: String, enum: WORKFLOW_BUILD_MODES, required: true },
+    requiredGates: { type: [String], enum: WORKFLOW_BUILD_GATES, default: [] },
+    deadlineAt: { type: String, maxlength: 40 },
+    reviewStepId: { type: String, maxlength: WORKFLOW_STEP_ID_MAX_LENGTH },
+    requirePullRequest: { type: Boolean },
+  },
+  { _id: false },
+);
+
 const workflowSettingsSchema = new Schema(
   {
     maxParallel: { type: Number, min: 1, max: WORKFLOW_MAX_PARALLEL },
@@ -55,6 +69,30 @@ const workflowSettingsSchema = new Schema(
       min: WORKFLOW_STEP_TIMEOUT_MS_MIN,
       max: WORKFLOW_STEP_TIMEOUT_MS_MAX,
     },
+    build: { type: workflowBuildSchema },
+  },
+  { _id: false },
+);
+
+const workflowVerificationGateSchema = new Schema(
+  {
+    gate: { type: String, enum: WORKFLOW_BUILD_GATES, required: true },
+    status: { type: String, enum: ['passed', 'failed', 'not_run'], required: true },
+    summary: { type: String, maxlength: 512 },
+  },
+  { _id: false },
+);
+
+const workflowVerificationSchema = new Schema(
+  {
+    status: { type: String, enum: WORKFLOW_VERIFICATION_STATUSES, required: true },
+    mode: { type: String, enum: WORKFLOW_BUILD_MODES, required: true },
+    outcome: { type: String, required: true, maxlength: 64 },
+    checkedAt: { type: String, required: true, maxlength: 40 },
+    summary: { type: String, required: true, maxlength: 2_048 },
+    gates: { type: [workflowVerificationGateSchema], default: [] },
+    blockers: { type: [String], default: [] },
+    pullRequestUrl: { type: String, maxlength: 512 },
   },
   { _id: false },
 );
@@ -173,6 +211,7 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
         { _id: false },
       ),
     },
+    verification: { type: workflowVerificationSchema },
     events: { type: [workflowRunEventSchema], default: [] },
     workflowAncestry: { type: [String], default: undefined },
     onCompleteWorkflowId: { type: String },

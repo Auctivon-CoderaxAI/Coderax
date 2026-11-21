@@ -1,5 +1,6 @@
 import { WORKFLOW_HANDOFF_MAX_LENGTH } from 'coderax-data-provider';
 import { getTenantId, SYSTEM_TENANT_ID } from '@coderax/data-schemas';
+import type { WorkflowRunVerification } from 'coderax-data-provider';
 import type {
   WorkflowEngineStore,
   WorkflowGenerationState,
@@ -854,5 +855,87 @@ describe('createWorkflowEngine cancellation fencing', () => {
     await engine.runTick();
     expect(run.chainPending).toBe(false);
     expect(onRunSettled).toHaveBeenCalledTimes(2);
+  });
+
+  describe('build settlement', () => {
+    const buildRun = () => ({
+      ...runWith([step({ status: 'completed', result: 'ran the focused tests' })]),
+      status: 'queued' as const,
+      settings: {
+        build: {
+          mode: 'autonomous' as const,
+          requiredGates: ['tests' as const],
+          requirePullRequest: false,
+        },
+      },
+    });
+
+    const settle = async (verifyRun?: () => Promise<WorkflowRunVerification>) => {
+      const run = buildRun();
+      const engine = createWorkflowEngine({
+        store: {
+          claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+          saveRun: async ({ patch }) => {
+            Object.assign(run, patch);
+            if (patch.steps != null) {
+              run.steps = patch.steps.map((entry) => ({ ...entry }));
+            }
+            return true;
+          },
+          releaseRun: async () => undefined,
+        },
+        enqueueStep: async () => 'unused',
+        getGeneration: async () => null,
+        ...(verifyRun == null ? {} : { verifyRun }),
+        workerId: 'worker-1',
+      });
+      await engine.runTick();
+      return run;
+    };
+
+    const verdict = (status: 'verified' | 'failed'): WorkflowRunVerification => ({
+      status,
+      mode: 'autonomous',
+      outcome: status === 'verified' ? 'verified_complete' : 'complete_unverified',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+      summary: status === 'verified' ? 'Verified complete.' : 'Required gate tests did not pass',
+      gates: [],
+      blockers: status === 'verified' ? [] : ['Required gate tests did not pass'],
+    });
+
+    it('fails a build run when settlement has no verifier', async () => {
+      const run = await settle();
+
+      expect(run.status).toBe('failed');
+      expect(run.verification?.status).toBe('failed');
+      expect(run.error).toContain('evidence');
+    });
+
+    it('retains a failed verdict and does not complete the run', async () => {
+      const verifyRun = jest.fn(async () => verdict('failed'));
+      const run = await settle(verifyRun);
+
+      expect(verifyRun).toHaveBeenCalledTimes(1);
+      expect(run.status).toBe('failed');
+      expect(run.verification?.blockers).toEqual(['Required gate tests did not pass']);
+    });
+
+    it('completes the run with the verified verdict', async () => {
+      const run = await settle(async () => verdict('verified'));
+
+      expect(run.status).toBe('completed');
+      expect(run.verification?.status).toBe('verified');
+      expect(run.error).toBeNull();
+    });
+
+    it('fails a build run when the verifier throws', async () => {
+      const run = await settle(async () => {
+        throw new Error('runner exploded');
+      });
+
+      expect(run.status).toBe('failed');
+      expect(run.verification?.status).toBe('failed');
+      expect(run.error).not.toContain('runner exploded');
+    });
   });
 });

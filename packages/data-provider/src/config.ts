@@ -2870,6 +2870,30 @@ export const interfaceSchema = z
           .min(10_000)
           .max(24 * 60 * 60_000),
         scheduleConcurrency: z.number().int().min(1).max(100),
+        /** Settlement verification for autonomous build runs. The workspace
+         *  root and argv are deployment policy, never request input, so a build
+         *  plan cannot turn settlement into arbitrary command execution. */
+        buildVerification: z
+          .object({
+            workspaceRoot: z.string().trim().min(1),
+            commands: z
+              .array(
+                z.object({
+                  gate: z.enum(['tests', 'build', 'security']),
+                  command: z.string().trim().min(1).max(256),
+                  args: z.array(z.string().max(2_000)).max(50).optional(),
+                  cwd: z.string().trim().min(1).optional(),
+                  timeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+                  label: z.string().trim().min(1).max(256).optional(),
+                }),
+              )
+              .min(1)
+              .max(20),
+            allowedCommands: z.array(z.string().trim().min(1).max(256)).max(64).optional(),
+            requirePullRequest: z.boolean().optional(),
+            defaultTimeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+          })
+          .optional(),
       })
       .optional(),
     /** Decentralized swarm lease limits; omitted fields keep built-in defaults. */

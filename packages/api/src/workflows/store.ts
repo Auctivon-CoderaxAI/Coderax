@@ -27,6 +27,7 @@ interface StoredRun {
   events?: Array<Omit<WorkflowRunEvent, 'at'> & { at: Date | string }>;
   workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
+  verification?: WorkflowRunRecord['verification'];
   error?: string;
   pauseRequestedAt?: Date;
   startedAt?: Date;
@@ -54,6 +55,7 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
     })),
     ...(run.workflowAncestry == null ? {} : { workflowAncestry: run.workflowAncestry }),
     ...(run.onCompleteWorkflowId == null ? {} : { onCompleteWorkflowId: run.onCompleteWorkflowId }),
+    ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.pauseRequestedAt == null ? {} : { pauseRequestedAt: run.pauseRequestedAt }),
     ...(run.startedAt == null ? {} : { startedAt: run.startedAt }),

@@ -147,11 +147,28 @@ the request, compiles a deterministic plan, authorizes every bound agent, then c
 ordinary durable workflow. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
 
+## Settlement verification
+
+`compileBuildPlan()` records the evidence contract on the run itself as `settings.build`: the mode,
+the plan's required gates, the deadline, the reviewer step id and the pull-request rule. When every
+step has settled, the workflow engine calls its `verifyRun` port before it may set `completed`.
+
+- `verifyBuildRun(input, config)` runs the deployment's commands through `runBuildVerification`,
+  adds the reviewer step's retained output as the `review` gate, reads the pull-request URL from the
+  reviewer's retained result, and judges the whole run with `summarizeBuild`.
+- Only a `verified` verdict permits `completed`. A missing verifier, a thrown error, or any other
+  verdict fails the run with a safe, fixed message.
+- The verdict is retained on the run as `verification` — status, outcome, gates, blockers, pull
+  request URL and summary — and is returned in `WorkflowRunView`, so an operator sees why a build
+  did not complete.
+
+The workspace root, the commands and the executable allowlist come from
+`config.workflows.buildVerification` in `coderax.yaml`, never from the build request body: a plan
+cannot choose where settlement runs or which executable it invokes. Without that configuration the
+port is not wired, so every build run fails closed instead of completing unverified.
+
 ## Not implemented in this change
 
-- **Automatic verification invocation is not wired into the workflow runner.** Agents can run tests
-  in their turns, but a completed run does not itself call `runBuildVerification`; a caller must
-  invoke the runner with the commands and attach its evidence to the run.
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
   local completion, but no server-side free-model provider is configured yet.
 - **No agent auto-provisioning.** Specialist roles bind to saved agents supplied by the caller.
@@ -160,6 +177,5 @@ selects the created workflow so the existing run panel and stream monitor it.
 - **No deployment execution.** `allowDeploy` is false in every policy and only owner-authorized,
   verified deployments belong to a separate workflow.
 
-A build is not "autonomous end to end" until the workflow runner invokes the execution verifier
-automatically and a real provider-backed benchmark exists. Until then, report this layer as the
-contract, planner, execution verifier and scheduler foundation it is.
+A build is not "autonomous end to end" until a real provider-backed benchmark exists. Until then,
+report this layer as the contract, planner, settlement verifier and scheduler foundation it is.
