@@ -216,6 +216,7 @@ export const AppService = async (params?: {
     mcpAppSandbox,
     fileStrategy,
     projects,
+    workflows: config.workflows,
     registration,
     emailChange,
     passkeys: config.passkeys,

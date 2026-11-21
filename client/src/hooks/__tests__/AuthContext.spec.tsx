@@ -664,6 +664,54 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     jest.useRealTimers();
   });
 
+  it('keeps the manual sign-in form mounted after a successful refresh', () => {
+    jest.useFakeTimers();
+    window.history.replaceState({}, '', '/login?manual=1');
+
+    renderProviderLive();
+
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(1);
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onSuccess: (data: unknown) => void },
+    ];
+
+    act(() => {
+      refreshOptions.onSuccess({ user: { id: '1', role: 'USER' }, token: 'new-token' });
+    });
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/login');
+    expect(window.location.search).toBe('?manual=1');
+    jest.useRealTimers();
+  });
+
+  it('keeps the manual sign-in form mounted when refresh fails without a guest session', async () => {
+    window.history.replaceState({}, '', '/login?manual=1');
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+    const { getByTestId } = renderProviderLive();
+    const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+      unknown,
+      { onError: (error: Error) => void },
+    ];
+
+    expect(getByTestId('consumer')).toHaveAttribute('data-auth-ready', 'false');
+
+    await act(async () => {
+      refreshOptions.onError(new Error('No refresh session'));
+    });
+
+    expect(getByTestId('consumer')).toHaveAttribute('data-auth-ready', 'true');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(window.location.search).toBe('?manual=1');
+    fetchSpy.mockRestore();
+  });
+
   it('keeps the enforcement destination when refresh lands on the setup route', () => {
     window.history.replaceState({}, '', '/login/2fa/setup?redirect_to=%2Fc%2Frequested');
     persistTwoFactorSetupToken('setup-token');
