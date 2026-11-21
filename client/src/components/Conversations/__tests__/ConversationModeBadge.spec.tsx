@@ -9,7 +9,7 @@ describe('ConversationModeBadge', () => {
   it('draws an icon-only marker and exposes its label by id', () => {
     render(
       <ConversationModeBadge
-        badge={{ mode: 'work', labelKey: 'com_ui_work' }}
+        badge={{ mode: 'code', labelKey: 'com_ui_work' }}
         labelId="convo-mode-label"
       />,
     );
