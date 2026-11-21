@@ -99,7 +99,6 @@ export * from './work/admission';
 export * from './work/configuredDefault';
 export * from './work/deps';
 export * from './work/agents';
-export * from './work/admission';
 export * from './work/graph';
 export * from './work/ids';
 export * from './work/models';
