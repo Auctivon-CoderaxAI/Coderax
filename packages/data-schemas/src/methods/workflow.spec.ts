@@ -76,6 +76,7 @@ describe('workflow persistence', () => {
       steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship the bound change' }],
       settings,
     });
+    await createWorkflowRunModel(mongoose).createIndexes();
     const run = await methods.createWorkflowRun({
       userId,
       workflowId: workflow.id,
@@ -95,20 +96,25 @@ describe('workflow persistence', () => {
     const [listed] = await methods.listWorkflowRuns(userId, workflow.id);
     expect(listed.settings?.build?.workspace).toBe('build-checkout');
 
-    expect(
-      await methods.hasActiveWorkflowRunForWorkspace({ userId, workspace: 'build-checkout' }),
-    ).toBe(true);
-    expect(
-      await methods.hasActiveWorkflowRunForWorkspace({
+    expect(await methods.hasActiveWorkflowRunForWorkspace({ workspace: 'build-checkout' })).toBe(
+      true,
+    );
+    await expect(
+      methods.createWorkflowRun({
         userId: owner(),
-        workspace: 'build-checkout',
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        agentId: workflow.agentId,
+        steps: workflow.steps,
+        conversationId: 'second-owner',
+        settings,
       }),
-    ).toBe(false);
+    ).rejects.toMatchObject({ code: 11000, keyPattern: { 'settings.build.workspace': 1 } });
 
     await methods.cancelWorkflowRun(run.id, userId, new Date());
-    expect(
-      await methods.hasActiveWorkflowRunForWorkspace({ userId, workspace: 'build-checkout' }),
-    ).toBe(false);
+    expect(await methods.hasActiveWorkflowRunForWorkspace({ workspace: 'build-checkout' })).toBe(
+      false,
+    );
   });
 
   it('leases runs, records approvals and supports pause and resume', async () => {

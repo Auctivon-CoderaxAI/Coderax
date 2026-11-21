@@ -251,6 +251,18 @@ describe('verifyBuildRun', () => {
     expect(unboundWorkspace.summary).toContain('workspace binding');
   });
 
+  it('rejects an in-root alias before running commands', async () => {
+    symlinkSync(join(workspaceRoot, 'checkout'), join(workspaceRoot, 'alias'), 'dir');
+    const execute = jest.fn(runner(0));
+    const verdict = await verifyBuildRun(
+      { run: run({ settings: { build: build({ workspace: 'alias' }) } }), steps: [step()] },
+      config({ runner: execute }),
+    );
+    expect(verdict.status).toBe('failed');
+    expect(verdict.summary).toContain('aliases another checkout');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('rejects a workspace that resolves outside the deployment root', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'build-outside-'));
     try {

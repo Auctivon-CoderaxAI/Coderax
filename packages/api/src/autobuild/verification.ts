@@ -1,8 +1,12 @@
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
+import type {
+  WorkflowBuildSettings,
+  WorkflowRunVerification,
+  WorkflowSettings,
+  WorkflowStepStatus,
+} from 'coderax-data-provider';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
-import type { WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
 import type { CommandRunner, VerificationCommand } from './verify';
 import { runBuildVerification } from './verify';
 import { getBuildModePolicy } from './modes';
@@ -27,8 +31,16 @@ export interface BuildVerificationConfig {
 }
 
 export interface BuildVerifierInput {
-  run: WorkflowRunRecord;
-  steps: WorkflowStepRecord[];
+  run: { settings?: WorkflowSettings; startedAt?: Date };
+  steps: {
+    id: string;
+    title: string;
+    status: WorkflowStepStatus;
+    attempts: number;
+    result?: string;
+    error?: string;
+    reason?: string;
+  }[];
   /** Aborted when the run lease is lost, so a command stops instead of running twice. */
   signal?: AbortSignal;
 }
@@ -71,6 +83,9 @@ function resolveBuildWorkspace(
       message: `The build workspace ${workspace} is outside the deployment build root.`,
     };
   }
+  if (rel !== workspace) {
+    return { ok: false, message: `The build workspace ${workspace} aliases another checkout.` };
+  }
   return { ok: true, value: candidate };
 }
 
@@ -78,7 +93,7 @@ function resolveBuildWorkspace(
  * A reviewer opens the pull request itself, so the only trustworthy delivery
  * evidence is a URL it reported. The newest step wins.
  */
-function findPullRequest(steps: WorkflowStepRecord[]): BuildPullRequest | null {
+function findPullRequest(steps: BuildVerifierInput['steps']): BuildPullRequest | null {
   for (let index = steps.length - 1; index >= 0; index -= 1) {
     const result = steps[index].result;
     if (typeof result !== 'string') {
@@ -123,7 +138,7 @@ function failedVerdict(input: {
  */
 function reviewEvidence(
   build: WorkflowBuildSettings,
-  steps: WorkflowStepRecord[],
+  steps: BuildVerifierInput['steps'],
 ): BuildGateEvidence {
   if (build.reviewStepId == null) {
     return {
@@ -156,8 +171,8 @@ function reviewEvidence(
 }
 
 function snapshotFor(
-  run: WorkflowRunRecord,
-  steps: WorkflowStepRecord[],
+  run: BuildVerifierInput['run'],
+  steps: BuildVerifierInput['steps'],
   build: WorkflowBuildSettings,
   gates: BuildGateEvidence[],
   pullRequest: BuildPullRequest | null,

@@ -286,6 +286,21 @@ describe('workflow engine with Mongo persistence', () => {
       error: 'That build workspace is already in use by an active run',
     });
     expect(await methods.listWorkflows(userId)).toHaveLength(2);
+
+    // Model a stale preflight read: only the database index sees the winner.
+    await mongoose.model('WorkflowRun').createIndexes();
+    const racingHandlers = createWorkflowHandlers({
+      methods: { ...methods, hasActiveWorkflowRunForWorkspace: async () => false },
+      canRunAgent: async () => true,
+      wake,
+    });
+    jest.clearAllMocks();
+    await racingHandlers.startRun(request, response);
+    await racingHandlers.startBuild(launchRequest, launchResponse);
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(launchResponse.status).toHaveBeenCalledWith(409);
+    expect(await methods.listWorkflowRuns(userId)).toHaveLength(1);
+    expect(wake).not.toHaveBeenCalled();
   });
 
   it('retires queued deliveries after durable cancellation and aborts active turns', async () => {

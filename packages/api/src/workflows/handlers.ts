@@ -24,6 +24,11 @@ import {
 import { parseStartBuild, prepareBuildLaunch } from '../autobuild/start';
 import { computeNextRunAt, isValidTimezone } from '../schedules/cadence';
 
+function isWorkspaceConflict(error: unknown): boolean {
+  const duplicate = error as { code?: number; keyPattern?: Record<string, number> } | null;
+  return duplicate?.code === 11000 && duplicate.keyPattern?.['settings.build.workspace'] === 1;
+}
+
 interface WorkflowRecord {
   id: string;
   name: string;
@@ -336,11 +341,11 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
    * on the same binding would verify each other's edits, so the launcher rejects
    * the second before a queued run exists.
    */
-  const workspaceInUse = async (owner: string, workspace: string | undefined): Promise<boolean> => {
+  const workspaceInUse = async (workspace: string | undefined): Promise<boolean> => {
     if (workspace == null) {
       return false;
     }
-    return deps.methods.hasActiveWorkflowRunForWorkspace({ userId: owner, workspace });
+    return deps.methods.hasActiveWorkflowRunForWorkspace({ workspace });
   };
 
   const stopActiveTurns = async (run: {
@@ -433,7 +438,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             return;
           }
         }
-        if (await workspaceInUse(owner, parsed.value.workspace)) {
+        if (await workspaceInUse(parsed.value.workspace)) {
           res
             .status(409)
             .json({ error: 'That build workspace is already in use by an active run' });
@@ -478,6 +483,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           },
         });
       } catch (error) {
+        if (isWorkspaceConflict(error)) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
         logger.error('[workflows] failed to start autonomous build', error);
         unavailable(res);
       }
@@ -711,7 +722,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             return;
           }
         }
-        if (await workspaceInUse(owner, workflow.settings?.build?.workspace)) {
+        if (await workspaceInUse(workflow.settings?.build?.workspace)) {
           res
             .status(409)
             .json({ error: 'That build workspace is already in use by an active run' });
@@ -735,6 +746,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         deps.wake();
         res.status(202).json({ run: toRunView(run) });
       } catch (error) {
+        if (isWorkspaceConflict(error)) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
         logger.error('[workflows] failed to start run', error);
         unavailable(res);
       }

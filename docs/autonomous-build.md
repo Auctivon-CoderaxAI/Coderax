@@ -149,6 +149,20 @@ deployment build root; a second active run bound to the same workspace is reject
 builds cannot edit and verify one checkout. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
 
+Before enabling the unique workspace index on an existing deployment, pause new build launches
+and check for conflicting reservations in MongoDB:
+
+```javascript
+db.workflowruns.aggregate([
+  { $match: { 'settings.build.workspace': { $type: 'string' }, status: { $in: ['queued', 'running', 'paused', 'waiting_approval'] } } },
+  { $group: { _id: '$settings.build.workspace', count: { $sum: 1 } } },
+  { $match: { count: { $gt: 1 } } },
+]);
+```
+
+Let conflicting runs finish and confirm the query returns no rows. Confirm the unique partial
+index on `settings.build.workspace` has built successfully before resuming launches.
+
 ## Settlement verification
 
 `compileBuildPlan()` records the evidence contract on the run itself as `settings.build`: the mode,

@@ -1,5 +1,6 @@
 import { Schema } from 'mongoose';
 import {
+  isTerminalWorkflowRunStatus,
   WORKFLOW_BUILD_BASE_REF_MAX_LENGTH,
   WORKFLOW_BUILD_GATES,
   WORKFLOW_BUILD_MODES,
@@ -244,8 +245,19 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
 
 workflowRunSchema.index({ user: 1, createdAt: -1 });
 workflowRunSchema.index({ workflowId: 1, createdAt: -1 });
-/** The build launcher's exclusive checkout check across all of a user's runs. */
-workflowRunSchema.index({ user: 1, 'settings.build.workspace': 1, status: 1 });
+/** A deployment checkout can only be reserved by one nonterminal run, across owners. */
+workflowRunSchema.index(
+  { 'settings.build.workspace': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'settings.build.workspace': { $type: 'string' },
+      status: {
+        $in: WORKFLOW_RUN_STATUSES.filter((status) => !isTerminalWorkflowRunStatus(status)),
+      },
+    },
+  },
+);
 /** The runner's claim query: active runs whose lease has lapsed. */
 workflowRunSchema.index({ status: 1, leaseUntil: 1 });
 /** One automatic occurrence can only ever create one run, across replicas. */
