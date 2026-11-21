@@ -68,6 +68,19 @@ Run `npm run static-checks -- --against origin/dev` to reproduce the PR's static
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
 
+Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
+pull request:
+
+    npm run verify -- --against origin/main \
+      --test "cd packages/api && npx jest src/engines/workChat.spec.ts --ci" \
+      --manual "Sent one Work message; the stream rendered and the transcript survived reload."
+
+It runs the `--full` static-check tier against the merge base, then each `--test` command, and
+prints a Markdown block naming the commit, the base, every gate's result and the observation.
+Paste that block into the pull request's Testing section: it is what a reviewer has instead of a CI
+run. At least one `--test` or `--manual` is required, and a dirty working tree is called out in the
+artifact because the commit then does not identify what ran.
+
 ## Module boundaries and configuration
 
 All new backend behavior belongs in TypeScript under `packages/api`; database-specific shared logic

@@ -135,6 +135,7 @@ Examples:
 - `npm run test:client`
 - `npm run test:api`
 - Added tests in `foo.spec.ts`
+- The block printed by `npm run verify -- --against origin/main --test "<focused test>" --manual "<what you observed>"`. Hosted CI is billing-blocked on this repository, so paste it verbatim; it is the evidence a reviewer has.
 
 Write "Not applicable" when appropriate.
 -->
