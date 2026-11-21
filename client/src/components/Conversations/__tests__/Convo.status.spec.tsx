@@ -1,7 +1,10 @@
+import { createStore, Provider } from 'jotai';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import type { ConversationMode } from '~/components/Chat/mode';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
+import { getConversationModesAtom } from '~/components/Chat/mode';
 
 let mockIsUnseen = false;
 
@@ -76,18 +79,29 @@ const conversation = {
   title: 'Tool Approval UI',
 } as TConversation;
 
-const renderRow = (props: { isGenerating?: boolean; convo?: TConversation } = {}) =>
-  render(
-    <DndProvider backend={HTML5Backend}>
-      <Conversation
-        conversation={props.convo ?? conversation}
-        retainView={jest.fn()}
-        toggleNav={jest.fn()}
-        isGenerating={props.isGenerating}
-        showProjectBadge
-      />
-    </DndProvider>,
+/** Every render gets its own store with the shared modes atom seeded, so a mode
+ *  saved by one test's localStorage write cannot leak into the next one. */
+const renderRow = (
+  props: { isGenerating?: boolean; convo?: TConversation } = {},
+  modes: Record<string, ConversationMode> = {},
+) => {
+  const store = createStore();
+  store.set(getConversationModesAtom('user-1'), modes);
+
+  return render(
+    <Provider store={store}>
+      <DndProvider backend={HTML5Backend}>
+        <Conversation
+          conversation={props.convo ?? conversation}
+          retainView={jest.fn()}
+          toggleNav={jest.fn()}
+          isGenerating={props.isGenerating}
+          showProjectBadge
+        />
+      </DndProvider>
+    </Provider>,
   );
+};
 
 const rowButton = () => screen.getByRole('button', { name: /^com_ui_conversation_label/ });
 const unreadDot = (container: HTMLElement) =>
@@ -161,6 +175,13 @@ describe('Conversation row status', () => {
 
     expect(screen.getByTestId('convo-project-badge')).toHaveAttribute('title', 'com_ui_in_project');
     expect(rowButton()).toHaveAccessibleDescription('com_ui_in_project');
+  });
+
+  it('badges a chat the user switched to Work', () => {
+    renderRow({}, { 'convo-1': 'work' });
+
+    expect(screen.getByTestId('convo-mode-badge')).toHaveAttribute('title', 'com_ui_work');
+    expect(rowButton()).toHaveAccessibleDescription('com_ui_work');
   });
 
   it('leaves a chat with no saved mode unbadged', () => {
