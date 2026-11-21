@@ -1,8 +1,8 @@
-import type { ConversationMode } from './mode';
+import type { StoredConversationMode } from './mode';
 import { useConversationMode } from './mode';
 
 type ConversationModeNavProps = {
-  active?: ConversationMode;
+  active?: StoredConversationMode;
   labels: {
     ariaLabel: string;
     chat: string;
@@ -33,9 +33,9 @@ export default function ConversationModeNav({ active, labels }: ConversationMode
       </button>
       <button
         type="button"
-        onClick={() => setMode('work')}
-        aria-pressed={selected === 'work'}
-        className={selected === 'work' ? selectedClassName : idleClassName}
+        onClick={() => setMode('code')}
+        aria-pressed={selected === 'code' || selected === 'work'}
+        className={selected === 'code' || selected === 'work' ? selectedClassName : idleClassName}
       >
         {labels.work}
       </button>

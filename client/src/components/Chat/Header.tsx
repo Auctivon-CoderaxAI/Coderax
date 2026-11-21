@@ -8,6 +8,7 @@ import {
   Permissions,
   isForcedTemporaryRetention,
 } from 'coderax-data-provider';
+import type { StoredConversationMode } from './mode';
 import { modeHeaderClass, modeHeaderEndClass, modeHeaderStartClass } from './layout';
 import { TemporaryChat, TemporaryChatIndicator } from './TemporaryChat';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
@@ -35,7 +36,7 @@ function Header({
   parentConversationId?: string;
   readOnly?: boolean;
   /** Work conversations render through this view too; the switch names the mode in use. */
-  mode?: 'chat' | 'work';
+  mode?: StoredConversationMode;
 }) {
   const localize = useLocalize();
   const { data: startupConfig } = useGetStartupConfig();
