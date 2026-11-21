@@ -12,7 +12,7 @@
  *   1. TypeScript for workspaces affected by committed and working-tree changes
  *   2. The Work Jest suites, after building data-provider
  *   3. `npm run build:api`
- *   4. The full static-check tier, with the TypeScript check left to step 1
+ *   4. The full static-check tier for the same scope, with TypeScript left to step 1
  *
  * It then runs any additional focused test command, and prints a Markdown block
  * naming the commit, the base, the working-tree state and every gate's result.
@@ -47,7 +47,7 @@ Runs the four gates a merge has to show, in order:
   1. TypeScript for workspaces affected by committed and working-tree changes
   2. Work Jest (packages/api/src/engines/workChat*), after building data-provider
   3. API build (npm run build:api)
-  4. Static checks (--full, with the TypeScript check left to step 1)
+  4. Static checks (--full, same scope as step 1, excluding TypeScript)
 
 then each --test command, and prints the acceptance artifact for the pull request.
 
@@ -253,13 +253,11 @@ const gates = [];
 const summaries = { typecheck: [], workTests: [], static: [] };
 
 if (!options.skipStatic) {
+  const staticTarget = [STATIC_CHECKS, '--against', mergeBase, '--include-worktree'];
   // The static runner owns the workspace typecheck. Run that check alone first
   // and leave it out of the full pass below, so no project is compiled twice.
   const typecheck = await runGate('typecheck', process.execPath, [
-    STATIC_CHECKS,
-    '--against',
-    mergeBase,
-    '--include-worktree',
+    ...staticTarget,
     '--only',
     'typecheck',
   ]);
@@ -287,16 +285,14 @@ if (!options.skipStatic) {
   gates.push({ name: 'API build (`npm run build:api`)', ok: build.ok, seconds: build.seconds });
 
   const staticResult = await runGate('static checks', process.execPath, [
-    STATIC_CHECKS,
-    '--against',
-    mergeBase,
+    ...staticTarget,
     '--full',
     '--skip',
     'typecheck',
   ]);
   summaries.static = summarizeStaticChecks(staticResult.output);
   gates.push({
-    name: `Static checks (\`--full\`, against \`${mergeBase.slice(0, 12)}\`, excluding typecheck)`,
+    name: `Static checks (\`--full\`, against \`${mergeBase.slice(0, 12)}\` plus local changes, excluding typecheck)`,
     ok: staticResult.ok,
     seconds: staticResult.seconds,
   });

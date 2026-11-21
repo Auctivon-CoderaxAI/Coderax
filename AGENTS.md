@@ -75,8 +75,8 @@ pull request. One command runs the four gates a merge has to show, in order:
    or non-ignored untracked files.
 2. The Work Jest suites (`packages/api/src/engines/workChat*`), after building data-provider.
 3. `npm run build:api`.
-4. The `--full` static-check tier, with the TypeScript check left to step 1 so no project is
-   compiled twice.
+4. The `--full` static-check tier for the same committed and local paths, with the TypeScript check
+   left to step 1 so no project is compiled twice.
 
 Then any additional focused test command and the manual observation:
 
