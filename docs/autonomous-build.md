@@ -167,6 +167,48 @@ The workspace root, the commands and the executable allowlist come from
 cannot choose where settlement runs or which executable it invokes. Without that configuration the
 port is not wired, so every build run fails closed instead of completing unverified.
 
+```yaml
+# coderax.yaml
+workflows:
+  # The runner fields are required whenever this block is present. The values
+  # below reproduce the built-in defaults; raising leaseMs only widens the
+  # claim, settlement renews it on a heartbeat either way.
+  concurrency: 4
+  leaseMs: 30000
+  tickMs: 1000
+  retryBaseMs: 2000
+  retryCapMs: 60000
+  stepTimeoutMs: 1800000
+  scheduleConcurrency: 5
+  buildVerification:
+    # Absolute path to the checkout the commands run in. Required.
+    workspaceRoot: /srv/coderax/workspaces/build
+    commands:
+      - gate: tests
+        command: npm
+        args: [test, --, --ci]
+        timeoutMs: 900000
+        label: Focused tests
+      - gate: build
+        command: npm
+        args: [run, build]
+      - gate: security
+        command: npm
+        args: [audit, --audit-level=high]
+    # Replaces the built-in executable allowlist when set.
+    allowedCommands: [npm, npx, node]
+    # Defaults to true: delivery then needs an open pull request URL in the
+    # reviewer's retained output. Set false to accept a build without one.
+    requirePullRequest: true
+    # Applies to a command that omits its own timeoutMs.
+    defaultTimeoutMs: 600000
+```
+
+`gate` is one of `tests`, `build` or `security`; `review` is never a command, it comes from the
+reviewer step named at compile time. Every executable must be a bare name on the allowlist (a path
+is rejected), `cwd` is resolved inside `workspaceRoot` with symlinks followed, and nothing is
+spawned through a shell, so the block cannot widen its own authority.
+
 ## Not implemented in this change
 
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
