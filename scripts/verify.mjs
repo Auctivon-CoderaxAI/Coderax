@@ -221,11 +221,15 @@ function markdownCode(text) {
 function tableCommand(command) {
   if (!command.includes('\\|')) return markdownCode(command).replaceAll('|', '\\|');
   // A backslash before a pipe can cancel the table escape. Encode those cells as HTML.
-  const escaped = Array.from(
-    command.replace(/\r\n?|\n/g, ' '),
-    (char) => `&#${char.codePointAt(0)};`,
-  ).join('');
+  const escaped = Array.from(command, (char) => `&#${char.codePointAt(0)};`).join('');
   return `<code>${escaped}</code>`;
+}
+
+function fencedCommand(command) {
+  let width = 3;
+  for (const tildes of command.matchAll(/~+/g)) width = Math.max(width, tildes[0].length + 1);
+  const fence = '~'.repeat(width);
+  return `${fence}sh\n${command}\n${fence}`;
 }
 
 function formatSeconds(seconds) {
@@ -298,10 +302,20 @@ if (!options.skipStatic) {
 }
 
 const extraGates = [];
-for (const command of options.tests) {
-  const result = await runGate(`focused test: ${command}`, command, [], { shell: true });
-  const gate = { name: tableCommand(command), ok: result.ok, seconds: result.seconds };
-  extraGates.push(gate);
+for (const [index, command] of options.tests.entries()) {
+  const multiline = /[\r\n]/.test(command);
+  const label = `Focused test ${index + 1}`;
+  const name = multiline ? label : tableCommand(command);
+  const result = await runGate(multiline ? label : `focused test: ${command}`, command, [], {
+    shell: true,
+  });
+  const gate = { name, ok: result.ok, seconds: result.seconds };
+  const outcome = gate.ok ? 'PASS' : 'FAIL';
+  extraGates.push(
+    multiline
+      ? [`- ${outcome} ${label} — ${formatSeconds(gate.seconds)}`, '', fencedCommand(command), '']
+      : [`- ${outcome} ${markdownCode(command)} — ${formatSeconds(gate.seconds)}`],
+  );
   gates.push(gate);
 }
 
@@ -355,12 +369,7 @@ const artifact = [
       : ['- no checks ran']),
   '',
   'Additional focused tests:',
-  ...(options.tests.length === 0
-    ? ['- none supplied']
-    : options.tests.map((command, index) => {
-        const gate = extraGates[index];
-        return `- ${gate.ok ? 'PASS' : 'FAIL'} ${markdownCode(command)} — ${formatSeconds(gate.seconds)}`;
-      })),
+  ...(extraGates.length === 0 ? ['- none supplied'] : extraGates.flat()),
   '',
   'Manual observation:',
   ...(options.manual.length === 0
