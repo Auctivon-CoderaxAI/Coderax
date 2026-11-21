@@ -94,15 +94,20 @@ async function authenticate(config: FullConfig, user: User) {
     }
     console.log('🤖: ✔️  user successfully registered');
 
-    await page.goto(loginURL, { timeout });
-    await login(page, user);
-    await page.waitForURL(conversationURL, { timeout });
+    // Registration already signs the user in. Exercise password login without
+    // that session, which would redirect away from the form on a fresh load.
+    await page.context().close();
+    const loginPage = await browser.newPage();
+    await loginPage.context().addInitScript(() => {
+      localStorage.setItem('navVisible', 'true');
+    });
+    await loginPage.goto(loginURL, { timeout });
+    await login(loginPage, user);
+    await loginPage.waitForURL(conversationURL, { timeout });
     console.log('🤖: ✔️  user successfully authenticated');
 
-    await page.context().storageState({ path: storageState });
+    await loginPage.context().storageState({ path: storageState });
     console.log('🤖: ✔️  authentication state successfully saved in', storageState);
-    // await browser.close();
-    // console.log('🤖: global setup has been finished');
   } finally {
     await browser.close();
     console.log('🤖: global setup has been finished');

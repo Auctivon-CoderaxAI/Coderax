@@ -78,7 +78,14 @@ export function readProcessStat(pid) {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    return fields[19] ? { start: fields[19], state: fields[0] } : null;
+    return fields[19]
+      ? {
+          start: fields[19],
+          state: fields[0],
+          group: Number(fields[2]),
+          session: Number(fields[3]),
+        }
+      : null;
   } catch {
     return null;
   }
@@ -93,14 +100,6 @@ export function pidStartTime(pid) {
 export function signal(pid, name) {
   try {
     process.kill(-pid, name);
-    return true;
-  } catch (error) {
-    if (error.code !== 'ESRCH') {
-      return false;
-    }
-  }
-  try {
-    process.kill(pid, name);
     return true;
   } catch {
     return false;

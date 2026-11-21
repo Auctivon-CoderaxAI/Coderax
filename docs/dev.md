@@ -121,13 +121,14 @@ exit. Records from older versions without a boot ID cannot be verified; stop
 any still running services from those versions before starting the updated
 supervisor. An untracked listener is never stopped by the supervisor.
 
-Changes to listener addresses, ports, the client proxy or guest access,
+Changes to listener addresses, ports, the API’s MongoDB endpoint, the client proxy or guest access,
 registration and email login settings cause the affected service to restart on
 `dev:up`. Use a full `dev:down` and `dev:up` for other environment changes.
 
-Only one `dev:up` or `dev:down` can run at a time. If a command was killed and
-left `.dev/lifecycle.lock` behind, remove that empty directory only after
-confirming neither command is running.
+Only one `dev:up` or `dev:down` can run at a time. SIGINT and SIGTERM release
+the lock; any remaining services keep their records for `dev:down`. If a command
+was killed without a chance to clean up and left `.dev/lifecycle.lock` behind,
+remove that empty directory only after confirming neither command is running.
 
 ## Probe layers
 

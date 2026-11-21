@@ -41,8 +41,15 @@ export function assertMongoEndpoint(env) {
   }
 }
 
+function probeHost(host) {
+  if (host === '0.0.0.0') {
+    return LOOPBACK;
+  }
+  return host === '::' ? '::1' : host;
+}
+
 function httpOrigin(host, port) {
-  const address = host === '0.0.0.0' ? LOOPBACK : host === '::' ? '::1' : host;
+  const address = probeHost(host);
   return `http://${isIP(address) === 6 ? `[${address}]` : address}:${port}`;
 }
 
@@ -54,6 +61,7 @@ export function createServices(env) {
      every interface would publish that API to the network. */
   const viteHost = env.DEV_VITE_HOST || LOOPBACK;
   const apiHost = env.DEV_API_HOST || LOOPBACK;
+  const modelHost = env.DEV_MODEL_HOST || LOOPBACK;
   const clientOrigin = httpOrigin(viteHost, port.vite);
   const apiOrigin = httpOrigin(apiHost, port.api);
 
@@ -61,6 +69,7 @@ export function createServices(env) {
     {
       name: 'mongo',
       port: port.mongo,
+      probeHost: LOOPBACK,
       timeoutMs: 300_000,
       command: process.execPath,
       args: [path.join('scripts', 'dev', 'mongo.mjs')],
@@ -72,17 +81,24 @@ export function createServices(env) {
     {
       name: 'model',
       port: port.model,
+      probeHost: probeHost(modelHost),
       timeoutMs: 180_000,
       command: 'bash',
       args: [path.join('scripts', 'dev', 'model.sh')],
       cwd: ROOT,
-      env: { ...env, DEV_MODEL_PORT: String(port.model), DEV_MODEL_ID: modelId },
-      detail: `llama-server ${modelId} on ${LOOPBACK}:${port.model}`,
-      ready: () => httpOk(`http://${LOOPBACK}:${port.model}/health`),
+      env: {
+        ...env,
+        DEV_MODEL_HOST: modelHost,
+        DEV_MODEL_PORT: String(port.model),
+        DEV_MODEL_ID: modelId,
+      },
+      detail: `llama-server ${modelId} on ${httpOrigin(modelHost, port.model)}`,
+      ready: () => httpOk(`${httpOrigin(modelHost, port.model)}/health`),
     },
     {
       name: 'api',
       port: port.api,
+      probeHost: probeHost(apiHost),
       timeoutMs: 180_000,
       command: process.execPath,
       args: [path.join('api', 'server', 'index.js')],
@@ -102,6 +118,7 @@ export function createServices(env) {
     {
       name: 'vite',
       port: port.vite,
+      probeHost: probeHost(viteHost),
       timeoutMs: 180_000,
       command: npmCommand(),
       args: preview

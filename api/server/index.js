@@ -295,13 +295,13 @@ const startServer = async () => {
   /* `SERVE_CLIENT=false` runs the API without a built client. A dev frontend (Vite)
    * serves the shell and proxies /api here, so the API must not need a placeholder
    * client/dist/index.html to boot. */
-  const serveClientShell = process.env.SERVE_CLIENT !== 'false';
+  const clientShellEnabled = process.env.SERVE_CLIENT !== 'false';
   const indexPath = path.join(appConfig.paths.dist, 'index.html');
-  const clientShellAvailable =
-    serveClientShell && (!process.env.VERCEL || fs.existsSync(indexPath));
-  let indexHTML = clientShellAvailable ? fs.readFileSync(indexPath, 'utf8') : '';
+  const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);
+  const serveClientShell = clientShellEnabled && clientShellAvailable;
+  let indexHTML = serveClientShell ? fs.readFileSync(indexPath, 'utf8') : '';
 
-  if (!serveClientShell) {
+  if (!clientShellEnabled) {
     logger.info('SERVE_CLIENT=false: serving API routes only; non-API requests return 404.');
   } else if (!clientShellAvailable) {
     logger.warn(
@@ -311,7 +311,7 @@ const startServer = async () => {
 
   // In order to provide support to serving the application in a sub-directory
   // We need to update the base href if the DOMAIN_CLIENT is specified and not the root path
-  if (clientShellAvailable && process.env.DOMAIN_CLIENT) {
+  if (serveClientShell && process.env.DOMAIN_CLIENT) {
     const clientUrl = new URL(process.env.DOMAIN_CLIENT);
     const baseHref = clientUrl.pathname.endsWith('/')
       ? clientUrl.pathname
@@ -335,7 +335,7 @@ const startServer = async () => {
   const shellCache = shellCacheHeaders(cspPolicy != null);
 
   const sendIndexHtml = (req, res) => {
-    if (!clientShellAvailable) {
+    if (!serveClientShell) {
       return res.status(404).end();
     }
     res.set(shellCache);
@@ -399,7 +399,7 @@ const startServer = async () => {
   }
 
   app.get('/index.html', sendIndexHtml);
-  if (clientShellAvailable) {
+  if (serveClientShell) {
     app.use(staticCache(appConfig.paths.dist));
     app.use(staticCache(appConfig.paths.fonts));
     app.use(staticCache(appConfig.paths.assets));

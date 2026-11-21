@@ -221,13 +221,19 @@ const currentBoot = pidStartTime(process.pid) ? bootId() : null;
 
 // Record only listener and access settings, never credentials or the full environment.
 function accessSettings(service) {
-  let keys = [];
+  const settings = (keys) => keys.map((key) => service.env[key] ?? null);
   if (service.name === 'api') {
-    keys = ['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN'];
-  } else if (service.name === 'vite') {
-    keys = ['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS'];
+    const { hostname, port } = new URL(service.env.MONGO_URI);
+    return JSON.stringify([
+      ...settings(['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN']),
+      hostname,
+      port || '27017',
+    ]);
   }
-  return JSON.stringify(keys.map((key) => service.env[key] ?? null));
+  if (service.name === 'vite') {
+    return JSON.stringify(settings(['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS']));
+  }
+  return JSON.stringify(service.name === 'model' ? settings(['DEV_MODEL_HOST']) : []);
 }
 
 function recordFor(service, pid) {
@@ -237,6 +243,7 @@ function recordFor(service, pid) {
     pidStart: currentBoot ? pidStartTime(pid) : null,
     bootId: currentBoot,
     port: service.port,
+    probeHost: service.probeHost,
     command: commandLine(service),
     accessSettings: accessSettings(service),
     cwd: service.cwd,
@@ -296,18 +303,11 @@ async function startService(service) {
       return false;
     }
   }
-  if (record) {
-    if (isAlive(record.pid) && !isStaleRecord(record)) {
-      throw new ServiceError(
-        service,
-        `${service.name}: pid ${record.pid} could not be verified; stop it manually before restarting`,
-      );
-    }
-    console.log(`▸ ${service.name}: clearing stale PID record for ${record.pid}`);
-    clearRecord(service.name);
+  if (readRecord(service.name) && !(await stopService(service))) {
+    throw new ServiceError(service, `could not clear the previous ${service.name} service`);
   }
 
-  if (await tcpOpen(service.port)) {
+  if (await tcpOpen(service.port, service.probeHost)) {
     const holder = listenerPid(service.port);
     throw new ServiceError(
       service,
@@ -376,46 +376,54 @@ async function startService(service) {
   return true;
 }
 
+// A detached child is a session and group leader. Once it exits, an owned
+// listener in that same session can still establish ownership of the group.
+function ownsListeningGroup(record) {
+  if (!currentBoot || record.bootId !== currentBoot || !record.pidStart) {
+    return false;
+  }
+  const leader = readProcessStat(record.pid);
+  if (leader && leader.start !== record.pidStart) {
+    return false;
+  }
+  const listener = readProcessStat(listenerPid(record.port));
+  return (
+    listener?.group === record.pid &&
+    listener.session === record.pid &&
+    listener.state !== 'Z' &&
+    Number(listener.start) >= Number(record.pidStart)
+  );
+}
+
 async function stopService(service) {
   const record = readRecord(service.name);
   if (!record) {
     console.log(`• ${service.name}: no PID recorded`);
     return true;
   }
-  if (!isAlive(record.pid)) {
-    clearRecord(service.name);
-    console.log(`• ${service.name}: stale pid ${record.pid} (not running)`);
-    return true;
-  }
-  if (!ownsPid(record)) {
-    if (isStaleRecord(record)) {
-      clearRecord(service.name);
-      console.log(`• ${service.name}: stale pid ${record.pid} (identity changed)`);
-      return true;
+  const stopped = async () =>
+    (!isAlive(record.pid) || isStaleRecord(record)) &&
+    !(await tcpOpen(record.port, record.probeHost));
+  if (ownsPid(record) || ownsListeningGroup(record)) {
+    process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
+    signal(record.pid, 'SIGTERM');
+    if (!(await waitFor(stopped, { timeoutMs: 10_000 }))) {
+      if (ownsPid(record) || ownsListeningGroup(record)) {
+        process.stdout.write('SIGKILL ');
+        signal(record.pid, 'SIGKILL');
+      }
+      await waitFor(stopped, { timeoutMs: 5000 });
     }
-    console.error(`! ${service.name}: pid ${record.pid} could not be verified; stop it manually`);
-    return false;
   }
-  process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
-  signal(record.pid, 'SIGTERM');
-  const exited = async () => {
-    const stat = readProcessStat(record.pid);
-    return stat ? stat.start !== record.pidStart || stat.state === 'Z' : !isAlive(record.pid);
-  };
-  let stopped = await waitFor(exited, { timeoutMs: 10_000 });
-  if (!stopped && ownsPid(record)) {
-    process.stdout.write('SIGKILL ');
-    signal(record.pid, 'SIGKILL');
-    stopped = await waitFor(exited, { timeoutMs: 3000 });
-  }
-  if (!stopped) {
-    console.log('could not confirm exit; keeping the PID record');
+  if (!(await stopped())) {
+    console.error(
+      `! ${service.name}: could not confirm shutdown on port ${record.port}; keeping PID record ${record.pid}`,
+    );
     return false;
   }
   clearRecord(service.name);
-  const portClosed = await waitFor(async () => !(await tcpOpen(record.port)), { timeoutMs: 5000 });
-  console.log(portClosed ? 'stopped' : `stopped, but port ${record.port} is still in use`);
-  return portClosed;
+  console.log(`• ${service.name}: stopped`);
+  return true;
 }
 
 async function status(services, env) {
@@ -427,7 +435,10 @@ async function status(services, env) {
     const ready = await service.ready().catch(() => false);
     const holder = !alive && !ready ? listenerPid(service.port) : null;
     let state = 'stopped';
-    if (ready) {
+    if (record && !alive && (await tcpOpen(record.port, record.probeHost))) {
+      state = 'shutdown unconfirmed';
+      allReady = false;
+    } else if (ready) {
       state = alive ? 'ready' : 'untracked';
     } else if (alive) {
       state = 'starting';
@@ -554,10 +565,22 @@ async function withLifecycleLock(run) {
       'dev:up or dev:down already holds .dev/lifecycle.lock. Remove it only if neither command is running.',
     );
   }
+  const release = () => rmdirSync(lock);
+  const interrupt = (code) => {
+    // Detached services remain recorded for a later dev:down.
+    release();
+    process.exit(code);
+  };
+  const onInterrupt = () => interrupt(130);
+  const onTerminate = () => interrupt(143);
+  process.once('SIGINT', onInterrupt);
+  process.once('SIGTERM', onTerminate);
   try {
     await run();
   } finally {
-    rmdirSync(lock);
+    process.removeListener('SIGINT', onInterrupt);
+    process.removeListener('SIGTERM', onTerminate);
+    release();
   }
 }
 
