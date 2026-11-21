@@ -581,10 +581,15 @@ describe('createEngineWorkChatHandler', () => {
     const { store } = fakeStore();
     const handle = fakeHandle([]);
     let resolveStart: ((result: StartResult) => void) | undefined;
+    let signalStart: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      signalStart = resolve;
+    });
     const start = jest.fn(
       () =>
         new Promise<StartResult>((resolve) => {
           resolveStart = resolve;
+          signalStart?.();
         }),
     );
     const runner: EngineWorkChatRunner = {
@@ -603,9 +608,7 @@ describe('createEngineWorkChatHandler', () => {
       jest.fn(),
     );
 
-    while (!resolveStart) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await started;
     response.listeners.close?.forEach((listener) => listener());
     resolveStart!({ ok: true, value: handle });
     await pending;
