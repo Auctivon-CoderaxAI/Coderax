@@ -147,11 +147,70 @@ the request, compiles a deterministic plan, authorizes every bound agent, then c
 ordinary durable workflow. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
 
+## Settlement verification
+
+`compileBuildPlan()` records the evidence contract on the run itself as `settings.build`: the mode,
+the plan's required gates, the deadline, the reviewer step id and the pull-request rule. When every
+step has settled, the workflow engine calls its `verifyRun` port before it may set `completed`.
+
+- `verifyBuildRun(input, config)` runs the deployment's commands through `runBuildVerification`,
+  adds the reviewer step's retained output as the `review` gate, reads the pull-request URL from the
+  reviewer's retained result, and judges the whole run with `summarizeBuild`.
+- Only a `verified` verdict permits `completed`. A missing verifier, a thrown error, or any other
+  verdict fails the run with a safe, fixed message.
+- The verdict is retained on the run as `verification` — status, outcome, gates, blockers, pull
+  request URL and summary — and is returned in `WorkflowRunView`, so an operator sees why a build
+  did not complete.
+
+The workspace root, the commands and the executable allowlist come from
+`config.workflows.buildVerification` in `coderax.yaml`, never from the build request body: a plan
+cannot choose where settlement runs or which executable it invokes. Without that configuration the
+port is not wired, so every build run fails closed instead of completing unverified.
+
+```yaml
+# coderax.yaml
+workflows:
+  # The runner fields are required whenever this block is present. The values
+  # below reproduce the built-in defaults; raising leaseMs only widens the
+  # claim, settlement renews it on a heartbeat either way.
+  concurrency: 4
+  leaseMs: 30000
+  tickMs: 1000
+  retryBaseMs: 2000
+  retryCapMs: 60000
+  stepTimeoutMs: 1800000
+  scheduleConcurrency: 5
+  buildVerification:
+    # Absolute path to the checkout the commands run in. Required.
+    workspaceRoot: /srv/coderax/workspaces/build
+    commands:
+      - gate: tests
+        command: npm
+        args: [test, --, --ci]
+        timeoutMs: 900000
+        label: Focused tests
+      - gate: build
+        command: npm
+        args: [run, build]
+      - gate: security
+        command: npm
+        args: [audit, --audit-level=high]
+    # Replaces the built-in executable allowlist when set.
+    allowedCommands: [npm, npx, node]
+    # Defaults to true: delivery then needs an open pull request URL in the
+    # reviewer's retained output. Set false to accept a build without one.
+    requirePullRequest: true
+    # Applies to a command that omits its own timeoutMs.
+    defaultTimeoutMs: 600000
+```
+
+`gate` is one of `tests`, `build` or `security`; `review` is never a command, it comes from the
+reviewer step named at compile time. Every executable must be a bare name on the allowlist (a path
+is rejected), `cwd` is resolved inside `workspaceRoot` with symlinks followed, and nothing is
+spawned through a shell, so the block cannot widen its own authority.
+
 ## Not implemented in this change
 
-- **Automatic verification invocation is not wired into the workflow runner.** Agents can run tests
-  in their turns, but a completed run does not itself call `runBuildVerification`; a caller must
-  invoke the runner with the commands and attach its evidence to the run.
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
   local completion, but no server-side free-model provider is configured yet.
 - **No agent auto-provisioning.** Specialist roles bind to saved agents supplied by the caller.
@@ -160,6 +219,5 @@ selects the created workflow so the existing run panel and stream monitor it.
 - **No deployment execution.** `allowDeploy` is false in every policy and only owner-authorized,
   verified deployments belong to a separate workflow.
 
-A build is not "autonomous end to end" until the workflow runner invokes the execution verifier
-automatically and a real provider-backed benchmark exists. Until then, report this layer as the
-contract, planner, execution verifier and scheduler foundation it is.
+A build is not "autonomous end to end" until a real provider-backed benchmark exists. Until then,
+report this layer as the contract, planner, settlement verifier and scheduler foundation it is.

@@ -31,6 +31,7 @@ const mockStartupConfig = {
     openidLoginEnabled: true,
     openidLabel: 'Test OpenID',
     openidImageUrl: 'http://test-server.com',
+    openidAutoRedirect: false,
     samlLoginEnabled: true,
     samlLabel: 'Test SAML',
     samlImageUrl: 'http://test-server.com',
@@ -72,6 +73,7 @@ const setup = ({
     isError: false,
     data: {},
   },
+  manual = false,
 } = {}) => {
   const mockUseLoginUser = jest
     .spyOn(authMutations, 'useLoginUserMutation')
@@ -105,7 +107,7 @@ const setup = ({
       header={'Welcome back'}
       pathname="login"
     >
-      <Login />
+      <Login manual={manual} />
     </AuthLayout>,
   );
   return {
@@ -159,6 +161,21 @@ test('renders login form', () => {
     'href',
     'mock-server/oauth/saml',
   );
+});
+
+test('manual login keeps the form instead of auto-redirecting to OpenID', () => {
+  const { getByLabelText } = setup({
+    manual: true,
+    useGetStartupConfigReturnValue: {
+      ...mockStartupConfig,
+      data: {
+        ...mockStartupConfig.data,
+        openidAutoRedirect: true,
+      },
+    },
+  });
+
+  expect(getByLabelText(/email/i)).toBeInTheDocument();
 });
 
 test('calls loginUser.mutate on login', async () => {

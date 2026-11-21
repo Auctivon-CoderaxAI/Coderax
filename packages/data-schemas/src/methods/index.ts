@@ -648,4 +648,3 @@ export type {
 };
 
 export { recordAgentEventActorReceiptMetric, setAgentEventActorReceiptMetricObserver };
-export * from './swarmLease';

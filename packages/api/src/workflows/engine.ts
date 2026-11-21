@@ -7,6 +7,8 @@ import {
   WORKFLOW_STEP_TIMEOUT_MS_DEFAULT,
 } from 'coderax-data-provider';
 import type {
+  WorkflowBuildSettings,
+  WorkflowRunVerification,
   WorkflowStepCondition,
   WorkflowStepConditionStatus,
   WorkflowStepJoin,
@@ -34,6 +36,8 @@ const MAX_ERROR_LENGTH = 2_048;
 
 const STEP_ERROR = 'The agent turn did not complete. Open the conversation for details.';
 const ENQUEUE_ERROR = 'The step could not be started. It will be retried.';
+const BUILD_UNVERIFIED_ERROR =
+  'The build did not produce the evidence required to complete. See the run verification report.';
 
 function positiveInteger(value: number | undefined, fallback: number, name: string): number {
   const resolved = value ?? fallback;
@@ -814,6 +818,89 @@ export function createWorkflowEngine(
       return saveRun();
     }
 
+    /**
+     * Asks the host for the run's build evidence. An unwired verifier, a throw,
+     * or any verdict but `verified` becomes retained failure evidence: a build
+     * run never completes on the strength of its turns alone.
+     *
+     * Verification runs inside the run lease, so the lease is renewed before the
+     * first command and while it runs. A test suite that outlives a 30-second
+     * lease would otherwise be claimed and executed again by another worker, and
+     * this worker's verdict would be fenced out of the write. Losing the lease
+     * aborts the commands and returns without writing anything, so the new owner
+     * is never racing a duplicate run of the same verification.
+     */
+    const verifySettlement = async (
+      build: WorkflowBuildSettings,
+    ): Promise<WorkflowRunVerification | 'lost'> => {
+      const unresolved = (): WorkflowRunVerification => ({
+        status: 'failed',
+        mode: build.mode,
+        outcome: 'complete_unverified',
+        checkedAt: at.toISOString(),
+        summary: BUILD_UNVERIFIED_ERROR,
+        gates: [],
+        blockers: [BUILD_UNVERIFIED_ERROR],
+      });
+      if (deps.verifyRun == null) {
+        logger.error('[workflows] build settlement has no verifier', { runId: run.id });
+        return unresolved();
+      }
+
+      const controller = new AbortController();
+      let lost = false;
+      let renewing = false;
+      const renew = async (): Promise<void> => {
+        if (renewing || lost) {
+          return;
+        }
+        renewing = true;
+        try {
+          const renewedAt = now();
+          const extended = await deps.store.extendLease({
+            runId: run.id,
+            leaseToken,
+            now: renewedAt,
+            leaseUntil: new Date(renewedAt.getTime() + leaseMs),
+          });
+          if (!extended) {
+            lost = true;
+            controller.abort();
+          }
+        } catch (cause) {
+          // Without proof of ownership the commands must stop: continuing could
+          // run them a second time beside the new owner.
+          logger.warn('[workflows] run lease renewal failed', {
+            runId: run.id,
+            error: failureMessage(cause),
+          });
+          lost = true;
+          controller.abort();
+        } finally {
+          renewing = false;
+        }
+      };
+
+      await renew();
+      if (lost) {
+        return 'lost';
+      }
+      const heartbeat = setInterval(() => void renew(), Math.max(250, Math.floor(leaseMs / 3)));
+      heartbeat.unref?.();
+      try {
+        const verdict = await deps.verifyRun({ run, steps, signal: controller.signal });
+        return lost ? 'lost' : verdict;
+      } catch (cause) {
+        logger.error('[workflows] build verification failed', {
+          runId: run.id,
+          error: failureMessage(cause),
+        });
+        return lost ? 'lost' : unresolved();
+      } finally {
+        clearInterval(heartbeat);
+      }
+    };
+
     // 4. Every step settled: a failed step fails the run unless a step guarded
     //    explicitly by that failure completed and handled it.
     const unhandledFailure = steps.some(
@@ -828,13 +915,31 @@ export function createWorkflowEngine(
             ),
         ),
     );
-    status = unhandledFailure ? 'failed' : 'completed';
-    error = unhandledFailure ? (error ?? STEP_ERROR) : null;
-    note(unhandledFailure ? 'run.failed' : 'run.completed');
+    const build = run.settings?.build;
+    let verification: WorkflowRunVerification | undefined;
+    if (!unhandledFailure && build != null) {
+      const outcome = await verifySettlement(build);
+      if (outcome === 'lost') {
+        return 'lost';
+      }
+      verification = outcome;
+    }
+    const unverified = verification != null && verification.status !== 'verified';
+    status = unhandledFailure || unverified ? 'failed' : 'completed';
+    error = unhandledFailure
+      ? (error ?? STEP_ERROR)
+      : unverified
+        ? BUILD_UNVERIFIED_ERROR
+        : null;
+    note(
+      unhandledFailure || unverified ? 'run.failed' : 'run.completed',
+      unverified ? { message: BUILD_UNVERIFIED_ERROR } : {},
+    );
     startedAt = startedAt ?? at;
     const chainPending = status === 'completed' && run.onCompleteWorkflowId != null;
     const saved = await saveRun({
       settledAt: at,
+      ...(verification == null ? {} : { verification }),
       ...(chainPending ? { chainPending: true } : {}),
     });
     if (saved === 'saved') {

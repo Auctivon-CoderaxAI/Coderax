@@ -173,7 +173,7 @@ export function assessRequestComplexity(request: string): ComplexityAssessment {
   };
 }
 
-export interface ModeDecision {
+export interface BuildModeDecision {
   mode: BuildMode;
   requested: BuildMode;
   degraded: boolean;
@@ -189,7 +189,7 @@ export function chooseEffectiveMode(input: {
   requested: BuildMode;
   plan?: BuildPlan | null;
   request?: string;
-}): ModeDecision {
+}): BuildModeDecision {
   const { requested, plan, request } = input;
   if (requested !== 'turbo15') {
     return { mode: requested, requested, degraded: false };

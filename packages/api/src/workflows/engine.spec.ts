@@ -1,6 +1,8 @@
 import { WORKFLOW_HANDOFF_MAX_LENGTH } from 'coderax-data-provider';
 import { getTenantId, SYSTEM_TENANT_ID } from '@coderax/data-schemas';
+import type { WorkflowRunVerification } from 'coderax-data-provider';
 import type {
+  WorkflowEngineDeps,
   WorkflowEngineStore,
   WorkflowGenerationState,
   WorkflowRunPatch,
@@ -60,6 +62,7 @@ function setup(steps: WorkflowStepRecord[], options: { stepTimeoutMs?: number } 
       }
       return true;
     },
+    extendLease: async () => true,
     releaseRun: async () => undefined,
   };
   const engine = createWorkflowEngine(
@@ -295,6 +298,7 @@ function branchSetup(
       }
       return true;
     },
+    extendLease: async () => true,
     releaseRun: async () => undefined,
   };
   const engine = createWorkflowEngine(
@@ -495,6 +499,7 @@ describe('createWorkflowEngine branches', () => {
           return [];
         },
         saveRun: async () => true,
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: async () => 'delivery',
@@ -531,6 +536,7 @@ describe('createWorkflowEngine branches', () => {
       store: {
         claimRuns: async () => [],
         saveRun: async () => true,
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: async () => 'delivery',
@@ -694,6 +700,7 @@ describe('createWorkflowEngine cancellation fencing', () => {
         store: {
           claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
           saveRun: async () => false,
+          extendLease: async () => true,
           releaseRun: async () => undefined,
         },
         enqueueStep: async ({ step: entry }) => {
@@ -723,6 +730,7 @@ describe('createWorkflowEngine cancellation fencing', () => {
           // The intent write succeeds, then cancellation clears the lease.
           return saveCalls === 1;
         },
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: async () => {
@@ -756,6 +764,7 @@ describe('createWorkflowEngine cancellation fencing', () => {
             }
             return true;
           },
+          extendLease: async () => true,
           releaseRun: async () => undefined,
         },
         enqueueStep: async ({ step: entry }) => {
@@ -797,6 +806,7 @@ describe('createWorkflowEngine cancellation fencing', () => {
           }
           return true;
         },
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: async ({ step: entry }) => {
@@ -839,6 +849,7 @@ describe('createWorkflowEngine cancellation fencing', () => {
           }
           return true;
         },
+        extendLease: async () => true,
         releaseRun: async () => undefined,
       },
       enqueueStep: async () => 'unused',
@@ -854,5 +865,144 @@ describe('createWorkflowEngine cancellation fencing', () => {
     await engine.runTick();
     expect(run.chainPending).toBe(false);
     expect(onRunSettled).toHaveBeenCalledTimes(2);
+  });
+
+  describe('build settlement', () => {
+    const buildRun = () => ({
+      ...runWith([step({ status: 'completed', result: 'ran the focused tests' })]),
+      status: 'queued' as const,
+      settings: {
+        build: {
+          mode: 'autonomous' as const,
+          requiredGates: ['tests' as const],
+          requirePullRequest: false,
+        },
+      },
+    });
+
+    const settle = async (
+      options: {
+        verifyRun?: NonNullable<WorkflowEngineDeps['verifyRun']>;
+        extendLease?: () => Promise<boolean>;
+        leaseMs?: number;
+      } = {},
+    ) => {
+      const run = buildRun();
+      const saves: WorkflowRunPatch[] = [];
+      const leaseWindows: Array<{ now: Date; leaseUntil: Date }> = [];
+      const extendLease = jest.fn(async (input: { now: Date; leaseUntil: Date }) => {
+        leaseWindows.push(input);
+        return options.extendLease == null ? true : options.extendLease();
+      });
+      const engine = createWorkflowEngine(
+        {
+          store: {
+            claimRuns: async () => [{ ...run, steps: run.steps.map((entry) => ({ ...entry })) }],
+            saveRun: async ({ patch }) => {
+              saves.push(patch);
+              Object.assign(run, patch);
+              if (patch.steps != null) {
+                run.steps = patch.steps.map((entry) => ({ ...entry }));
+              }
+              return true;
+            },
+            extendLease,
+            releaseRun: async () => undefined,
+          },
+          enqueueStep: async () => 'unused',
+          getGeneration: async () => null,
+          ...(options.verifyRun == null ? {} : { verifyRun: options.verifyRun }),
+          workerId: 'worker-1',
+        },
+        { ...(options.leaseMs == null ? {} : { leaseMs: options.leaseMs }) },
+      );
+      await engine.runTick();
+      return { run, saves, leaseWindows };
+    };
+
+    const verdict = (status: 'verified' | 'failed'): WorkflowRunVerification => ({
+      status,
+      mode: 'autonomous',
+      outcome: status === 'verified' ? 'verified_complete' : 'complete_unverified',
+      checkedAt: '2026-01-01T00:00:00.000Z',
+      summary: status === 'verified' ? 'Verified complete.' : 'Required gate tests did not pass',
+      gates: [],
+      blockers: status === 'verified' ? [] : ['Required gate tests did not pass'],
+    });
+
+    it('fails a build run when settlement has no verifier', async () => {
+      const { run } = await settle();
+
+      expect(run.status).toBe('failed');
+      expect(run.verification?.status).toBe('failed');
+      expect(run.error).toContain('evidence');
+    });
+
+    it('retains a failed verdict and does not complete the run', async () => {
+      const verifyRun = jest.fn(async () => verdict('failed'));
+      const { run } = await settle({ verifyRun });
+
+      expect(verifyRun).toHaveBeenCalledTimes(1);
+      expect(run.status).toBe('failed');
+      expect(run.verification?.blockers).toEqual(['Required gate tests did not pass']);
+    });
+
+    it('completes the run with the verified verdict', async () => {
+      const { run } = await settle({ verifyRun: async () => verdict('verified') });
+
+      expect(run.status).toBe('completed');
+      expect(run.verification?.status).toBe('verified');
+      expect(run.error).toBeNull();
+    });
+
+    it('fails a build run when the verifier throws', async () => {
+      const { run } = await settle({
+        verifyRun: async () => {
+          throw new Error('runner exploded');
+        },
+      });
+
+      expect(run.status).toBe('failed');
+      expect(run.verification?.status).toBe('failed');
+      expect(run.error).not.toContain('runner exploded');
+    });
+
+    it('renews the run lease before verification', async () => {
+      const { run, leaseWindows } = await settle({ verifyRun: async () => verdict('verified') });
+
+      expect(leaseWindows).toHaveLength(1);
+      expect(leaseWindows[0].leaseUntil.getTime()).toBeGreaterThan(leaseWindows[0].now.getTime());
+      expect(run.status).toBe('completed');
+    });
+
+    it('does not verify or write when the lease cannot be renewed', async () => {
+      const verifyRun = jest.fn(async () => verdict('verified'));
+      const { run, saves } = await settle({ verifyRun, extendLease: async () => false });
+
+      expect(verifyRun).not.toHaveBeenCalled();
+      expect(saves).toHaveLength(0);
+      expect(run.status).toBe('queued');
+    });
+
+    it('aborts a running verification when the lease is lost', async () => {
+      let renewals = 0;
+      const signals: AbortSignal[] = [];
+      const { run, saves } = await settle({
+        leaseMs: 60,
+        extendLease: async () => {
+          renewals += 1;
+          return renewals === 1;
+        },
+        verifyRun: async ({ signal }) =>
+          new Promise<WorkflowRunVerification>((resolve) => {
+            signals.push(signal as AbortSignal);
+            signal?.addEventListener('abort', () => resolve(verdict('failed')), { once: true });
+          }),
+      });
+
+      expect(signals[0]?.aborted).toBe(true);
+      expect(saves).toHaveLength(0);
+      expect(run.status).toBe('queued');
+    });
   });
 });
