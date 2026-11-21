@@ -7,10 +7,16 @@
  * commit. Until that is resolved, the evidence a reviewer gets is this script's
  * output, pasted into the pull request.
  *
- * It runs the full static-check tier (ESLint, Prettier, import order, circular
- * dependencies, TypeScript, config tests, i18n, dependency scan) against the
- * merge base, then each focused test command supplied on the command line, and
- * prints a Markdown block naming the commit, the base and every gate's result.
+ * One command runs the four gates a merge has to show against the merge base:
+ *
+ *   1. TypeScript for every workspace the diff affects
+ *   2. The Work Jest suites
+ *   3. `npm run build:api`
+ *   4. The full static-check tier, with the TypeScript check left to step 1
+ *
+ * It then runs any additional focused test command, and prints a Markdown block
+ * naming the commit, the base, the working-tree state and every gate's result.
+ * That block is the pull request's acceptance artifact.
  *
  * Usage:
  *   npm run verify -- --against origin/main \
@@ -37,11 +43,19 @@ const argv = process.argv.slice(2);
 
 const USAGE = `Usage: npm run verify -- [--against <ref>] [--test <command>]... [--manual <text>]... [--skip-static]
 
+Runs the four gates a merge has to show, in order:
+  1. TypeScript for every workspace the diff affects
+  2. Work Jest (packages/api/src/engines/workChat*)
+  3. API build (npm run build:api)
+  4. Static checks (--full, with the TypeScript check left to step 1)
+
+then each --test command, and prints the acceptance artifact for the pull request.
+
   --against <ref>    Base to diff from. Defaults to origin/main, then main.
-  --test <command>   Focused test command, run through the platform shell.
-                     Repeatable.
+  --test <command>   Additional focused test command, run through the platform
+                     shell. Repeatable.
   --manual <text>    What you observed by hand. Repeatable.
-  --skip-static      Skip the static-check tier (for re-running tests only).
+  --skip-static      Skip the four built-in gates (for re-running extra tests).
   --help             Show this text.`;
 
 const VALUED = new Set(['--against', '--test', '--manual']);
@@ -156,8 +170,9 @@ function secondsSince(started) {
 
 /**
  * Runs one gate, streaming its output and keeping a copy for the artifact.
- * `options.shell` runs the string through the platform shell, which is how a
- * focused test command is expected to be written.
+ * `shell` runs the command string through the platform shell, which is how a
+ * focused test command is expected to be written; `cwd` moves the gate into a
+ * workspace.
  */
 async function runGate(label, command, args, gateOptions = {}) {
   console.log(`\n▶ ${label}`);
@@ -165,7 +180,7 @@ async function runGate(label, command, args, gateOptions = {}) {
   const started = process.hrtime.bigint();
   const result = await new Promise((resolveGate) => {
     const child = spawn(command, args, {
-      cwd: ROOT,
+      cwd: gateOptions.cwd ?? ROOT,
       env: process.env,
       shell: gateOptions.shell === true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -229,36 +244,73 @@ function summarizeStaticChecks(output) {
   return tail ? [`- ${tail.trim()}`] : [];
 }
 
+const STATIC_CHECKS = resolve(ROOT, 'scripts/static-checks.mts');
 const gates = [];
-let staticDetails = ['- skipped (`--skip-static`)'];
+const summaries = { typecheck: [], workTests: [], static: [] };
 
-const staticResult = options.skipStatic
-  ? null
-  : await runGate('static checks (full)', process.execPath, [
-      resolve(ROOT, 'scripts/static-checks.mts'),
-      '--against',
-      mergeBase,
-      '--full',
-    ]);
+if (!options.skipStatic) {
+  // The static runner owns the workspace typecheck. Run that check alone first
+  // and leave it out of the full pass below, so no project is compiled twice.
+  const typecheck = await runGate('typecheck', process.execPath, [
+    STATIC_CHECKS,
+    '--against',
+    mergeBase,
+    '--only',
+    'typecheck',
+  ]);
+  summaries.typecheck = summarizeStaticChecks(typecheck.output);
+  gates.push({ name: 'Typecheck (all workspaces)', ok: typecheck.ok, seconds: typecheck.seconds });
 
-if (staticResult) {
-  staticDetails = summarizeStaticChecks(staticResult.output);
-  if (staticDetails.length === 0) staticDetails = ['- no checks ran'];
+  const workTests = await runGate(
+    'Work Jest',
+    'npx jest src/engines/workChat --ci --runInBand --coverage=false',
+    [],
+    { shell: true, cwd: resolve(ROOT, 'packages/api') },
+  );
+  summaries.workTests = workTests.output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => /^(Test Suites|Tests):/.test(line))
+    .map((line) => `- ${line}`);
   gates.push({
-    name: `Static checks (\`--full\`, against \`${mergeBase.slice(0, 12)}\`)`,
+    name: 'Work Jest (`src/engines/workChat`)',
+    ok: workTests.ok,
+    seconds: workTests.seconds,
+  });
+
+  const build = await runGate('API build', 'npm run build:api', [], { shell: true });
+  gates.push({ name: 'API build (`npm run build:api`)', ok: build.ok, seconds: build.seconds });
+
+  const staticResult = await runGate('static checks', process.execPath, [
+    STATIC_CHECKS,
+    '--against',
+    mergeBase,
+    '--full',
+    '--skip',
+    'typecheck',
+  ]);
+  summaries.static = summarizeStaticChecks(staticResult.output);
+  gates.push({
+    name: `Static checks (\`--full\`, against \`${mergeBase.slice(0, 12)}\`, excluding typecheck)`,
     ok: staticResult.ok,
     seconds: staticResult.seconds,
   });
 }
 
+const extraGates = [];
 for (const command of options.tests) {
   const result = await runGate(`focused test: ${command}`, command, [], { shell: true });
-  gates.push({ name: tableCommand(command), ok: result.ok, seconds: result.seconds });
+  const gate = { name: tableCommand(command), ok: result.ok, seconds: result.seconds };
+  extraGates.push(gate);
+  gates.push(gate);
+}
+
+if (gates.length === 0) {
+  fail('no gates ran — drop --skip-static or pass --test');
 }
 
 const passed = gates.every((gate) => gate.ok);
 const warnings = [...checkoutWarnings];
-if (options.tests.length === 0) warnings.push('- Warning: no focused test command was supplied.');
 if (options.manual.length === 0) warnings.push('- Warning: no manual observation was supplied.');
 
 const artifact = [
@@ -281,14 +333,32 @@ const artifact = [
     (gate) => `| ${gate.name} | ${gate.ok ? 'PASS' : 'FAIL'} | ${formatSeconds(gate.seconds)} |`,
   ),
   '',
-  'Static-check results:',
-  ...staticDetails,
+  'Typecheck results:',
+  ...(options.skipStatic
+    ? ['- skipped (`--skip-static`)']
+    : summaries.typecheck.length > 0
+      ? summaries.typecheck
+      : ['- no checks ran']),
   '',
-  'Focused tests:',
+  'Work Jest:',
+  ...(options.skipStatic
+    ? ['- skipped (`--skip-static`)']
+    : summaries.workTests.length > 0
+      ? summaries.workTests
+      : ['- no Jest summary line was reported']),
+  '',
+  'Static-check results:',
+  ...(options.skipStatic
+    ? ['- skipped (`--skip-static`)']
+    : summaries.static.length > 0
+      ? summaries.static
+      : ['- no checks ran']),
+  '',
+  'Additional focused tests:',
   ...(options.tests.length === 0
     ? ['- none supplied']
     : options.tests.map((command, index) => {
-        const gate = gates[(staticResult ? 1 : 0) + index];
+        const gate = extraGates[index];
         return `- ${gate.ok ? 'PASS' : 'FAIL'} ${markdownCode(command)} — ${formatSeconds(gate.seconds)}`;
       })),
   '',

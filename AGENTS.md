@@ -69,17 +69,26 @@ Run `npm run static-checks -- --against origin/dev` to reproduce the PR's static
 warnings/errors in the code you change.
 
 Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
-pull request:
+pull request. One command runs the four gates a merge has to show, in order:
+
+1. TypeScript for every workspace the diff affects.
+2. The Work Jest suites (`packages/api/src/engines/workChat*`).
+3. `npm run build:api`.
+4. The `--full` static-check tier, with the TypeScript check left to step 1 so no project is
+   compiled twice.
+
+Then any additional focused test command and the manual observation:
 
     npm run verify -- --against origin/main \
       --test "cd packages/api && npx jest src/engines/workChat.spec.ts --ci" \
       --manual "Sent one Work message; the stream rendered and the transcript survived reload."
 
-It runs the `--full` static-check tier against the merge base, then each `--test` command, and
-prints a Markdown block naming the commit, the base, every gate's result and the observation.
-Paste that block into the pull request's Testing section: it is what a reviewer has instead of a CI
-run. At least one `--test` or `--manual` is required, and a dirty working tree is called out in the
-artifact because the commit then does not identify what ran.
+It prints a Markdown block naming the commit, the base, the working-tree state and every gate's
+result. **Paste that block into the pull request's Testing section: it is the PR's acceptance
+artifact.** A review that cannot see it has no evidence the change was checked, and a merge recorded
+without one is unverified. At least one `--test` or `--manual` is required, and a dirty working tree
+is called out in the artifact because the commit then does not identify what ran. `--skip-static`
+skips the four built-in gates for a quick re-run while iterating, and says so in the artifact.
 
 ## Module boundaries and configuration
 
