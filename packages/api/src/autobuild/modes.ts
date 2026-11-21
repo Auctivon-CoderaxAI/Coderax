@@ -158,7 +158,12 @@ export function assessRequestComplexity(request: string): ComplexityAssessment {
     score += 1;
     reasons.push('The request asks for a complete or production-level result.');
   }
-  const complexity: BuildComplexity = score >= 5 ? 'complex' : score >= 3 ? 'moderate' : 'simple';
+  let complexity: BuildComplexity = 'simple';
+  if (score >= 5) {
+    complexity = 'complex';
+  } else if (score >= 3) {
+    complexity = 'moderate';
+  }
   return {
     complexity,
     surfaces,
@@ -195,12 +200,7 @@ export function chooseEffectiveMode(input: {
   const planAssessment = plan == null ? null : assessBuildPlan(plan);
   const explicitRequest = request?.trim();
   const planRequest = plan?.request?.trim();
-  const assessedRequest =
-    explicitRequest != null && explicitRequest.length > 0
-      ? explicitRequest
-      : planRequest != null && planRequest.length > 0
-        ? planRequest
-        : null;
+  const assessedRequest = explicitRequest || planRequest || null;
   const requestAssessment =
     assessedRequest == null ? null : assessRequestComplexity(assessedRequest);
 
