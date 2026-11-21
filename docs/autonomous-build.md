@@ -156,9 +156,11 @@ than admitting a second writer. The Workflows view has a **New autonomous build*
 selects the created workflow so the existing run panel and stream monitor it.
 
 Every step turn is bound to the same checkout. The workflow step enqueuer attaches
-`codeWorkspaces: [{ environmentId: buildVerification.workspaceEnvironmentId, workspaceId: <workspace> }]`
+`codeWorkspaces: [{ environmentId: buildVerification.workspaceEnvironmentId, workspaceId: <workspace>, checkout: 'source' }]`
 to the step's fire envelope, and the agent run resolves its reads, writes and commands through that
-selection, so two builds with different workspace names cannot edit one tree. The turn fails rather
+selection. The explicit `source` checkout pins the turn to the registered tree that settlement
+resolves, never an isolated worktree, so two builds with different workspace names cannot edit one
+tree and a build cannot pass on a tree settlement does not inspect. The turn fails rather
 than running anywhere else when it cannot honor the selection: the agent is not a stateful-code
 agent on that attached environment, its configured environment differs from
 `workspaceEnvironmentId`, or the worker does not register the workspace id. The failure is an
@@ -260,8 +262,11 @@ workflows:
 ```
 
 The workflow engine refuses to arm when `workspaceEnvironmentId` does not name a configured attached
-stateful-code environment. A typo fails startup with the configured ids listed, rather than surfacing
-later as a failed build step.
+stateful-code environment. It also requires that environment to allow explicit source checkout
+selection (`configSchema.workspaces.allowCheckoutSelection: true`), so the binding can pin the same
+checkout settlement verifies. A typo or a missing policy fails startup with the reason and configured
+ids, rather than surfacing later as a failed build step. The verifier host must see the same
+`workspaceRoot` as the attached environment; settlement fails closed when the checkout is absent.
 
 `gate` is one of `tests`, `build` or `security`; `review` is never a command, it comes from the
 reviewer step named at compile time. Every executable must be a bare name on the allowlist (a path

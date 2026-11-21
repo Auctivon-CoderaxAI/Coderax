@@ -35,10 +35,24 @@ describe('validateBuildWorkspaceEnvironment', () => {
     );
   });
 
-  it('accepts a configured attached environment', () => {
+  it('rejects an environment that does not allow the source checkout', () => {
     expect(() =>
       validateBuildWorkspaceEnvironment(options('build-machine'), [
         { id: 'build-machine', type: 'attached' },
+      ]),
+    ).toThrow(
+      'workflows.buildVerification.workspaceEnvironmentId "build-machine" must allow explicit source checkout selection: set configSchema.workspaces.allowCheckoutSelection to true so build steps and settlement use the same registered checkout.',
+    );
+  });
+
+  it('accepts a configured attached environment that allows the source checkout', () => {
+    expect(() =>
+      validateBuildWorkspaceEnvironment(options('build-machine'), [
+        {
+          id: 'build-machine',
+          type: 'attached',
+          configSchema: { workspaces: { allowCheckoutSelection: true } },
+        },
       ]),
     ).not.toThrow();
   });

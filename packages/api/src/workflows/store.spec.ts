@@ -55,7 +55,9 @@ describe('createWorkflowStepEnqueuer', () => {
     expect(envelope.mode).toBe('fire');
     expect(envelope.run).toMatchObject({
       conversationId: 'conversation-1',
-      codeWorkspaces: [{ environmentId: 'build-machine', workspaceId: 'checkout-1' }],
+      codeWorkspaces: [
+        { environmentId: 'build-machine', workspaceId: 'checkout-1', checkout: 'source' },
+      ],
       metadata: { workflowRunId: 'run-1', workflowStepId: 'implement' },
     });
   });

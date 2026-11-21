@@ -4,6 +4,9 @@ import type { WorkflowEngineOptions } from './types';
 export interface ConfiguredWorkflowCodeEnvironment {
   id: string;
   type?: string;
+  configSchema?: {
+    workspaces?: { allowCheckoutSelection?: boolean };
+  };
 }
 
 export class WorkflowBuildWorkspaceConfigurationError extends Error {
@@ -46,6 +49,13 @@ export function validateBuildWorkspaceEnvironment(
     throw new WorkflowBuildWorkspaceConfigurationError(
       `workflows.buildVerification.workspaceEnvironmentId "${environmentId}" must name an attached ` +
         `stateful-code environment; it is configured as ${environment.type ?? 'an unknown type'}.`,
+    );
+  }
+  if (environment.configSchema?.workspaces?.allowCheckoutSelection !== true) {
+    throw new WorkflowBuildWorkspaceConfigurationError(
+      `workflows.buildVerification.workspaceEnvironmentId "${environmentId}" must allow explicit ` +
+        'source checkout selection: set configSchema.workspaces.allowCheckoutSelection to true so ' +
+        'build steps and settlement use the same registered checkout.',
     );
   }
 }
