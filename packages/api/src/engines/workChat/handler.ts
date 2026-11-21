@@ -224,7 +224,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
-          await store.saveConversation({ conversationId, workState: 'failed' });
+          try {
+            await store.saveConversation({ conversationId, workState: 'failed' });
+          } catch (error) {
+            storeUnavailable = true;
+            throw error;
+          }
         }
         if (closed) {
           finished = true;

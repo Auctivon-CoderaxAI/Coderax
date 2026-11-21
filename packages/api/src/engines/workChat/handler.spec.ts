@@ -441,6 +441,36 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
+  it('reports a store outage while recording a failed start', async () => {
+    const { runner, start, release } = fakeRunner();
+    start.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'timeout', message: 'The run timed out.' },
+    });
+    const { store, saveConversation } = fakeStore();
+    saveConversation.mockRejectedValueOnce(new Error('database offline'));
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      runner,
+      store,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_STORE_UNAVAILABLE' });
+    expect(response.chunks).toHaveLength(0);
+    expect(saveConversation).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
   it('streams a completed turn, persists both messages, and releases its leases', async () => {
     const { store, getConversation, loadTranscript, saveMessage, saveConversation } = fakeStore();
     getConversation.mockResolvedValueOnce({
