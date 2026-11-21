@@ -2869,6 +2869,7 @@ describe('build settlement verification configuration', () => {
 
   const buildVerification = {
     workspaceRoot: '/srv/builds',
+    workspaceEnvironmentId: 'build-machine',
     commands: [
       { gate: 'tests', command: 'npm', args: ['test', '--', '--ci'], timeoutMs: 600_000 },
       { gate: 'build', command: 'npm', args: ['run', 'build'], label: 'Production build' },
@@ -2913,4 +2914,3 @@ describe('build settlement verification configuration', () => {
     ).toBe(false);
   });
 });
-

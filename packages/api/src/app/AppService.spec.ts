@@ -85,6 +85,7 @@ describe('AppService', () => {
       scheduleConcurrency: 3,
       buildVerification: {
         workspaceRoot: '/srv/builds',
+        workspaceEnvironmentId: 'build-machine',
         commands: [{ gate: 'tests' as const, command: 'npm', args: ['test'] }],
       },
     };

@@ -158,9 +158,12 @@ selects the created workflow so the existing run panel and stream monitor it.
 Every step turn is bound to the same checkout. The workflow step enqueuer attaches
 `codeWorkspaces: [{ environmentId: buildVerification.workspaceEnvironmentId, workspaceId: <workspace> }]`
 to the step's fire envelope, and the agent run resolves its reads, writes and commands through that
-selection, so two builds with different workspace names cannot edit one tree. The attached worker
-rejects a turn whose workspace id it does not register, which is the fail-closed path for a checkout
-that was never provisioned. The selection is host-controlled trigger context, like `chatProjectId`;
+selection, so two builds with different workspace names cannot edit one tree. The turn fails rather
+than running anywhere else when it cannot honor the selection: the agent is not a stateful-code
+agent on that attached environment, its configured environment differs from
+`workspaceEnvironmentId`, or the worker does not register the workspace id. The failure is an
+admission rejection, so no reads, writes or commands run outside the reserved checkout while the
+step is retried or failed. The selection is host-controlled trigger context, like `chatProjectId`;
 a model or build request cannot choose it.
 
 Before enabling the unique reservation index on an existing deployment, pause new build launches
@@ -232,7 +235,8 @@ workflows:
     # Attached code environment that hosts those checkouts. Required. Register
     # each <workspaceRoot>/<name> directory on it with `name` as the workspace
     # id, so a step's bound workspace resolves to the same tree the verifier
-    # checks. A step whose workspace id is not registered fails closed.
+    # checks. A build agent that is not a stateful-code agent on this
+    # environment, or whose workspace id is not registered, fails closed.
     workspaceEnvironmentId: build-machine
     commands:
       - gate: tests
