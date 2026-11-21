@@ -61,8 +61,9 @@ before returning data. Do not raise a threshold to hide added round trips.
 `auditPage({ url, cookies, runs, budgets })` in `audit.ts` invokes the Lighthouse CLI
 once per run, redacts authentication headers, prints API timings and asserts the median
 budgets. It returns the reports so each scenario can assert its expected final URL and
-LCP content; read the LCP element through the exported `lcpElement(report)` helper rather
-than an audit id, because Lighthouse renames those between majors. `load.spec.ts` owns
+LCP content. The audit observes the final LCP candidate in each measured navigation
+and `lcpElement(report)` checks its timestamp against the Lighthouse metric before
+returning its text. The built-in timing breakdown may omit the element. `load.spec.ts` owns
 local login state, conversation seeding and transcript assertions; the runner does not
 depend on them.
 
