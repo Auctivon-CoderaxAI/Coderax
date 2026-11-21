@@ -32,9 +32,12 @@ const NODE_POLYFILL_SHIMS: Record<string, string> = {
 
 // https://vitejs.dev/config/
 const backendPort = (process.env.BACKEND_PORT && Number(process.env.BACKEND_PORT)) || 3080;
+/** The address Vite binds can differ from where the API listens, so the proxy
+ *  takes BACKEND_HOST first; HOST remains the fallback for existing setups. */
+const backendHostValue = process.env.BACKEND_HOST || process.env.HOST;
 /** IPv6 hosts arrive unbracketed (valid for the listen address) but must be
  *  bracketed inside a URL, or the proxy target parses as host `:` port soup. */
-const backendHost = process.env.HOST?.includes(':') ? `[${process.env.HOST}]` : process.env.HOST;
+const backendHost = backendHostValue?.includes(':') ? `[${backendHostValue}]` : backendHostValue;
 const backendURL = backendHost
   ? `http://${backendHost}:${backendPort}`
   : `http://localhost:${backendPort}`;

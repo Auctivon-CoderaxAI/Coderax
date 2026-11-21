@@ -59,7 +59,7 @@
     "dev:status": "node scripts/dev/index.mjs status",
     "dev:probe": "node scripts/dev/probe.mjs",
     "dev:model": "bash scripts/dev/model.sh",
-    "dev:model:setup": "bash scripts/dev/fetch-model.sh",
+    "dev:model:setup": "node scripts/dev/index.mjs model:setup",
     "build:data-provider": "cd packages/data-provider && npm run build",
     "build:api": "cd packages/api && npm run build",
     "build:data-schemas": "cd packages/data-schemas && npm run build",

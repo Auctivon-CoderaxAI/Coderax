@@ -11,7 +11,11 @@ export const LOG_DIR = path.join(DEV_DIR, 'logs');
 
 export const npmCommand = () => (process.platform === 'win32' ? 'npm.cmd' : 'npm');
 
-/** Minimal KEY=value reader: comments, blank lines and optional surrounding quotes. */
+/**
+ * Minimal KEY=value reader with dotenv's inline-comment rules: a `#` that starts
+ * a word ends an unquoted value, and a quoted value ends at its closing quote.
+ * A `#` inside a word stays part of the value, so generated secrets survive.
+ */
 export function parseEnv(text) {
   const env = {};
   for (const raw of text.split(/\r?\n/)) {
@@ -25,12 +29,17 @@ export function parseEnv(text) {
     }
     const key = line.slice(0, separator).trim();
     let value = line.slice(separator + 1).trim();
-    const quoted =
-      value.length > 1 &&
-      ((value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'")));
-    if (quoted) {
-      value = value.slice(1, -1);
+    const quote = value[0];
+    if (quote === '"' || quote === "'") {
+      const close = value.indexOf(quote, 1);
+      if (close !== -1) {
+        value = value.slice(1, close);
+      }
+    } else {
+      const comment = value.search(/\s#/);
+      if (comment !== -1) {
+        value = value.slice(0, comment).trim();
+      }
     }
     env[key] = value;
   }
@@ -73,6 +82,24 @@ export function isAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+}
+
+/**
+ * Kernel start time of a PID (`/proc/<pid>/stat` field 22), used to tell a
+ * recorded service apart from an unrelated process that reused its PID.
+ * Returns null where /proc is unavailable.
+ */
+export function pidStartTime(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return null;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+    return fields[19] ?? null;
+  } catch {
+    return null;
   }
 }
 

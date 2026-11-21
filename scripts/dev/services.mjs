@@ -22,11 +22,29 @@ function clientMode(env) {
   return env.DEV_CLIENT_MODE === 'preview' ? 'preview' : 'dev';
 }
 
+/**
+ * `dev:up` starts its own mongod on DEV_MONGO_PORT while the API connects to
+ * MONGO_URI, so the two must name the same port or the API reaches nothing.
+ */
+export function assertMongoEndpoint(env) {
+  const uriPort = new URL(env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/Coderax').port || '27017';
+  if (env.DEV_MONGO_PORT && String(env.DEV_MONGO_PORT) !== uriPort) {
+    throw new Error(
+      `DEV_MONGO_PORT=${env.DEV_MONGO_PORT} but MONGO_URI uses port ${uriPort}; ` +
+        'the API would not reach the supervised mongod. Make both ports match in .env.',
+    );
+  }
+}
+
 export function createServices(env) {
   const port = ports(env);
   const modelId = env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct';
   const preview = clientMode(env) === 'preview';
   const clientOrigin = `http://${LOOPBACK}:${port.vite}`;
+  /* Loopback by default: the Vite proxy forwards to the API, so binding it to
+     every interface would publish that API to the network. */
+  const viteHost = env.DEV_VITE_HOST || LOOPBACK;
+  const apiHost = env.DEV_API_HOST || LOOPBACK;
 
   return [
     {
@@ -61,7 +79,7 @@ export function createServices(env) {
       // The client service owns the shell, so the API boots without client/dist.
       env: {
         ...env,
-        HOST: env.DEV_API_HOST || LOOPBACK,
+        HOST: apiHost,
         PORT: String(port.api),
         NODE_ENV: 'development',
         SERVE_CLIENT: 'false',
@@ -80,7 +98,7 @@ export function createServices(env) {
             'preview-prod',
             '--',
             '--host',
-            '0.0.0.0',
+            viteHost,
             '--port',
             String(port.vite),
             '--strictPort',
@@ -90,9 +108,11 @@ export function createServices(env) {
       env: {
         ...env,
         NODE_ENV: 'development',
-        // Vite binds the preview interface and proxies /api to the API port.
-        HOST: env.DEV_VITE_HOST || '0.0.0.0',
+        // HOST is where Vite listens; BACKEND_HOST is where its proxy sends /api,
+        // which stays the API's own address even when Vite binds a LAN interface.
+        HOST: viteHost,
         PORT: String(port.vite),
+        BACKEND_HOST: apiHost,
         BACKEND_PORT: String(port.api),
       },
       detail: `${clientOrigin} ${preview ? 'built client' : 'vite dev'} -> ${LOOPBACK}:${port.api}`,

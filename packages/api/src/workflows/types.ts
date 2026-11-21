@@ -1,6 +1,5 @@
 import type {
   TScheduleCadence,
-  WorkflowBuildSettings,
   WorkflowRunEvent,
   WorkflowRunStatus,
   WorkflowRunTrigger,
@@ -10,7 +9,7 @@ import type {
   WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
-import type { BuildVerificationConfig, BuildVerifierInput } from '../autobuild/verification';
+import type { BuildVerificationConfig } from '../autobuild/config';
 
 /** The durable, process-independent shape a workflow runner advances. */
 export interface WorkflowStepRecord {
@@ -40,6 +39,14 @@ export interface WorkflowStepRecord {
   error?: string;
   reason?: string;
   result?: string;
+}
+
+/** Input handed to the host's build verifier once every step has settled. */
+export interface BuildVerifierInput {
+  run: WorkflowRunRecord;
+  steps: WorkflowStepRecord[];
+  /** Aborted when the run lease is lost, so a command stops instead of running twice. */
+  signal?: AbortSignal;
 }
 
 export interface WorkflowRunRecord {

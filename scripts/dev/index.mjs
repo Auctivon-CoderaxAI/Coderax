@@ -24,13 +24,14 @@ import {
   logPath,
   logTail,
   npmCommand,
+  pidStartTime,
   readRecord,
   signal,
   tcpOpen,
   waitFor,
   writeRecord,
 } from './lib.mjs';
-import { createServices, ports } from './services.mjs';
+import { assertMongoEndpoint, createServices, ports } from './services.mjs';
 
 const command = process.argv[2] ?? 'status';
 
@@ -79,8 +80,9 @@ CREDS_KEY=${crypto.randomBytes(32).toString('hex')}
 CREDS_IV=${crypto.randomBytes(16).toString('hex')}
 
 # The supervisor creates this user (email verified) when it does not exist yet.
+# The password is generated per install and stays in this file.
 DEV_USER_EMAIL=dev@coderax.local
-DEV_USER_PASSWORD=coderax-dev
+DEV_USER_PASSWORD=${crypto.randomBytes(18).toString('base64url')}
 DEV_USER_USERNAME=dev
 `;
 }
@@ -213,6 +215,7 @@ function recordFor(service, pid) {
   return {
     service: service.name,
     pid,
+    pidStart: pidStartTime(pid),
     port: service.port,
     command: commandLine(service),
     cwd: service.cwd,
@@ -221,10 +224,19 @@ function recordFor(service, pid) {
   };
 }
 
+/** A recorded PID is ours only while its kernel start time is unchanged. */
+function recordIsCurrent(record) {
+  if (!record?.pidStart) {
+    return true;
+  }
+  const current = pidStartTime(record.pid);
+  return current === null || current === record.pidStart;
+}
+
 /** Returns true when this call started the service. */
 async function startService(service) {
   const record = readRecord(service.name);
-  if (record && isAlive(record.pid)) {
+  if (record && isAlive(record.pid) && recordIsCurrent(record)) {
     if (record.command !== commandLine(service)) {
       console.log(`▸ ${service.name} was started with a different command; restarting`);
       await stopService(service);
@@ -241,6 +253,11 @@ async function startService(service) {
       }
       return false;
     }
+  }
+  if (record && !recordIsCurrent(record)) {
+    console.log(
+      `▸ ${service.name}: recorded pid ${record.pid} was reused by another process; starting fresh`,
+    );
   }
   if (record) {
     clearRecord(service.name);
@@ -326,6 +343,13 @@ async function stopService(service) {
     console.log(`• ${service.name}: stale pid ${record.pid} (not running)`);
     return;
   }
+  if (!recordIsCurrent(record)) {
+    clearRecord(service.name);
+    console.log(
+      `• ${service.name}: pid ${record.pid} was reused by another process; not signalling it`,
+    );
+    return;
+  }
   process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
   signal(record.pid, 'SIGTERM');
   let stopped = await waitFor(async () => !isAlive(record.pid), { timeoutMs: 10_000 });
@@ -389,6 +413,7 @@ async function status(services, env) {
 
 async function up() {
   const env = ensureEnv();
+  assertMongoEndpoint(env);
   ensureConfig(env);
   ensureBuild();
   ensureClientBuild(env);
@@ -421,6 +446,18 @@ async function up() {
   process.exit(0);
 }
 
+function modelSetup() {
+  /* Running through this entry point gives the script the same .env values
+     dev:up resolves, so it installs where dev:up looks for the artifacts. */
+  const env = loadEnv();
+  const result = spawnSync('bash', [path.join('scripts', 'dev', 'fetch-model.sh')], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: { ...process.env, ...env },
+  });
+  process.exit(result.status ?? 1);
+}
+
 async function down() {
   const env = loadEnv();
   const services = createServices(env);
@@ -431,11 +468,12 @@ async function down() {
 }
 
 function usage() {
-  console.log(`Usage: node scripts/dev/index.mjs <up|down|status>
+  console.log(`Usage: node scripts/dev/index.mjs <up|down|status|model:setup>
 
-  up      start Mongo, the model, the API and the client; poll readiness and record PIDs
-  down    stop them in reverse order (SIGTERM, then SIGKILL after 10s)
-  status  show recorded PIDs, ports and readiness (exit 1 unless all are ready)`);
+  up           start Mongo, the model, the API and the client; poll readiness and record PIDs
+  down         stop them in reverse order (SIGTERM, then SIGKILL after 10s)
+  status       show recorded PIDs, ports and readiness (exit 1 unless all are ready)
+  model:setup  download the GGUF and build llama-server at the .env paths`);
 }
 
 const main = async () => {
@@ -448,6 +486,8 @@ const main = async () => {
     const services = createServices(env);
     const ready = await status(services, env);
     process.exit(ready ? 0 : 1);
+  } else if (command === 'model:setup') {
+    modelSetup();
   } else {
     usage();
     process.exit(1);

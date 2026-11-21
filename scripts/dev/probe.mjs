@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 /**
- * End-to-end local probe: Mongo, the model, the API, sign-in, the model catalog
- * and one chat completion. Reports the layer that failed instead of leaving you
- * to curl each hop.
+ * End-to-end local probe: Mongo, the model, the API, sign-in, the model catalog,
+ * one chat completion and a hard load of the conversation it created. Reports the
+ * layer that failed instead of leaving you to curl each hop.
  *
  *   npm run dev:probe
- *   npm run dev:probe -- --base http://127.0.0.1:3090   # through the Vite/preview proxy
+ *   npm run dev:probe -- --base http://127.0.0.1:3090    # through the Vite/preview proxy
+ *   npm run dev:probe -- --client http://127.0.0.1:3090 # the shell origin for the route layer
  *
  * The guest layer mirrors what the browser does at /connect: it opens a guest
  * session, reads /api/user with that token and asks /api/models for the catalog.
+ * The route layer requests a conversation deep link as a fresh page load, then
+ * resolves the shell's entry script from that same path.
  */
 import net from 'node:net';
 
@@ -21,6 +24,12 @@ const base = (
   baseFlag !== -1
     ? args[baseFlag + 1]
     : env.DEV_PROBE_BASE || `http://127.0.0.1:${env.PORT || 3080}`
+).replace(/\/+$/, '');
+const clientFlag = args.indexOf('--client');
+const clientBase = (
+  clientFlag !== -1
+    ? args[clientFlag + 1]
+    : env.DEV_PROBE_CLIENT || `http://127.0.0.1:${env.DEV_VITE_PORT || 3090}`
 ).replace(/\/+$/, '');
 
 const endpoint = env.DEV_ENDPOINT || 'llamacpp';
@@ -340,45 +349,65 @@ async function main() {
     return `${endpoint} -> ${ids.join(', ')}`;
   });
 
+  let conversationId;
   await layer('chat', async () => {
-    const start = await fetch(`${base}/api/agents/chat`, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'content-type': 'application/json',
-        accept: 'text/event-stream',
-        'user-agent': BROWSER_UA,
-      },
-      body: JSON.stringify({
-        text: 'Reply with exactly one word: pong',
-        endpoint,
-        model: configuredModel,
-        conversationId: null,
-        parentMessageId: '00000000-0000-0000-0000-000000000000',
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!start.ok) {
-      const body = (await start.text()).slice(0, 300);
-      throw new LayerError('chat', `POST /api/agents/chat -> HTTP ${start.status}: ${body}`);
-    }
+    const controller = new AbortController();
+    let timer;
+    let phase = 'start';
+    /** 30s buys the response headers; the body gets DEV_PROBE_CHAT_TIMEOUT_MS. */
+    const arm = (ms, next) => {
+      clearTimeout(timer);
+      phase = next;
+      timer = setTimeout(
+        () => controller.abort(new DOMException(`${next} timeout`, 'TimeoutError')),
+        ms,
+      );
+      timer.unref?.();
+    };
 
     let result;
     try {
+      arm(30_000, 'start');
+      const start = await fetch(`${base}/api/agents/chat`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+          'user-agent': BROWSER_UA,
+        },
+        body: JSON.stringify({
+          text: 'Reply with exactly one word: pong',
+          endpoint,
+          model: configuredModel,
+          conversationId: null,
+          parentMessageId: '00000000-0000-0000-0000-000000000000',
+        }),
+        signal: controller.signal,
+      });
+      if (!start.ok) {
+        const body = (await start.text()).slice(0, 300);
+        throw new LayerError('chat', `POST /api/agents/chat -> HTTP ${start.status}: ${body}`);
+      }
+
       if ((start.headers.get('content-type') ?? '').includes('text/event-stream')) {
+        // The stream itself can run for the model's whole turn, not 30 seconds.
+        arm(chatTimeoutMs, 'stream');
         result = await readSse(start);
       } else {
         // The resumable protocol acks the turn with a job id; events stream separately.
+        arm(30_000, 'start');
         const started = await start.json();
         const streamId = started.streamId ?? started.conversationId;
         if (!streamId) {
           throw new LayerError('chat', 'chat start returned no streamId');
         }
+        arm(chatTimeoutMs, 'stream');
         const stream = await fetch(
           `${base}/api/agents/chat/stream/${encodeURIComponent(streamId)}`,
           {
             headers: { ...headers, accept: 'text/event-stream', 'user-agent': BROWSER_UA },
-            signal: AbortSignal.timeout(chatTimeoutMs),
+            signal: controller.signal,
           },
         );
         if (!stream.ok) {
@@ -388,9 +417,16 @@ async function main() {
       }
     } catch (error) {
       if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-        throw new LayerError('chat', `no final event within ${chatTimeoutMs / 1000}s`);
+        throw new LayerError(
+          'chat',
+          phase === 'start'
+            ? 'no answer from /api/agents/chat within 30s'
+            : `no final event within ${chatTimeoutMs / 1000}s`,
+        );
       }
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
     if (!result.finalEvent) {
       throw new LayerError('chat', 'stream ended without a final event');
@@ -401,7 +437,66 @@ async function main() {
     if (!result.reply) {
       throw new LayerError('chat', 'the assistant returned an empty response');
     }
+    conversationId =
+      result.finalEvent.conversation?.conversationId ??
+      result.finalEvent.responseMessage?.conversationId ??
+      conversationId;
     return `model answered: "${result.reply.slice(0, 80)}"`;
+  });
+
+  await layer('route', async () => {
+    if (!conversationId) {
+      throw new LayerError('route', 'the chat layer did not report a conversation id');
+    }
+    const url = `${clientBase}/c/${encodeURIComponent(conversationId)}`;
+    const response = await fetch(url, {
+      headers: { accept: 'text/html', 'user-agent': BROWSER_UA },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      throw new LayerError(
+        'route',
+        `hard load ${url} -> HTTP ${response.status} (is the client running at ${clientBase}?)`,
+      );
+    }
+    const contentType = response.headers.get('content-type') ?? '';
+    if (!contentType.includes('text/html')) {
+      throw new LayerError('route', `hard load ${url} served ${contentType || 'no content type'}`);
+    }
+    const html = await response.text();
+    if (!html.includes('<div id="root"')) {
+      throw new LayerError('route', `hard load ${url} did not serve the client shell`);
+    }
+    /* Resolve the entry script the way the browser does: through the shell's
+       <base href>, not the conversation path. Without one, a relative entry asks
+       for /c/assets/... and the HTML fallback below is not JavaScript. */
+    const entry =
+      html.match(/<script[^>]+type="module"[^>]+src="([^"]+)"/i)?.[1] ??
+      html.match(/<script[^>]+src="([^"]+\.js)"/i)?.[1];
+    if (!entry) {
+      throw new LayerError('route', 'the shell has no module entry script to resolve');
+    }
+    const baseHref = html.match(/<base[^>]+href="([^"]*)"/i)?.[1] ?? '';
+    const entryUrl = new URL(entry, new URL(baseHref, url));
+    const asset = await fetch(entryUrl, {
+      headers: { 'user-agent': BROWSER_UA },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!asset.ok) {
+      throw new LayerError(
+        'route',
+        `the shell's entry asset resolved to ${entryUrl.pathname} -> HTTP ${asset.status}`,
+      );
+    }
+    const assetType = asset.headers.get('content-type') ?? '';
+    if (!/javascript|ecmascript/i.test(assetType)) {
+      throw new LayerError(
+        'route',
+        `the shell resolved its entry script to ${entryUrl.pathname}, which served ` +
+          `${assetType || 'no content type'} instead of JavaScript`,
+      );
+    }
+    return `hard load /c/<id> served the shell; ${entryUrl.pathname} -> ${asset.status} ${assetType}`;
   });
 
   console.log('\n✔ all layers healthy');

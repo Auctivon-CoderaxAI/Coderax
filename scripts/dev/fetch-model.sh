@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Download the GGUF and build llama.cpp into .dev/model.
-# Used when `npm run dev:up` reports missing model artifacts.
+# Download the GGUF and build llama.cpp where .env points.
+# Used when `npm run dev:up` reports missing model artifacts; `npm run
+# dev:model:setup` runs this through scripts/dev/index.mjs so .env is loaded.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -9,9 +10,12 @@ GGUF="${LLAMA_MODEL_PATH:-$MODEL_DIR/qwen2.5-1.5b-q4.gguf}"
 GGUF_URL="${DEV_MODEL_URL:-https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf}"
 SRC="${LLAMA_CPP_SRC:-$MODEL_DIR/llama.cpp}"
 BUILD="${DEV_MODEL_BUILD_DIR:-$MODEL_DIR/build}"
+SERVER_BIN="${LLAMA_SERVER_BIN:-$MODEL_DIR/bin/llama-server}"
 CMAKE="${CMAKE:-cmake}"
 
-mkdir -p "$MODEL_DIR/bin"
+# Both destinations come from the environment dev:model:setup passes in, which
+# includes .env, so the artifacts land where dev:up looks for them.
+mkdir -p "$MODEL_DIR/bin" "$(dirname "$GGUF")" "$(dirname "$SERVER_BIN")"
 
 if [[ ! -f "$GGUF" ]]; then
   echo "[dev:model:setup] downloading $(basename "$GGUF") (about 1 GB)"
@@ -21,7 +25,7 @@ else
   echo "[dev:model:setup] weights already present: $GGUF"
 fi
 
-if [[ ! -x "$MODEL_DIR/bin/llama-server" ]]; then
+if [[ ! -x "$SERVER_BIN" ]]; then
   if ! command -v "$CMAKE" >/dev/null 2>&1; then
     echo "[dev:model:setup] cmake is required to build llama-server." >&2
     echo "[dev:model:setup] install cmake and a C++ toolchain, or set CMAKE=/path/to/cmake." >&2
@@ -39,9 +43,9 @@ if [[ ! -x "$MODEL_DIR/bin/llama-server" ]]; then
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF
   "$CMAKE" --build "$BUILD" -j"$(nproc 2>/dev/null || echo 4)" --target llama-server
-  cp -a "$BUILD/bin/." "$MODEL_DIR/bin/"
+  cp -a "$BUILD/bin/." "$(dirname "$SERVER_BIN")/"
 else
-  echo "[dev:model:setup] server already built: $MODEL_DIR/bin/llama-server"
+  echo "[dev:model:setup] server already built: $SERVER_BIN"
 fi
 
 echo "[dev:model:setup] ready under $MODEL_DIR"

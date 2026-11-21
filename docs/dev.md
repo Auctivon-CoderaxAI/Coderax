@@ -6,14 +6,14 @@ No more four terminals or hunting orphaned PIDs.
 
 ## Commands
 
-| Command                   | What it does                                                                                                                              |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev:up`          | Builds missing workspace packages, then starts Mongo, the model, the API and the client; polls readiness for each and records its PID.    |
-| `npm run dev:down`        | Stops the client, the API, the model and Mongo in reverse order (SIGTERM, then SIGKILL after 10s). Mongo data and the model stay on disk. |
-| `npm run dev:status`      | Prints service, PID, port, state and log location. Exits non-zero unless every service is ready.                                          |
-| `npm run dev:probe`       | Signs in, opens the guest session the browser uses, reads `/api/models`, sends one chat completion, and names the layer that failed.      |
-| `npm run dev:model`       | Runs the local llama.cpp server in the foreground (the same start script `dev:up` uses).                                                  |
-| `npm run dev:model:setup` | Downloads the GGUF and builds `llama-server` into `.dev/model` when they are missing.                                                     |
+| Command                   | What it does                                                                                                                                                                 |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev:up`          | Builds missing workspace packages, then starts Mongo, the model, the API and the client; polls readiness for each and records its PID.                                       |
+| `npm run dev:down`        | Stops the client, the API, the model and Mongo in reverse order (SIGTERM, then SIGKILL after 10s). Mongo data and the model stay on disk.                                    |
+| `npm run dev:status`      | Prints service, PID, port, state and log location. Exits non-zero unless every service is ready.                                                                             |
+| `npm run dev:probe`       | Signs in, opens the guest session the browser uses, reads `/api/models`, sends one chat completion, hard-loads the conversation it created, and names the layer that failed. |
+| `npm run dev:model`       | Runs the local llama.cpp server in the foreground (the same start script `dev:up` uses).                                                                                     |
+| `npm run dev:model:setup` | Downloads the GGUF and builds `llama-server` at the paths `.env` configures, when they are missing.                                                                          |
 
 `dev:probe` accepts `--base` to check a different origin, for example the Vite proxy:
 
@@ -28,13 +28,17 @@ npm run dev:probe -- --base http://127.0.0.1:3090
 | Mongo            | `127.0.0.1:27017` | `scripts/dev/mongo.mjs` (`mongodb-memory-server`, WiredTiger) | TCP connect succeeds             |
 | Model            | `127.0.0.1:8080`  | `scripts/dev/model.sh` (`llama-server`)                       | `GET /health` answers            |
 | API              | `127.0.0.1:3080`  | `api/server/index.js`                                         | `GET /readyz` answers 200        |
-| Client           | `0.0.0.0:3090`    | `cd client && npm run dev`                                    | `GET /` answers                  |
-| Client (preview) | `0.0.0.0:3090`    | `npm run build:client`, then `npm run preview-prod`           | `GET /` and `/api/config` answer |
+| Client           | `127.0.0.1:3090`  | `cd client && npm run dev`                                    | `GET /` answers                  |
+| Client (preview) | `127.0.0.1:3090`  | `npm run build:client`, then `npm run preview-prod`           | `GET /` and `/api/config` answer |
 
 The client proxies `/api` and `/oauth` to the API, so the app is served at
 `http://localhost:3090` while `SERVE_CLIENT=false` keeps the API from needing
 `client/dist`. Without that flag the API would either crash on a missing build or
 serve a placeholder shell that makes a missing build look healthy.
+
+The client binds loopback by default because its proxy forwards to the API. Set
+`DEV_VITE_HOST=0.0.0.0` to reach it from another machine or through a preview proxy;
+the proxy target stays the API host (`DEV_API_HOST`, loopback by default).
 
 ## Built-client preview
 
@@ -58,8 +62,8 @@ changed.
 `dev:up` writes two gitignored files if they do not exist:
 
 - `.env` - dev ports, generated JWT/credential secrets, `SERVE_CLIENT=false`,
-  `DEV_CLIENT_MODE=dev`, `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` (default
-  `dev@coderax.local` / `coderax-dev`).
+  `DEV_CLIENT_MODE=dev`, and `DEV_USER_EMAIL` / `DEV_USER_USERNAME` /
+  `DEV_USER_PASSWORD` (the password is generated per install and stays here).
 - `coderax.yaml` - one `endpoints.custom` entry named `llamacpp` pointing at the
   local model (`http://127.0.0.1:8080/v1`).
 
@@ -67,7 +71,9 @@ It enables passwordless guest access (`ENABLE_GUEST_ACCESS=true`), because the
 client's entry screen at `/connect` has no other way in by default, and it
 creates the dev user (email verified) once Mongo is up, so `dev:probe` can sign
 in. Change ports in `.env` and run `dev:up` again; the supervisor reads them
-from there. For a cloud preview, set `VITE_ALLOWED_HOSTS` to the preview hostname.
+from there. For a cloud preview, set `VITE_ALLOWED_HOSTS` to the preview hostname
+and `DEV_VITE_HOST=0.0.0.0` so the proxy can reach the dev server. `DEV_MONGO_PORT`
+and the port in `MONGO_URI` must match: `dev:up` refuses to start otherwise.
 
 ## Model artifacts
 
@@ -115,6 +121,11 @@ system can report it) and is never killed silently.
    one guest USER that expires after a week.
 6. `models` - `GET /api/models` for the `llamacpp` endpoint.
 7. `chat` - one `POST /api/agents/chat` turn, streamed to its final event.
+8. `route` - hard-loads `/c/<conversation id>` on the client origin (a full page
+   load, not client-side routing), expects the shell, and resolves its entry script
+   through the shell's `<base href>` as a browser would; a missing base makes it ask
+   for `/c/assets/...` and fail here instead of in the browser.
 
 Environment overrides: `DEV_ENDPOINT` (default `llamacpp`), `LLAMA_BASE_URL`,
-`DEV_PROBE_BASE`, `DEV_PROBE_CHAT_TIMEOUT_MS`.
+`DEV_PROBE_BASE`, `DEV_PROBE_CLIENT` (default the `DEV_VITE_PORT` origin),
+`DEV_PROBE_CHAT_TIMEOUT_MS`.

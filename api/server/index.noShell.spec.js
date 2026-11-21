@@ -76,19 +76,32 @@ describe('API-only mode (SERVE_CLIENT=false)', () => {
     mongoServer = await MongoMemoryServer.create();
     process.env.MONGO_URI = mongoServer.getUri();
 
-    /* index.js listens at module scope and exports only the app, so capture the server to close it. */
-    const listenSpy = jest.spyOn(express.application, 'listen');
-    app = require('~/server');
-    await healthCheckPoll(app);
-    await readinessCheckPoll(app);
-    server = listenSpy.mock.results[0].value;
-    listenSpy.mockRestore();
+    /* index.js starts listening asynchronously and exports only the app, so capture
+       the server as listen runs; a failed poll still leaves a server to close. */
+    const listen = express.application.listen;
+    const listenSpy = jest.spyOn(express.application, 'listen').mockImplementation(function (
+      ...args
+    ) {
+      server = listen.apply(this, args);
+      return server;
+    });
+    try {
+      app = require('~/server');
+      await healthCheckPoll(app);
+      await readinessCheckPoll(app);
+    } finally {
+      listenSpy.mockRestore();
+    }
   });
 
   afterAll(async () => {
     delete process.env.SERVE_CLIENT;
-    await promisify(server.close).call(server);
-    await mongoServer.stop();
+    if (server) {
+      await promisify(server.close).call(server);
+    }
+    if (mongoServer) {
+      await mongoServer.stop();
+    }
     await mongoose.disconnect();
   });
 
