@@ -1,5 +1,6 @@
 import net from 'node:net';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,40 +12,11 @@ export const LOG_DIR = path.join(DEV_DIR, 'logs');
 
 export const npmCommand = () => (process.platform === 'win32' ? 'npm.cmd' : 'npm');
 
-/**
- * Minimal KEY=value reader with dotenv's inline-comment rules: a `#` that starts
- * a word ends an unquoted value, and a quoted value ends at its closing quote.
- * A `#` inside a word stays part of the value, so generated secrets survive.
- */
-export function parseEnv(text) {
-  const env = {};
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) {
-      continue;
-    }
-    const separator = line.indexOf('=');
-    if (separator === -1) {
-      continue;
-    }
-    const key = line.slice(0, separator).trim();
-    let value = line.slice(separator + 1).trim();
-    const quote = value[0];
-    if (quote === '"' || quote === "'") {
-      const close = value.indexOf(quote, 1);
-      if (close !== -1) {
-        value = value.slice(1, close);
-      }
-    } else {
-      const comment = value.search(/\s#/);
-      if (comment !== -1) {
-        value = value.slice(0, comment).trim();
-      }
-    }
-    env[key] = value;
-  }
-  return env;
-}
+// Use the same parser and dependency as the API.
+const { parse: parseEnv } = createRequire(new URL('../../api/package.json', import.meta.url))(
+  'dotenv',
+);
+export { parseEnv };
 
 /** `.env` values, with the real process environment taking precedence. */
 export function loadEnv() {
@@ -82,6 +54,15 @@ export function isAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+}
+
+/** Linux process starts are measured relative to a particular boot. */
+export function bootId() {
+  try {
+    return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || null;
+  } catch {
+    return null;
   }
 }
 

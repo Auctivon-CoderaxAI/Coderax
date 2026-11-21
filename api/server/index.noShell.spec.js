@@ -96,13 +96,19 @@ describe('API-only mode (SERVE_CLIENT=false)', () => {
 
   afterAll(async () => {
     delete process.env.SERVE_CLIENT;
-    if (server) {
-      await promisify(server.close).call(server);
+    try {
+      if (server) {
+        await promisify(server.close).call(server);
+      }
+    } finally {
+      try {
+        if (mongoServer) {
+          await mongoServer.stop();
+        }
+      } finally {
+        await mongoose.disconnect();
+      }
     }
-    if (mongoServer) {
-      await mongoServer.stop();
-    }
-    await mongoose.disconnect();
   });
 
   it('boots and answers API health without a client build', async () => {

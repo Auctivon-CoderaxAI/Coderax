@@ -15,6 +15,7 @@
  */
 import net from 'node:net';
 
+import { mongoUri } from './services.mjs';
 import { loadEnv } from './lib.mjs';
 
 const env = loadEnv();
@@ -34,7 +35,7 @@ const clientBase = (
 
 const endpoint = env.DEV_ENDPOINT || 'llamacpp';
 const email = env.DEV_USER_EMAIL || 'dev@coderax.local';
-const password = env.DEV_USER_PASSWORD || 'coderax-dev';
+const password = env.DEV_USER_PASSWORD;
 const modelBase = (
   env.LLAMA_BASE_URL || `http://127.0.0.1:${env.DEV_MODEL_PORT || 8080}/v1`
 ).replace(/\/+$/, '');
@@ -181,7 +182,7 @@ async function readSse(response) {
 }
 
 async function main() {
-  const mongo = mongoAddress(env.MONGO_URI || 'mongodb://127.0.0.1:27017/Coderax');
+  const mongo = mongoAddress(mongoUri(env));
 
   await layer('mongo', async () => {
     if (!(await connectTcp(mongo.host, mongo.port))) {
@@ -239,6 +240,9 @@ async function main() {
 
   let token;
   await layer('auth', async () => {
+    if (!password) {
+      throw new LayerError('auth', 'set DEV_USER_PASSWORD in .env before running the probe');
+    }
     const response = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       // No Origin/Sec-Fetch-Site: this is a CLI, not a browser page. The same-origin

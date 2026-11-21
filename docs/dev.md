@@ -2,7 +2,7 @@
 
 `npm run dev:up` starts the whole local stack, waits for every service to be ready,
 records each PID and writes each log. `npm run dev:down` stops the same processes.
-No more four terminals or hunting orphaned PIDs.
+The supervisor uses Linux `/proc` to verify process identity.
 
 ## Commands
 
@@ -73,7 +73,16 @@ creates the dev user (email verified) once Mongo is up, so `dev:probe` can sign
 in. Change ports in `.env` and run `dev:up` again; the supervisor reads them
 from there. For a cloud preview, set `VITE_ALLOWED_HOSTS` to the preview hostname
 and `DEV_VITE_HOST=0.0.0.0` so the proxy can reach the dev server. `DEV_MONGO_PORT`
-and the port in `MONGO_URI` must match: `dev:up` refuses to start otherwise.
+and the port in `MONGO_URI` must match when both are set. When only
+`DEV_MONGO_PORT` is set, the supervisor uses it to construct the local URI.
+`MONGO_URI` must point to loopback for the managed stack.
+
+If an existing local dev account still uses the old shared password, keep the
+stack on loopback while you rotate it. With the intended local `MONGO_URI` in
+`.env`, run `npm run reset-password`, then set `DEV_USER_PASSWORD` to the new
+value in `.env` for `dev:probe`. Restarting the stack does not change existing
+accounts. Use network binding only on a trusted network; guest access and
+registration are enabled in the generated configuration.
 
 ## Model artifacts
 
@@ -96,15 +105,17 @@ about 1 GB).
 ## State and logs
 
 ```
-.dev/run/<service>.json     recorded PID, port, command, start time
+.dev/run/<service>.json     recorded PID, port, command, boot ID and process start time
 .dev/logs/<service>.log     stdout/stderr of the started process
 .dev/mongo/                 Mongo data directory
 .dev/model/                 model binary and weights
 .dev/cache/                 downloaded mongod binary
 ```
 
-`dev:down` removes the PID record for each service it stops. If a record is stale
-the process is gone and only the file is cleaned up. A port that answers without a
+`dev:down` removes the PID record for each service it stops. If the process has
+exited or its identity cannot be verified, only the record is removed. Records
+from older versions without a boot ID cannot be verified; stop any still
+running services from those versions before starting the updated supervisor. A port that answers without a
 record is reported as `untracked` by `dev:status` (with the listening PID when the
 system can report it) and is never killed silently.
 

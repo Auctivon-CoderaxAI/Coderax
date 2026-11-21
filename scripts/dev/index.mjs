@@ -17,6 +17,7 @@ import {
   DEV_DIR,
   LOG_DIR,
   ROOT,
+  bootId,
   clearRecord,
   isAlive,
   listenerPid,
@@ -31,7 +32,7 @@ import {
   waitFor,
   writeRecord,
 } from './lib.mjs';
-import { assertMongoEndpoint, createServices, ports } from './services.mjs';
+import { assertMongoEndpoint, createServices, mongoUri, ports } from './services.mjs';
 
 const command = process.argv[2] ?? 'status';
 
@@ -192,7 +193,11 @@ function ensureDevUser(env) {
   }
   const email = env.DEV_USER_EMAIL || 'dev@coderax.local';
   const username = env.DEV_USER_USERNAME || 'dev';
-  const password = env.DEV_USER_PASSWORD || 'coderax-dev';
+  const password = env.DEV_USER_PASSWORD;
+  if (!password || password === 'coderax-dev') {
+    console.warn('! skipping dev user setup: set a unique DEV_USER_PASSWORD in .env');
+    return;
+  }
   const result = spawnSync(
     process.execPath,
     ['config/create-user.js', email, 'Dev User', username, password, '--email-verified=true'],
@@ -211,11 +216,14 @@ function ensureDevUser(env) {
 
 const commandLine = (service) => [service.command, ...service.args].join(' ');
 
+const currentBoot = bootId();
+
 function recordFor(service, pid) {
   return {
     service: service.name,
     pid,
     pidStart: pidStartTime(pid),
+    bootId: currentBoot,
     port: service.port,
     command: commandLine(service),
     cwd: service.cwd,
@@ -224,19 +232,20 @@ function recordFor(service, pid) {
   };
 }
 
-/** A recorded PID is ours only while its kernel start time is unchanged. */
-function recordIsCurrent(record) {
-  if (!record?.pidStart) {
-    return true;
-  }
-  const current = pidStartTime(record.pid);
-  return current === null || current === record.pidStart;
+function ownsPid(record) {
+  return Boolean(
+    record?.pidStart &&
+      currentBoot &&
+      record.bootId === currentBoot &&
+      pidStartTime(record.pid) === record.pidStart &&
+      isAlive(record.pid),
+  );
 }
 
 /** Returns true when this call started the service. */
 async function startService(service) {
   const record = readRecord(service.name);
-  if (record && isAlive(record.pid) && recordIsCurrent(record)) {
+  if (ownsPid(record)) {
     if (record.command !== commandLine(service)) {
       console.log(`▸ ${service.name} was started with a different command; restarting`);
       await stopService(service);
@@ -254,12 +263,8 @@ async function startService(service) {
       return false;
     }
   }
-  if (record && !recordIsCurrent(record)) {
-    console.log(
-      `▸ ${service.name}: recorded pid ${record.pid} was reused by another process; starting fresh`,
-    );
-  }
   if (record) {
+    console.log(`▸ ${service.name}: clearing stale PID record for ${record.pid}`);
     clearRecord(service.name);
   }
 
@@ -343,20 +348,18 @@ async function stopService(service) {
     console.log(`• ${service.name}: stale pid ${record.pid} (not running)`);
     return;
   }
-  if (!recordIsCurrent(record)) {
+  if (!ownsPid(record)) {
     clearRecord(service.name);
-    console.log(
-      `• ${service.name}: pid ${record.pid} was reused by another process; not signalling it`,
-    );
+    console.log(`• ${service.name}: pid ${record.pid} could not be verified; not signalling it`);
     return;
   }
   process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
   signal(record.pid, 'SIGTERM');
-  let stopped = await waitFor(async () => !isAlive(record.pid), { timeoutMs: 10_000 });
-  if (!stopped) {
+  let stopped = await waitFor(async () => !ownsPid(record), { timeoutMs: 10_000 });
+  if (!stopped && ownsPid(record)) {
     process.stdout.write('SIGKILL ');
     signal(record.pid, 'SIGKILL');
-    stopped = await waitFor(async () => !isAlive(record.pid), { timeoutMs: 3000 });
+    stopped = await waitFor(async () => !ownsPid(record), { timeoutMs: 3000 });
   }
   clearRecord(service.name);
   await waitFor(async () => !(await tcpOpen(service.port)), { timeoutMs: 5000 });
@@ -368,7 +371,7 @@ async function status(services, env) {
   let allReady = true;
   for (const service of services) {
     const record = readRecord(service.name);
-    const alive = record ? isAlive(record.pid) : false;
+    const alive = ownsPid(record);
     const ready = await service.ready().catch(() => false);
     const holder = !alive && !ready ? listenerPid(service.port) : null;
     let state = 'stopped';
@@ -412,8 +415,12 @@ async function status(services, env) {
 }
 
 async function up() {
+  if (!currentBoot || !pidStartTime(process.pid)) {
+    throw new Error('dev:up requires Linux /proc process and boot information');
+  }
   const env = ensureEnv();
   assertMongoEndpoint(env);
+  env.MONGO_URI = mongoUri(env);
   ensureConfig(env);
   ensureBuild();
   ensureClientBuild(env);

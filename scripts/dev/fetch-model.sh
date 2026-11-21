@@ -43,7 +43,13 @@ if [[ ! -x "$SERVER_BIN" ]]; then
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF
   "$CMAKE" --build "$BUILD" -j"$(nproc 2>/dev/null || echo 4)" --target llama-server
-  cp -a "$BUILD/bin/." "$(dirname "$SERVER_BIN")/"
+  for artifact in "$BUILD/bin/"*; do
+    if [[ "${artifact##*/}" == llama-server ]]; then
+      cp -a "$artifact" "$SERVER_BIN"
+    else
+      cp -a "$artifact" "$(dirname "$SERVER_BIN")/"
+    fi
+  done
 else
   echo "[dev:model:setup] server already built: $SERVER_BIN"
 fi

@@ -1,14 +1,15 @@
 import path from 'node:path';
+import { isIP } from 'node:net';
 import { ROOT, httpOk, npmCommand, tcpOpen } from './lib.mjs';
 
 const LOOPBACK = '127.0.0.1';
 
+export function mongoUri(env) {
+  return env.MONGO_URI || `mongodb://${LOOPBACK}:${env.DEV_MONGO_PORT || 27017}/Coderax`;
+}
+
 export function ports(env) {
-  const mongoPort = Number(
-    env.DEV_MONGO_PORT ||
-      new URL(env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/Coderax').port ||
-      27017,
-  );
+  const mongoPort = Number(env.DEV_MONGO_PORT || new URL(mongoUri(env)).port || 27017);
   return {
     mongo: mongoPort,
     model: Number(env.DEV_MODEL_PORT || 8080),
@@ -27,8 +28,12 @@ function clientMode(env) {
  * MONGO_URI, so the two must name the same port or the API reaches nothing.
  */
 export function assertMongoEndpoint(env) {
-  const uriPort = new URL(env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/Coderax').port || '27017';
-  if (env.DEV_MONGO_PORT && String(env.DEV_MONGO_PORT) !== uriPort) {
+  const uri = new URL(mongoUri(env));
+  if (uri.protocol !== 'mongodb:' || ![LOOPBACK, 'localhost'].includes(uri.hostname)) {
+    throw new Error('MONGO_URI must point to the supervised MongoDB on loopback.');
+  }
+  const uriPort = uri.port || '27017';
+  if (env.DEV_MONGO_PORT && Number(env.DEV_MONGO_PORT) !== Number(uriPort)) {
     throw new Error(
       `DEV_MONGO_PORT=${env.DEV_MONGO_PORT} but MONGO_URI uses port ${uriPort}; ` +
         'the API would not reach the supervised mongod. Make both ports match in .env.',
@@ -36,15 +41,21 @@ export function assertMongoEndpoint(env) {
   }
 }
 
+function httpOrigin(host, port) {
+  const address = host === '0.0.0.0' ? LOOPBACK : host === '::' ? '::1' : host;
+  return `http://${isIP(address) === 6 ? `[${address}]` : address}:${port}`;
+}
+
 export function createServices(env) {
   const port = ports(env);
   const modelId = env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct';
   const preview = clientMode(env) === 'preview';
-  const clientOrigin = `http://${LOOPBACK}:${port.vite}`;
   /* Loopback by default: the Vite proxy forwards to the API, so binding it to
      every interface would publish that API to the network. */
   const viteHost = env.DEV_VITE_HOST || LOOPBACK;
   const apiHost = env.DEV_API_HOST || LOOPBACK;
+  const clientOrigin = httpOrigin(viteHost, port.vite);
+  const apiOrigin = httpOrigin(apiHost, port.api);
 
   return [
     {
@@ -82,10 +93,11 @@ export function createServices(env) {
         HOST: apiHost,
         PORT: String(port.api),
         NODE_ENV: 'development',
+        MONGO_URI: mongoUri(env),
         SERVE_CLIENT: 'false',
       },
-      detail: `http://${LOOPBACK}:${port.api}`,
-      ready: () => httpOk(`http://${LOOPBACK}:${port.api}/readyz`),
+      detail: apiOrigin,
+      ready: () => httpOk(`${apiOrigin}/readyz`),
     },
     {
       name: 'vite',
@@ -115,7 +127,7 @@ export function createServices(env) {
         BACKEND_HOST: apiHost,
         BACKEND_PORT: String(port.api),
       },
-      detail: `${clientOrigin} ${preview ? 'built client' : 'vite dev'} -> ${LOOPBACK}:${port.api}`,
+      detail: `${clientOrigin} ${preview ? 'built client' : 'vite dev'} -> ${apiOrigin}`,
       // The preview is only useful if its proxy reaches the API as well.
       ready: preview
         ? async () =>
