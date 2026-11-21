@@ -107,7 +107,13 @@ function readRecord(name) {
     throw error;
   }
   // Legacy records can identify a gone group, but cannot authorize signaling.
-  const { pid, token } = raw.startsWith('{') ? JSON.parse(raw) : { pid: Number(raw) };
+  let record;
+  try {
+    record = raw.startsWith('{') ? JSON.parse(raw) : { pid: Number(raw) };
+  } catch {
+    fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
+  }
+  const { pid, token } = record;
   if (!Number.isSafeInteger(pid) || pid <= 1 || (token != null && !/^[a-f0-9-]{36}$/.test(token))) {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
