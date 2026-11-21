@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef } from 'react';
-import { useAtom } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { createStorageAtom } from '~/store/jotai-utils';
 
 /** Product surfaces a conversation can be worked in. */
@@ -16,6 +16,39 @@ export type StoredConversationMode = ConversationMode | LegacyConversationMode;
 export type ConversationModeRecord = Partial<Record<string, StoredConversationMode>>;
 
 export const conversationModesStorageKey = (userId: string) => `conversationModes:${userId}`;
+
+/** Keep exactly one Jotai storage atom per account so sidebar rows and the
+ * active conversation observe mode changes in the same tab. */
+const conversationModesAtoms = new Map<
+  string,
+  ReturnType<typeof createStorageAtom<ConversationModeRecord>>
+>();
+
+export function getConversationModesAtom(userId: string) {
+  const key = conversationModesStorageKey(userId);
+  const cached = conversationModesAtoms.get(key);
+  if (cached) {
+    return cached;
+  }
+  const modesAtom = createStorageAtom<ConversationModeRecord>(key, {});
+  conversationModesAtoms.set(key, modesAtom);
+  return modesAtom;
+}
+
+/** A sidebar row never writes a mode; it only reads this account's saved value.
+ * Normalize old 'work' entries as canonical 'code', but leave absent/invalid
+ * entries unbadged instead of guessing the route's default. */
+export function useSavedConversationMode(
+  userId: string | undefined,
+  conversationId: string | undefined,
+): ConversationMode | undefined {
+  const modesAtom = useMemo(() => getConversationModesAtom(userId ?? ''), [userId]);
+  const modes = useAtomValue(modesAtom);
+  if (!conversationId) {
+    return undefined;
+  }
+  return normaliseMode(modes?.[conversationId]);
+}
 
 /** Canonical mode for any stored or submitted value; `undefined` when it names none. */
 export function normaliseMode(value: unknown): ConversationMode | undefined {
@@ -70,10 +103,7 @@ export function useStoredConversationMode({
   initialMode: StoredConversationMode;
   forceInitialMode?: boolean;
 }) {
-  const modesAtom = useMemo(
-    () => createStorageAtom<ConversationModeRecord>(conversationModesStorageKey(userId), {}),
-    [userId],
-  );
+  const modesAtom = useMemo(() => getConversationModesAtom(userId), [userId]);
   const [modes, setModes] = useAtom(modesAtom);
   const saved = modes?.[conversationId];
   const forcedModeKey = JSON.stringify([userId, conversationId]);
