@@ -4,9 +4,9 @@
  *   npm run dev:up     start Mongo, the API, the local model and the UI; wait until each answers
  *   npm run dev:down   stop what `dev:up` started
  *
- * Each service runs in its own process group, appends to .dev/logs/<name>.log and
+ * Each service runs in its own process group, writes to .dev/logs/<name>.log and
  * records its PID in .dev/pids/<name>.pid. `dev:down` signals the whole group, so
- * the npm/nodemon wrapper layers cannot leave an orphan behind.
+ * shutdown can reach children even when the group leader has exited.
  *
  * Override: CODERAX_PREVIEW_HOST or VITE_ALLOWED_HOSTS, the hostname the preview
  * is served from.
@@ -21,6 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { binPath, ggufPath, port as modelPort, serverArgs } from './model-paths.mjs';
+import { mongoPort } from './mongo-port.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const devDir = path.join(repoRoot, '.dev');
@@ -37,7 +38,9 @@ const previewHost = (
 const services = [
   {
     name: 'mongo',
-    port: 27017,
+    get port() {
+      return mongoPort();
+    },
     timeoutMs: 30_000,
     command: () => ({ file: nodeBin, args: [path.join(repoRoot, 'scripts/dev/mongo.mjs')] }),
   },
@@ -46,7 +49,7 @@ const services = [
     port: 3080,
     timeoutMs: 90_000,
     probe: () => httpOk('http://127.0.0.1:3080/api/config'),
-    env: { NODE_ENV: 'development', VERCEL: '1' },
+    env: { NODE_ENV: 'development', VERCEL: '1', CODERAX_LOCAL_DEV: '1' },
     command: () => ({
       file: nodeBin,
       args: [path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js'), 'api/server/index.js'],
@@ -107,6 +110,21 @@ function alive(pid) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function groupAlive(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') {
+      return false;
+    }
+    if (error.code === 'EPERM') {
+      return true;
+    }
+    throw error;
   }
 }
 
@@ -185,7 +203,10 @@ async function up() {
 
   for (const service of services) {
     const recorded = readPid(service.name);
-    if (recorded != null && alive(recorded)) {
+    if (recorded != null && groupAlive(recorded)) {
+      if (!alive(recorded)) {
+        fail(`${service.name}: process group ${recorded} has no leader; run npm run dev:down`);
+      }
       log(`${service.name} already running (pid ${recorded})`);
       if (!(await waitReady(service, recorded))) {
         fail(
@@ -196,15 +217,15 @@ async function up() {
     }
     clearPid(service.name);
 
+    if (service.available && !service.available()) {
+      log(`skipping ${service.name}: ${service.skipped}`);
+      continue;
+    }
+
     if (await portOpen(service.port)) {
       fail(
         `port ${service.port} is already in use by a process dev:up did not start; stop it, then retry`,
       );
-    }
-
-    if (service.available && !service.available()) {
-      log(`skipping ${service.name}: ${service.skipped}`);
-      continue;
     }
 
     const pid = startService(service);
@@ -223,52 +244,60 @@ async function up() {
 function signalGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
-    return true;
   } catch (error) {
     if (error.code !== 'ESRCH') {
       throw error;
     }
-  }
-  try {
-    process.kill(pid, signal);
-    return true;
-  } catch {
-    return false;
   }
 }
 
 async function waitExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!alive(pid)) {
+    if (!groupAlive(pid)) {
       return true;
     }
     await sleep(250);
   }
-  return false;
+  return !groupAlive(pid);
 }
 
 async function down() {
+  let stopped = true;
   for (const service of [...services].reverse()) {
     const pid = readPid(service.name);
     if (pid == null) {
       log(`${service.name}: not started by dev:up`);
       continue;
     }
-    if (!alive(pid)) {
+    if (!groupAlive(pid)) {
       clearPid(service.name);
       log(`${service.name}: already stopped (stale pid file removed)`);
       continue;
     }
-    signalGroup(pid, 'SIGTERM');
-    if (!(await waitExit(pid, 10_000))) {
-      signalGroup(pid, 'SIGKILL');
-      await waitExit(pid, 2_000);
+    try {
+      signalGroup(pid, 'SIGTERM');
+      if (!(await waitExit(pid, 10_000))) {
+        signalGroup(pid, 'SIGKILL');
+        if (!(await waitExit(pid, 2_000))) {
+          throw new Error('still exists after SIGKILL');
+        }
+      }
+    } catch (error) {
+      console.error(
+        `[dev] ${service.name}: could not stop process group ${pid}: ${error.message}; PID record kept`,
+      );
+      stopped = false;
+      continue;
     }
     clearPid(service.name);
     log(`${service.name}: stopped`);
   }
-  log('stack is down');
+  if (stopped) {
+    log('stack is down');
+  } else {
+    process.exitCode = 1;
+  }
 }
 
 async function status() {
@@ -292,8 +321,11 @@ async function status() {
           ok: false,
         };
       }
+      if (!groupAlive(pid)) {
+        return { service, pid, state: 'stale pid file (process group is gone)', ok: false };
+      }
       if (!alive(pid)) {
-        return { service, pid, state: 'stale pid file (process is gone)', ok: false };
+        return { service, pid, state: 'process group is running without its leader', ok: false };
       }
       if (service.available && !service.available()) {
         return { service, pid, state: 'not installed', ok: false };
@@ -312,12 +344,16 @@ async function status() {
 }
 
 const action = process.argv[2];
-if (action === 'up') {
-  await up();
-} else if (action === 'down') {
-  await down();
-} else if (action === 'status') {
-  await status();
-} else {
-  fail('usage: node scripts/dev/stack.mjs <up|down|status>');
+try {
+  if (action === 'up') {
+    await up();
+  } else if (action === 'down') {
+    await down();
+  } else if (action === 'status') {
+    await status();
+  } else {
+    fail('usage: node scripts/dev/stack.mjs <up|down|status>');
+  }
+} catch (error) {
+  fail(error.message);
 }

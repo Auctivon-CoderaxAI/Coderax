@@ -45,7 +45,7 @@
     "backend": "cross-env NODE_ENV=production node api/server/index.js",
     "backend:inspect": "cross-env NODE_ENV=production node --inspect --expose-gc api/server/index.js",
     "backend:dev": "cross-env NODE_ENV=development npx nodemon api/server/index.js",
-    "dev:api": "cross-env NODE_ENV=development VERCEL=1 npx nodemon api/server/index.js",
+    "dev:api": "cross-env NODE_ENV=development VERCEL=1 CODERAX_LOCAL_DEV=1 npx nodemon api/server/index.js",
     "dev:up": "node scripts/dev/stack.mjs up",
     "dev:down": "node scripts/dev/stack.mjs down",
     "dev:status": "node scripts/dev/stack.mjs status",

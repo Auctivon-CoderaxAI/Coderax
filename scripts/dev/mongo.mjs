@@ -18,8 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
+import { mongoPort } from './mongo-port.mjs';
+
 const host = '127.0.0.1';
-const port = Number(process.env.CODERAX_MONGO_PORT ?? 27017);
 const dbPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.dev/mongo/data');
 
 function fail(message) {
@@ -27,8 +28,11 @@ function fail(message) {
   process.exit(1);
 }
 
-if (!Number.isInteger(port) || port < 1 || port > 65535) {
-  fail(`invalid CODERAX_MONGO_PORT: ${process.env.CODERAX_MONGO_PORT}`);
+let port;
+try {
+  port = mongoPort();
+} catch (error) {
+  fail(error.message);
 }
 
 /** An occupied port otherwise surfaces as an opaque mongod stack trace. */
