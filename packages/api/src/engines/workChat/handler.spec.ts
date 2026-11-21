@@ -577,6 +577,338 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
+  it('surfaces an existing-conversation read failure as unavailable', async () => {
+    const { store, getConversation, saveConversation } = fakeStore();
+    getConversation.mockRejectedValueOnce(new Error('database offline'));
+    const { runner, start, release } = fakeRunner();
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_UNAVAILABLE' });
+    expect(response.chunks).toHaveLength(0);
+    expect(start).not.toHaveBeenCalled();
+    expect(saveConversation).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('starts with the request alone when the transcript read fails', async () => {
+    const { store, loadTranscript, saveConversation } = fakeStore();
+    loadTranscript.mockRejectedValueOnce(new Error('transcript unavailable'));
+    const { runner, start, release, handle } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Fix it' }));
+    expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
+      terminalStatus: 'complete',
+    });
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'completed' }),
+    );
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+    );
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('returns 503 and releases the reservation when start throws', async () => {
+    const { store, saveConversation } = fakeStore();
+    const { runner, start, release } = fakeRunner();
+    start.mockRejectedValueOnce(new Error('engine crashed'));
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_UNAVAILABLE' });
+    expect(response.chunks).toHaveLength(0);
+    expect(saveConversation).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('cancels and releases when the running-state conversation save fails', async () => {
+    const { store, saveConversation } = fakeStore();
+    saveConversation.mockImplementation(async (input) => {
+      if (input.workState === 'running') throw new Error('database offline');
+    });
+    const { runner, handle, release } = fakeRunner();
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_UNAVAILABLE' });
+    expect(response.chunks).toHaveLength(0);
+    expect(saveConversation).toHaveBeenCalledTimes(1);
+    expect(handle.cancel).toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+    );
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('sends a terminal error and releases leases when the final conversation save fails', async () => {
+    const { store, saveConversation, saveMessage } = fakeStore();
+    saveConversation.mockImplementation(async (input) => {
+      if (input.workState === 'completed') throw new Error('database offline');
+    });
+    const { runner, handle, release } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
+      terminalStatus: 'error',
+      responseMessage: {
+        text: 'hello',
+        unfinished: true,
+        error: 'The engine reply could not be saved.',
+      },
+      error: { message: 'The engine reply could not be saved.' },
+    });
+    expect(saveMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ text: 'hello', isCreatedByUser: false }),
+    );
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      workState: 'failed',
+    });
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+    );
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+    expect(response.ended).toBe(true);
+  });
+
+  it('sends a terminal error when the assistant message cannot be saved', async () => {
+    const { store, saveConversation, saveMessage } = fakeStore();
+    saveMessage.mockImplementation(async (input) => {
+      if (!input.isCreatedByUser) throw new Error('database offline');
+    });
+    const { runner, handle, release } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
+      terminalStatus: 'error',
+      responseMessage: {
+        unfinished: true,
+        error: 'The engine reply could not be saved.',
+      },
+      error: { message: 'The engine reply could not be saved.' },
+    });
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      workState: 'failed',
+    });
+    expect(saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'completed' }),
+    );
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+    );
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('records a failed turn when the run result rejects', async () => {
+    const { store, saveConversation } = fakeStore();
+    const { runner, handle, release } = fakeRunner([{ type: 'text_delta', text: 'partial' }]);
+    handle.result = Promise.reject(new Error('provider failed'));
+    await handle.result.catch(() => undefined);
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
+      terminalStatus: 'error',
+      responseMessage: { unfinished: true, error: 'The OpenCode run failed.' },
+      error: { message: 'The OpenCode run failed.' },
+    });
+    expect(saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'failed' }),
+    );
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+    );
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  it('cancels once and releases leases when the client disconnects mid-stream', async () => {
+    const { store, saveConversation, saveMessage } = fakeStore();
+    const releaseRun = jest.fn(() => true);
+    let releaseStream: (() => void) | undefined;
+    let signalFirst: (() => void) | undefined;
+    const first = new Promise<void>((resolve) => {
+      signalFirst = resolve;
+    });
+    const handle: EngineRunHandle = {
+      sessionId: 'session-mid-stream',
+      events: (async function* () {
+        yield { type: 'text_delta' as const, text: 'hello' };
+        signalFirst?.();
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        yield { type: 'text_delta' as const, text: ' world' };
+      })(),
+      cancel: jest.fn(async () => {
+        releaseStream?.();
+      }),
+      result: Promise.resolve({
+        ok: false as const,
+        error: { code: 'cancelled' as const, message: 'The run was cancelled.' },
+      }),
+      close: jest.fn(async () => undefined),
+    };
+    const release = jest.fn(() => true);
+    const runner: EngineWorkChatRunner = {
+      start: jest.fn(async () => ({ ok: true as const, value: handle })),
+      state: jest.fn(() => null),
+      cancel: jest.fn(async () => false),
+      release,
+      snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
+    };
+    const response = fakeResponse();
+    const pending = Promise.resolve(
+      createEngineWorkChatHandler({
+        storeFor: () => store,
+        runtimeFor: () => runner,
+        reserveRun: () => true,
+        releaseRun,
+      })(
+        fakeRequest({ body: { text: 'Fix it', conversationId: CONVERSATION_ID } }),
+        response as unknown as Response,
+        jest.fn(),
+      ),
+    );
+
+    try {
+      const outcome = await Promise.race([
+        first.then(() => 'streaming' as const),
+        pending.then(
+          () => 'settled' as const,
+          () => 'rejected' as const,
+        ),
+      ]);
+      expect(outcome).toBe('streaming');
+      const beforeClose = response.chunks.length;
+      expect(beforeClose).toBeGreaterThan(0);
+
+      response.destroyed = true;
+      response.listeners.close?.forEach((listener) => listener());
+      releaseStream?.();
+      await pending;
+
+      expect(response.statusCode).toBe(200);
+      expect(response.chunks).toHaveLength(beforeClose);
+      expect(sseEvents(response).some((event) => event.final === true)).toBe(false);
+      expect(handle.cancel).toHaveBeenCalledTimes(1);
+      expect(saveMessage).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ isCreatedByUser: false, unfinished: true }),
+      );
+      expect(saveConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'cancelled' }),
+      );
+      expect(release).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
+      );
+      expect(releaseRun).toHaveBeenCalledWith({
+        userId: 'owner',
+        tenantId: 'tenant-1',
+        conversationId: CONVERSATION_ID,
+      });
+    } finally {
+      releaseStream?.();
+      await pending.catch(() => undefined);
+    }
+  });
+
   it('cancels a run when the client disconnects before startup finishes', async () => {
     const { store } = fakeStore();
     const handle = fakeHandle([]);
