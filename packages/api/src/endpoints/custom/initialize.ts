@@ -180,6 +180,7 @@ function buildAnthropicCustomConfig({
  */
 export async function initializeCustom(
   params: ProviderInitializeParams,
+  freeOpenRouterCredentialPresent = false,
 ): Promise<InitializeResultBase> {
   const { endpoint, model_parameters, db } = params;
   const { appConfig, user, requestBody } = resolveEndpointRuntime(params);
@@ -188,7 +189,7 @@ export async function initializeCustom(
   if (isFreeOpenRouterEndpoint(endpoint)) {
     const catalog = describeFreeInferenceCatalog(
       { freeInference: appConfig?.config?.freeInference, endpoints: appConfig?.endpoints },
-      process.env,
+      { OPENROUTER_API_KEY: freeOpenRouterCredentialPresent ? 'present' : undefined },
     );
     const model = model_parameters?.model;
     const executable =

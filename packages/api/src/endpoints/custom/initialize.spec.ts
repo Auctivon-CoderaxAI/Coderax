@@ -47,38 +47,32 @@ import { SCOPED_TOKEN_CONFIG_KEY_PREFIX } from '../keys';
 describe('initializeCustom – free OpenRouter', () => {
   it('executes only the credentialed, enabled server catalog model', async () => {
     const env = { OPENROUTER_API_KEY: 'fake-key' };
-    const restoreEnv = jest.replaceProperty(process, 'env', env);
-    try {
-      const config = { freeInference: { enabled: true, openRouterMaxOutputTokens: 8192 } };
-      const endpoints = { custom: buildFreeInferenceCustomEndpoints(config, env) };
-      const [endpoint] = endpoints.custom;
-      const params = createParams({});
-      params.endpoint = endpoint.name;
-      params.req.config = { ...params.req.config, config, endpoints } as typeof params.req.config;
-      params.model_parameters = { model: endpoint.models.default[0] };
-      mockGetCustomEndpointConfig.mockReturnValue(endpoint);
-      mockGetOpenAIConfig.mockClear();
+    const config = { freeInference: { enabled: true, openRouterMaxOutputTokens: 8192 } };
+    const endpoints = { custom: buildFreeInferenceCustomEndpoints(config, env) };
+    const [endpoint] = endpoints.custom;
+    const params = createParams({});
+    params.endpoint = endpoint.name;
+    params.req.config = { ...params.req.config, config, endpoints } as typeof params.req.config;
+    params.model_parameters = { model: endpoint.models.default[0] };
+    mockGetCustomEndpointConfig.mockReturnValue({ ...endpoint, apiKey: 'fake-key' });
+    mockGetOpenAIConfig.mockClear();
 
-      await initializeCustom(params);
-      expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
-      expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
-        'fake-key',
-        expect.objectContaining({ freeOpenRouterMaxOutputTokens: 8192 }),
-        endpoint.name,
-      );
+    await initializeCustom(params, true);
+    expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
+    expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
+      'fake-key',
+      expect.objectContaining({ freeOpenRouterMaxOutputTokens: 8192 }),
+      endpoint.name,
+    );
 
-      params.model_parameters = { model: 'unlisted/model:free' };
-      await expect(initializeCustom(params)).rejects.toThrow('selected free OpenRouter model');
-      params.model_parameters = { model: endpoint.models.default[0] };
-      config.freeInference.enabled = false;
-      await expect(initializeCustom(params)).rejects.toThrow('selected free OpenRouter model');
-      config.freeInference.enabled = true;
-      delete (env as Partial<typeof env>).OPENROUTER_API_KEY;
-      await expect(initializeCustom(params)).rejects.toThrow('selected free OpenRouter model');
-      expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
-    } finally {
-      restoreEnv.restore();
-    }
+    params.model_parameters = { model: 'unlisted/model:free' };
+    await expect(initializeCustom(params, true)).rejects.toThrow('selected free OpenRouter model');
+    params.model_parameters = { model: endpoint.models.default[0] };
+    config.freeInference.enabled = false;
+    await expect(initializeCustom(params, true)).rejects.toThrow('selected free OpenRouter model');
+    config.freeInference.enabled = true;
+    await expect(initializeCustom(params)).rejects.toThrow('selected free OpenRouter model');
+    expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
   });
 });
 
