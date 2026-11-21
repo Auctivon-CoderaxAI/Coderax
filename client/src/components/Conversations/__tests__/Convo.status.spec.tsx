@@ -1,7 +1,7 @@
 import { createStore, Provider } from 'jotai';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import type { ConversationMode } from '~/components/Chat/mode';
+import type { StoredConversationMode } from '~/components/Chat/mode';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
 import { getConversationModesAtom } from '~/components/Chat/mode';
@@ -84,7 +84,7 @@ const conversation = {
  *  saved by one test's localStorage write cannot leak into the next one. */
 const renderRow = (
   props: { isGenerating?: boolean; convo?: TConversation } = {},
-  modes: Record<string, ConversationMode> = {},
+  modes: Record<string, StoredConversationMode> = {},
 ) => {
   const store = createStore();
   store.set(getConversationModesAtom('user-1'), modes);
