@@ -159,8 +159,18 @@ describe('ExpandedPanel', () => {
   describe('active state (routeActiveId / effectiveActive)', () => {
     const routeLinks = (): NavLink[] => [
       ...createLinks(),
-      { title: 'com_insights_navigation' as const, icon: NotebookPen, id: 'insights', onClick: jest.fn() },
-      { title: 'com_cyvox_robot' as const, icon: NotebookPen, id: 'cyvox-robot', onClick: jest.fn() },
+      {
+        title: 'com_insights_navigation' as const,
+        icon: NotebookPen,
+        id: 'insights',
+        onClick: jest.fn(),
+      },
+      {
+        title: 'com_cyvox_robot' as const,
+        icon: NotebookPen,
+        id: 'cyvox-robot',
+        onClick: jest.fn(),
+      },
     ];
 
     const pressed = (name: string) =>
@@ -204,9 +214,12 @@ describe('ExpandedPanel', () => {
 
     it('activates no link for an unknown cyvox segment', () => {
       renderPanel({ links: routeLinks(), initialPath: '/cyvox/unknown' });
-      ['com_ui_chat_history', 'com_ui_prompts', 'com_insights_navigation', 'com_cyvox_robot'].forEach(
-        (name) => expect(pressed(name)).toBe('false'),
-      );
+      [
+        'com_ui_chat_history',
+        'com_ui_prompts',
+        'com_insights_navigation',
+        'com_cyvox_robot',
+      ].forEach((name) => expect(pressed(name)).toBe('false'));
     });
 
     it('does not treat /cyvox without a trailing segment as a route', () => {
@@ -277,7 +290,6 @@ describe('ExpandedPanel', () => {
       expect(pressed('com_ui_chat_history')).toBe('false');
     });
   });
-
 
   describe('NavIconButton collapse toggle', () => {
     it('keeps chat history expanded when its active icon is clicked', () => {
