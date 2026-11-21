@@ -44,8 +44,10 @@ serve a placeholder shell that makes a missing build look healthy.
 - `coderax.yaml` - one `endpoints.custom` entry named `llamacpp` pointing at the
   local model (`http://127.0.0.1:8080/v1`).
 
-It also creates the dev user (email verified) once Mongo is up, so `dev:probe` can
-sign in. Change ports in `.env` and run `dev:up` again; the supervisor reads them
+It enables passwordless guest access (`ENABLE_GUEST_ACCESS=true`), because the
+client's entry screen at `/connect` has no other way in by default, and it
+creates the dev user (email verified) once Mongo is up, so `dev:probe` can sign
+in. Change ports in `.env` and run `dev:up` again; the supervisor reads them
 from there. For a cloud preview, set `VITE_ALLOWED_HOSTS` to the preview hostname.
 
 ## Model artifacts

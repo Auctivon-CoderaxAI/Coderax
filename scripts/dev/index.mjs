@@ -64,6 +64,9 @@ VITE_ALLOWED_HOSTS=
 ALLOW_EMAIL_LOGIN=true
 ALLOW_REGISTRATION=true
 ALLOW_SOCIAL_LOGIN=false
+# The client's only entry screen is passwordless guest access (`/connect`); without
+# this it reports "Coderax is unavailable" even though the stack is healthy.
+ENABLE_GUEST_ACCESS=true
 # One API process in this environment; the schedule engine refuses to arm otherwise.
 SCHEDULES_SINGLE_PROCESS=true
 
