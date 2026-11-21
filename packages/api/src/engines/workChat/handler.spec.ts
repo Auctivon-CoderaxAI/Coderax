@@ -599,26 +599,41 @@ describe('createEngineWorkChatHandler', () => {
       snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
     };
     const response = fakeResponse();
-    const pending = createEngineWorkChatHandler({
-      storeFor: () => store,
-      runtimeFor: () => runner,
-    })(
-      fakeRequest({ body: { text: 'Fix it', conversationId: CONVERSATION_ID } }),
-      response as unknown as Response,
-      jest.fn(),
+    const pending = Promise.resolve(
+      createEngineWorkChatHandler({
+        storeFor: () => store,
+        runtimeFor: () => runner,
+      })(
+        fakeRequest({ body: { text: 'Fix it', conversationId: CONVERSATION_ID } }),
+        response as unknown as Response,
+        jest.fn(),
+      ),
     );
 
-    await started;
-    response.listeners.close?.forEach((listener) => listener());
-    resolveStart!({ ok: true, value: handle });
-    await pending;
+    try {
+      const first = await Promise.race([
+        started.then(() => 'started' as const),
+        pending.then(
+          () => 'settled' as const,
+          () => 'rejected' as const,
+        ),
+      ]);
+      expect(first).toBe('started');
 
-    expect(handle.cancel).toHaveBeenCalled();
-    expect(store.saveConversation).toHaveBeenCalledWith({
-      conversationId: CONVERSATION_ID,
-      workState: 'cancelled',
-    });
-    expect(response.status).not.toHaveBeenCalled();
-    expect(response.end).not.toHaveBeenCalled();
+      response.listeners.close?.forEach((listener) => listener());
+      resolveStart!({ ok: true, value: handle });
+      await pending;
+
+      expect(handle.cancel).toHaveBeenCalled();
+      expect(store.saveConversation).toHaveBeenCalledWith({
+        conversationId: CONVERSATION_ID,
+        workState: 'cancelled',
+      });
+      expect(response.status).not.toHaveBeenCalled();
+      expect(response.end).not.toHaveBeenCalled();
+    } finally {
+      resolveStart?.({ ok: true, value: handle });
+      await pending.catch(() => undefined);
+    }
   });
 });
