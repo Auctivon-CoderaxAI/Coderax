@@ -283,7 +283,7 @@ describe('ConversationsSection section order', () => {
       ],
     };
     mockPinnedResult.data = {
-      conversations: [{ conversationId: 'work-2', title: 'Pinned Work', isWork: true }],
+      conversations: [{ conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true }],
       nextCursor: null,
     };
 
@@ -302,7 +302,7 @@ describe('ConversationsSection section order', () => {
         (mockPinnedConversationsRender.mock.calls.at(-1)?.[0] as {
           conversations: Array<{ isWork?: boolean }>;
         }).conversations,
-        ).toEqual([{ conversationId: 'work-2', title: 'Pinned Work', isWork: true }]);
+        ).toEqual([{ conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true }]);
     } finally {
       mockConversationsResult.data = previousChats;
       mockPinnedResult.data = previousPins;

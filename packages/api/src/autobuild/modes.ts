@@ -15,7 +15,7 @@ export const BUILD_GATES = ['tests', 'build', 'review', 'security'] as const;
 export type BuildGate = (typeof BUILD_GATES)[number];
 
 /** The turbo target: a verified MVP, not merely a finished-looking run. */
-export const TURBO_15_BUDGET_MS = 15 * 60_000;
+export const TURBO_15_BUDGET_MS: number = 15 * 60_000;
 
 /** A dependency chain longer than this cannot target a 15-minute MVP honestly. */
 export const TURBO_MAX_CRITICAL_PATH = 6;
@@ -158,7 +158,12 @@ export function assessRequestComplexity(request: string): ComplexityAssessment {
     score += 1;
     reasons.push('The request asks for a complete or production-level result.');
   }
-  const complexity: BuildComplexity = score >= 5 ? 'complex' : score >= 3 ? 'moderate' : 'simple';
+  let complexity: BuildComplexity = 'simple';
+  if (score >= 5) {
+    complexity = 'complex';
+  } else if (score >= 3) {
+    complexity = 'moderate';
+  }
   return {
     complexity,
     surfaces,
@@ -168,7 +173,7 @@ export function assessRequestComplexity(request: string): ComplexityAssessment {
   };
 }
 
-export interface ModeDecision {
+export interface BuildModeDecision {
   mode: BuildMode;
   requested: BuildMode;
   degraded: boolean;
@@ -184,7 +189,7 @@ export function chooseEffectiveMode(input: {
   requested: BuildMode;
   plan?: BuildPlan | null;
   request?: string;
-}): ModeDecision {
+}): BuildModeDecision {
   const { requested, plan, request } = input;
   if (requested !== 'turbo15') {
     return { mode: requested, requested, degraded: false };
@@ -196,11 +201,7 @@ export function chooseEffectiveMode(input: {
   const explicitRequest = request?.trim();
   const planRequest = plan?.request?.trim();
   const assessedRequest =
-    explicitRequest != null && explicitRequest.length > 0
-      ? explicitRequest
-      : planRequest != null && planRequest.length > 0
-        ? planRequest
-        : null;
+    [explicitRequest, planRequest].find((value) => value != null && value.length > 0) ?? null;
   const requestAssessment =
     assessedRequest == null ? null : assessRequestComplexity(assessedRequest);
 
