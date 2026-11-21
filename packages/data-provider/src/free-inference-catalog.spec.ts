@@ -111,6 +111,20 @@ describe('zero-cost catalog to Work projection', () => {
     expect(mergeFreeInferenceCustomEndpoints(config, openRouterKey)).toBe(config);
   });
 
+  it.each([
+    { apiKey: 'user_provided' },
+    { name: 'freeopenrouter' },
+    { addParams: { model: 'paid-model' } },
+    { models: { default: ['paid-model'], fetch: true } },
+  ])('blocks an unsafe reserved custom endpoint override (%j)', (override) => {
+    const [endpoint] = buildFreeInferenceCustomEndpoints(enabled, openRouterKey);
+    const config = {
+      ...enabled,
+      endpoints: { custom: [{ ...endpoint, ...override }] },
+    };
+    expect(buildFreeInferenceWorkSources(config, openRouterKey)).toEqual([]);
+  });
+
   it('recognizes an existing canonical free endpoint without duplicating it', () => {
     const modelId = 'nvidia/nemotron-3-ultra-550b-a55b:free';
     const config = {
@@ -120,6 +134,7 @@ describe('zero-cost catalog to Work projection', () => {
           {
             name: 'FreeOpenRouter',
             baseURL: 'https://openrouter.ai/api/v1',
+            apiKey: '${OPENROUTER_API_KEY}',
             models: { default: [modelId] },
           },
         ],

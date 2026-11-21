@@ -5,6 +5,8 @@ import {
   EModelEndpoint,
   FetchTokenConfig,
   extractEnvVariable,
+  describeFreeInferenceCatalog,
+  isFreeOpenRouterEndpoint,
 } from 'coderax-data-provider';
 import type { TEndpoint } from 'coderax-data-provider';
 import type { AppConfig } from '@coderax/data-schemas';
@@ -182,6 +184,20 @@ export async function initializeCustom(
   const { endpoint, model_parameters, db } = params;
   const { appConfig, user, requestBody } = resolveEndpointRuntime(params);
   const { key: expiresAt } = requestBody;
+
+  if (isFreeOpenRouterEndpoint(endpoint)) {
+    const catalog = describeFreeInferenceCatalog(
+      { freeInference: appConfig?.config?.freeInference, endpoints: appConfig?.endpoints },
+      process.env,
+    );
+    const executable = catalog.executableProviders.some(
+      (provider) =>
+        provider.name === endpoint && provider.models.includes(model_parameters?.model ?? ''),
+    );
+    if (!executable) {
+      throw new Error('The selected free OpenRouter model is unavailable.');
+    }
+  }
 
   const endpointConfig = getCustomEndpointConfig({
     endpoint,

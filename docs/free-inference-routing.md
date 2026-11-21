@@ -1,7 +1,7 @@
 # Zero-cost hybrid inference routing
 
-Coderax routes a turn across an allowlist of provider endpoints whose documented
-price is $0. The preferred model is the full **DeepSeek-R1 671B**. When no
+Native Work can use a server-owned allowlist of OpenRouter models whose
+documented price is $0. The preferred model is the full **DeepSeek-R1 671B**. When no
 verified free endpoint serves it, the router says so and uses the best verified
 free fallback instead. There is no paid route in the code, and none can be
 configured into existence.
@@ -21,7 +21,7 @@ configured into existence.
 | Composer badge | `client/src/components/Chat/Input/WorkRoutingBadge.tsx` | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled |
 | Config                | `freeInference` in `coderax.yaml`                                        | Disabled by default; budgets, retries, cooldown and timeouts are operator levers                                          |
 
-## Routing order
+## Routing planner order
 
 ```mermaid
 flowchart TD
@@ -56,9 +56,13 @@ freeInference:
   requestTimeoutMs: 60000
 ```
 
-Credentials are environment variables, read server-side only: `OPENROUTER_API_KEY`,
-`GROQ_API_KEY`, `CLOUDFLARE_API_TOKEN` (plus `CLOUDFLARE_ACCOUNT_ID` for Workers AI).
-They are never placed in `coderax.yaml`, the client bundle or a routing response.
+For native Work, set `freeInference.enabled: true` in the backend's active YAML
+and supply `OPENROUTER_API_KEY` as a server-only secret. Coderax registers
+`FreeOpenRouter` automatically. The OCI stack loads
+`deploy/oci/coderax.oci.yaml` and passes its server environment through
+`deploy/oci/app.env`. Vercel forwards Work API traffic to that origin, so the
+secret belongs on the backend. Groq and Cloudflare remain blocked because
+Coderax cannot verify the account billing plan.
 
 ## Verified evidence (2026-11-08)
 
@@ -75,7 +79,7 @@ Read from the providers' live documentation and catalogs, not from memory:
   and `qwen/qwen3.8-27b`; no DeepSeek-R1 671B endpoint.
 
 Consequence: **the preferred model is marked unavailable**, with
-`reason: no_verified_free_endpoint` and the evidence above. The fallback chain is
+`reason: no_verified_free_endpoint` and the evidence above. The historical candidate list was
 `nvidia/nemotron-3-ultra-550b-a55b:free`, `openai/gpt-oss-120b` on Groq,
 `nvidia/nemotron-3.5-lightning:free`, Llama 3.3 70B on Workers AI, and
 `google/gemma-4-31b-it:free`.
@@ -104,15 +108,14 @@ alone.
 2. **No credentials were available in the build environment.** Every endpoint is
    therefore `blocked` in the committed report. Authenticated inference was not
    verified, so the PR does not claim it.
-3. **The chat transport is not rewired.** This PR ships the routing authority,
-   budgets, checkpoints and status endpoint. The existing endpoint clients still
-   own chat completions; pointing them at this router is the next change and is
-   deliberately separate so production behavior is preserved until that adapter
-   is verified.
-4. **No screenshots.** The badge is covered by a focused component test, but a
-   local app plus database was not available in this environment, so no
-   before/after screenshot is included. A visual claim without a running app
-   would be fabricated.
+3. **Native Work uses its existing agent transport.** The reserved endpoint
+   accepts only the exact catalogued `:free` models. Its final HTTP adapter
+   accepts chat completions at the canonical URL, rejects redirects, caps the
+   output at 4,096 tokens, and sends zero provider price ceilings. Alternate
+   model lists, provider preferences and plugins are excluded from the request.
+   The separate routing planner still owns its in-memory quota, retry and
+   cooldown simulation. Native Work does not use it to retry a turn or switch
+   models.
 
 ## Hard zero-cost rules encoded in code
 

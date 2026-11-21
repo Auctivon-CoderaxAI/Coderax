@@ -1,6 +1,12 @@
 import { Providers } from '@librechat/agents';
 import { Agent, fetch as undiciFetch } from 'undici';
-import { KnownEndpoints, EModelEndpoint, ReasoningParameterFormat } from 'coderax-data-provider';
+import {
+  KnownEndpoints,
+  EModelEndpoint,
+  ReasoningParameterFormat,
+  FREE_OPENROUTER_URL,
+  isFreeOpenRouterEndpoint,
+} from 'coderax-data-provider';
 import type { Dispatcher } from 'undici';
 import type * as t from '~/types';
 import { getGoogleConfig, stripGeminiFlashBlockedParams } from '~/endpoints/google/llm';
@@ -12,6 +18,7 @@ import { constructAzureResponsesURL } from '~/utils/azure';
 import { transformToOpenAIConfig } from './transform';
 import { createFetch } from '~/utils/generators';
 import { mergeHeaders } from '~/utils/headers';
+import { createFreeOpenRouterFetch } from './freeOpenRouter';
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type FetchOptions = RequestInit & { dispatcher?: Dispatcher };
@@ -320,6 +327,13 @@ export function getOpenAIConfig(
         redirect: shouldProtectUserBaseURL ? 'error' : undefined,
       }) as unknown as Fetch;
     }
+  }
+
+  if (isFreeOpenRouterEndpoint(endpoint)) {
+    if (baseURL !== FREE_OPENROUTER_URL) {
+      throw new Error('Invalid free OpenRouter endpoint.');
+    }
+    configOptions.fetch = createFreeOpenRouterFetch(undiciFetch) as unknown as Fetch;
   }
 
   const result: t.OpenAIConfigResult = {
