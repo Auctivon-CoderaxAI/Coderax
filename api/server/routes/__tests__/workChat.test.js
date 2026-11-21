@@ -2,6 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const http = require('node:http');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
+const { load } = require('js-yaml');
+const {
+  buildFreeInferenceWorkSources,
+  configSchema,
+  describeFreeInferenceCatalog,
+} = require('coderax-data-provider');
 const { createWorkApiRouter } = require('../workApi');
 const {
   createWorkChatRouter,
@@ -35,6 +43,37 @@ const response = () => ({
 });
 
 const noConversationSeed = async () => ({ seeded: false, reason: 'no_target' });
+
+test('active OCI Work config refuses every hosted free model without the server key', async () => {
+  const filename = path.resolve(__dirname, '../../../../deploy/oci/coderax.oci.yaml');
+  const config = configSchema.parse(load(readFileSync(filename, 'utf8')));
+  const env = {};
+  const catalog = describeFreeInferenceCatalog(config, env);
+
+  assert.equal(catalog.enabled, true);
+  assert.deepEqual(catalog.executableProviders, []);
+  const openRouter = catalog.endpoints.filter((entry) => entry.provider === 'openrouter');
+  assert.ok(openRouter.length > 0);
+  assert.ok(openRouter.every((entry) => entry.blocked === 'missing_credential'));
+  assert.deepEqual(buildFreeInferenceWorkSources(config, env), []);
+
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [LOCAL.id] }),
+    () => null,
+    noConversationSeed,
+    undefined,
+    undefined,
+    () => buildFreeInferenceWorkSources(config, env),
+  );
+  for (const { modelId } of catalog.endpoints) {
+    const res = response();
+    await middleware({ body: { model: modelId } }, res, () => {
+      assert.fail('A hosted model reached the native runner without credentials');
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.payload.error, 'WORK_MODEL_NOT_ALLOWED');
+  }
+});
 
 test('auto resolves through the configured default when it is offered', () => {
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'llama3:latest'), {

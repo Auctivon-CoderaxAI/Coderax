@@ -58,10 +58,10 @@ freeInference:
 
 For native Work, set `freeInference.enabled: true` in the backend's active YAML
 and supply `OPENROUTER_API_KEY` as a server-only secret. Coderax registers
-`FreeOpenRouter` automatically. The OCI stack loads
-`deploy/oci/coderax.oci.yaml` and passes its server environment through
-`deploy/oci/app.env`. Vercel forwards Work API traffic to that origin, so the
-secret belongs on the backend. Groq and Cloudflare remain blocked because
+`FreeOpenRouter` automatically. The OCI stack already opts in through
+`deploy/oci/coderax.oci.yaml`. The owner supplies the key securely through the
+backend's `deploy/oci/app.env`. Until then, OCI offers zero hosted free providers
+to native Work. Vercel forwards Work API traffic to that origin. Groq and Cloudflare remain blocked because
 Coderax cannot verify the account billing plan.
 
 ## Verified evidence (2026-11-08)

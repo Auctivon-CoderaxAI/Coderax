@@ -74,10 +74,14 @@ test('Vercel uses the authenticated proxy for every API and health rewrite', asy
   }
 });
 
-test('OCI uses private local Qwen and never opens cloud inference', async () => {
+test('OCI keeps Ollama private and opts native Work into free inference', async () => {
   const config = await read('deploy/oci/coderax.oci.yaml');
   const compose = await read('deploy/oci/compose.yaml');
   const app = serviceBlock(compose, 'app');
+  assert.match(config, /^freeInference:\r?\n {2}enabled: true\r?$/m);
+  assert.doesNotMatch(config, /^\s*(?:OPENROUTER_API_KEY|name: FreeOpenRouter)/m);
+  assert.match(app, /env_file:\s+- \.\/app\.env/);
+  assert.match(app, /CONFIG_PATH: \/app\/deploy\/oci\/coderax\.yaml/);
   assert.match(config, /baseURL: http:\/\/ollama:11434\/v1\//);
   assert.match(config, /qwen3\.5:9b[\s\S]*qwen3\.5:4b/);
   assert.match(app, /\.\/coderax\.oci\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
