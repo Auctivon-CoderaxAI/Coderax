@@ -11,7 +11,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, rmdirSync, writeFileSync } from 'node:fs';
 
 import {
   DEV_DIR,
@@ -26,6 +26,7 @@ import {
   logTail,
   npmCommand,
   pidStartTime,
+  readProcessStat,
   readRecord,
   signal,
   tcpOpen,
@@ -216,16 +217,28 @@ function ensureDevUser(env) {
 
 const commandLine = (service) => [service.command, ...service.args].join(' ');
 
-const currentBoot = bootId();
+const currentBoot = pidStartTime(process.pid) ? bootId() : null;
+
+// Record only listener and access settings, never credentials or the full environment.
+function accessSettings(service) {
+  let keys = [];
+  if (service.name === 'api') {
+    keys = ['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN'];
+  } else if (service.name === 'vite') {
+    keys = ['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS'];
+  }
+  return JSON.stringify(keys.map((key) => service.env[key] ?? null));
+}
 
 function recordFor(service, pid) {
   return {
     service: service.name,
     pid,
-    pidStart: pidStartTime(pid),
+    pidStart: currentBoot ? pidStartTime(pid) : null,
     bootId: currentBoot,
     port: service.port,
     command: commandLine(service),
+    accessSettings: accessSettings(service),
     cwd: service.cwd,
     startedAt: new Date().toISOString(),
     log: logPath(service.name),
@@ -242,13 +255,33 @@ function ownsPid(record) {
   );
 }
 
+function isStaleRecord(record) {
+  if (!currentBoot) {
+    return false;
+  }
+  if (record.bootId && currentBoot !== record.bootId) {
+    return true;
+  }
+  const stat = readProcessStat(record.pid);
+  return Boolean(
+    stat &&
+      (stat.state === 'Z' || (record.bootId && record.pidStart && stat.start !== record.pidStart)),
+  );
+}
+
 /** Returns true when this call started the service. */
 async function startService(service) {
   const record = readRecord(service.name);
   if (ownsPid(record)) {
-    if (record.command !== commandLine(service)) {
-      console.log(`▸ ${service.name} was started with a different command; restarting`);
-      await stopService(service);
+    if (
+      record.command !== commandLine(service) ||
+      record.port !== service.port ||
+      record.accessSettings !== accessSettings(service)
+    ) {
+      console.log(`▸ ${service.name} configuration changed; restarting`);
+      if (!(await stopService(service))) {
+        throw new ServiceError(service, `could not stop ${service.name} before restarting it`);
+      }
     } else {
       if (await service.ready()) {
         console.log(`• ${service.name} already running (pid ${record.pid})`);
@@ -264,6 +297,12 @@ async function startService(service) {
     }
   }
   if (record) {
+    if (isAlive(record.pid) && !isStaleRecord(record)) {
+      throw new ServiceError(
+        service,
+        `${service.name}: pid ${record.pid} could not be verified; stop it manually before restarting`,
+      );
+    }
     console.log(`▸ ${service.name}: clearing stale PID record for ${record.pid}`);
     clearRecord(service.name);
   }
@@ -341,29 +380,42 @@ async function stopService(service) {
   const record = readRecord(service.name);
   if (!record) {
     console.log(`• ${service.name}: no PID recorded`);
-    return;
+    return true;
   }
   if (!isAlive(record.pid)) {
     clearRecord(service.name);
     console.log(`• ${service.name}: stale pid ${record.pid} (not running)`);
-    return;
+    return true;
   }
   if (!ownsPid(record)) {
-    clearRecord(service.name);
-    console.log(`• ${service.name}: pid ${record.pid} could not be verified; not signalling it`);
-    return;
+    if (isStaleRecord(record)) {
+      clearRecord(service.name);
+      console.log(`• ${service.name}: stale pid ${record.pid} (identity changed)`);
+      return true;
+    }
+    console.error(`! ${service.name}: pid ${record.pid} could not be verified; stop it manually`);
+    return false;
   }
   process.stdout.write(`▸ stopping ${service.name} (pid ${record.pid}) `);
   signal(record.pid, 'SIGTERM');
-  let stopped = await waitFor(async () => !ownsPid(record), { timeoutMs: 10_000 });
+  const exited = async () => {
+    const stat = readProcessStat(record.pid);
+    return stat ? stat.start !== record.pidStart || stat.state === 'Z' : !isAlive(record.pid);
+  };
+  let stopped = await waitFor(exited, { timeoutMs: 10_000 });
   if (!stopped && ownsPid(record)) {
     process.stdout.write('SIGKILL ');
     signal(record.pid, 'SIGKILL');
-    stopped = await waitFor(async () => !ownsPid(record), { timeoutMs: 3000 });
+    stopped = await waitFor(exited, { timeoutMs: 3000 });
+  }
+  if (!stopped) {
+    console.log('could not confirm exit; keeping the PID record');
+    return false;
   }
   clearRecord(service.name);
-  await waitFor(async () => !(await tcpOpen(service.port)), { timeoutMs: 5000 });
-  console.log(stopped ? 'stopped' : 'still running, check the log');
+  const portClosed = await waitFor(async () => !(await tcpOpen(record.port)), { timeoutMs: 5000 });
+  console.log(portClosed ? 'stopped' : `stopped, but port ${record.port} is still in use`);
+  return portClosed;
 }
 
 async function status(services, env) {
@@ -384,7 +436,7 @@ async function status(services, env) {
     if (alive) {
       pidLabel = String(record.pid);
     } else if (record) {
-      pidLabel = `stale ${record.pid}`;
+      pidLabel = `${isAlive(record.pid) ? 'unverified' : 'stale'} ${record.pid}`;
     }
     if (!ready) {
       allReady = false;
@@ -415,8 +467,10 @@ async function status(services, env) {
 }
 
 async function up() {
-  if (!currentBoot || !pidStartTime(process.pid)) {
-    throw new Error('dev:up requires Linux /proc process and boot information');
+  if (!currentBoot) {
+    console.warn(
+      '! Process identity is unavailable; stop services manually using the reported PIDs.',
+    );
   }
   const env = ensureEnv();
   assertMongoEndpoint(env);
@@ -443,14 +497,14 @@ async function up() {
     for (const service of started.reverse()) {
       await stopService(service);
     }
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   ensureDevUser(env);
   console.log('');
   await status(services, env);
   console.log('\n✔ local environment is up');
-  process.exit(0);
 }
 
 function modelSetup() {
@@ -469,9 +523,13 @@ async function down() {
   const env = loadEnv();
   const services = createServices(env);
   for (const service of [...services].reverse()) {
-    await stopService(service);
+    if (!(await stopService(service))) {
+      process.exitCode = 1;
+    }
   }
-  console.log('\n✔ local environment is down');
+  if (!process.exitCode) {
+    console.log('\n✔ local environment is down');
+  }
 }
 
 function usage() {
@@ -483,11 +541,29 @@ function usage() {
   model:setup  download the GGUF and build llama-server at the .env paths`);
 }
 
+async function withLifecycleLock(run) {
+  mkdirSync(DEV_DIR, { recursive: true });
+  const lock = path.join(DEV_DIR, 'lifecycle.lock');
+  try {
+    mkdirSync(lock);
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+    throw new Error(
+      'dev:up or dev:down already holds .dev/lifecycle.lock. Remove it only if neither command is running.',
+    );
+  }
+  try {
+    await run();
+  } finally {
+    rmdirSync(lock);
+  }
+}
+
 const main = async () => {
-  if (command === 'up') {
-    await up();
-  } else if (command === 'down') {
-    await down();
+  if (command === 'up' || command === 'down') {
+    await withLifecycleLock(command === 'up' ? up : down);
   } else if (command === 'status') {
     const env = loadEnv();
     const services = createServices(env);

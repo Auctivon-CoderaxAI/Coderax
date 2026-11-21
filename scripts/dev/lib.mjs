@@ -71,17 +71,22 @@ export function bootId() {
  * recorded service apart from an unrelated process that reused its PID.
  * Returns null where /proc is unavailable.
  */
-export function pidStartTime(pid) {
+export function readProcessStat(pid) {
   if (!Number.isInteger(pid) || pid <= 0) {
     return null;
   }
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-    return fields[19] ?? null;
+    return fields[19] ? { start: fields[19], state: fields[0] } : null;
   } catch {
     return null;
   }
+}
+
+export function pidStartTime(pid) {
+  const stat = readProcessStat(pid);
+  return stat && stat.state !== 'Z' ? stat.start : null;
 }
 
 /** Signal the child's process group so npm and spawned children stop too. */

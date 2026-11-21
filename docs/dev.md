@@ -2,10 +2,11 @@
 
 `npm run dev:up` starts the whole local stack, waits for every service to be ready,
 records each PID and writes each log. `npm run dev:down` stops the same processes.
-`dev:up` is supported on Linux with readable `/proc` process and boot information.
-It exits before starting services when that information is unavailable (including
-on macOS and native Windows). `dev:down` only signals processes whose identity it
-can verify.
+When Linux `/proc` process and boot information is unavailable, `dev:up` can
+still start the services if their prerequisites are available. The supervisor
+reports their PIDs but cannot verify them on later invocations. Stop those
+services manually after checking their identity, then rerun `dev:down` to
+remove the records. `dev:down` exits nonzero if it cannot confirm shutdown.
 
 ## Commands
 
@@ -115,12 +116,18 @@ about 1 GB).
 .dev/cache/                 downloaded mongod binary
 ```
 
-`dev:down` removes the PID record for each service it stops. If the process has
-exited or its identity cannot be verified, only the record is removed. Records
-from older versions without a boot ID cannot be verified; stop any still
-running services from those versions before starting the updated supervisor. A port that answers without a
-record is reported as `untracked` by `dev:status` (with the listening PID when the
-system can report it) and is never killed silently.
+`dev:down` keeps live PID records when it cannot verify their identity or confirm
+exit. Records from older versions without a boot ID cannot be verified; stop
+any still running services from those versions before starting the updated
+supervisor. An untracked listener is never stopped by the supervisor.
+
+Changes to listener addresses, ports, the client proxy or guest access,
+registration and email login settings cause the affected service to restart on
+`dev:up`. Use a full `dev:down` and `dev:up` for other environment changes.
+
+Only one `dev:up` or `dev:down` can run at a time. If a command was killed and
+left `.dev/lifecycle.lock` behind, remove that empty directory only after
+confirming neither command is running.
 
 ## Probe layers
 
