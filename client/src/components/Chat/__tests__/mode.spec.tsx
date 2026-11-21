@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { useStoredConversationMode } from '../mode';
+import { normaliseMode, useStoredConversationMode } from '../mode';
 
 beforeEach(() => localStorage.clear());
 
@@ -12,7 +12,7 @@ it('can adopt an acknowledged conversation when stored mode data is null', () =>
   );
   act(() => result.current.adoptConversation('server-id'));
   rerender({ conversationId: 'server-id' });
-  expect(result.current.mode).toBe('work');
+  expect(result.current.mode).toBe('code');
 });
 
 it('restores a conversation mode after a reload and isolates it from other conversations and accounts', () => {
@@ -30,7 +30,7 @@ it('restores a conversation mode after a reload and isolates it from other conve
       useStoredConversationMode({ userId, conversationId, initialMode: 'chat' }),
     { initialProps: { userId: 'owner-a', conversationId: 'conversation-a' } },
   );
-  expect(restored.result.current.mode).toBe('work');
+  expect(restored.result.current.mode).toBe('code');
   restored.rerender({ userId: 'owner-a', conversationId: 'conversation-b' });
   expect(restored.result.current.mode).toBe('chat');
   restored.rerender({ userId: 'owner-b', conversationId: 'conversation-a' });
@@ -71,7 +71,52 @@ it('honors an explicit Work deep link over a saved Chat mode', () => {
     }),
   );
 
-  expect(workLink.result.current.mode).toBe('work');
+  expect(workLink.result.current.mode).toBe('code');
   act(() => workLink.result.current.setMode('chat'));
   expect(workLink.result.current.mode).toBe('chat');
+});
+
+it('opens a legacy stored work value on the code surface', () => {
+  localStorage.setItem('conversationModes:owner', JSON.stringify({ legacy: 'work' }));
+  const { result } = renderHook(() =>
+    useStoredConversationMode({
+      userId: 'owner',
+      conversationId: 'legacy',
+      initialMode: 'chat',
+    }),
+  );
+  expect(result.current.mode).toBe('code');
+});
+
+it('stores the canonical name under the account-scoped key', () => {
+  const { result } = renderHook(() =>
+    useStoredConversationMode({
+      userId: 'owner',
+      conversationId: 'conversation-a',
+      initialMode: 'chat',
+    }),
+  );
+  act(() => result.current.setMode('work'));
+  expect(JSON.parse(localStorage.getItem('conversationModes:owner') ?? '{}')).toEqual({
+    'conversation-a': 'code',
+  });
+});
+
+it('supports the review surface and normalises anything that names no mode', () => {
+  const { result } = renderHook(() =>
+    useStoredConversationMode({
+      userId: 'owner',
+      conversationId: 'conversation-a',
+      initialMode: 'chat',
+    }),
+  );
+  act(() => result.current.setMode('review'));
+  expect(result.current.mode).toBe('review');
+
+  expect(normaliseMode('work')).toBe('code');
+  expect(normaliseMode(' CODE ')).toBe('code');
+  expect(normaliseMode('Review')).toBe('review');
+  expect(normaliseMode('builder')).toBeUndefined();
+  expect(normaliseMode(null)).toBeUndefined();
+  expect(normaliseMode(7)).toBeUndefined();
 });

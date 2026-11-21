@@ -36,7 +36,7 @@ function setup() {
       <ConversationModeContext.Provider
         value={{
           selectionKey: `selection-test-${scope++}`,
-          mode: 'work',
+          mode: 'code',
           setMode: jest.fn(),
           adoptConversation: jest.fn(),
         }}
