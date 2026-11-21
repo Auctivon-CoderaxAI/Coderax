@@ -1,6 +1,5 @@
 import { Schema } from 'mongoose';
 import {
-  isTerminalWorkflowRunStatus,
   WORKFLOW_BUILD_BASE_REF_MAX_LENGTH,
   WORKFLOW_BUILD_GATES,
   WORKFLOW_BUILD_MODES,
@@ -214,6 +213,12 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
     currentStep: { type: Number, min: 0, default: 0 },
     steps: { type: [workflowStepRunSchema], required: true },
     settings: { type: workflowSettingsSchema },
+    /**
+     * Internal reservation key for a build checkout. Set only while the run is
+     * unsettled; cleared centrally when the run becomes terminal. Sparse so
+     * ordinary workflow runs do not participate in the reservation index.
+     */
+    workspaceKey: { type: String, maxlength: WORKFLOW_BUILD_WORKSPACE_MAX_LENGTH },
     conversationId: { type: String },
     input: { type: String, maxlength: WORKFLOW_RUN_INPUT_MAX_LENGTH },
     trigger: {
@@ -245,19 +250,12 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
 
 workflowRunSchema.index({ user: 1, createdAt: -1 });
 workflowRunSchema.index({ workflowId: 1, createdAt: -1 });
-/** A deployment checkout can only be reserved by one nonterminal run, across owners. */
-workflowRunSchema.index(
-  { 'settings.build.workspace': 1 },
-  {
-    unique: true,
-    partialFilterExpression: {
-      'settings.build.workspace': { $type: 'string' },
-      status: {
-        $in: WORKFLOW_RUN_STATUSES.filter((status) => !isTerminalWorkflowRunStatus(status)),
-      },
-    },
-  },
-);
+/**
+ * One unsettled run may reserve a checkout. The key is global rather than
+ * user-scoped because the deployment's workspace root is shared by every
+ * account, and unique so two replicas cannot both insert a run for it.
+ */
+workflowRunSchema.index({ workspaceKey: 1 }, { unique: true, sparse: true });
 /** The runner's claim query: active runs whose lease has lapsed. */
 workflowRunSchema.index({ status: 1, leaseUntil: 1 });
 /** One automatic occurrence can only ever create one run, across replicas. */

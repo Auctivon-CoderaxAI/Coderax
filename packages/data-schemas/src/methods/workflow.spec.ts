@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { createWorkflowMethods, WorkflowWorkspaceConflictError } from './workflow';
 import { createWorkflowModel, createWorkflowRunModel } from '~/models/workflow';
-import { createWorkflowMethods } from './workflow';
 
 describe('workflow persistence', () => {
   let mongo: MongoMemoryServer;
@@ -22,6 +22,12 @@ describe('workflow persistence', () => {
 
   afterEach(async () => {
     await mongoose.connection.dropDatabase();
+  });
+
+  beforeEach(async () => {
+    // dropDatabase removes the unique reservation index; rebuild it so every
+    // test exercises the same atomic constraint as production.
+    await mongoose.models.WorkflowRun.syncIndexes();
   });
 
   const owner = () => new mongoose.Types.ObjectId().toString();
@@ -76,7 +82,6 @@ describe('workflow persistence', () => {
       steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship the bound change' }],
       settings,
     });
-    await createWorkflowRunModel(mongoose).createIndexes();
     const run = await methods.createWorkflowRun({
       userId,
       workflowId: workflow.id,
@@ -95,26 +100,217 @@ describe('workflow persistence', () => {
 
     const [listed] = await methods.listWorkflowRuns(userId, workflow.id);
     expect(listed.settings?.build?.workspace).toBe('build-checkout');
+    expect(reloaded?.workspaceKey).toBe('build-checkout');
 
-    expect(await methods.hasActiveWorkflowRunForWorkspace({ workspace: 'build-checkout' })).toBe(
-      true,
-    );
-    await expect(
+    const [claimed] = await methods.claimWorkflowRuns({
+      workerId: 'workspace-worker',
+      leaseToken: 'workspace-lease',
+      now: new Date(),
+      leaseUntil: new Date(Date.now() + 30_000),
+      limit: 1,
+    });
+    expect(claimed?.id).toBe(run.id);
+    const failed = await methods.updateWorkflowRun({
+      id: run.id,
+      leaseToken: 'workspace-lease',
+      now: new Date(),
+      patch: { status: 'failed' },
+    });
+    expect(failed?.workspaceKey).toBeUndefined();
+
+    const replacement = await methods.createWorkflowRun({
+      userId,
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      agentId: workflow.agentId,
+      steps: workflow.steps,
+      conversationId: 'conversation-after-settle',
+      settings,
+    });
+    expect(replacement.workspaceKey).toBe('build-checkout');
+  });
+
+  it('reserves a build workspace atomically across users', async () => {
+    const workspace = 'contended-checkout';
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace,
+      },
+    };
+    const buildWorkflow = (userId: string, name: string) =>
+      methods.createWorkflow({
+        userId,
+        name,
+        agentId: 'agent-1',
+        steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship it' }],
+        settings,
+      });
+    const launch = (
+      userId: string,
+      workflow: Awaited<ReturnType<typeof buildWorkflow>>,
+      conversationId: string,
+    ) =>
       methods.createWorkflowRun({
-        userId: owner(),
+        userId,
         workflowId: workflow.id,
         workflowName: workflow.name,
         agentId: workflow.agentId,
         steps: workflow.steps,
-        conversationId: 'second-owner',
+        conversationId,
         settings,
-      }),
-    ).rejects.toMatchObject({ code: 11000, keyPattern: { 'settings.build.workspace': 1 } });
+        trigger: { type: 'manual' as const },
+      });
 
-    await methods.cancelWorkflowRun(run.id, userId, new Date());
-    expect(await methods.hasActiveWorkflowRunForWorkspace({ workspace: 'build-checkout' })).toBe(
-      false,
-    );
+    const firstUser = owner();
+    const secondUser = owner();
+    const [firstWorkflow, secondWorkflow] = await Promise.all([
+      buildWorkflow(firstUser, 'First build'),
+      buildWorkflow(secondUser, 'Second build'),
+    ]);
+
+    const results = await Promise.allSettled([
+      launch(firstUser, firstWorkflow, 'first-conversation'),
+      launch(secondUser, secondWorkflow, 'second-conversation'),
+    ]);
+    const winnerIndex = results.findIndex((result) => result.status === 'fulfilled');
+    expect(winnerIndex).toBeGreaterThanOrEqual(0);
+    const loser = results[winnerIndex === 0 ? 1 : 0];
+    expect(loser.status).toBe('rejected');
+    if (loser.status === 'rejected') {
+      expect(loser.reason).toBeInstanceOf(WorkflowWorkspaceConflictError);
+    }
+
+    const winnerUserId = winnerIndex === 0 ? firstUser : secondUser;
+    const loserUserId = winnerIndex === 0 ? secondUser : firstUser;
+    const loserWorkflow = winnerIndex === 0 ? secondWorkflow : firstWorkflow;
+    const winner = results[winnerIndex];
+    if (winner.status !== 'fulfilled') {
+      throw new Error('expected one workspace reservation winner');
+    }
+    expect(winner.value.id).toBeDefined();
+
+    await methods.cancelWorkflowRun(winner.value.id, winnerUserId, new Date());
+    const retry = await launch(loserUserId, loserWorkflow, 'retry-conversation');
+    expect(retry.workspaceKey).toBe(workspace);
+  });
+
+  it('applies the reservation to event-triggered runs', async () => {
+    const workspace = 'event-checkout';
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace,
+      },
+    };
+    const activeUser = owner();
+    const eventUser = owner();
+    const activeWorkflow = await methods.createWorkflow({
+      userId: activeUser,
+      name: 'Active build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship it' }],
+      settings,
+    });
+    await methods.createWorkflowRun({
+      userId: activeUser,
+      workflowId: activeWorkflow.id,
+      workflowName: activeWorkflow.name,
+      agentId: activeWorkflow.agentId,
+      steps: activeWorkflow.steps,
+      conversationId: 'active-conversation',
+      settings,
+    });
+    const eventWorkflow = await methods.createWorkflow({
+      userId: eventUser,
+      name: 'Event build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship it' }],
+      settings,
+      eventTriggers: [{ eventType: 'deploy.failed', sourceId: 'webhook-1' }],
+    });
+
+    await expect(
+      methods.createWorkflowEventRun({
+        userId: eventUser,
+        workflowId: eventWorkflow.id,
+        eventId: 'event-1',
+        eventType: 'deploy.failed',
+        sourceId: 'webhook-1',
+        now: new Date(),
+      }),
+    ).rejects.toBeInstanceOf(WorkflowWorkspaceConflictError);
+    expect(await methods.listWorkflowRuns(eventUser, eventWorkflow.id)).toEqual([]);
+  });
+
+  it('does not advance a due schedule while its workspace is reserved', async () => {
+    const workspace = 'scheduled-checkout';
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace,
+      },
+    };
+    const activeUser = owner();
+    const scheduledUser = owner();
+    const activeWorkflow = await methods.createWorkflow({
+      userId: activeUser,
+      name: 'Active build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship it' }],
+      settings,
+    });
+    await methods.createWorkflowRun({
+      userId: activeUser,
+      workflowId: activeWorkflow.id,
+      workflowName: activeWorkflow.name,
+      agentId: activeWorkflow.agentId,
+      steps: activeWorkflow.steps,
+      conversationId: 'active-scheduled-conversation',
+      settings,
+    });
+    const scheduledFor = new Date(Date.now() - 60_000);
+    const scheduled = await methods.createWorkflow({
+      userId: scheduledUser,
+      name: 'Scheduled build',
+      agentId: 'agent-1',
+      steps: [{ id: 'ship', title: 'Ship', instruction: 'Ship it' }],
+      settings,
+      schedule: {
+        enabled: true,
+        cadence: { frequency: 'daily', hour: 9, minute: 0 },
+        timezone: 'UTC',
+        nextRunAt: scheduledFor,
+      },
+    });
+    const [claim] = await methods.claimDueWorkflowSchedules({
+      workerId: 'schedule-worker',
+      now: new Date(),
+      leaseUntil: new Date(Date.now() + 30_000),
+      limit: 1,
+    });
+    expect(claim?.id).toBe(scheduled.id);
+    const claimToken = claim?.schedule?.claimToken;
+    expect(claimToken).toBeDefined();
+
+    await expect(
+      methods.completeWorkflowScheduleClaim({
+        workflowId: scheduled.id,
+        claimToken: claimToken as string,
+        scheduledFor,
+        nextRunAt: new Date(scheduledFor.getTime() + 24 * 60 * 60_000),
+        now: new Date(),
+      }),
+    ).rejects.toBeInstanceOf(WorkflowWorkspaceConflictError);
+    expect(await methods.listWorkflowRuns(scheduledUser, scheduled.id)).toEqual([]);
+    const reloaded = await methods.getWorkflow(scheduled.id, scheduledUser);
+    expect(reloaded?.schedule?.nextRunAt?.toISOString()).toBe(scheduledFor.toISOString());
   });
 
   it('leases runs, records approvals and supports pause and resume', async () => {

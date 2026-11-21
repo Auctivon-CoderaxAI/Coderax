@@ -99,6 +99,8 @@ export interface IWorkflowRun {
   currentStep: number;
   steps: IWorkflowStepRun[];
   settings?: WorkflowSettings;
+  /** Transient checkout reservation, released when the run reaches a terminal status. */
+  workspaceKey?: string;
   conversationId?: string;
   input?: string;
   trigger?: WorkflowRunTrigger;

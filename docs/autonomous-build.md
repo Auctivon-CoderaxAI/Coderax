@@ -145,29 +145,42 @@ completion is configured.
 `POST /api/workflows/builds` accepts a project request, mode, saved orchestrator agent, repository
 and workspace, validates the request, compiles a deterministic plan, authorizes every bound agent,
 then creates and starts the ordinary durable workflow. A workspace is one directory name under the
-deployment build root; a second active run bound to the same workspace is rejected with `409` so two
-builds cannot edit and verify one checkout. The Workflows view has a **New autonomous build** launcher; on success it
+deployment build root. The reservation is global, not per user: every account shares the
+`workspaceRoot`, so a second unsettled run bound to the same workspace is rejected with `409`. The
+run insert itself carries a unique `workspaceKey`, so two simultaneous launches — from any users —
+cannot both pass the check; the loser gets the same `409` and the workflow created for a rejected
+launch is removed. The reservation is released centrally when the run becomes terminal, including
+cancellation. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
 
-Before enabling the unique workspace index on an existing deployment, pause new build launches
-and check for conflicting reservations in MongoDB:
+Before enabling the unique reservation index on an existing deployment, pause new build launches
+and check for active workspace-bound runs created before this release:
 
 ```javascript
 db.workflowruns.aggregate([
-  { $match: { 'settings.build.workspace': { $type: 'string' }, status: { $in: ['queued', 'running', 'paused', 'waiting_approval'] } } },
+  {
+    $match: {
+      'settings.build.workspace': { $type: 'string' },
+      workspaceKey: { $exists: false },
+      status: { $nin: ['completed', 'failed', 'cancelled'] },
+    },
+  },
   { $group: { _id: '$settings.build.workspace', count: { $sum: 1 } } },
-  { $match: { count: { $gt: 1 } } },
 ]);
 ```
 
-Let conflicting runs finish and confirm the query returns no rows. Confirm the unique partial
-index on `settings.build.workspace` has built successfully before resuming launches.
+Let those runs finish or cancel them, then confirm the unique index on `workspaceKey` has built
+successfully before resuming launches. The index is sparse, so runs without a binding are ignored.
 
 ## Settlement verification
 
 `compileBuildPlan()` records the evidence contract on the run itself as `settings.build`: the mode,
 the repository, the run's workspace binding, the plan's required gates, the deadline, the reviewer
-step id and the pull-request rule. When every step has settled, the workflow engine calls its
+step id and the pull-request rule. Scheduled, event-triggered and chained runs acquire the same
+workspace reservation when their run is inserted, so they cannot bypass the launcher's check. A
+scheduled occurrence whose workspace is busy releases its claim and retries; an event-triggered
+occurrence raises the reservation conflict to its delivery lane instead of starting against another
+run's checkout. When every step has settled, the workflow engine calls its
 `verifyRun` port before it may set `completed`.
 
 - `verifyBuildRun(input, config)` resolves the run's own checkout as

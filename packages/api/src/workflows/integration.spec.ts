@@ -37,6 +37,12 @@ describe('workflow engine with Mongo persistence', () => {
     await mongoose.connection.dropDatabase();
   });
 
+  beforeEach(async () => {
+    // dropDatabase removes the unique reservation index; rebuild it so every
+    // test exercises the same atomic constraint as production.
+    await mongoose.models.WorkflowRun.syncIndexes();
+  });
+
   const owner = () => new mongoose.Types.ObjectId().toString();
 
   function engineFor(options: {
@@ -287,20 +293,69 @@ describe('workflow engine with Mongo persistence', () => {
     });
     expect(await methods.listWorkflows(userId)).toHaveLength(2);
 
-    // Model a stale preflight read: only the database index sees the winner.
+    // The database reservation, not a preflight read, is authoritative.
     await mongoose.model('WorkflowRun').createIndexes();
-    const racingHandlers = createWorkflowHandlers({
-      methods: { ...methods, hasActiveWorkflowRunForWorkspace: async () => false },
-      canRunAgent: async () => true,
-      wake,
-    });
     jest.clearAllMocks();
-    await racingHandlers.startRun(request, response);
-    await racingHandlers.startBuild(launchRequest, launchResponse);
+    await handlers.startRun(request, response);
+    await handlers.startBuild(launchRequest, launchResponse);
     expect(response.status).toHaveBeenCalledWith(409);
     expect(launchResponse.status).toHaveBeenCalledWith(409);
     expect(await methods.listWorkflowRuns(userId)).toHaveLength(1);
     expect(wake).not.toHaveBeenCalled();
+  });
+
+  it('reserves a build workspace atomically across users', async () => {
+    const settings = {
+      build: {
+        mode: 'autonomous' as const,
+        requiredGates: ['tests' as const],
+        repository: { owner: 'Auctivon-CoderaxAI', name: 'Coderax' },
+        workspace: 'contended-checkout',
+      },
+    };
+    const firstUser = owner();
+    const secondUser = owner();
+    const first = await methods.createWorkflow({
+      userId: firstUser,
+      name: 'First build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const second = await methods.createWorkflow({
+      userId: secondUser,
+      name: 'Second build',
+      agentId: 'agent-1',
+      steps: [{ id: 'one', title: 'One', instruction: 'Run' }],
+      settings,
+    });
+    const handlers = createWorkflowHandlers({
+      methods,
+      canRunAgent: async () => true,
+      wake: jest.fn(),
+    });
+    const start = async (userId: string, workflowId: string) => {
+      const response = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+      } as unknown as Parameters<typeof handlers.startRun>[1];
+      await handlers.startRun(
+        {
+          user: { id: userId },
+          params: { id: workflowId },
+          body: {},
+        } as unknown as Parameters<typeof handlers.startRun>[0],
+        response,
+      );
+      return (response.status as jest.Mock).mock.calls[0]?.[0];
+    };
+
+    const statuses = await Promise.all([start(firstUser, first.id), start(secondUser, second.id)]);
+    expect(statuses.sort((left, right) => Number(left) - Number(right))).toEqual([202, 409]);
+
+    const firstRuns = await methods.listWorkflowRuns(firstUser, first.id);
+    const secondRuns = await methods.listWorkflowRuns(secondUser, second.id);
+    expect(firstRuns.length + secondRuns.length).toBe(1);
   });
 
   it('retires queued deliveries after durable cancellation and aborts active turns', async () => {

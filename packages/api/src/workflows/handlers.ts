@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { logger } from '@coderax/data-schemas';
 import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
+import { logger, WorkflowWorkspaceConflictError } from '@coderax/data-schemas';
 import type {
   WorkflowArtifact,
   WorkflowEventTrigger,
@@ -23,11 +23,6 @@ import {
 } from './definition';
 import { parseStartBuild, prepareBuildLaunch } from '../autobuild/start';
 import { computeNextRunAt, isValidTimezone } from '../schedules/cadence';
-
-function isWorkspaceConflict(error: unknown): boolean {
-  const duplicate = error as { code?: number; keyPattern?: Record<string, number> } | null;
-  return duplicate?.code === 11000 && duplicate.keyPattern?.['settings.build.workspace'] === 1;
-}
 
 interface WorkflowRecord {
   id: string;
@@ -336,18 +331,6 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     return cursor == null;
   };
 
-  /**
-   * A build workspace is a checkout one run may edit at a time. Two active runs
-   * on the same binding would verify each other's edits, so the launcher rejects
-   * the second before a queued run exists.
-   */
-  const workspaceInUse = async (workspace: string | undefined): Promise<boolean> => {
-    if (workspace == null) {
-      return false;
-    }
-    return deps.methods.hasActiveWorkflowRunForWorkspace({ workspace });
-  };
-
   const stopActiveTurns = async (run: {
     conversationId?: string;
     steps: Array<{ conversationId?: string; status: string }>;
@@ -431,18 +414,13 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           agentIds.add(step.agentId);
         }
       }
+      let createdWorkflowId: string | null = null;
       try {
         for (const agentId of agentIds) {
           if (!(await deps.canRunAgent(agentId, req))) {
             res.status(403).json({ error: 'You cannot run that agent' });
             return;
           }
-        }
-        if (await workspaceInUse(parsed.value.workspace)) {
-          res
-            .status(409)
-            .json({ error: 'That build workspace is already in use by an active run' });
-          return;
         }
         const workflow = await deps.methods.createWorkflow({
           userId: owner,
@@ -453,6 +431,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           steps: payload.steps,
           ...(payload.settings == null ? {} : { settings: payload.settings }),
         });
+        createdWorkflowId = workflow.id;
         const run = await deps.methods.createWorkflowRun({
           userId: owner,
           ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
@@ -465,6 +444,8 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           trigger: { type: 'manual' },
           input: parsed.value.request,
         });
+        // The run now owns the workflow; a later failure must not delete it.
+        createdWorkflowId = null;
         deps.wake();
         res.status(202).json({
           workflow: toWorkflowView(workflow),
@@ -483,7 +464,15 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           },
         });
       } catch (error) {
-        if (isWorkspaceConflict(error)) {
+        if (createdWorkflowId != null) {
+          await deps.methods.deleteWorkflow(createdWorkflowId, owner).catch((cleanupError) => {
+            logger.warn('[workflows] failed to clean up unstarted build workflow', {
+              workflowId: createdWorkflowId,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          });
+        }
+        if (error instanceof WorkflowWorkspaceConflictError) {
           res
             .status(409)
             .json({ error: 'That build workspace is already in use by an active run' });
@@ -722,12 +711,6 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             return;
           }
         }
-        if (await workspaceInUse(workflow.settings?.build?.workspace)) {
-          res
-            .status(409)
-            .json({ error: 'That build workspace is already in use by an active run' });
-          return;
-        }
         const run = await deps.methods.createWorkflowRun({
           userId: owner,
           ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
@@ -746,7 +729,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         deps.wake();
         res.status(202).json({ run: toRunView(run) });
       } catch (error) {
-        if (isWorkspaceConflict(error)) {
+        if (error instanceof WorkflowWorkspaceConflictError) {
           res
             .status(409)
             .json({ error: 'That build workspace is already in use by an active run' });
