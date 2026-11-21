@@ -21,6 +21,7 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useNavigateToConvo: () => ({ navigateToConvo: jest.fn() }),
   useShiftKey: () => false,
+  useAuthContext: () => ({ user: { id: 'user-1' } }),
 }));
 
 jest.mock('~/data-provider', () => ({
@@ -160,5 +161,11 @@ describe('Conversation row status', () => {
 
     expect(screen.getByTestId('convo-project-badge')).toHaveAttribute('title', 'com_ui_in_project');
     expect(rowButton()).toHaveAccessibleDescription('com_ui_in_project');
+  });
+
+  it('leaves a chat with no saved mode unbadged', () => {
+    renderRow();
+
+    expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
   });
 });
