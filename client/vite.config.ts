@@ -38,6 +38,19 @@ const backendHost = process.env.HOST?.includes(':') ? `[${process.env.HOST}]` : 
 const backendURL = backendHost
   ? `http://${backendHost}:${backendPort}`
   : `http://localhost:${backendPort}`;
+const allowedHosts =
+  (process.env.VITE_ALLOWED_HOSTS && process.env.VITE_ALLOWED_HOSTS.split(',')) || [];
+/* Dev and preview answer on the same origin, so both proxy the API the same way. */
+const proxy = {
+  '/api': {
+    target: backendURL,
+    changeOrigin: true,
+  },
+  '/oauth': {
+    target: backendURL,
+    changeOrigin: true,
+  },
+};
 const buildSourceMap = process.env.NODE_ENV === 'development';
 const QUERY_DEVTOOLS_CHUNK_MODULES = [
   '@tanstack/react-query-devtools',
@@ -50,21 +63,18 @@ const QUERY_DEVTOOLS_CHUNK_MODULES = [
 export default defineConfig(({ command }) => ({
   base: '',
   server: {
-    allowedHosts:
-      (process.env.VITE_ALLOWED_HOSTS && process.env.VITE_ALLOWED_HOSTS.split(',')) || [],
+    allowedHosts,
     host: process.env.HOST || 'localhost',
     port: (process.env.PORT && Number(process.env.PORT)) || 3090,
     strictPort: false,
-    proxy: {
-      '/api': {
-        target: backendURL,
-        changeOrigin: true,
-      },
-      '/oauth': {
-        target: backendURL,
-        changeOrigin: true,
-      },
-    },
+    proxy,
+  },
+  preview: {
+    allowedHosts,
+    host: process.env.HOST || 'localhost',
+    port: (process.env.PORT && Number(process.env.PORT)) || 3090,
+    strictPort: true,
+    proxy,
   },
   // Set the directory where environment variables are loaded from and restrict prefixes
   envDir: '../',
@@ -171,7 +181,12 @@ export default defineConfig(({ command }) => ({
         background_color: '#000000',
         theme_color: '#009688',
         icons: [
-          { src: 'assets/coderax-mark.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+          {
+            src: 'assets/coderax-mark.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable',
+          },
         ],
       },
     }),

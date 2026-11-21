@@ -6,14 +6,14 @@ No more four terminals or hunting orphaned PIDs.
 
 ## Commands
 
-| Command                   | What it does                                                                                                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev:up`          | Builds missing workspace packages, then starts Mongo, the model, the API and Vite; polls readiness for each and records its PID.    |
-| `npm run dev:down`        | Stops Vite, the API, the model and Mongo in reverse order (SIGTERM, then SIGKILL after 10s). Mongo data and the model stay on disk. |
-| `npm run dev:status`      | Prints service, PID, port, state and log location. Exits non-zero unless every service is ready.                                    |
-| `npm run dev:probe`       | Signs in, reads `/api/models`, sends one chat completion, and names the layer that failed.                                          |
-| `npm run dev:model`       | Runs the local llama.cpp server in the foreground (the same start script `dev:up` uses).                                            |
-| `npm run dev:model:setup` | Downloads the GGUF and builds `llama-server` into `.dev/model` when they are missing.                                               |
+| Command                   | What it does                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev:up`          | Builds missing workspace packages, then starts Mongo, the model, the API and the client; polls readiness for each and records its PID.    |
+| `npm run dev:down`        | Stops the client, the API, the model and Mongo in reverse order (SIGTERM, then SIGKILL after 10s). Mongo data and the model stay on disk. |
+| `npm run dev:status`      | Prints service, PID, port, state and log location. Exits non-zero unless every service is ready.                                          |
+| `npm run dev:probe`       | Signs in, opens the guest session the browser uses, reads `/api/models`, sends one chat completion, and names the layer that failed.      |
+| `npm run dev:model`       | Runs the local llama.cpp server in the foreground (the same start script `dev:up` uses).                                                  |
+| `npm run dev:model:setup` | Downloads the GGUF and builds `llama-server` into `.dev/model` when they are missing.                                                     |
 
 `dev:probe` accepts `--base` to check a different origin, for example the Vite proxy:
 
@@ -23,24 +23,43 @@ npm run dev:probe -- --base http://127.0.0.1:3090
 
 ## What runs
 
-| Service | Default           | Start command                                                 | Ready when                |
-| ------- | ----------------- | ------------------------------------------------------------- | ------------------------- |
-| Mongo   | `127.0.0.1:27017` | `scripts/dev/mongo.mjs` (`mongodb-memory-server`, WiredTiger) | TCP connect succeeds      |
-| Model   | `127.0.0.1:8080`  | `scripts/dev/model.sh` (`llama-server`)                       | `GET /health` answers     |
-| API     | `127.0.0.1:3080`  | `api/server/index.js`                                         | `GET /readyz` answers 200 |
-| Vite    | `0.0.0.0:3090`    | `cd client && npm run dev`                                    | `GET /` answers           |
+| Service          | Default           | Start command                                                 | Ready when                       |
+| ---------------- | ----------------- | ------------------------------------------------------------- | -------------------------------- |
+| Mongo            | `127.0.0.1:27017` | `scripts/dev/mongo.mjs` (`mongodb-memory-server`, WiredTiger) | TCP connect succeeds             |
+| Model            | `127.0.0.1:8080`  | `scripts/dev/model.sh` (`llama-server`)                       | `GET /health` answers            |
+| API              | `127.0.0.1:3080`  | `api/server/index.js`                                         | `GET /readyz` answers 200        |
+| Client           | `0.0.0.0:3090`    | `cd client && npm run dev`                                    | `GET /` answers                  |
+| Client (preview) | `0.0.0.0:3090`    | `npm run build:client`, then `npm run preview-prod`           | `GET /` and `/api/config` answer |
 
-Vite proxies `/api` and `/oauth` to the API, so the app is served at
+The client proxies `/api` and `/oauth` to the API, so the app is served at
 `http://localhost:3090` while `SERVE_CLIENT=false` keeps the API from needing
 `client/dist`. Without that flag the API would either crash on a missing build or
 serve a placeholder shell that makes a missing build look healthy.
+
+## Built-client preview
+
+A preview proxy can reject the burst of module requests a Vite dev server makes,
+leaving the page blank even though the API is healthy. Set this in `.env` and run
+`dev:up` again:
+
+```
+DEV_CLIENT_MODE=preview
+```
+
+`dev:up` then builds `client/dist` (every run; skip with `DEV_SKIP_CLIENT_BUILD=1`)
+and serves it with `vite preview` on the same port, proxying `/api` and `/oauth`
+to the API. The service is still called `vite`, so `dev:status` and `dev:down`
+manage it like any other; the status detail says `built client`. Switching
+`DEV_CLIENT_MODE` while a service runs restarts it, because its recorded command
+changed.
 
 ## First run
 
 `dev:up` writes two gitignored files if they do not exist:
 
 - `.env` - dev ports, generated JWT/credential secrets, `SERVE_CLIENT=false`,
-  `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` (default `dev@coderax.local` / `coderax-dev`).
+  `DEV_CLIENT_MODE=dev`, `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` (default
+  `dev@coderax.local` / `coderax-dev`).
 - `coderax.yaml` - one `endpoints.custom` entry named `llamacpp` pointing at the
   local model (`http://127.0.0.1:8080/v1`).
 
@@ -91,8 +110,11 @@ system can report it) and is never killed silently.
 2. `model` - `llama-server` `/health` and `/v1/models`.
 3. `api` - `/health` plus `/readyz`.
 4. `auth` - `POST /api/auth/login` with `DEV_USER_EMAIL` / `DEV_USER_PASSWORD`.
-5. `models` - `GET /api/models` for the `llamacpp` endpoint.
-6. `chat` - one `POST /api/agents/chat` turn, streamed to its final event.
+5. `guest` - `POST /api/auth/guest`, then `GET /api/user` and `/api/models` with
+   that token: the same path the browser takes at `/connect`. Each probe creates
+   one guest USER that expires after a week.
+6. `models` - `GET /api/models` for the `llamacpp` endpoint.
+7. `chat` - one `POST /api/agents/chat` turn, streamed to its final event.
 
 Environment overrides: `DEV_ENDPOINT` (default `llamacpp`), `LLAMA_BASE_URL`,
 `DEV_PROBE_BASE`, `DEV_PROBE_CHAT_TIMEOUT_MS`.

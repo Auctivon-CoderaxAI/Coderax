@@ -5,7 +5,10 @@
  * to curl each hop.
  *
  *   npm run dev:probe
- *   npm run dev:probe -- --base http://127.0.0.1:3090   # through the Vite proxy
+ *   npm run dev:probe -- --base http://127.0.0.1:3090   # through the Vite/preview proxy
+ *
+ * The guest layer mirrors what the browser does at /connect: it opens a guest
+ * session, reads /api/user with that token and asks /api/models for the catalog.
  */
 import net from 'node:net';
 
@@ -256,6 +259,60 @@ async function main() {
       throw new LayerError('auth', 'login succeeded but returned no token');
     }
     return `${email} signed in`;
+  });
+
+  await layer('guest', async () => {
+    const response = await fetch(`${base}/api/auth/guest`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'user-agent': BROWSER_UA },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      const hint =
+        response.status === 404
+          ? 'guest access is disabled (set ENABLE_GUEST_ACCESS=true); the client entry screen needs it'
+          : 'the browser cannot open the workspace';
+      throw new LayerError('guest', `POST /api/auth/guest -> HTTP ${response.status}: ${hint}`);
+    }
+    let session;
+    try {
+      session = await response.json();
+    } catch {
+      throw new LayerError('guest', 'guest session returned a non-JSON body');
+    }
+    if (!session?.token) {
+      throw new LayerError('guest', 'guest session returned no token');
+    }
+    const guestHeaders = {
+      authorization: `Bearer ${session.token}`,
+      'user-agent': BROWSER_UA,
+    };
+    const me = await fetch(`${base}/api/user`, {
+      headers: guestHeaders,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!me.ok) {
+      throw new LayerError('guest', `GET /api/user with the guest token -> HTTP ${me.status}`);
+    }
+    const user = await me.json();
+    if (user?.provider !== 'guest') {
+      throw new LayerError(
+        'guest',
+        `guest session resolved as provider "${user?.provider ?? 'unknown'}"`,
+      );
+    }
+    const catalog = await fetch(`${base}/api/models`, {
+      headers: guestHeaders,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!catalog.ok) {
+      throw new LayerError('guest', `GET /api/models as a guest -> HTTP ${catalog.status}`);
+    }
+    const ids = modelIds((await catalog.json())?.[endpoint]);
+    if (ids.length === 0) {
+      throw new LayerError('guest', `guest sees no models for endpoint "${endpoint}"`);
+    }
+    return `${user.username ?? 'guest'} session, ${endpoint} -> ${ids.join(', ')}`;
   });
 
   const headers = { authorization: `Bearer ${token}` };

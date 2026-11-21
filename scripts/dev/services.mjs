@@ -17,9 +17,16 @@ export function ports(env) {
   };
 }
 
+/** `dev` runs Vite with HMR; `preview` serves the built client with `vite preview`. */
+function clientMode(env) {
+  return env.DEV_CLIENT_MODE === 'preview' ? 'preview' : 'dev';
+}
+
 export function createServices(env) {
   const port = ports(env);
   const modelId = env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct';
+  const preview = clientMode(env) === 'preview';
+  const clientOrigin = `http://${LOOPBACK}:${port.vite}`;
 
   return [
     {
@@ -51,7 +58,7 @@ export function createServices(env) {
       command: process.execPath,
       args: [path.join('api', 'server', 'index.js')],
       cwd: ROOT,
-      // The dev frontend owns the shell, so the API boots without client/dist.
+      // The client service owns the shell, so the API boots without client/dist.
       env: {
         ...env,
         HOST: env.DEV_API_HOST || LOOPBACK,
@@ -67,7 +74,18 @@ export function createServices(env) {
       port: port.vite,
       timeoutMs: 180_000,
       command: npmCommand(),
-      args: ['run', 'dev'],
+      args: preview
+        ? [
+            'run',
+            'preview-prod',
+            '--',
+            '--host',
+            '0.0.0.0',
+            '--port',
+            String(port.vite),
+            '--strictPort',
+          ]
+        : ['run', 'dev'],
       cwd: path.join(ROOT, 'client'),
       env: {
         ...env,
@@ -77,8 +95,13 @@ export function createServices(env) {
         PORT: String(port.vite),
         BACKEND_PORT: String(port.api),
       },
-      detail: `http://${LOOPBACK}:${port.vite} -> ${LOOPBACK}:${port.api}`,
-      ready: () => httpOk(`http://${LOOPBACK}:${port.vite}/`, 4000),
+      detail: `${clientOrigin} ${preview ? 'built client' : 'vite dev'} -> ${LOOPBACK}:${port.api}`,
+      // The preview is only useful if its proxy reaches the API as well.
+      ready: preview
+        ? async () =>
+            (await httpOk(`${clientOrigin}/`, 4000)) &&
+            (await httpOk(`${clientOrigin}/api/config`, 4000))
+        : () => httpOk(`${clientOrigin}/`, 4000),
     },
   ];
 }

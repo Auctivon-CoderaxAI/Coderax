@@ -60,11 +60,14 @@ DOMAIN_SERVER=http://localhost:3080
 SERVE_CLIENT=false
 # Hosts the Vite dev server may answer for (comma separated); set this to a preview hostname.
 VITE_ALLOWED_HOSTS=
+# dev = Vite dev server with HMR. preview = build client/dist and serve it with
+# 'vite preview'; use preview where a proxy rejects Vite's many module requests.
+DEV_CLIENT_MODE=dev
 
 ALLOW_EMAIL_LOGIN=true
 ALLOW_REGISTRATION=true
 ALLOW_SOCIAL_LOGIN=false
-# The client's only entry screen is passwordless guest access (`/connect`); without
+# The client's only entry screen is passwordless guest access ('/connect'); without
 # this it reports "Coderax is unavailable" even though the stack is healthy.
 ENABLE_GUEST_ACCESS=true
 # One API process in this environment; the schedule engine refuses to arm otherwise.
@@ -145,6 +148,21 @@ function ensureBuild() {
   }
 }
 
+function ensureClientBuild(env) {
+  if (env.DEV_CLIENT_MODE !== 'preview' || env.DEV_SKIP_CLIENT_BUILD === '1') {
+    return;
+  }
+  console.log('▸ building the client for the preview');
+  const result = spawnSync(npmCommand(), ['run', 'build:client'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.status !== 0) {
+    throw new Error('`npm run build:client` failed; fix the build before starting the preview');
+  }
+}
+
 function modelPaths(env) {
   const dir = env.DEV_MODEL_DIR || path.join(DEV_DIR, 'model');
   return {
@@ -189,12 +207,14 @@ function ensureDevUser(env) {
   }
 }
 
+const commandLine = (service) => [service.command, ...service.args].join(' ');
+
 function recordFor(service, pid) {
   return {
     service: service.name,
     pid,
     port: service.port,
-    command: [service.command, ...service.args].join(' '),
+    command: commandLine(service),
     cwd: service.cwd,
     startedAt: new Date().toISOString(),
     log: logPath(service.name),
@@ -205,17 +225,22 @@ function recordFor(service, pid) {
 async function startService(service) {
   const record = readRecord(service.name);
   if (record && isAlive(record.pid)) {
-    if (await service.ready()) {
-      console.log(`• ${service.name} already running (pid ${record.pid})`);
+    if (record.command !== commandLine(service)) {
+      console.log(`▸ ${service.name} was started with a different command; restarting`);
+      await stopService(service);
+    } else {
+      if (await service.ready()) {
+        console.log(`• ${service.name} already running (pid ${record.pid})`);
+        return false;
+      }
+      process.stdout.write(`▸ ${service.name} pid ${record.pid} is alive; waiting for readiness `);
+      const ready = await waitFor(service.ready, { timeoutMs: service.timeoutMs });
+      console.log(ready ? 'ready' : 'FAILED');
+      if (!ready) {
+        throw new ServiceError(service, `${service.name} (pid ${record.pid}) never became ready`);
+      }
       return false;
     }
-    process.stdout.write(`▸ ${service.name} pid ${record.pid} is alive; waiting for readiness `);
-    const ready = await waitFor(service.ready, { timeoutMs: service.timeoutMs });
-    console.log(ready ? 'ready' : 'FAILED');
-    if (!ready) {
-      throw new ServiceError(service, `${service.name} (pid ${record.pid}) never became ready`);
-    }
-    return false;
   }
   if (record) {
     clearRecord(service.name);
@@ -366,6 +391,7 @@ async function up() {
   const env = ensureEnv();
   ensureConfig(env);
   ensureBuild();
+  ensureClientBuild(env);
   ensureModel(env);
 
   const services = createServices(env);
@@ -407,7 +433,7 @@ async function down() {
 function usage() {
   console.log(`Usage: node scripts/dev/index.mjs <up|down|status>
 
-  up      start Mongo, the model, the API and Vite; poll readiness and record PIDs
+  up      start Mongo, the model, the API and the client; poll readiness and record PIDs
   down    stop them in reverse order (SIGTERM, then SIGKILL after 10s)
   status  show recorded PIDs, ports and readiness (exit 1 unless all are ready)`);
 }
