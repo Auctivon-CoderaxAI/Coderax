@@ -1,8 +1,11 @@
-import { FREE_OPENROUTER_URL, isFreeOpenRouterModel } from 'coderax-data-provider';
+import {
+  FREE_OPENROUTER_URL,
+  isFreeOpenRouterModel,
+  DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS,
+} from 'coderax-data-provider';
 import type { fetch as undiciFetch } from 'undici';
 
 const completionURL = `${FREE_OPENROUTER_URL}/chat/completions`;
-const maxOutputTokens = 4096;
 // Forward only native chat fields. OpenRouter-specific plugins, alternate models
 // and provider preferences must never come from agent or request parameters.
 const chatFields = [
@@ -23,7 +26,10 @@ const chatFields = [
   'reasoning',
 ] as const;
 
-export function createFreeOpenRouterFetch(send: typeof undiciFetch): typeof undiciFetch {
+export function createFreeOpenRouterFetch(
+  send: typeof undiciFetch,
+  maxOutputTokens = DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS,
+): typeof undiciFetch {
   return async (input, init) => {
     if (
       String(input) !== completionURL ||

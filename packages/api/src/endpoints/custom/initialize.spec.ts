@@ -49,7 +49,7 @@ describe('initializeCustom – free OpenRouter', () => {
     const env = { OPENROUTER_API_KEY: 'fake-key' };
     const restoreEnv = jest.replaceProperty(process, 'env', env);
     try {
-      const config = { freeInference: { enabled: true } };
+      const config = { freeInference: { enabled: true, openRouterMaxOutputTokens: 8192 } };
       const endpoints = { custom: buildFreeInferenceCustomEndpoints(config, env) };
       const [endpoint] = endpoints.custom;
       const params = createParams({});
@@ -61,6 +61,11 @@ describe('initializeCustom – free OpenRouter', () => {
 
       await initializeCustom(params);
       expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
+      expect(mockGetOpenAIConfig).toHaveBeenCalledWith(
+        'fake-key',
+        expect.objectContaining({ freeOpenRouterMaxOutputTokens: 8192 }),
+        endpoint.name,
+      );
 
       params.model_parameters = { model: 'unlisted/model:free' };
       await expect(initializeCustom(params)).rejects.toThrow('selected free OpenRouter model');

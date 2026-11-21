@@ -356,6 +356,7 @@ export async function initializeCustom(
     const finalClientOptions = {
       modelOptions,
       ...clientOptions,
+      freeOpenRouterMaxOutputTokens: appConfig?.config?.freeInference?.openRouterMaxOutputTokens,
     };
     // The OpenAI-compatible client requires a nonempty identifier even though
     // local Ollama ignores authorization. This is an internal placeholder,

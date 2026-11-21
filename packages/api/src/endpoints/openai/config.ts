@@ -14,11 +14,11 @@ import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm
 import { createSSRFSafeAgents, createSSRFSafeUndiciConnect } from '~/auth';
 import { getDirectDispatcher, getProxyDispatcher } from '~/utils/proxy';
 import { getOpenAILLMConfig, extractDefaultParams } from './llm';
+import { createFreeOpenRouterFetch } from './freeOpenRouter';
 import { constructAzureResponsesURL } from '~/utils/azure';
 import { transformToOpenAIConfig } from './transform';
 import { createFetch } from '~/utils/generators';
 import { mergeHeaders } from '~/utils/headers';
-import { createFreeOpenRouterFetch } from './freeOpenRouter';
 
 type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type FetchOptions = RequestInit & { dispatcher?: Dispatcher };
@@ -333,7 +333,10 @@ export function getOpenAIConfig(
     if (baseURL !== FREE_OPENROUTER_URL) {
       throw new Error('Invalid free OpenRouter endpoint.');
     }
-    configOptions.fetch = createFreeOpenRouterFetch(undiciFetch) as unknown as Fetch;
+    configOptions.fetch = createFreeOpenRouterFetch(
+      undiciFetch,
+      options.freeOpenRouterMaxOutputTokens,
+    ) as unknown as Fetch;
   }
 
   const result: t.OpenAIConfigResult = {

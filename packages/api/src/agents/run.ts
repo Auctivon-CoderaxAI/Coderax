@@ -1305,6 +1305,7 @@ function resolveSummarizationProvider(
         customParams: customEndpointConfig.customParams,
         directEndpoint: customEndpointConfig.directEndpoint,
         transportTimeouts: resolveModelTransportTimeouts(appConfig?.endpoints?.agents),
+        freeOpenRouterMaxOutputTokens: appConfig.config?.freeInference?.openRouterMaxOutputTokens,
       },
       rawProvider,
     );

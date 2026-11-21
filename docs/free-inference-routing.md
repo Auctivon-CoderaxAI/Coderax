@@ -50,6 +50,7 @@ freeInference:
   allowToolsInFallback: false
   maxRequestsPerDay: 200
   maxTokensPerDay: 400000
+  openRouterMaxOutputTokens: 4096 # per native FreeOpenRouter completion
   maxRetries: 2 # at most three calls per turn
   failureThreshold: 2
   cooldownMs: 60000
@@ -111,8 +112,9 @@ alone.
 3. **Native Work uses its existing agent transport.** The reserved endpoint
    accepts only the exact catalogued `:free` models. Its final HTTP adapter
    accepts chat completions at the canonical URL, rejects redirects, caps the
-   output at 4,096 tokens, and sends zero provider price ceilings. Alternate
-   model lists, provider preferences and plugins are excluded from the request.
+   output at `freeInference.openRouterMaxOutputTokens` (4,096 by default), and
+   sends zero provider price ceilings. A smaller valid request limit is preserved.
+   Alternate model lists, provider preferences and plugins are excluded from the request.
    The separate routing planner still owns its in-memory quota, retry and
    cooldown simulation. Native Work does not use it to retry a turn or switch
    models.

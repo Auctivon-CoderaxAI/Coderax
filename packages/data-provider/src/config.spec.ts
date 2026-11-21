@@ -91,12 +91,29 @@ describe('config schema defaults', () => {
       allowToolsInFallback: false,
       maxRequestsPerDay: DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
       maxTokensPerDay: DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
+      openRouterMaxOutputTokens: 4096,
       maxRetries: DEFAULT_FREE_INFERENCE_MAX_RETRIES,
       failureThreshold: 2,
       cooldownMs: 60_000,
       requestTimeoutMs: 60_000,
     });
   });
+
+  it('accepts an operator override for the native OpenRouter output ceiling', () => {
+    expect(
+      configSchema.parse({ version: '1.0', freeInference: { openRouterMaxOutputTokens: 8192 } })
+        .freeInference.openRouterMaxOutputTokens,
+    ).toBe(8192);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '8192'])(
+    'rejects invalid native OpenRouter output ceiling %p',
+    (openRouterMaxOutputTokens) => {
+      expect(freeInferenceConfigSchema.safeParse({ openRouterMaxOutputTokens }).success).toBe(
+        false,
+      );
+    },
+  );
 
   it('bounds retries and budgets so a bad config cannot retry forever', () => {
     expect(freeInferenceConfigSchema.safeParse({ maxRetries: 4 }).success).toBe(false);
