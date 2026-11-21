@@ -18,6 +18,7 @@ function buildEngine(options) {
     createWorkflowStepResultReader,
     createWorkflowStore,
     createWorkflowTerminalOutcomeHandler,
+    createBuildVerifier,
   } = require('@coderax/api');
   const { enqueueAgentTrigger } = require('~/server/services/Agents/triggers');
   const methods = require('~/models');
@@ -37,6 +38,13 @@ function buildEngine(options) {
       abortGeneration: (conversationId, abortOptions) =>
         abortWorkflowTurn(conversationId, abortOptions?.expectedCreatedAt),
       readStepResult: createWorkflowStepResultReader(methods),
+      // Settlement verification is deployment policy: the workspace and argv
+      // come from config, never from a build request body. Without it a build
+      // run fails closed instead of settling complete unverified.
+      verifyRun:
+        options?.buildVerification == null
+          ? undefined
+          : createBuildVerifier(options.buildVerification),
       onRunSettled: createWorkflowSettlementHandler({
         methods,
         wake: wakeWorkflowEngine,

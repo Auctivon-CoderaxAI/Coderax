@@ -74,6 +74,7 @@ interface WorkflowRunRecordView {
   input?: string;
   steps: WorkflowStepRunRecord[];
   error?: string;
+  verification?: WorkflowRunView['verification'];
   trigger?: WorkflowRunView['trigger'];
   events?: Array<{
     at: Date | string;
@@ -194,6 +195,7 @@ export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
     ...(run.conversationId == null ? {} : { conversationId: run.conversationId }),
     ...(run.input == null ? {} : { input: run.input }),
     ...(run.error == null ? {} : { error: run.error }),
+    ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.trigger == null ? {} : { trigger: run.trigger }),
     events: (run.events ?? []).map((entry) => ({
       at: iso(entry.at) ?? new Date(0).toISOString(),

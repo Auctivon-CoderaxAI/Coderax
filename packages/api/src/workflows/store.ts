@@ -27,6 +27,7 @@ interface StoredRun {
   events?: Array<Omit<WorkflowRunEvent, 'at'> & { at: Date | string }>;
   workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
+  verification?: WorkflowRunRecord['verification'];
   error?: string;
   pauseRequestedAt?: Date;
   startedAt?: Date;
@@ -54,6 +55,7 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
     })),
     ...(run.workflowAncestry == null ? {} : { workflowAncestry: run.workflowAncestry }),
     ...(run.onCompleteWorkflowId == null ? {} : { onCompleteWorkflowId: run.onCompleteWorkflowId }),
+    ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.pauseRequestedAt == null ? {} : { pauseRequestedAt: run.pauseRequestedAt }),
     ...(run.startedAt == null ? {} : { startedAt: run.startedAt }),
@@ -63,7 +65,10 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
 
 /** Adapts the data-schemas run methods to the runner's small store port. */
 export function createWorkflowStore(
-  methods: Pick<WorkflowMethods, 'claimWorkflowRuns' | 'updateWorkflowRun' | 'releaseWorkflowRun'>,
+  methods: Pick<
+    WorkflowMethods,
+    'claimWorkflowRuns' | 'updateWorkflowRun' | 'extendWorkflowRunLease' | 'releaseWorkflowRun'
+  >,
 ): WorkflowEngineStore {
   return {
     claimRuns: async (input) => {
@@ -98,6 +103,8 @@ export function createWorkflowStore(
       });
       return saved != null;
     },
+    extendLease: async ({ runId, leaseToken, now, leaseUntil }) =>
+      methods.extendWorkflowRunLease({ id: runId, leaseToken, leaseUntil, now }),
     releaseRun: async ({ runId, leaseToken, now }) => {
       await methods.releaseWorkflowRun(runId, leaseToken, now);
     },
