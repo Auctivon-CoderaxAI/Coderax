@@ -9,8 +9,8 @@
  *
  * One command runs the four gates a merge has to show against the merge base:
  *
- *   1. TypeScript for every workspace the diff affects
- *   2. The Work Jest suites
+ *   1. TypeScript for workspaces affected by committed and working-tree changes
+ *   2. The Work Jest suites, after building data-provider
  *   3. `npm run build:api`
  *   4. The full static-check tier, with the TypeScript check left to step 1
  *
@@ -44,8 +44,8 @@ const argv = process.argv.slice(2);
 const USAGE = `Usage: npm run verify -- [--against <ref>] [--test <command>]... [--manual <text>]... [--skip-static]
 
 Runs the four gates a merge has to show, in order:
-  1. TypeScript for every workspace the diff affects
-  2. Work Jest (packages/api/src/engines/workChat*)
+  1. TypeScript for workspaces affected by committed and working-tree changes
+  2. Work Jest (packages/api/src/engines/workChat*), after building data-provider
   3. API build (npm run build:api)
   4. Static checks (--full, with the TypeScript check left to step 1)
 
@@ -259,6 +259,7 @@ if (!options.skipStatic) {
     STATIC_CHECKS,
     '--against',
     mergeBase,
+    '--include-worktree',
     '--only',
     'typecheck',
   ]);
@@ -267,9 +268,9 @@ if (!options.skipStatic) {
 
   const workTests = await runGate(
     'Work Jest',
-    'npx jest src/engines/workChat --ci --runInBand --coverage=false',
+    'npm run build:data-provider && npm exec --workspace @coderax/api -- jest src/engines/workChat --ci --runInBand --coverage=false',
     [],
-    { shell: true, cwd: resolve(ROOT, 'packages/api') },
+    { shell: true },
   );
   summaries.workTests = workTests.output
     .split('\n')
@@ -277,7 +278,7 @@ if (!options.skipStatic) {
     .filter((line) => /^(Test Suites|Tests):/.test(line))
     .map((line) => `- ${line}`);
   gates.push({
-    name: 'Work Jest (`src/engines/workChat`)',
+    name: 'Work Jest (`src/engines/workChat`, with data-provider build)',
     ok: workTests.ok,
     seconds: workTests.seconds,
   });

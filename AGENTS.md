@@ -71,8 +71,9 @@ warnings/errors in the code you change.
 Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
 pull request. One command runs the four gates a merge has to show, in order:
 
-1. TypeScript for every workspace the diff affects.
-2. The Work Jest suites (`packages/api/src/engines/workChat*`).
+1. TypeScript for every workspace affected by the committed diff, staged or unstaged edits,
+   or non-ignored untracked files.
+2. The Work Jest suites (`packages/api/src/engines/workChat*`), after building data-provider.
 3. `npm run build:api`.
 4. The `--full` static-check tier, with the TypeScript check left to step 1 so no project is
    compiled twice.
