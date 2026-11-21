@@ -1,15 +1,15 @@
 import express from 'express';
 import request from 'supertest';
-import type { EngineRegistryApi } from './registry';
-import type { EngineEvent, EngineResult, EngineRunHandle } from './types';
 import type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
+import type { EngineEvent, EngineResult, EngineRunHandle } from './types';
+import type { EngineRegistryApi } from './registry';
 import {
   EngineWorkChatRuntime,
-  buildEnginePrompt,
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
-  isOwnerEngineWorkChat,
 } from './workChat';
+import { isOwnerEngineWorkChat } from './workChat/gating';
+import { buildEnginePrompt } from './workChat/prompt';
 
 const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';

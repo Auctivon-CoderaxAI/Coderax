@@ -1,0 +1,111 @@
+import type { EngineWorkChatStore } from './types';
+import type { Json } from './json';
+import { isRecord, readString } from './json';
+
+const OPEN_CODE_MODEL = 'opencode';
+const OPEN_CODE_ENDPOINT = 'opencode';
+
+type EngineWorkChatDb = {
+  getConvo: (userId: string, conversationId: string) => Promise<unknown>;
+  saveConvo: (context: Json, fields: Json, options: Json) => Promise<unknown>;
+  saveMessage: (context: Json, params: Json, options: Json) => Promise<unknown>;
+  getMessages: (filter: Json, select: string, options: Json) => Promise<unknown[]>;
+};
+
+/** Plain store adapter; the CJS route supplies the app database and request scope. */
+export function createEngineWorkChatPersistence(input: {
+  db: EngineWorkChatDb;
+  userId: string;
+  tenantId: string | null;
+  isTemporary?: boolean;
+  interfaceConfig?: unknown;
+}): EngineWorkChatStore {
+  const { db, userId, tenantId, isTemporary, interfaceConfig } = input;
+  const context = { userId, isTemporary, interfaceConfig };
+
+  async function saveConversation(fields: {
+    conversationId: string;
+    title?: string;
+    workState?: 'running' | 'completed' | 'failed' | 'cancelled';
+    create?: boolean;
+    appendMessageIds?: string[];
+  }): Promise<void> {
+    const saved = await db.saveConvo(
+      context,
+      {
+        conversationId: fields.conversationId,
+        isWork: true,
+        workModel: OPEN_CODE_MODEL,
+        ...(fields.title ? { title: fields.title } : {}),
+        ...(fields.workState ? { workState: fields.workState } : {}),
+        ...(fields.create && tenantId != null ? { tenantId } : {}),
+      },
+      {
+        context: 'Work OpenCode chat conversation',
+        ...(fields.create ? {} : { noUpsert: true }),
+        appendMessageIds: fields.appendMessageIds ?? [],
+      },
+    );
+    if (!saved) {
+      throw new Error('Work conversation could not be saved');
+    }
+  }
+
+  return {
+    getConversation: async (conversationId) => {
+      const row = await db.getConvo(userId, conversationId);
+      if (!isRecord(row)) {
+        return null;
+      }
+      return {
+        conversationId: readString(row.conversationId) ?? conversationId,
+        ...(readString(row.title) ? { title: String(row.title) } : {}),
+        ...(row.tenantId === null || typeof row.tenantId === 'string'
+          ? { tenantId: row.tenantId as string | null }
+          : {}),
+        ...(row.isWork === true ? { isWork: true } : {}),
+      };
+    },
+    saveConversation,
+    saveMessage: async (message) => {
+      const saved = await db.saveMessage(
+        context,
+        {
+          messageId: message.messageId,
+          parentMessageId: message.parentMessageId,
+          conversationId: message.conversationId,
+          text: message.text,
+          sender: message.isCreatedByUser ? 'User' : 'OpenCode',
+          isCreatedByUser: message.isCreatedByUser,
+          model: OPEN_CODE_MODEL,
+          endpoint: OPEN_CODE_ENDPOINT,
+          ...(message.unfinished ? { unfinished: true } : {}),
+          ...(message.error !== undefined ? { error: message.error } : {}),
+        },
+        {
+          context: message.isCreatedByUser
+            ? 'Work OpenCode user message'
+            : 'Work OpenCode response',
+        },
+      );
+      if (!saved) {
+        throw new Error('Work message could not be saved');
+      }
+    },
+    loadTranscript: async (conversationId) => {
+      const rows = await db.getMessages(
+        { user: userId, conversationId },
+        'messageId text isCreatedByUser createdAt',
+        { sort: { createdAt: -1 }, limit: 24 },
+      );
+      return rows
+        .filter(isRecord)
+        .map((row) => ({
+          text: typeof row.text === 'string' ? row.text : '',
+          isCreatedByUser: row.isCreatedByUser === true,
+        }))
+        .filter((row) => row.text.trim().length > 0)
+        .reverse();
+    },
+  };
+}
