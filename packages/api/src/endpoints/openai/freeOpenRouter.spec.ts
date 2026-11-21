@@ -125,13 +125,11 @@ it('sends the native agent SDK completion through the guarded transport', async 
       },
       'FreeOpenRouter',
     );
-    const nativeModel = initializeModel({
-      provider: Providers.OPENROUTER,
-      clientOptions: {
-        ...llmConfig,
-        configuration: { ...configOptions, fetchOptions: { dispatcher } },
-      },
-    });
+    const clientOptions = {
+      ...llmConfig,
+      configuration: { ...configOptions, fetchOptions: { dispatcher } },
+    };
+    const nativeModel = initializeModel({ provider: Providers.OPENROUTER, clientOptions });
     await expect(nativeModel.invoke('test')).resolves.toMatchObject({ content: 'ok' });
     dispatcher.assertNoPendingInterceptors();
   } finally {

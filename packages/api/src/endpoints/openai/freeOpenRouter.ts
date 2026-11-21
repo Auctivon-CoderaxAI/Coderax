@@ -59,7 +59,7 @@ export function createFreeOpenRouterFetch(send: typeof undiciFetch): typeof undi
 
     const payload: Record<string, unknown> = {};
     for (const field of chatFields) {
-      if (Object.hasOwn(body, field)) {
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
         payload[field] = body[field];
       }
     }

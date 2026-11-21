@@ -190,10 +190,12 @@ export async function initializeCustom(
       { freeInference: appConfig?.config?.freeInference, endpoints: appConfig?.endpoints },
       process.env,
     );
-    const executable = catalog.executableProviders.some(
-      (provider) =>
-        provider.name === endpoint && provider.models.includes(model_parameters?.model ?? ''),
-    );
+    const model = model_parameters?.model;
+    const executable =
+      typeof model === 'string' &&
+      catalog.executableProviders.some(
+        (provider) => provider.name === endpoint && provider.models.includes(model),
+      );
     if (!executable) {
       throw new Error('The selected free OpenRouter model is unavailable.');
     }
