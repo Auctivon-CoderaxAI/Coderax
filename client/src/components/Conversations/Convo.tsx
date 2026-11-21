@@ -17,12 +17,12 @@ import { useNavigateToConvo, useLocalize, useShiftKey, useAuthContext } from '~/
 import { useSavedConversationMode } from '~/components/Chat/mode';
 import ConversationEndpointIcon from './ConversationEndpointIcon';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import ConversationModeBadge from './ConversationModeBadge';
 import { focusableInRow, resolveRowBeside } from './focus';
+import { resolveConversationModeBadge } from './modeBadge';
 import { areConversationRenderPropsEqual } from './utils';
 import { NotificationSeverity } from '~/common';
 import { CONVERSATION_DRAG_TYPE } from './dnd';
-import { resolveConversationModeBadge } from './modeBadge';
-import ConversationModeBadge from './ConversationModeBadge';
 import ProjectBadge from './ProjectBadge';
 import ConvoActions from './ConvoActions';
 import UnpinButton from './UnpinButton';
@@ -82,7 +82,7 @@ function Conversation({
   /* Read where the row is drawn rather than passed down from each list: the atom is
      the same one the mode switcher writes, so a flip reaches every list at once and
      the memo comparator never has to learn about modes. */
-  const savedMode = useSavedConversationMode(user?.id, conversationId);
+  const savedMode = useSavedConversationMode(user?.id, conversationId ?? undefined);
   const modeBadge = resolveConversationModeBadge(savedMode);
   const canRename =
     supportsConversationTitleOwnership(startupConfig) ||

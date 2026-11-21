@@ -128,6 +128,7 @@
     "sort-imports:check": "node scripts/sort-imports.mts --check",
     "static-checks": "node scripts/static-checks.mts",
     "static-checks:full": "node scripts/static-checks.mts --full",
+    "verify": "node scripts/verify.mjs",
     "verify:release-gate": "node scripts/verify-release-gate.mjs",
     "smoke:deployed": "node scripts/smoke-deployed.mjs",
     "format": "npx prettier --write \"{,!(node_modules|venv)/**/}*.{js,jsx,ts,tsx}\"",
