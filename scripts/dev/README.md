@@ -22,14 +22,27 @@ npm run dev:down
 npm run dev:status
 ```
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:235f07bf78c167e21f860583aa67565b4f62ad9744235b92e1d10aae58e3bc1d -->
+
 `dev:up` starts MongoDB, the API, the local model and Vite in order, waiting until
-each answers before moving on; `dev:down` stops them in reverse order. Every
-service runs in its own process group with its PID and start time in `.dev/pids/` and a log
-in `.dev/logs/`, so shutdown can reach children even if their wrapper exits. Before
-signaling, `dev:down` checks that the live PID still has the recorded start time; a record
-that cannot be verified is reported and kept without being signaled. If a group cannot be
-stopped, its record is kept and `dev:down` exits non-zero.
-Running `dev:up` again after startup reuses services already up.
+each answers before moving on; `dev:down` stops them in reverse order. Each
+service runs in its own process group and writes a log to `.dev/logs/`. The
+record in `.dev/pids/` has a marker that the service and its children inherit.
+Shutdown checks for that marker before signaling a group, even if its original
+leader has exited. If a group cannot be verified or stopped, its record is kept
+and `dev:down` exits nonzero. Running `dev:up` again reuses services that are
+already healthy.
+
+Only one `dev:up` or `dev:down` can run at a time. If an interrupted command
+leaves `.dev/stack.lock`, confirm that neither command is running before using
+`rmdir .dev/stack.lock`. To upgrade a running stack, stop it with your old
+checkout first. The new supervisor cannot verify a running group from an old
+PID or start time record alone. If you already upgraded, identify and stop any
+old stack processes manually before removing their records.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 `dev:status` reads the same PID files and reports each service's PID, port and
 readiness without starting or stopping anything; it flags stale PID files and

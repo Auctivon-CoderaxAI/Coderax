@@ -5,7 +5,7 @@
  *   npm run dev:down   stop what `dev:up` started
  *
  * Each service runs in its own process group, writes to .dev/logs/<name>.log and
- * records its PID in .dev/pids/<name>.pid. `dev:down` signals the whole group, so
+ * records its PID and ownership marker in .dev/pids/<name>.pid. `dev:down` signals the whole group, so
  * shutdown can reach children even when the group leader has exited.
  *
  * Override: CODERAX_PREVIEW_HOST or VITE_ALLOWED_HOSTS, the hostname the preview
@@ -15,6 +15,7 @@
  * it, the stack still comes up and the UI reports no available model.
  */
 import { execFileSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -26,6 +27,7 @@ import { mongoPort } from './mongo-port.mjs';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const devDir = path.join(repoRoot, '.dev');
 const pidDir = path.join(devDir, 'pids');
+const lockDir = path.join(devDir, 'stack.lock');
 const logDir = path.join(devDir, 'logs');
 
 const nodeBin = process.execPath;
@@ -88,53 +90,94 @@ function log(message) {
 }
 
 function fail(message) {
-  console.error(`[dev] ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pidFile = (name) => path.join(pidDir, `${name}.pid`);
 
 function readRecord(name) {
+  let raw;
   try {
-    const raw = fs.readFileSync(pidFile(name), 'utf8').trim();
-    if (raw.startsWith('{')) {
-      const record = JSON.parse(raw);
-      return Number.isInteger(record.pid) && record.pid > 0
-        ? {
-            pid: record.pid,
-            startedAt: typeof record.startedAt === 'string' ? record.startedAt : null,
-          }
-        : null;
+    raw = fs.readFileSync(pidFile(name), 'utf8').trim();
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return null;
     }
-    const pid = Number(raw);
-    return Number.isInteger(pid) && pid > 0 ? { pid, startedAt: null } : null;
-  } catch {
-    return null;
+    throw error;
   }
+  // Legacy records can identify a gone group, but cannot authorize signaling.
+  const { pid, token } = raw.startsWith('{') ? JSON.parse(raw) : { pid: Number(raw) };
+  if (!Number.isSafeInteger(pid) || pid <= 1 || (token != null && !/^[a-f0-9-]{36}$/.test(token))) {
+    fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
+  }
+  return { pid, token };
 }
 
-function processStartTime(pid) {
+const ownerKey = 'CODERAX_DEV_GROUP_OWNER';
+
+function hasToken(pid, token) {
+  const marker = `${ownerKey}=${token}`;
+  if (process.platform === 'linux') {
+    try {
+      return fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').includes(marker);
+    } catch (error) {
+      if (['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(error.code)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+  // BSD ps can display the initial environment for same-user processes.
   try {
-    return (
-      execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim() || null
-    );
-  } catch {
-    return null;
+    return execFileSync('ps', ['eww', '-p', String(pid), '-o', 'command='], {
+      encoding: 'utf8',
+    })
+      .trim()
+      .split(/\s+/)
+      .includes(marker);
+  } catch (error) {
+    if (error.status === 1) {
+      return false;
+    }
+    throw error;
   }
 }
 
-function recordMatches(record) {
-  return record.startedAt != null && processStartTime(record.pid) === record.startedAt;
-}
-
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+function groupState({ pid, token }) {
+  if (!groupAlive(pid)) {
+    return 'gone';
   }
+  if (!token) {
+    return 'unverified';
+  }
+  const rows = execFileSync('ps', ['-ax', '-o', 'pid=', '-o', 'pgid=', '-o', 'stat='], {
+    encoding: 'utf8',
+  })
+    .trim()
+    .split('\n');
+  let sawMember = false;
+  let sawLiveMember = false;
+  for (const row of rows) {
+    const [member, group, state] = row.trim().split(/\s+/);
+    if (Number(group) !== pid) {
+      continue;
+    }
+    sawMember = true;
+    if (state?.startsWith('Z')) {
+      continue;
+    }
+    sawLiveMember = true;
+    if (hasToken(Number(member), token)) {
+      return 'owned';
+    }
+  }
+  // A zombie cannot serve traffic or react to signals. An invisible live group,
+  // however, may still own a service; keep its record until it can be verified.
+  if (sawMember && !sawLiveMember) {
+    return 'gone';
+  }
+  return groupAlive(pid) ? 'unverified' : 'gone';
 }
 
 function groupAlive(pid) {
@@ -186,31 +229,47 @@ function tail(file, lines = 15) {
   }
 }
 
-function startService(service) {
+async function startService(service) {
   const spec = service.command();
   const logPath = path.join(logDir, `${service.name}.log`);
   const fd = fs.openSync(logPath, 'w');
+  const token = randomUUID();
   const child = spawn(spec.file, spec.args, {
     cwd: spec.cwd ?? repoRoot,
-    env: { ...process.env, ...service.env },
+    env: { ...process.env, ...service.env, [ownerKey]: token },
     detached: true,
     stdio: ['ignore', fd, fd],
   });
-  child.unref();
   fs.closeSync(fd);
-  const record = { pid: child.pid, startedAt: processStartTime(child.pid) };
-  fs.writeFileSync(pidFile(service.name), JSON.stringify(record));
-  return child.pid;
+  await new Promise((resolve, reject) => {
+    child.once('spawn', resolve);
+    child.once('error', reject);
+  });
+  child.unref();
+  const record = { pid: child.pid, token };
+  const file = pidFile(service.name);
+  const temporary = `${file}.${token}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
+    fs.renameSync(temporary, file);
+  } catch (error) {
+    if (groupState(record) === 'owned') {
+      signalGroup(record.pid, 'SIGTERM');
+    }
+    fs.rmSync(temporary, { force: true });
+    throw error;
+  }
+  return record;
 }
 
-async function waitReady(service, pid) {
+async function waitReady(service, { pid, token }) {
   const deadline = Date.now() + service.timeoutMs;
   while (Date.now() < deadline) {
-    if (service.probe ? await service.probe() : await portOpen(service.port)) {
-      return true;
-    }
-    if (pid != null && !alive(pid)) {
+    if (!hasToken(pid, token)) {
       return false;
+    }
+    if (service.probe ? await service.probe() : await portOpen(service.port)) {
+      return hasToken(pid, token);
     }
     await sleep(500);
   }
@@ -228,17 +287,18 @@ async function up() {
 
   for (const service of services) {
     const recorded = readRecord(service.name);
-    if (recorded != null && groupAlive(recorded.pid)) {
-      if (!alive(recorded.pid)) {
+    const state = recorded && groupState(recorded);
+    if (state === 'unverified') {
+      fail(
+        `${service.name}: cannot verify process group ${recorded.pid}; inspect ${pidFile(service.name)}`,
+      );
+    }
+    if (state === 'owned') {
+      if (!hasToken(recorded.pid, recorded.token)) {
         fail(`${service.name}: process group ${recorded.pid} has no leader; run npm run dev:down`);
       }
-      if (!recordMatches(recorded)) {
-        fail(
-          `${service.name}: pid ${recorded.pid} does not match the process dev:up recorded; remove .dev/pids/${service.name}.pid after checking for a leftover process`,
-        );
-      }
       log(`${service.name} already running (pid ${recorded.pid})`);
-      if (!(await waitReady(service, recorded.pid))) {
+      if (!(await waitReady(service, recorded))) {
         fail(
           `${service.name} (pid ${recorded.pid}) is running but never became ready; see .dev/logs/${service.name}.log`,
         );
@@ -258,9 +318,9 @@ async function up() {
       );
     }
 
-    const pid = startService(service);
-    log(`starting ${service.name} (pid ${pid})`);
-    if (!(await waitReady(service, pid))) {
+    const record = await startService(service);
+    log(`starting ${service.name} (pid ${record.pid})`);
+    if (!(await waitReady(service, record))) {
       console.error(
         `\n--- .dev/logs/${service.name}.log ---\n${tail(path.join(logDir, `${service.name}.log`))}\n`,
       );
@@ -281,15 +341,15 @@ function signalGroup(pid, signal) {
   }
 }
 
-async function waitExit(pid, timeoutMs) {
+async function waitExit(record, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!groupAlive(pid)) {
+    if (groupState(record) !== 'owned') {
       return true;
     }
     await sleep(250);
   }
-  return !groupAlive(pid);
+  return groupState(record) !== 'owned';
 }
 
 async function down() {
@@ -301,27 +361,27 @@ async function down() {
       continue;
     }
     const { pid } = record;
-    if (!groupAlive(pid)) {
+    const state = groupState(record);
+    if (state === 'gone') {
       clearPid(service.name);
       log(`${service.name}: already stopped (stale pid file removed)`);
       continue;
     }
-    /* A live PID that is not ours is a reused PID. A dead PID cannot have a reused
-     * process group: the PGID is only reclaimable after the PID itself is free. */
-    if (alive(pid) && !recordMatches(record)) {
-      console.error(
-        `[dev] ${service.name}: pid ${pid} does not match the process dev:up recorded; not signaling; PID record kept`,
-      );
-      stopped = false;
-      continue;
-    }
     try {
+      if (state !== 'owned') {
+        throw new Error('ownership could not be verified');
+      }
       signalGroup(pid, 'SIGTERM');
-      if (!(await waitExit(pid, 10_000))) {
-        signalGroup(pid, 'SIGKILL');
-        if (!(await waitExit(pid, 2_000))) {
+      if (!(await waitExit(record, 10_000))) {
+        if (groupState(record) === 'owned') {
+          signalGroup(pid, 'SIGKILL');
+        }
+        if (!(await waitExit(record, 2_000))) {
           throw new Error('still exists after SIGKILL');
         }
+      }
+      if (groupState(record) === 'unverified') {
+        throw new Error('ownership could no longer be verified');
       }
     } catch (error) {
       console.error(
@@ -344,8 +404,8 @@ async function status() {
   const rows = await Promise.all(
     services.map(async (service) => {
       const record = readRecord(service.name);
-      const pid = record?.pid ?? null;
-      if (record == null) {
+      const pid = record?.pid;
+      if (pid == null) {
         if (service.available && !service.available()) {
           return {
             service,
@@ -362,19 +422,21 @@ async function status() {
           ok: false,
         };
       }
-      if (!groupAlive(pid)) {
+      const ownership = groupState(record);
+      if (ownership === 'gone') {
         return { service, pid, state: 'stale pid file (process group is gone)', ok: false };
       }
-      if (!alive(pid)) {
-        return { service, pid, state: 'process group is running without its leader', ok: false };
+      if (ownership === 'unverified') {
+        return { service, pid, state: 'process group ownership could not be verified', ok: false };
       }
-      if (!recordMatches(record)) {
-        return { service, pid, state: 'pid record does not match the running process', ok: false };
+      if (!hasToken(pid, record.token)) {
+        return { service, pid, state: 'process group is running without its leader', ok: false };
       }
       if (service.available && !service.available()) {
         return { service, pid, state: 'not installed', ok: false };
       }
-      const ready = service.probe ? await service.probe() : await portOpen(service.port);
+      const responding = service.probe ? await service.probe() : await portOpen(service.port);
+      const ready = responding && hasToken(pid, record.token);
       return { service, pid, state: ready ? 'ready' : 'running, not ready', ok: ready };
     }),
   );
@@ -389,15 +451,27 @@ async function status() {
 
 const action = process.argv[2];
 try {
-  if (action === 'up') {
-    await up();
-  } else if (action === 'down') {
-    await down();
+  if (action === 'up' || action === 'down') {
+    fs.mkdirSync(devDir, { recursive: true });
+    try {
+      fs.mkdirSync(lockDir);
+    } catch (error) {
+      if (error.code === 'EEXIST') {
+        fail('another lifecycle command owns .dev/stack.lock; see scripts/dev/README.md');
+      }
+      throw error;
+    }
+    try {
+      await (action === 'up' ? up() : down());
+    } finally {
+      fs.rmdirSync(lockDir);
+    }
   } else if (action === 'status') {
     await status();
   } else {
     fail('usage: node scripts/dev/stack.mjs <up|down|status>');
   }
 } catch (error) {
-  fail(error.message);
+  console.error(`[dev] ${error.message}`);
+  process.exitCode = 1;
 }
