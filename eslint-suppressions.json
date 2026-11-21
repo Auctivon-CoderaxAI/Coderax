@@ -136,11 +136,6 @@
       "count": 1
     }
   },
-  "client/src/components/Chat/ChatView.tsx": {
-    "shadcn/no-restyle": {
-      "count": 1
-    }
-  },
   "client/src/components/Chat/Footer.tsx": {
     "shadcn/no-arbitrary-values": {
       "count": 1
@@ -711,6 +706,14 @@
       "count": 1
     }
   },
+  "client/src/components/Chat/Messages/Loading.tsx": {
+    "shadcn/no-restyle": {
+      "count": 2
+    },
+    "shadcn/require-static-classes": {
+      "count": 2
+    }
+  },
   "client/src/components/Chat/Messages/MessageNav.tsx": {
     "shadcn/no-arbitrary-values": {
       "count": 1
@@ -997,6 +1000,19 @@
       "count": 30
     }
   },
+  "client/src/components/Landing/Hero.tsx": {
+    "shadcn/no-raw-colors": {
+      "count": 1
+    }
+  },
+  "client/src/components/Landing/primitives.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 1
+    },
+    "shadcn/no-inline-styles": {
+      "count": 1
+    }
+  },
   "client/src/components/MCP/CustomUserVarsSection.tsx": {
     "shadcn/no-restyle": {
       "count": 18
@@ -1248,6 +1264,14 @@
       "count": 3
     }
   },
+  "client/src/components/ProductSwitcher/ProductSwitcher.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 5
+    },
+    "shadcn/no-inline-styles": {
+      "count": 33
+    }
+  },
   "client/src/components/Projects/ProjectChatList.tsx": {
     "shadcn/no-inline-styles": {
       "count": 1
@@ -1385,6 +1409,14 @@
   "client/src/components/Prompts/utils/SkeletonForm.tsx": {
     "shadcn/no-restyle": {
       "count": 3
+    }
+  },
+  "client/src/components/SecurityLab/SecurityLab.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 12
+    },
+    "shadcn/no-raw-colors": {
+      "count": 48
     }
   },
   "client/src/components/Share/MessagesView.tsx": {
@@ -2062,6 +2094,17 @@
     },
     "shadcn/no-restyle": {
       "count": 2
+    }
+  },
+  "client/src/routes/Studio.tsx": {
+    "shadcn/no-arbitrary-values": {
+      "count": 2
+    },
+    "shadcn/no-inline-styles": {
+      "count": 1
+    },
+    "shadcn/no-raw-colors": {
+      "count": 60
     }
   },
   "packages/client/src/components/AnimatedSearchInput.tsx": {
