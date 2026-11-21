@@ -14,7 +14,7 @@
  * The model is optional: until `npm run dev:model -- --install` has downloaded
  * it, the stack still comes up and the UI reports no available model.
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -95,13 +95,37 @@ function fail(message) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pidFile = (name) => path.join(pidDir, `${name}.pid`);
 
-function readPid(name) {
+function readRecord(name) {
   try {
-    const pid = Number(fs.readFileSync(pidFile(name), 'utf8').trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
+    const raw = fs.readFileSync(pidFile(name), 'utf8').trim();
+    if (raw.startsWith('{')) {
+      const record = JSON.parse(raw);
+      return Number.isInteger(record.pid) && record.pid > 0
+        ? {
+            pid: record.pid,
+            startedAt: typeof record.startedAt === 'string' ? record.startedAt : null,
+          }
+        : null;
+    }
+    const pid = Number(raw);
+    return Number.isInteger(pid) && pid > 0 ? { pid, startedAt: null } : null;
   } catch {
     return null;
   }
+}
+
+function processStartTime(pid) {
+  try {
+    return (
+      execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8' }).trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function recordMatches(record) {
+  return record.startedAt != null && processStartTime(record.pid) === record.startedAt;
 }
 
 function alive(pid) {
@@ -174,7 +198,8 @@ function startService(service) {
   });
   child.unref();
   fs.closeSync(fd);
-  fs.writeFileSync(pidFile(service.name), String(child.pid));
+  const record = { pid: child.pid, startedAt: processStartTime(child.pid) };
+  fs.writeFileSync(pidFile(service.name), JSON.stringify(record));
   return child.pid;
 }
 
@@ -202,15 +227,20 @@ async function up() {
   }
 
   for (const service of services) {
-    const recorded = readPid(service.name);
-    if (recorded != null && groupAlive(recorded)) {
-      if (!alive(recorded)) {
-        fail(`${service.name}: process group ${recorded} has no leader; run npm run dev:down`);
+    const recorded = readRecord(service.name);
+    if (recorded != null && groupAlive(recorded.pid)) {
+      if (!alive(recorded.pid)) {
+        fail(`${service.name}: process group ${recorded.pid} has no leader; run npm run dev:down`);
       }
-      log(`${service.name} already running (pid ${recorded})`);
-      if (!(await waitReady(service, recorded))) {
+      if (!recordMatches(recorded)) {
         fail(
-          `${service.name} (pid ${recorded}) is running but never became ready; see .dev/logs/${service.name}.log`,
+          `${service.name}: pid ${recorded.pid} does not match the process dev:up recorded; remove .dev/pids/${service.name}.pid after checking for a leftover process`,
+        );
+      }
+      log(`${service.name} already running (pid ${recorded.pid})`);
+      if (!(await waitReady(service, recorded.pid))) {
+        fail(
+          `${service.name} (pid ${recorded.pid}) is running but never became ready; see .dev/logs/${service.name}.log`,
         );
       }
       continue;
@@ -265,14 +295,24 @@ async function waitExit(pid, timeoutMs) {
 async function down() {
   let stopped = true;
   for (const service of [...services].reverse()) {
-    const pid = readPid(service.name);
-    if (pid == null) {
+    const record = readRecord(service.name);
+    if (record == null) {
       log(`${service.name}: not started by dev:up`);
       continue;
     }
+    const { pid } = record;
     if (!groupAlive(pid)) {
       clearPid(service.name);
       log(`${service.name}: already stopped (stale pid file removed)`);
+      continue;
+    }
+    /* A live PID that is not ours is a reused PID. A dead PID cannot have a reused
+     * process group: the PGID is only reclaimable after the PID itself is free. */
+    if (alive(pid) && !recordMatches(record)) {
+      console.error(
+        `[dev] ${service.name}: pid ${pid} does not match the process dev:up recorded; not signaling; PID record kept`,
+      );
+      stopped = false;
       continue;
     }
     try {
@@ -303,8 +343,9 @@ async function down() {
 async function status() {
   const rows = await Promise.all(
     services.map(async (service) => {
-      const pid = readPid(service.name);
-      if (pid == null) {
+      const record = readRecord(service.name);
+      const pid = record?.pid ?? null;
+      if (record == null) {
         if (service.available && !service.available()) {
           return {
             service,
@@ -326,6 +367,9 @@ async function status() {
       }
       if (!alive(pid)) {
         return { service, pid, state: 'process group is running without its leader', ok: false };
+      }
+      if (!recordMatches(record)) {
+        return { service, pid, state: 'pid record does not match the running process', ok: false };
       }
       if (service.available && !service.available()) {
         return { service, pid, state: 'not installed', ok: false };

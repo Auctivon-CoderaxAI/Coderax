@@ -24,9 +24,11 @@ npm run dev:status
 
 `dev:up` starts MongoDB, the API, the local model and Vite in order, waiting until
 each answers before moving on; `dev:down` stops them in reverse order. Every
-service runs in its own process group with a PID in `.dev/pids/` and a log in
-`.dev/logs/`, so shutdown can reach children even if their wrapper exits. If a group cannot
-be stopped, its PID record is kept and `dev:down` exits non-zero.
+service runs in its own process group with its PID and start time in `.dev/pids/` and a log
+in `.dev/logs/`, so shutdown can reach children even if their wrapper exits. Before
+signaling, `dev:down` checks that the live PID still has the recorded start time; a record
+that cannot be verified is reported and kept without being signaled. If a group cannot be
+stopped, its record is kept and `dev:down` exits non-zero.
 Running `dev:up` again after startup reuses services already up.
 
 `dev:status` reads the same PID files and reports each service's PID, port and
