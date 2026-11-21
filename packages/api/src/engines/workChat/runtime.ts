@@ -2,7 +2,6 @@ import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './typ
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { DataMode, EngineResult, EngineRunHandle } from '../types';
 import type { EngineModelRef } from '../opencode/models';
-import type { ExecutionEnginesConfig } from '../service';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -91,8 +90,8 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     cloudRoot: engines?.workspaces?.cloudRoot ?? '',
     workChat: engines?.workChat ?? null,
     opencode: engines?.opencode ?? null,
-    openhands: (engines as { openhands?: unknown } | undefined)?.openhands ?? null,
-    defaultEngine: (engines as { defaultEngine?: unknown } | undefined)?.defaultEngine ?? null,
+    openhands: engines?.openhands ?? null,
+    defaultEngine: engines?.defaultEngine ?? null,
   });
 }
 
@@ -111,7 +110,7 @@ export function getEngineWorkChatRuntime(
   };
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
   const runtime = new EngineWorkChatRuntime(
-    createExecutionEngines(config as ExecutionEnginesConfig),
+    createExecutionEngines(config),
     roots,
     mode,
     parseEngineModel(config?.engines?.opencode?.model) ?? undefined,

@@ -13,8 +13,6 @@ export type {
   EngineWorkChatRunner,
   EngineWorkChatStore,
 } from './workChat/types';
-export { isEngineWorkChatPath, isOwnerEngineWorkChat } from './workChat/gating';
-export { buildEnginePrompt } from './workChat/prompt';
 export { EngineWorkChatRuntime, getEngineWorkChatRuntime } from './workChat/runtime';
 export { createEngineWorkChatPersistence } from './workChat/persistence';
 export { createEngineWorkChatHandler } from './workChat/handler';

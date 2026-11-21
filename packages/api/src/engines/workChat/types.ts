@@ -1,24 +1,9 @@
-import type { EngineStatusSnapshot } from '../registry';
 import type { EngineResult, EngineRunHandle } from '../types';
+import type { ExecutionEnginesConfig } from '../service';
+import type { EngineStatusSnapshot } from '../registry';
 
-export type EngineWorkChatConfig = {
-  engines?: {
-    workChat?: {
-      enabled?: boolean;
-      engine?: 'opencode';
-      mode?: 'private' | 'cloud';
-    } | null;
-    workspaces?: {
-      privateRoot?: string;
-      cloudRoot?: string;
-    } | null;
-    opencode?: {
-      enabled?: boolean;
-      model?: string;
-    } | null;
-  } | null;
-  interfaceConfig?: unknown;
-};
+/** The Work ingress reads the canonical engine config; it adds no fields. */
+export type EngineWorkChatConfig = NonNullable<ExecutionEnginesConfig>;
 
 export type EngineWorkChatStore = {
   getConversation: (conversationId: string) => Promise<{
@@ -55,28 +40,10 @@ export type RunScope = {
 };
 
 export type EngineWorkChatRunner = {
-  start: (input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-    prompt: string;
-  }) => Promise<EngineResult<EngineRunHandle>>;
-  state: (input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-  }) => string | null;
-  cancel: (input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-  }) => Promise<boolean>;
+  start: (input: RunScope & { prompt: string }) => Promise<EngineResult<EngineRunHandle>>;
+  state: (input: RunScope) => string | null;
+  cancel: (input: RunScope) => Promise<boolean>;
   /** The handler owns the lease until terminal persistence has finished. */
-  release?: (input: {
-    userId: string;
-    tenantId: string | null;
-    conversationId: string;
-    handle?: EngineRunHandle;
-  }) => boolean;
+  release?: (input: RunScope & { handle?: EngineRunHandle }) => boolean;
   snapshot: () => EngineStatusSnapshot;
 };
