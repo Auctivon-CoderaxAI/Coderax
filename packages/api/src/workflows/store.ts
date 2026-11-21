@@ -145,7 +145,15 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
     const codeWorkspaces =
       buildWorkspace == null || buildWorkspaceEnvironmentId == null
         ? undefined
-        : [{ environmentId: buildWorkspaceEnvironmentId, workspaceId: buildWorkspace }];
+        : [
+            {
+              environmentId: buildWorkspaceEnvironmentId,
+              workspaceId: buildWorkspace,
+              // Settlement verifies the registered checkout, never an isolated
+              // worktree, so the step must run in that same tree.
+              checkout: 'source' as const,
+            },
+          ];
     const envelope = createAgentTriggerEnvelope({
       mode: 'fire',
       requestId: randomUUID(),

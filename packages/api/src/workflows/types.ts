@@ -43,8 +43,16 @@ export interface WorkflowStepRecord {
 
 /** Input handed to the host's build verifier once every step has settled. */
 export interface BuildVerifierInput {
-  run: WorkflowRunRecord;
-  steps: WorkflowStepRecord[];
+  run: { settings?: WorkflowSettings; startedAt?: Date };
+  steps: {
+    id: string;
+    title: string;
+    status: WorkflowStepStatus;
+    attempts: number;
+    result?: string;
+    error?: string;
+    reason?: string;
+  }[];
   /** Aborted when the run lease is lost, so a command stops instead of running twice. */
   signal?: AbortSignal;
 }

@@ -113,7 +113,16 @@ export async function resolveCodeExecutionWorkspaceContext({
   environments?: readonly CodeEnvironmentConfig[];
   getAppConfig?: CodeCapabilityConfigLoader;
 }): Promise<CodeExecutionContext> {
-  if (context.environmentType !== 'attached') return context;
+  const rawSelections = persistedSelections ?? requestedSelections;
+  if (context.environmentType !== 'attached') {
+    // A selection handed to this turn, such as a build step's reserved checkout,
+    // must never be dropped: falling back to the default route would run the
+    // turn outside the tree the reservation and settlement cover.
+    if (isCodeWorkspaceSelections(rawSelections) && rawSelections.length > 0) {
+      throw new CodeWorkspaceSelectionError('invalid');
+    }
+    return context;
+  }
   if (
     persistedSelections !== undefined &&
     requestedSelections !== undefined &&
@@ -123,7 +132,6 @@ export async function resolveCodeExecutionWorkspaceContext({
   ) {
     throw new CodeWorkspaceSelectionError('locked');
   }
-  const rawSelections = persistedSelections ?? requestedSelections;
   if (rawSelections == null) {
     throw new CodeWorkspaceSelectionError('required');
   }

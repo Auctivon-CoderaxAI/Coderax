@@ -1,6 +1,8 @@
+import { realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { WorkflowBuildSettings, WorkflowRunVerification } from 'coderax-data-provider';
-import type { BuildVerifierInput, WorkflowRunRecord, WorkflowStepRecord } from '../workflows/types';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
+import type { BuildVerifierInput } from '../workflows/types';
 import type { BuildVerificationConfig } from './config';
 import { runBuildVerification } from './verify';
 import { getBuildModePolicy } from './modes';
@@ -15,6 +17,43 @@ const GATE_SUMMARY_MAX_LENGTH = 512;
 const PULL_REQUEST_MAX_LENGTH = 512;
 
 const PULL_REQUEST_URL = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/;
+
+/**
+ * Resolves the run's own checkout under the deployment root. The workspace is
+ * already a single safe directory name, but the symlink-aware containment
+ * check keeps a checkout from pointing verification at another build's tree.
+ */
+function resolveBuildWorkspace(
+  baseRoot: string,
+  workspace: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  if (!isAbsolute(baseRoot)) {
+    return { ok: false, message: 'The deployment build root must be an absolute path.' };
+  }
+  let base: string;
+  try {
+    base = realpathSync(resolve(baseRoot));
+  } catch {
+    return { ok: false, message: 'The deployment build root is not an existing directory.' };
+  }
+  let candidate: string;
+  try {
+    candidate = realpathSync(resolve(base, workspace));
+  } catch {
+    return { ok: false, message: `The build workspace ${workspace} has no checkout.` };
+  }
+  const rel = relative(base, candidate);
+  if (rel.length === 0 || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    return {
+      ok: false,
+      message: `The build workspace ${workspace} is outside the deployment build root.`,
+    };
+  }
+  if (rel !== workspace) {
+    return { ok: false, message: `The build workspace ${workspace} aliases another checkout.` };
+  }
+  return { ok: true, value: candidate };
+}
 
 /**
  * A reviewer opens the pull request itself, so the only trustworthy delivery

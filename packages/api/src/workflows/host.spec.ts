@@ -1,3 +1,4 @@
+import { logger } from '@coderax/data-schemas';
 import type { WorkflowRunRecord } from './types';
 import {
   WorkflowStepInactiveError,
@@ -248,6 +249,55 @@ describe('workflow engine startup ordering', () => {
     lifecycle.wake();
     expect(engine.wake).toHaveBeenCalledTimes(1);
     expect(createEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not arm when the build workspace environment is not configured', () => {
+    const engine = makeEngine();
+    const createEngine = jest.fn(() => engine);
+    const lifecycle = createWorkflowLifecycle(createEngine);
+
+    expect(
+      lifecycle.initialize(
+        {
+          buildVerification: {
+            workspaceRoot: '/srv/builds',
+            workspaceEnvironmentId: 'build-machien',
+            commands: [{ gate: 'tests', command: 'npm' }],
+          },
+        },
+        [{ id: 'build-machine', type: 'attached' }],
+      ),
+    ).toBe(false);
+
+    expect(createEngine).not.toHaveBeenCalled();
+    expect(engine.start).not.toHaveBeenCalled();
+    expect(() => lifecycle.getEngine()).toThrow('Workflow engine is not initialized');
+  });
+
+  it('logs why the build workspace configuration refused to arm', () => {
+    const errorLog = jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    const lifecycle = createWorkflowLifecycle(makeEngine);
+
+    expect(
+      lifecycle.initialize(
+        {
+          buildVerification: {
+            workspaceRoot: '/srv/builds',
+            workspaceEnvironmentId: 'build-machien',
+            commands: [{ gate: 'tests', command: 'npm' }],
+          },
+        },
+        [{ id: 'build-machine', type: 'attached' }],
+      ),
+    ).toBe(false);
+
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'workflows.buildVerification.workspaceEnvironmentId "build-machien" is not a configured stateful-code environment',
+      ),
+      expect.any(Error),
+    );
+    errorLog.mockRestore();
   });
 
   it('never wakes a runner after initialization fails', () => {
