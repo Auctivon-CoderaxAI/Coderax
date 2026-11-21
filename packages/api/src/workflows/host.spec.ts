@@ -295,6 +295,7 @@ describe('workflow engine startup ordering', () => {
       expect.stringContaining(
         'workflows.buildVerification.workspaceEnvironmentId "build-machien" is not a configured stateful-code environment',
       ),
+      expect.any(Error),
     );
     errorLog.mockRestore();
   });

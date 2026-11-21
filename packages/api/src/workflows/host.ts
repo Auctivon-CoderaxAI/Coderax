@@ -395,6 +395,7 @@ export function createWorkflowLifecycle(
         `[workflows] engine arming failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
+        error,
       );
       return false;
     }
