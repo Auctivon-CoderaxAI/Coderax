@@ -5,10 +5,10 @@ import type {
   WorkflowRunRecord,
   WorkflowStepRecord,
 } from '../workflows/types';
-import { getBuildModePolicy } from './modes';
 import type { BuildGateEvidence, BuildPullRequest, BuildSnapshot } from './report';
-import { summarizeBuild } from './report';
 import { runBuildVerification } from './verify';
+import { getBuildModePolicy } from './modes';
+import { summarizeBuild } from './report';
 
 export type { BuildVerificationConfig, BuildVerifierInput } from '../workflows/types';
 

@@ -1,6 +1,5 @@
 import type {
   TScheduleCadence,
-  WorkflowBuildSettings,
   WorkflowRunEvent,
   WorkflowRunStatus,
   WorkflowRunTrigger,
