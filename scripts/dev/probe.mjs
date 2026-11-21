@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * End-to-end local probe: Mongo, the model, the API, sign-in, the model catalog,
- * one chat completion and a hard load of the conversation it created. Reports the
- * layer that failed instead of leaving you to curl each hop.
+ * one chat completion, the conversation it created and a hard load of its deep
+ * link. Reports the layer that failed instead of leaving you to curl each hop.
  *
  *   npm run dev:probe
  *   npm run dev:probe -- --base http://127.0.0.1:3090    # through the Vite/preview proxy
@@ -11,7 +11,9 @@
  * The guest layer mirrors what the browser does at /connect: it opens a guest
  * session, reads /api/user with that token and asks /api/models for the catalog.
  * The route layer requests a conversation deep link as a fresh page load, then
- * resolves the shell's entry script from that same path.
+ * resolves the shell's entry script from that same path. The convo layer re-reads
+ * the conversation and its messages with the same token, so a deep link that
+ * opens an empty conversation fails here instead of in the browser.
  */
 import net from 'node:net';
 
@@ -44,6 +46,9 @@ const chatTimeoutMs = Number(env.DEV_PROBE_CHAT_TIMEOUT_MS || 120_000);
 /* The chat route refuses requests whose User-Agent is not a browser. */
 const BROWSER_UA =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+/* The chat and convo layers share the prompt so the probe can find it in storage. */
+const PROMPT = 'Reply with exactly one word: pong';
 
 class LayerError extends Error {
   constructor(layer, message) {
@@ -354,6 +359,7 @@ async function main() {
   });
 
   let conversationId;
+  let assistantReply = '';
   await layer('chat', async () => {
     const controller = new AbortController();
     let timer;
@@ -381,7 +387,7 @@ async function main() {
           'user-agent': BROWSER_UA,
         },
         body: JSON.stringify({
-          text: 'Reply with exactly one word: pong',
+          text: PROMPT,
           endpoint,
           model: configuredModel,
           conversationId: null,
@@ -441,6 +447,7 @@ async function main() {
     if (!result.reply) {
       throw new LayerError('chat', 'the assistant returned an empty response');
     }
+    assistantReply = result.reply;
     conversationId =
       result.finalEvent.conversation?.conversationId ??
       result.finalEvent.responseMessage?.conversationId ??
@@ -471,12 +478,16 @@ async function main() {
     if (!html.includes('<div id="root"')) {
       throw new LayerError('route', `hard load ${url} did not serve the client shell`);
     }
-    /* Resolve the entry script the way the browser does: through the shell's
-       <base href>, not the conversation path. Without one, a relative entry asks
-       for /c/assets/... and the HTML fallback below is not JavaScript. */
+    /* Vite dev injects its HMR client as a module script ahead of the app, and the
+       shell also loads a RUM bootstrap; neither is the app entry. Prefer the
+       `index-<hash>.js` a build emits or the `main.*` the dev shell uses, and
+       resolve it the way the browser does: through the shell's <base href>, not
+       the conversation path. Without one, a relative entry asks for /c/assets/...
+       and the HTML fallback below is not JavaScript. */
     const baseHref = html.match(/<base[^>]+href="([^"]*)"/i)?.[1] ?? '';
     const baseUrl = new URL(baseHref, url);
     let entryUrl;
+    let moduleFallbackUrl;
     let fallbackUrl;
     for (const [tag] of html.matchAll(/<script\b[^>]*>/gi)) {
       const src = tag.match(/\ssrc\s*=\s*(["'])(.*?)\1/i)?.[2];
@@ -484,18 +495,22 @@ async function main() {
         continue;
       }
       const candidate = new URL(src, baseUrl);
-      if (candidate.pathname.endsWith('/@vite/client')) {
+      if (/\/@(?:vite|react-refresh)\//.test(candidate.pathname)) {
         continue;
       }
       if (/\stype\s*=\s*(["'])module\1/i.test(tag)) {
-        entryUrl = candidate;
-        break;
+        if (/\/(?:index|main)[.-][\w-]+\.(?:m?js|jsx|tsx?)$/.test(candidate.pathname)) {
+          entryUrl = candidate;
+          break;
+        }
+        moduleFallbackUrl = candidate;
+        continue;
       }
       if (!fallbackUrl && candidate.pathname.endsWith('.js')) {
         fallbackUrl = candidate;
       }
     }
-    entryUrl ??= fallbackUrl;
+    entryUrl ??= moduleFallbackUrl ?? fallbackUrl;
     if (!entryUrl) {
       throw new LayerError('route', 'the shell has no application entry script to resolve');
     }
@@ -518,6 +533,53 @@ async function main() {
       );
     }
     return `hard load /c/<id> served the shell; ${entryUrl.pathname} -> ${asset.status} ${assetType}`;
+  });
+
+  await layer('convo', async () => {
+    if (!conversationId) {
+      throw new LayerError('convo', 'the chat layer did not report a conversation id');
+    }
+    const convoHeaders = { ...headers, 'user-agent': BROWSER_UA };
+    const url = `${base}/api/convos/${encodeURIComponent(conversationId)}`;
+    const response = await fetch(url, {
+      headers: convoHeaders,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      throw new LayerError(
+        'convo',
+        `GET /api/convos/<id> -> HTTP ${response.status}: the deep link would open no conversation`,
+      );
+    }
+    const convo = await response.json();
+    if (convo?.conversationId !== conversationId) {
+      throw new LayerError(
+        'convo',
+        `GET /api/convos/<id> returned conversation "${convo?.conversationId ?? 'none'}"`,
+      );
+    }
+    const listed = await fetch(`${base}/api/messages/${encodeURIComponent(conversationId)}`, {
+      headers: convoHeaders,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!listed.ok) {
+      throw new LayerError('convo', `GET /api/messages/<id> -> HTTP ${listed.status}`);
+    }
+    const messages = await listed.json();
+    if (!Array.isArray(messages) || messages.length === 0) {
+      throw new LayerError('convo', 'the conversation has no messages to load');
+    }
+    const texts = messages.map(messageText);
+    if (!texts.some((text) => text.includes(PROMPT))) {
+      throw new LayerError('convo', 'the stored messages do not contain the prompt the probe sent');
+    }
+    if (!texts.some((text) => text.includes(assistantReply))) {
+      throw new LayerError(
+        'convo',
+        'the stored messages do not contain the reply the probe received',
+      );
+    }
+    return `${messages.length} messages incl. the prompt and reply`;
   });
 
   console.log('\n✔ all layers healthy');
