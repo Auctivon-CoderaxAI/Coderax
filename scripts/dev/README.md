@@ -5,6 +5,7 @@
 ```bash
 CODERAX_PREVIEW_HOST=<preview hostname> npm run dev:up
 npm run dev:down
+npm run dev:status
 ```
 
 `dev:up` starts MongoDB, the API, the local model and Vite in order, waiting until
@@ -12,6 +13,11 @@ each answers before moving on; `dev:down` stops them in reverse order. Every
 service runs in its own process group with a PID in `.dev/pids/` and a log in
 `.dev/logs/`, so stopping the stack cannot leave an npm or nodemon wrapper behind.
 Re-running `dev:up` is safe: services already up are reused.
+
+`dev:status` reads the same PID files and reports each service's PID, port and
+readiness without starting or stopping anything; it flags stale PID files and
+ports held by other processes, and exits non-zero when a service is missing or
+unready.
 
 `CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) supplies the hostname Vite must
 accept; without it the API and UI still start but the preview panel returns 403.

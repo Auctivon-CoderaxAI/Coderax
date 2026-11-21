@@ -271,11 +271,53 @@ async function down() {
   log('stack is down');
 }
 
+async function status() {
+  const rows = await Promise.all(
+    services.map(async (service) => {
+      const pid = readPid(service.name);
+      if (pid == null) {
+        if (service.available && !service.available()) {
+          return {
+            service,
+            pid,
+            state: 'not installed (npm run dev:model -- --install)',
+            ok: false,
+          };
+        }
+        const busy = await portOpen(service.port);
+        return {
+          service,
+          pid,
+          state: busy ? `port ${service.port} is held by another process` : 'not started',
+          ok: false,
+        };
+      }
+      if (!alive(pid)) {
+        return { service, pid, state: 'stale pid file (process is gone)', ok: false };
+      }
+      if (service.available && !service.available()) {
+        return { service, pid, state: 'not installed', ok: false };
+      }
+      const ready = service.probe ? await service.probe() : await portOpen(service.port);
+      return { service, pid, state: ready ? 'ready' : 'running, not ready', ok: ready };
+    }),
+  );
+
+  for (const { service, pid, state } of rows) {
+    const name = service.name.padEnd(6);
+    const pidText = String(pid ?? '-').padEnd(8);
+    console.log(`[dev] ${name} pid ${pidText} port ${String(service.port).padEnd(5)} ${state}`);
+  }
+  process.exitCode = rows.every((row) => row.ok) ? 0 : 1;
+}
+
 const action = process.argv[2];
 if (action === 'up') {
   await up();
 } else if (action === 'down') {
   await down();
+} else if (action === 'status') {
+  await status();
 } else {
-  fail('usage: node scripts/dev/stack.mjs <up|down>');
+  fail('usage: node scripts/dev/stack.mjs <up|down|status>');
 }

@@ -48,6 +48,7 @@
     "dev:api": "cross-env NODE_ENV=development VERCEL=1 npx nodemon api/server/index.js",
     "dev:up": "node scripts/dev/stack.mjs up",
     "dev:down": "node scripts/dev/stack.mjs down",
+    "dev:status": "node scripts/dev/stack.mjs status",
     "dev:model": "node scripts/dev/model.mjs",
     "redis:single": "bash scripts/redis-mode.sh single",
     "redis:cluster": "bash scripts/redis-mode.sh cluster",
