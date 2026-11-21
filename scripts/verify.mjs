@@ -59,6 +59,7 @@ for (let index = 0; index < argv.length; index += 1) {
   if (!VALUED.has(arg)) fail(`unknown argument ${arg}`);
   const value = argv[index + 1];
   if (value === undefined || value.startsWith('--')) fail(`${arg} needs a value`);
+  if (value.trim() === '') fail(`${arg} needs a nonblank value`);
   index += 1;
   if (arg === '--against') {
     if (options.against !== undefined) fail('--against can only be given once');
@@ -86,29 +87,67 @@ if (options.tests.length === 0 && options.manual.length === 0) {
 
 function git(args) {
   const result = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-  return result.status === 0 ? result.stdout.trim() : null;
+  return result.status === 0 ? result.stdout.trimEnd() : null;
 }
 
-const requestedBase = options.against;
-const base =
-  requestedBase ??
-  (git(['rev-parse', '--verify', 'origin/main']) ? 'origin/main' : 'main');
-
-if (!git(['rev-parse', '--verify', base])) {
-  fail(`base ${base} does not resolve — fetch it or pass --against <ref>`);
+function resolveCommit(ref) {
+  return git(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`]);
 }
 
-const head = git(['rev-parse', 'HEAD']) ?? 'unknown';
+function readCheckout() {
+  return {
+    head: resolveCommit('HEAD'),
+    status: git(['status', '--porcelain', '--untracked-files=normal']),
+  };
+}
+
+const base = options.against ?? (resolveCommit('origin/main') ? 'origin/main' : 'main');
+const baseCommit = resolveCommit(base);
+if (!baseCommit)
+  fail(`base ${base} does not resolve to a commit — fetch it or pass --against <ref>`);
+
+const initial = readCheckout();
+const { head } = initial;
+if (!head) fail('could not resolve HEAD to a commit');
 const branch = git(['rev-parse', '--abbrev-ref', 'HEAD']) ?? 'HEAD';
-const mergeBase = git(['merge-base', 'HEAD', base]) ?? base;
-const dirty = (git(['status', '--porcelain', '--untracked-files=normal']) ?? '')
-  .split('\n')
-  .filter(Boolean);
+const mergeBase = git(['merge-base', head, baseCommit]);
+if (!mergeBase) fail(`could not find a merge base between HEAD and ${base}`);
+
+function describeStatus(status) {
+  if (status === null) return 'unknown';
+  if (status === '') return 'clean';
+  return `dirty (${status.split('\n').length} path(s))`;
+}
 
 console.log(`verify · ${branch} @ ${head.slice(0, 12)} · against ${base}`);
 console.log(`  merge base ${mergeBase.slice(0, 12)} · node ${process.version}`);
-if (dirty.length > 0) {
-  console.log(`  working tree is dirty (${dirty.length} path(s)) — commit before treating this as evidence`);
+console.log(`  working tree before gates: ${describeStatus(initial.status)}`);
+
+let checkout = initial;
+const checkoutWarnings = [];
+if (initial.status === null) {
+  checkoutWarnings.push('- Warning: Git status was unavailable before the gates.');
+} else if (initial.status !== '') {
+  checkoutWarnings.push(
+    `- Warning: the working tree was dirty before the gates, so \`${head.slice(0, 12)}\` does not identify what was tested.`,
+  );
+}
+
+function checkCheckoutAfterGate(label) {
+  const next = readCheckout();
+  const headChanged = next.head !== null && checkout.head !== null && next.head !== checkout.head;
+  const statusChanged =
+    next.status !== null && checkout.status !== null && next.status !== checkout.status;
+  const gate = markdownCode(label);
+  if (headChanged || statusChanged) {
+    checkoutWarnings.push(
+      `- Warning: checkout changed during ${gate}. Gates may have run on different checkout states.`,
+    );
+  }
+  if (next.head === null || next.status === null) {
+    checkoutWarnings.push(`- Warning: could not fully verify checkout state after ${gate}.`);
+  }
+  checkout = next;
 }
 
 function secondsSince(started) {
@@ -120,11 +159,11 @@ function secondsSince(started) {
  * `options.shell` runs the string through the platform shell, which is how a
  * focused test command is expected to be written.
  */
-function runGate(label, command, args, gateOptions = {}) {
+async function runGate(label, command, args, gateOptions = {}) {
   console.log(`\n▶ ${label}`);
   console.log(`  $ ${command}${args.length > 0 ? ` ${args.join(' ')}` : ''}`);
   const started = process.hrtime.bigint();
-  return new Promise((resolveGate) => {
+  const result = await new Promise((resolveGate) => {
     const child = spawn(command, args, {
       cwd: ROOT,
       env: process.env,
@@ -137,8 +176,6 @@ function runGate(label, command, args, gateOptions = {}) {
       output += text;
       process.stdout.write(text);
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
     child.on('error', (error) => {
       console.error(`\nverify: could not start ${command}: ${error.message}`);
       resolveGate({
@@ -147,15 +184,33 @@ function runGate(label, command, args, gateOptions = {}) {
         seconds: secondsSince(started),
       });
     });
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
     child.on('close', (code, signal) => {
       if (signal) console.error(`\nverify: ${label} ended on ${signal}`);
       resolveGate({ ok: code === 0, output, seconds: secondsSince(started) });
     });
   });
+  checkCheckoutAfterGate(label);
+  return result;
 }
 
-function oneLine(text) {
-  return text.replace(/`/g, "'").replace(/\s*\n\s*/g, ' ');
+function markdownCode(text) {
+  const line = text.replace(/\r\n?|\n/g, ' ');
+  let width = 1;
+  for (const ticks of line.matchAll(/`+/g)) width = Math.max(width, ticks[0].length + 1);
+  const fence = '`'.repeat(width);
+  return `${fence} ${line} ${fence}`;
+}
+
+function tableCommand(command) {
+  if (!command.includes('\\|')) return markdownCode(command).replaceAll('|', '\\|');
+  // A backslash before a pipe can cancel the table escape. Encode those cells as HTML.
+  const escaped = Array.from(
+    command.replace(/\r\n?|\n/g, ' '),
+    (char) => `&#${char.codePointAt(0)};`,
+  ).join('');
+  return `<code>${escaped}</code>`;
 }
 
 function formatSeconds(seconds) {
@@ -170,55 +225,53 @@ function summarizeStaticChecks(output) {
     if (match) checks.push(`- ${match[1]} ${match[2]} — ${match[3]}`);
   }
   if (checks.length > 0) return checks;
-  const tail = output
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .at(-1);
+  const tail = output.trim().split('\n').filter(Boolean).at(-1);
   return tail ? [`- ${tail.trim()}`] : [];
 }
 
 const gates = [];
+let staticDetails = ['- skipped (`--skip-static`)'];
 
 const staticResult = options.skipStatic
   ? null
   : await runGate('static checks (full)', process.execPath, [
       resolve(ROOT, 'scripts/static-checks.mts'),
       '--against',
-      base,
+      mergeBase,
       '--full',
     ]);
 
 if (staticResult) {
+  staticDetails = summarizeStaticChecks(staticResult.output);
+  if (staticDetails.length === 0) staticDetails = ['- no checks ran'];
   gates.push({
-    name: `Static checks (\`--full\`, against \`${base}\`)`,
+    name: `Static checks (\`--full\`, against \`${mergeBase.slice(0, 12)}\`)`,
     ok: staticResult.ok,
     seconds: staticResult.seconds,
-    detail: summarizeStaticChecks(staticResult.output),
   });
 }
 
 for (const command of options.tests) {
   const result = await runGate(`focused test: ${command}`, command, [], { shell: true });
-  gates.push({ name: `\`${oneLine(command)}\``, ok: result.ok, seconds: result.seconds });
+  gates.push({ name: tableCommand(command), ok: result.ok, seconds: result.seconds });
 }
 
 const passed = gates.every((gate) => gate.ok);
-const warnings = [];
-if (dirty.length > 0) {
-  warnings.push(
-    `- Warning: the working tree is dirty, so \`${head.slice(0, 12)}\` does not identify what was tested.`,
-  );
-}
+const warnings = [...checkoutWarnings];
 if (options.tests.length === 0) warnings.push('- Warning: no focused test command was supplied.');
 if (options.manual.length === 0) warnings.push('- Warning: no manual observation was supplied.');
 
 const artifact = [
   '### Local verification (hosted CI is billing-blocked)',
   '',
-  `- Commit: \`${head.slice(0, 12)}\` on \`${branch}\``,
+  `- Commit before gates: \`${head.slice(0, 12)}\` on \`${branch}\``,
   `- Base: \`${base}\` (merge base \`${mergeBase.slice(0, 12)}\`)`,
-  `- Working tree: ${dirty.length === 0 ? 'clean' : `dirty (${dirty.length} path(s))`}`,
+  `- Working tree before gates: ${describeStatus(initial.status)}`,
+  ...(gates.length > 0
+    ? [
+        `- Checkout after gates: ${checkout.head?.slice(0, 12) ?? 'unknown'}, working tree ${describeStatus(checkout.status)}`,
+      ]
+    : []),
   `- Node: \`${process.version}\``,
   `- Generated: \`${new Date().toISOString()}\``,
   '',
@@ -229,20 +282,20 @@ const artifact = [
   ),
   '',
   'Static-check results:',
-  ...(staticResult === null
-    ? ['- skipped (`--skip-static`)']
-    : (gates[0].detail.length > 0 ? gates[0].detail : ['- no checks ran'])),
+  ...staticDetails,
   '',
   'Focused tests:',
   ...(options.tests.length === 0
     ? ['- none supplied']
     : options.tests.map((command, index) => {
         const gate = gates[(staticResult ? 1 : 0) + index];
-        return `- ${gate.ok ? 'PASS' : 'FAIL'} \`${oneLine(command)}\` — ${formatSeconds(gate.seconds)}`;
+        return `- ${gate.ok ? 'PASS' : 'FAIL'} ${markdownCode(command)} — ${formatSeconds(gate.seconds)}`;
       })),
   '',
   'Manual observation:',
-  ...(options.manual.length === 0 ? ['- none supplied'] : options.manual.map((text) => `- ${text}`)),
+  ...(options.manual.length === 0
+    ? ['- none supplied']
+    : options.manual.map((text) => `- ${text}`)),
   ...(warnings.length > 0 ? ['', ...warnings] : []),
 ];
 
@@ -254,6 +307,11 @@ if (passed) {
   console.log(`All recorded gates passed (${gates.length}).`);
   process.exitCode = 0;
 } else {
-  console.error(`Recorded gates failed: ${gates.filter((gate) => !gate.ok).map((gate) => gate.name).join(', ')}`);
+  console.error(
+    `Recorded gates failed: ${gates
+      .filter((gate) => !gate.ok)
+      .map((gate) => gate.name)
+      .join(', ')}`,
+  );
   process.exitCode = 1;
 }
