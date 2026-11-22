@@ -1,5 +1,5 @@
 import { Providers } from '@librechat/agents';
-import { EModelEndpoint } from 'coderax-data-provider';
+import { EModelEndpoint, isFreeOpenRouterEndpoint } from 'coderax-data-provider';
 import type { TEndpoint } from 'coderax-data-provider';
 import type { AppConfig } from '@coderax/data-schemas';
 import type { InitializeResultBase, ProviderInitializeParams } from '~/types';
@@ -153,7 +153,9 @@ export function getProviderConfig({
     if (!customEndpointConfig) {
       throw new Error(`Provider ${provider} not supported`);
     }
-    getOptions = initializeCustom;
+    getOptions = isFreeOpenRouterEndpoint(provider)
+      ? (params) => initializeCustom(params, Boolean(process.env.OPENROUTER_API_KEY))
+      : initializeCustom;
     overrideProvider = Providers.OPENAI;
   }
 

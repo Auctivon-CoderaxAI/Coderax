@@ -152,6 +152,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
 
     let closed = false;
     let finished = false;
+    /** Separates a conversation-store outage from an engine failure. */
+    let storeUnavailable = false;
     let activeHandle: EngineRunHandle | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
@@ -193,7 +195,13 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         });
         return;
       }
-      const existing = isNewConversation ? null : await store.getConversation(conversationId);
+      let existing: Awaited<ReturnType<EngineWorkChatStore['getConversation']>> = null;
+      try {
+        existing = isNewConversation ? null : await store.getConversation(conversationId);
+      } catch (error) {
+        storeUnavailable = true;
+        throw error;
+      }
       if (existing && (existing.tenantId ?? null) !== tenantId) {
         res.status(404).json({ code: 'WORK_TASK_NOT_FOUND' });
         return;
@@ -216,7 +224,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
-          await store.saveConversation({ conversationId, workState: 'failed' });
+          try {
+            await store.saveConversation({ conversationId, workState: 'failed' });
+          } catch (error) {
+            storeUnavailable = true;
+            throw error;
+          }
         }
         if (closed) {
           finished = true;
@@ -230,12 +243,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       activeHandle = started.value;
-      await store.saveConversation({
-        conversationId,
-        title,
-        workState: 'running',
-        create: existing == null,
-      });
+      try {
+        await store.saveConversation({
+          conversationId,
+          title,
+          workState: 'running',
+          create: existing == null,
+        });
+      } catch (error) {
+        storeUnavailable = true;
+        throw error;
+      }
       if (closed) {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'cancelled' });
@@ -449,8 +467,10 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       res.status(503).json({
-        code: 'WORK_ENGINE_UNAVAILABLE',
-        message: 'The OpenCode engine could not start this task.',
+        code: storeUnavailable ? 'WORK_ENGINE_STORE_UNAVAILABLE' : 'WORK_ENGINE_UNAVAILABLE',
+        message: storeUnavailable
+          ? 'Work could not reach its conversation store.'
+          : 'The OpenCode engine could not start this task.',
       });
     } finally {
       if (activeHandle) {
