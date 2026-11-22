@@ -2,18 +2,11 @@ const mockCreateUser = jest.fn();
 const mockDeleteUserById = jest.fn();
 const mockSetAuthTokens = jest.fn();
 const mockGetAppConfig = jest.fn();
-const mockSanitizeUser = jest.fn((user) => ({
-  _id: user._id,
-  email: user.email,
-  role: user.role,
-  provider: user.provider,
-}));
 const mockLogger = { error: jest.fn() };
 
-jest.mock('@coderax/data-schemas', () => ({ logger: mockLogger }));
-jest.mock('@coderax/api', () => ({
-  isEnabled: (value) => value === 'true',
-  sanitizeUserForAuthResponse: (...args) => mockSanitizeUser(...args),
+jest.mock('@coderax/data-schemas', () => ({
+  ...jest.requireActual('@coderax/data-schemas'),
+  logger: mockLogger,
 }));
 jest.mock('~/models', () => ({
   createUser: (...args) => mockCreateUser(...args),
@@ -69,7 +62,7 @@ describe('guestController', () => {
 
   it('does not bypass mandatory two-factor authentication', async () => {
     process.env.ENABLE_GUEST_ACCESS = 'true';
-    process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION = 'true';
+    process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION = ' TRUE ';
     const res = response();
     await guestController({}, res);
     expect(res.sendStatus).toHaveBeenCalledWith(404);
