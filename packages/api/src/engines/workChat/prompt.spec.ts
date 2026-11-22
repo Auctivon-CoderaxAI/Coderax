@@ -11,6 +11,13 @@ describe('buildEnginePrompt', () => {
     expect(buildEnginePrompt([message('   '), message('\n\t', false)], 'Fix it')).toBe('Fix it');
   });
 
+  it('prepends mode instructions without changing the request', () => {
+    expect(buildEnginePrompt([], 'Fix it', '  Plan mode: investigate first.  ')).toBe(
+      'Plan mode: investigate first.\n\nFix it',
+    );
+    expect(buildEnginePrompt([], 'Fix it', '   ')).toBe('Fix it');
+  });
+
   it('labels history and keeps it oldest to newest', () => {
     expect(
       buildEnginePrompt([message('first'), message('second', false), message('third')], 'Fix it'),

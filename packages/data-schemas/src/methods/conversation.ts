@@ -2926,7 +2926,7 @@ export function createConversationMethods(
       if (metadata?.context) {
         logger.info(`[saveConvo] ${metadata.context}`);
       }
-      return { message: 'Error saving conversation' };
+      return null;
     }
   }
 

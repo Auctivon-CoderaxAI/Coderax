@@ -246,6 +246,27 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
+  it('serves history when stored timestamps are Date objects', async () => {
+    const server = app({
+      listConversations: async () => [
+        {
+          conversationId: 'c-1',
+          title: 'Plan',
+          isWork: true,
+          createdAt: new Date('2026-11-22T16:00:00.000Z'),
+          updatedAt: new Date('2026-11-22T16:01:00.000Z'),
+        },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks[0]).toMatchObject({
+      id: 'c-1',
+      createdAt: '2026-11-22T16:00:00.000Z',
+      updatedAt: '2026-11-22T16:01:00.000Z',
+    });
+  });
+
   it('uses live native job state and clears a stale running marker', async () => {
     const server = app({
       listConversations: async () => [

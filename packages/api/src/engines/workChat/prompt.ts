@@ -6,6 +6,7 @@ const MAX_HISTORY_MESSAGE_CHARS = 4_000;
 export function buildEnginePrompt(
   history: ReadonlyArray<{ text: string; isCreatedByUser: boolean }>,
   request: string,
+  instructions?: string | null,
 ): string {
   const selected = history.slice(-MAX_HISTORY_MESSAGES);
   const lines: string[] = [];
@@ -23,7 +24,10 @@ export function buildEnginePrompt(
     lines.push(line);
   }
   lines.reverse();
-  return lines.length > 0
-    ? `Earlier in this Work conversation:\n${lines.join('\n')}\n\nCurrent request:\n${request}`
-    : request;
+  const prompt =
+    lines.length > 0
+      ? `Earlier in this Work conversation:\n${lines.join('\n')}\n\nCurrent request:\n${request}`
+      : request;
+  const prefix = typeof instructions === 'string' ? instructions.trim() : '';
+  return prefix.length > 0 ? `${prefix}\n\n${prompt}` : prompt;
 }

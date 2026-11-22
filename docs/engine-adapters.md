@@ -130,7 +130,17 @@ CommonJS output:
 ```bash
 # from the Freebuff source checkout
 bun install
-bun run build:sdk
+# The public SDK validates its web-client env at import time. A server build
+# must supply neutral public values; the bundle inlines them.
+NEXT_PUBLIC_CB_ENVIRONMENT=prod \
+  NEXT_PUBLIC_CODEBUFF_APP_URL=https://codebuff.com \
+  NEXT_PUBLIC_SUPPORT_EMAIL=support@codebuff.com \
+  NEXT_PUBLIC_POSTHOG_API_KEY=phc_local \
+  NEXT_PUBLIC_POSTHOG_HOST_URL=https://us.i.posthog.com \
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_local \
+  NEXT_PUBLIC_STRIPE_CUSTOMER_PORTAL=https://billing.stripe.com/p/login/local \
+  NEXT_PUBLIC_WEB_PORT=3000 \
+  bun run build:sdk
 
 # point Coderax at the build, either in the API process environment
 FREEBUFF_SDK_PATH=/absolute/path/to/freebuff/sdk/dist/index.cjs

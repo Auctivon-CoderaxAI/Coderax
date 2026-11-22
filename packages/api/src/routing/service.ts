@@ -1,7 +1,3 @@
-import type { TFreeInferenceConfig } from 'coderax-data-provider';
-import type { FreeRoutingLimits, FreeRouter } from './router';
-import type { EndpointHealth } from './health';
-import type { QuotaLedger } from './quota';
 import {
   DEFAULT_FREE_INFERENCE_COOLDOWN_MS,
   DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD,
@@ -9,6 +5,10 @@ import {
   DEFAULT_FREE_INFERENCE_MAX_RETRIES,
   DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
 } from 'coderax-data-provider';
+import type { TFreeInferenceConfig } from 'coderax-data-provider';
+import type { FreeRoutingLimits, FreeRouter, FreeRoutingSnapshot } from './router';
+import type { EndpointHealth } from './health';
+import type { QuotaLedger } from './quota';
 import { createFreeRouter, createDisabledRoutingSnapshot } from './router';
 
 /**
@@ -76,6 +76,6 @@ export function getFreeRouterForConfig(
 }
 
 /** The snapshot a deployment without hosted routing reports. */
-export function disabledRoutingSnapshot() {
+export function disabledRoutingSnapshot(): FreeRoutingSnapshot {
   return createDisabledRoutingSnapshot();
 }

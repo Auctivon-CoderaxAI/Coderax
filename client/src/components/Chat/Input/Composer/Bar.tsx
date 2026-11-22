@@ -430,7 +430,7 @@ function Bar({
         </span>
         {/* Work selects an eligible model and authenticated agent; Chat routes models automatically. */}
         {index === 0 && showWorkAgentSelector && (
-          <div className="max-w-56 min-w-0 shrink overflow-hidden">
+          <div className="max-w-[min(27rem,100%)] min-w-0 shrink overflow-hidden">
             <WorkAgentConversationSelector />
           </div>
         )}

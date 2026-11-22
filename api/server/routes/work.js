@@ -112,13 +112,14 @@ const engineChat = createEngineWorkChatHandler({
   runtimeFor: getEngineWorkChatRuntime,
   reserveRun: reserveWorkRun,
   releaseRun: releaseWorkRun,
-  storeFor: (req) =>
+  storeFor: (req, engine) =>
     createEngineWorkChatPersistence({
       db,
       userId: req.user?.id,
       tenantId: req.user?.tenantId ?? null,
       isTemporary: req.body?.isTemporary === true,
       interfaceConfig: req.config?.interfaceConfig,
+      engine,
     }),
   logger,
 });
