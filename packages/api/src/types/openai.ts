@@ -16,6 +16,7 @@ export type OpenAIModelOptions = Partial<OpenAIParameters>;
  */
 export interface OpenAIConfigOptions {
   modelOptions?: OpenAIModelOptions;
+  freeOpenRouterMaxOutputTokens?: number;
   transportTimeouts?: {
     bodyTimeout: number;
     headersTimeout: number;
