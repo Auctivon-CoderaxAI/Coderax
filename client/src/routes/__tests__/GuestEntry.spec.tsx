@@ -117,14 +117,24 @@ describe('guest and password entry', () => {
     expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
   });
 
-  it('enters the workspace with a guest session even when password login is advertised', async () => {
+  it('requires the owner password when a guest session exists and password login is advertised', () => {
     (useAuthContext as jest.Mock).mockReturnValue(
       auth({ isAuthenticated: true, user: { provider: 'guest' } }),
     );
     const router = renderEntry(true);
+    expect(screen.getByLabelText('com_auth_password')).toBeInTheDocument();
+    expect(screen.queryByText('Coderax is unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/connect');
+  });
+
+  it('opens the workspace for an owner when password login is advertised', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'local' } }),
+    );
+    const router = renderEntry(true);
     await screen.findByText('Chat workspace');
     expect(router.state.location.pathname).toBe('/c/new');
-    expect(screen.queryByLabelText('com_auth_password')).not.toBeInTheDocument();
   });
 
   it('keeps the password form for a visitor with no session when guest access is off', () => {

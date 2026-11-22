@@ -6,16 +6,18 @@ const { SystemRoles } = require('coderax-data-provider');
 const { createUser, deleteUserById } = require('~/models');
 const { setAuthTokens } = require('~/server/services/AuthService');
 const { getAppConfig } = require('~/server/services/Config');
+const { isPasswordLoginEnabled } = require('~/server/services/Config/passwordLogin');
 
 /**
  * Opt-in passwordless guest sessions. A separate expiring USER account is
  * created for each visitor; no existing or administrator account is reused.
- * Guest entry is gated by ENABLE_GUEST_ACCESS and mandatory two-factor
- * authentication only: an owner password remains a separate sign-in path and
- * does not block visitors from entering as guests.
+ * Guest entry is disabled when password-only owner login is enabled, and is
+ * otherwise gated by ENABLE_GUEST_ACCESS and mandatory two-factor
+ * authentication.
  */
 const guestController = async (req, res) => {
   if (
+    isPasswordLoginEnabled() ||
     !isEnabled(process.env.ENABLE_GUEST_ACCESS) ||
     isEnabled(process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION)
   ) {
