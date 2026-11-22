@@ -6,6 +6,7 @@ import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
 import SocialLoginRender from '~/components/Auth/SocialLoginRender';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { getPostLoginRedirect } from '~/utils';
+import { useLocalize } from '~/hooks';
 
 /**
  * Entry screen for passwordless guests and password-only owners. When the
@@ -15,12 +16,14 @@ import { getPostLoginRedirect } from '~/utils';
 export default function GuestEntry() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
+  const { startupConfig, startupConfigError, isFetching } = useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
-  const passwordLoginEnabled =
-    (startupConfig as { passwordLoginEnabled?: boolean } | null)?.passwordLoginEnabled === true;
+  const localize = useLocalize();
+  const configReady = startupConfig != null && startupConfigError == null && !isFetching;
+  const passwordLoginEnabled = startupConfig?.passwordLoginEnabled === true;
   const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
-  const shouldEnterWorkspace = isAuthenticated && (!passwordLoginEnabled || isOwner);
+  const shouldEnterWorkspace =
+    configReady && isAuthReady && isAuthenticated && (!passwordLoginEnabled || isOwner);
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
@@ -38,18 +41,24 @@ export default function GuestEntry() {
     );
   }
 
-  if (passwordLoginEnabled) {
+  if (configReady && passwordLoginEnabled) {
     return <PasswordLoginForm />;
   }
 
   return (
     <div role="alert" className="text-text-secondary space-y-4 text-center">
       <p className="text-text-primary text-lg font-semibold">Coderax is unavailable</p>
-      <p>
-        We could not establish a guest session with the server. Your workspace is protected; no
-        sign-in is required when guest access is available.
-      </p>
-      <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
+      {configReady ? (
+        <>
+          <p>
+            We could not establish a guest session with the server. Your workspace is protected; no
+            sign-in is required when guest access is available.
+          </p>
+          <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
+        </>
+      ) : (
+        <p>{localize('com_auth_error_login_server')}</p>
+      )}
       <button
         className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
         type="button"

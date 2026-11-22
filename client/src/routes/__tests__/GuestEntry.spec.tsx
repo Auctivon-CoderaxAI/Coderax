@@ -29,7 +29,8 @@ const auth = (overrides: Record<string, unknown> = {}) => ({
 function renderEntry(
   passwordLoginEnabled = false,
   initialEntry = '/connect',
-  startupConfig: Record<string, unknown> = {},
+  startupConfig: Record<string, unknown> | null = {},
+  query: { isFetching?: boolean; startupConfigError?: Error } = {},
 ) {
   const router = createMemoryRouter(
     [
@@ -37,8 +38,9 @@ function renderEntry(
         element: (
           <Outlet
             context={{
-              startupConfig: { passwordLoginEnabled, ...startupConfig },
+              startupConfig: startupConfig && { passwordLoginEnabled, ...startupConfig },
               isFetching: false,
+              ...query,
             }}
           />
         ),
@@ -115,6 +117,44 @@ describe('guest and password entry', () => {
     expect(screen.getByTestId('passkey')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'com_auth_passkey_login' })).toBeInTheDocument();
     expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
+  });
+
+  it.each([null, {}])(
+    'keeps an authenticated guest on /connect while config loads (%j)',
+    (config) => {
+      (useAuthContext as jest.Mock).mockReturnValue(
+        auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+      );
+      const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew', config, {
+        isFetching: true,
+      });
+      expect(router.state.location.pathname).toBe('/connect');
+      expect(screen.getByRole('status')).toBeInTheDocument();
+    },
+  );
+
+  it.each([null, {}])(
+    'offers retry after a config error without redirecting a guest (%j)',
+    (config) => {
+      (useAuthContext as jest.Mock).mockReturnValue(
+        auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+      );
+      const router = renderEntry(false, '/connect', config, {
+        startupConfigError: new Error('config unavailable'),
+      });
+      expect(router.state.location.pathname).toBe('/connect');
+      expect(screen.getByText('com_auth_error_login_server')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
+    },
+  );
+
+  it('opens the workspace for a guest once config confirms password login is disabled', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
+    await screen.findByText('Work workspace');
+    expect(router.state.location.pathname).toBe('/work/new');
   });
 
   it('requires the owner password when a guest session exists and password login is advertised', () => {
