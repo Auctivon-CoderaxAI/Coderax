@@ -7,7 +7,13 @@ import { createWorkRouter } from './router';
 
 type Stored = WorkConversation & { userId: string };
 
-function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): Application {
+function app(
+  deps: Partial<WorkDeps> & {
+    user?: { id: string } | null;
+    role?: string;
+    workChatEnabled?: boolean;
+  } = {},
+): Application {
   const conversations: Stored[] = [
     { conversationId: 'c-1', title: 'Plan', isWork: true, userId: 'user-a' },
     { conversationId: 'c-2', title: 'Other chat', isWork: false, userId: 'user-a' },
@@ -30,7 +36,15 @@ function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): A
   server.use(express.json());
   server.use((req, _res, next) => {
     if (deps.user === null) return next();
-    (req as never as { user: { id: string } }).user = deps.user ?? { id: 'user-a' };
+    const user = deps.user ?? { id: 'user-a' };
+    (req as never as { user: { id: string; role?: string } }).user = deps.role
+      ? { ...user, role: deps.role }
+      : user;
+    if (deps.workChatEnabled === true) {
+      (req as never as { config: unknown }).config = {
+        config: { engines: { workChat: { enabled: true } } },
+      };
+    }
     next();
   });
   server.use('/api/work', createWorkRouter(full));
@@ -110,6 +124,38 @@ describe('native Work router', () => {
       'auto',
       'llama3:latest',
     ]);
+  });
+
+  it('offers an available Freebuff engine as a Work model', async () => {
+    const res = await request(
+      app({
+        role: 'ADMIN',
+        workChatEnabled: true,
+        engines: async () => ({
+          defaultEngine: 'freebuff',
+          engines: [
+            {
+              id: 'freebuff',
+              capabilities: {
+                streaming: true,
+                tools: true,
+                cancellation: true,
+                modelSelection: false,
+              },
+              availability: { available: true, reason: 'ready' },
+            },
+          ],
+        }),
+      }),
+    ).get('/api/work/models');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toContainEqual({
+      id: 'freebuff',
+      label: 'Freebuff',
+      provider: 'freebuff',
+      engine: 'freebuff',
+    });
   });
 
   it('does not offer an unverified paid configured default', async () => {

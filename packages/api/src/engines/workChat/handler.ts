@@ -6,7 +6,7 @@ import type {
   EngineWorkChatStore,
   RunScope,
 } from './types';
-import type { EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
+import type { EngineId, EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
 import type { Json } from './json';
 import { isEngineWorkChatPath, isOwnerEngineWorkChat } from './gating';
 import { isValidWorkTask, workTitle } from '../../work/task';
@@ -26,26 +26,48 @@ function writeEvent(res: Response, event: object): void {
 function failureMessage(code: string): string {
   switch (code) {
     case 'disabled':
-      return 'OpenCode execution is disabled for Work.';
+      return 'The selected execution engine is disabled for Work.';
     case 'sdk_unavailable':
-      return 'The OpenCode SDK is unavailable on this server.';
+      return 'The selected execution engine SDK is unavailable on this server.';
     case 'not_configured':
-      return 'OpenCode is not fully configured for Work.';
+      return 'The selected execution engine is not fully configured for Work.';
     case 'server_unavailable':
-      return 'The OpenCode server is unavailable.';
+      return 'The selected execution engine is unavailable.';
     case 'workspace_denied':
-      return 'The configured private workspace could not be used.';
+      return 'The configured workspace could not be used.';
     case 'busy':
       return 'Another Work task is already running.';
     case 'timeout':
-      return 'The OpenCode run timed out.';
+      return 'The execution engine run timed out.';
     case 'cancelled':
-      return 'The OpenCode run was cancelled.';
+      return 'The execution engine run was cancelled.';
     case 'protocol_error':
-      return 'The OpenCode event stream ended before the task finished.';
+      return 'The execution engine event stream ended before the task finished.';
     default:
-      return 'The OpenCode run failed.';
+      return 'The execution engine run failed.';
   }
+}
+
+function engineLabel(engine: EngineId): string {
+  return engine === 'freebuff' ? 'Freebuff' : 'OpenCode';
+}
+
+function selectedEngine(body: Json, config: EngineWorkChatConfig): EngineId | null {
+  const requested = readString(body.model);
+  if (requested == null) {
+    return config.engines?.workChat?.engine ?? 'opencode';
+  }
+  return requested === 'opencode' || requested === 'freebuff' ? requested : null;
+}
+
+function isEngineEnabled(config: EngineWorkChatConfig, engine: EngineId): boolean {
+  if (engine === 'opencode') {
+    return config.engines?.opencode?.enabled === true;
+  }
+  if (engine === 'freebuff') {
+    return config.engines?.freebuff?.enabled === true;
+  }
+  return false;
 }
 
 type HandlerOptions = {
@@ -75,17 +97,25 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       next();
       return;
     }
-    if (config?.engines?.opencode?.enabled !== true) {
+    const engine = config ? selectedEngine(body, config) : null;
+    if (!engine) {
+      res.status(400).json({
+        code: 'WORK_ENGINE_UNSUPPORTED',
+        message: 'The selected Work execution engine is not supported.',
+      });
+      return;
+    }
+    if (!config || !isEngineEnabled(config, engine)) {
       res.status(503).json({
         code: 'WORK_ENGINE_DISABLED',
-        message: 'OpenCode execution is not enabled for the deployment.',
+        message: 'The selected execution engine is not enabled for the deployment.',
       });
       return;
     }
     if (body.addedConvo != null) {
       res.status(400).json({
         code: 'WORK_ENGINE_ADDED_CONVERSATION_UNSUPPORTED',
-        message: 'OpenCode Work runs one task at a time.',
+        message: 'Work engines run one task at a time.',
       });
       return;
     }
@@ -97,7 +127,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     if (body.isRegenerate === true || body.compact === true || body.isEdited === true) {
       res.status(400).json({
         code: 'WORK_ENGINE_TURN_UNSUPPORTED',
-        message: 'This turn cannot run through the OpenCode engine.',
+        message: 'This turn cannot run through the selected execution engine.',
       });
       return;
     }
@@ -145,7 +175,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     } catch {
       res.status(503).json({
         code: 'WORK_ENGINE_UNAVAILABLE',
-        message: 'The OpenCode engine could not be constructed.',
+        message: 'The selected execution engine could not be constructed.',
       });
       return;
     }
@@ -219,6 +249,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         userId,
         tenantId,
         conversationId,
+        engine,
         prompt: buildEnginePrompt(history, promptText),
       });
       if (!started.ok) {
@@ -360,14 +391,14 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       try {
         result = await started.value.result;
       } catch {
-        result = engineFailure('provider_error', 'The OpenCode run failed.');
+        result = engineFailure('provider_error', `The ${engineLabel(engine)} run failed.`);
       }
       const cancelled =
         streamError == null && !result.ok && result.error.code === 'cancelled' && !approvalRequired;
       const failed = streamError != null || (!result.ok && !cancelled);
       let error: string | undefined;
       if (approvalRequired) {
-        error = 'OpenCode requested a tool permission that Work cannot approve yet.';
+        error = 'The engine requested a tool permission that Work cannot approve yet.';
       } else if (streamError) {
         error = streamError;
       } else if (failed && !result.ok) {
@@ -397,7 +428,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         });
       } catch {
         persisted = false;
-        options.logger?.warn?.('[Work] Could not persist the OpenCode response.');
+        options.logger?.warn?.('[Work] Could not persist the engine response.');
         try {
           await store.saveConversation({ conversationId, workState: 'failed' });
         } catch {
@@ -427,7 +458,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
-          sender: 'OpenCode',
+          sender: engineLabel(engine),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired || !persisted,
           ...(error || !persisted
@@ -443,7 +474,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
       res.end();
     } catch {
-      options.logger?.error?.('[Work] The OpenCode Work chat path failed.');
+      options.logger?.error?.(`[Work] The ${engineLabel(engine)} Work chat path failed.`);
       if (activeHandle && !finished) {
         try {
           await activeHandle.cancel();
@@ -460,7 +491,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           writeEvent(res, {
             final: true,
             terminalStatus: 'error',
-            error: { message: 'The OpenCode run failed.' },
+            error: { message: `The ${engineLabel(engine)} run failed.` },
           });
           res.end();
         }
@@ -470,7 +501,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         code: storeUnavailable ? 'WORK_ENGINE_STORE_UNAVAILABLE' : 'WORK_ENGINE_UNAVAILABLE',
         message: storeUnavailable
           ? 'Work could not reach its conversation store.'
-          : 'The OpenCode engine could not start this task.',
+          : `The ${engineLabel(engine)} engine could not start this task.`,
       });
     } finally {
       if (activeHandle) {

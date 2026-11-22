@@ -151,6 +151,29 @@ describe('createWorkChatTransport', () => {
     expect(request.payload.agent_id).toBeUndefined();
   });
 
+  it('routes the Freebuff engine without a provider endpoint or agent', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport(
+      { start } as never,
+      {
+        ...options,
+        models: [
+          ...options.models,
+          { id: 'freebuff', label: 'Freebuff', provider: 'freebuff', engine: 'freebuff' },
+        ],
+      },
+      { agentId: 'auto', modelKey: '["freebuff","freebuff"]' },
+      'https://work.example',
+    );
+    await transport.start(chatRequest);
+    const request = start.mock.calls[0][0];
+    expect(request.server).toBe('https://work.example/api/work/chat');
+    expect(request.payload.model).toBe('freebuff');
+    expect(request.payload.endpoint).toBeUndefined();
+    expect(request.payload.endpointType).toBeUndefined();
+    expect(request.payload.agent_id).toBeUndefined();
+  });
+
   it('keeps a resumable engine attachment on the direct origin after an engine start', async () => {
     const reconnectToStream = jest.fn().mockReturnValue({ closed: false });
     const stream = jest.fn().mockReturnValue({ send: jest.fn(), reconnectToStream });

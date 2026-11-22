@@ -165,7 +165,7 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
   }
 
   function snapshot(): EngineStatusSnapshot {
-    const ids: EngineId[] = ['opencode', 'openhands'];
+    const ids: EngineId[] = ['opencode', 'openhands', 'freebuff'];
     return {
       defaultEngine: options.defaultEngine,
       engines: ids

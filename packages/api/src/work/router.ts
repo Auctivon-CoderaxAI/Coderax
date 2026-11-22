@@ -2,6 +2,7 @@ import express from 'express';
 import {
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+  SystemRoles,
 } from 'coderax-data-provider';
 import type { FreeInferenceCatalogState } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
@@ -163,9 +164,9 @@ export function createWorkRouter(deps: WorkDeps): Router {
   });
 
   /**
-   * Whether OpenCode or OpenHands can run, and why not. A disabled engine is
-   * listed as unavailable instead of disappearing, so the owner can see the
-   * prerequisite without reading server logs.
+   * Whether an optional execution engine can run, and why not. A disabled
+   * engine is listed as unavailable instead of disappearing, so the owner can
+   * see the prerequisite without reading server logs.
    */
   router.get('/engines', async (_req: Request, res: Response) => {
     if (!deps.engines) {
@@ -182,15 +183,47 @@ export function createWorkRouter(deps: WorkDeps): Router {
     }
   });
 
-  router.get('/models', async (_req: Request, res: Response) => {
+  router.get('/models', async (req: Request, res: Response) => {
     try {
       const [sources, configuredDefault] = await Promise.all([
         deps.listModels(),
         readConfiguredDefault(deps),
       ]);
       const models = buildWorkModelOptions(sources, configuredDefault);
+      let engineModels: Array<{
+        id: string;
+        label: string;
+        provider: string;
+        engine: 'opencode' | 'freebuff';
+      }> = [];
+      const user = req.user as { role?: unknown } | undefined;
+      const workChatEnabled =
+        (
+          req as Request & {
+            config?: { config?: { engines?: { workChat?: { enabled?: unknown } } } };
+          }
+        ).config?.config?.engines?.workChat?.enabled === true;
+      if (user?.role === SystemRoles.ADMIN && workChatEnabled && deps.engines) {
+        try {
+          const snapshot = await deps.engines();
+          engineModels = snapshot.engines.flatMap((engine): typeof engineModels => {
+            if (!engine.availability.available) {
+              return [];
+            }
+            if (engine.id === 'opencode') {
+              return [{ id: engine.id, label: 'OpenCode', provider: engine.id, engine: engine.id }];
+            }
+            if (engine.id === 'freebuff') {
+              return [{ id: engine.id, label: 'Freebuff', provider: engine.id, engine: engine.id }];
+            }
+            return [];
+          });
+        } catch {
+          // Model discovery remains available when an optional engine is down.
+        }
+      }
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ models });
+      res.json({ models: [...models, ...engineModels] });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
     }

@@ -2,6 +2,9 @@ export const WORK_AUTO_MODEL_ID = 'auto';
 
 /** The owner-only OpenCode engine, selected by model id rather than a provider model. */
 export const WORK_OPENCODE_ENGINE_ID = 'opencode' as const;
+/** The owner-only Freebuff engine, selected by model id rather than a provider model. */
+export const WORK_FREEBUFF_ENGINE_ID = 'freebuff' as const;
+export type TWorkEngineId = typeof WORK_OPENCODE_ENGINE_ID | typeof WORK_FREEBUFF_ENGINE_ID;
 
 export type TWorkTaskState =
   | 'running'
@@ -35,8 +38,8 @@ export type TWorkModel = {
   label: string;
   provider?: string;
   auto?: true;
-  /** Marks the embedded OpenCode engine rather than a provider-hosted model. */
-  engine?: typeof WORK_OPENCODE_ENGINE_ID;
+  /** Marks a Coderax-managed execution engine rather than a provider-hosted model. */
+  engine?: TWorkEngineId;
   target?: TWorkModelTarget;
 };
 

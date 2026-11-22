@@ -9,7 +9,7 @@
  */
 
 /** Coding-agent execution engines Coderax can select. */
-export type EngineId = 'opencode' | 'openhands';
+export type EngineId = 'opencode' | 'openhands' | 'freebuff';
 
 /**
  * Data modes are a security boundary, not a UI preference. Private content and

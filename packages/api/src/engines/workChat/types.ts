@@ -1,4 +1,4 @@
-import type { EngineResult, EngineRunHandle } from '../types';
+import type { EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { ExecutionEnginesConfig } from '../service';
 import type { EngineStatusSnapshot } from '../registry';
 
@@ -40,7 +40,9 @@ export type RunScope = {
 };
 
 export type EngineWorkChatRunner = {
-  start: (input: RunScope & { prompt: string }) => Promise<EngineResult<EngineRunHandle>>;
+  start: (
+    input: RunScope & { prompt: string; engine?: EngineId },
+  ) => Promise<EngineResult<EngineRunHandle>>;
   state: (input: RunScope) => string | null;
   cancel: (input: RunScope) => Promise<boolean>;
   /** The handler owns the lease until terminal persistence has finished. */

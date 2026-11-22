@@ -1711,3 +1711,23 @@ endpoints:
 #     enabled: true
 #     engine: opencode
 #     mode: cloud
+
+# Freebuff engine: runs Freebuff's own agent loop from a source-built SDK.
+# Build it once from the Freebuff checkout (`bun install && bun run build:sdk`),
+# then point sdkPath at the absolute CommonJS entrypoint (or set
+# FREEBUFF_SDK_PATH). Freebuff runs local weights only, through an
+# OpenAI-compatible loopback endpoint.
+# engines:
+#   workspaces:
+#     privateRoot: /srv/coderax/private
+#   workChat:
+#     enabled: true
+#     engine: freebuff
+#     mode: private
+#   freebuff:
+#     enabled: true
+#     sdkPath: /srv/freebuff/sdk/dist/index.cjs
+#     baseURL: http://127.0.0.1:11434/v1
+#     model: ollama/qwen2.5-coder:7b
+#     timeoutMs: 900000
+#     maxAgentSteps: 24

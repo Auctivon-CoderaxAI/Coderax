@@ -39,7 +39,7 @@ const openCodeEngine: TWorkModel = {
   engine: WORK_OPENCODE_ENGINE,
 };
 
-/** Work's own catalog: free/local models, the OpenCode engine, and the agents whose graph runs on them. */
+/** Work's own catalog: free/local models, available engines, and agents whose graph runs on them. */
 export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
   const { user } = useAuthContext();
   const canUseOpenCode = user?.role === SystemRoles.ADMIN;

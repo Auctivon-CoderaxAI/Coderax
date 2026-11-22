@@ -1,6 +1,6 @@
 import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
-import type { DataMode, EngineResult, EngineRunHandle } from '../types';
+import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineModelRef } from '../opencode/models';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
@@ -28,6 +28,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     private readonly roots: { private: string; cloud: string },
     private readonly mode: DataMode = 'private',
     private readonly model?: EngineModelRef,
+    private readonly defaultEngine: EngineId = 'opencode',
   ) {}
 
   snapshot(): EngineStatusSnapshot {
@@ -57,20 +58,24 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     return true;
   }
 
-  async start(input: RunScope & { prompt: string }): Promise<EngineResult<EngineRunHandle>> {
+  async start(
+    input: RunScope & { prompt: string; engine?: EngineId },
+  ): Promise<EngineResult<EngineRunHandle>> {
     const key = activeRunKey(input);
     if (activeRuns.has(key)) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
     const started = await this.registry.start({
-      engine: 'opencode',
+      engine: input.engine ?? this.defaultEngine,
       request: {
         taskKey: input.conversationId,
         conversationId: input.conversationId,
         prompt: input.prompt,
         mode: this.mode,
         workspaceRoot: this.mode === 'cloud' ? this.roots.cloud : this.roots.private,
-        ...(this.model ? { model: this.model } : {}),
+        ...((input.engine ?? this.defaultEngine) === 'opencode' && this.model
+          ? { model: this.model }
+          : {}),
       },
     });
     if (!started.ok) {
@@ -91,6 +96,7 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     workChat: engines?.workChat ?? null,
     opencode: engines?.opencode ?? null,
     openhands: engines?.openhands ?? null,
+    freebuff: engines?.freebuff ?? null,
     defaultEngine: engines?.defaultEngine ?? null,
   });
 }
@@ -108,12 +114,17 @@ export function getEngineWorkChatRuntime(
     private: config?.engines?.workspaces?.privateRoot ?? '',
     cloud: config?.engines?.workspaces?.cloudRoot ?? '',
   };
+  const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
+  const workEngine = config?.engines?.workChat?.engine ?? 'opencode';
+  const modelConfig =
+    workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
-    parseEngineModel(config?.engines?.opencode?.model) ?? undefined,
+    parseEngineModel(modelConfig) ?? undefined,
+    workEngine,
   );
   runtimes.set(key, runtime);
   return runtime;

@@ -1,11 +1,11 @@
 # Coding-agent engines and Cloud Power Mode
 
-Coderax keeps one Chat/Work interface and one task lifecycle. Two optional
+Coderax keeps one Chat/Work interface and one task lifecycle. Optional
 coding-agent engines sit behind a common adapter contract, and Cloud Power Mode
 is a separate inference path for the one owner account.
 
 Nothing in this document changes Coderax into a multi-tenant product: there are
-no signups, subscriptions, billing, or customer features. Both engines and Cloud
+no signups, subscriptions, billing, or customer features. All engines and Cloud
 Power Mode are disabled by default.
 
 ## What is implemented
@@ -18,6 +18,7 @@ Power Mode are disabled by default.
 | Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
 | OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
 | OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
+| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
 | Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
 | Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
 | Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
@@ -110,6 +111,61 @@ implemented against a remote Agent Server transport, is disabled by default, and
 returns `not_configured` until an owner supplies `agentServerUrl` and a client
 transport. This is a genuine blocker, not simulated support: the API process
 must not silently start a Python agent on a 24 GB ARM instance.
+
+## Freebuff (optional local engine)
+
+The adapter integrates Freebuff as an owner-only Work engine once a compatible
+source-built SDK is supplied. It uses Freebuff's direct BYOK runtime with a
+loopback Ollama or LM Studio endpoint and the same run lifecycle, stream,
+cancellation, and workspace-root checks as the other adapters. It does not call
+hosted Freebuff inference, load repository or home agents, or enable shell
+execution. File operations are wrapped to stay inside the selected workspace.
+
+The published `@codebuff/sdk` package may not contain Freebuff's current local
+BYOK runtime and agent-registry trust gate. Coderax checks for both exports and
+reports the engine unavailable if either is missing. Build the SDK from a
+trusted Freebuff source checkout, then point the Coderax API process at its
+CommonJS output:
+
+```bash
+# from the Freebuff source checkout
+bun install
+bun run build:sdk
+
+# point Coderax at the build, either in the API process environment
+FREEBUFF_SDK_PATH=/absolute/path/to/freebuff/sdk/dist/index.cjs
+# or with `engines.freebuff.sdkPath` in coderax.yaml (takes precedence)
+```
+
+The SDK supplies neutral client-env defaults when a host provides none of the
+web app's public `NEXT_PUBLIC_*` variables, so the bundle imports in a server.
+Before that change the bundle threw during `require()` and every embedder,
+Coderax included, could only ever report `sdk_unavailable`.
+
+Example owner configuration:
+
+```yaml
+engines:
+  workspaces:
+    privateRoot: /srv/coderax/private
+  workChat:
+    enabled: true
+    engine: freebuff
+    mode: private
+  freebuff:
+    enabled: true
+    sdkPath: /srv/freebuff/sdk/dist/index.cjs
+    baseURL: http://127.0.0.1:11434/v1
+    model: ollama/qwen2.5-coder:7b
+    timeoutMs: 900000
+    maxAgentSteps: 24
+```
+
+This is not a turnkey hosted deployment: the API process must be able to load a
+current SDK build from `FREEBUFF_SDK_PATH`, and the local model server must be
+reachable from that process. The older npm SDK is deliberately rejected when it
+lacks the required BYOK and trust-gate exports. A live Freebuff model run still
+needs verification in the deployment environment.
 
 ## GroqCloud (inference only)
 

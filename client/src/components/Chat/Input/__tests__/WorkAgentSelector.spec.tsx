@@ -109,6 +109,22 @@ it('offers the owner-only OpenCode engine as a selectable Work model', async () 
   expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('["opencode","opencode"]');
 });
 
+it('offers the Freebuff engine the server reports as available', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [
+      { id: 'free', label: 'Free model', provider: 'Ollama' },
+      { id: 'freebuff', label: 'Freebuff', provider: 'freebuff', engine: 'freebuff' },
+    ],
+  });
+  setup();
+
+  expect(await screen.findByRole('option', { name: 'Freebuff' })).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+    target: { value: '["freebuff","freebuff"]' },
+  });
+  expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('["freebuff","freebuff"]');
+});
+
 it('does not offer the OpenCode engine to non-owners', async () => {
   mockRole = 'USER';
   setup();

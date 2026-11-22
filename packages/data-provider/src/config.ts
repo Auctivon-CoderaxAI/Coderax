@@ -3898,7 +3898,7 @@ export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
  */
 export const enginesConfigSchema = z
   .object({
-    defaultEngine: z.enum(['opencode', 'openhands']).default('opencode'),
+    defaultEngine: z.enum(['opencode', 'openhands', 'freebuff']).default('opencode'),
     /** Separate real roots; an engine is confined to the root for its data mode. */
     workspaces: z
       .object({
@@ -3915,7 +3915,7 @@ export const enginesConfigSchema = z
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.literal('opencode').default('opencode'),
+        engine: z.enum(['opencode', 'freebuff']).default('opencode'),
         /** Private runs use local weights; cloud runs may use free hosted models. */
         mode: z.enum(['private', 'cloud']).default('private'),
       })
@@ -3939,6 +3939,23 @@ export const enginesConfigSchema = z
         /** A remote OpenHands Agent Server; the Python runtime is not bundled. */
         agentServerUrl: z.string().trim().url().optional(),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+      })
+      .prefault({}),
+    freebuff: z
+      .object({
+        enabled: z.boolean().default(false),
+        /**
+         * Absolute path to a source-built Freebuff SDK CommonJS entrypoint,
+         * e.g. /srv/freebuff/sdk/dist/index.cjs. Falls back to
+         * FREEBUFF_SDK_PATH, then the published package.
+         */
+        sdkPath: z.string().trim().optional(),
+        /** OpenAI-compatible loopback endpoint; Coderax never calls a hosted Freebuff API. */
+        baseURL: z.string().trim().url().optional(),
+        /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
+        model: z.string().trim().optional(),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+        maxAgentSteps: z.number().int().min(1).max(100).default(24),
       })
       .prefault({}),
   })
