@@ -3557,6 +3557,7 @@
   "com_cyvox_brand": "Coderax",
   "com_cyvox_home_chat_title": "What’s on the agenda today?",
   "com_cyvox_home_chat_placeholder": "Ask Coderax",
+  "com_cyvox_work_chat_placeholder": "Work with Coderax",
   "com_ui_workflows": "Workflows",
   "com_ui_workflows_subtitle": "Chain agent instructions into a repeatable run. Each step is a real agent turn with retries, approval gates, and a conversation you can open.",
   "com_ui_workflow_new": "New workflow",

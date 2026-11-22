@@ -12,6 +12,7 @@ import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import useToolFavorites from '~/hooks/Input/useToolFavorites';
 import useElementSize from '~/hooks/Generic/useElementSize';
 import useChipPacking from '~/hooks/Input/useChipPacking';
+import { WorkRoutingBadge } from '../WorkRoutingBadge';
 import { useBadgeRowContext } from '~/Providers';
 import TokenUsage from '../TokenUsage';
 import { useLocalize } from '~/hooks';
@@ -428,12 +429,6 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* Work selects an eligible model and authenticated agent; Chat routes models automatically. */}
-        {index === 0 && showWorkAgentSelector && (
-          <div className="max-w-[min(27rem,100%)] min-w-0 shrink overflow-hidden">
-            <WorkAgentConversationSelector />
-          </div>
-        )}
         {/* A box rather than `contents` so it has something to move: the split
             only puts chips here when they all fit on this line, so wrapping as
             one unit and wrapping as siblings come to the same layout. */}
@@ -462,7 +457,7 @@ function Bar({
             what has no job during a recording actually moves. */}
         <div
           ref={controlsRef}
-          className={cn('flex shrink-0 items-center gap-1.5', isRTL ? 'mr-auto' : 'ml-auto')}
+          className={cn('flex min-w-0 shrink items-center gap-1.5', isRTL ? 'mr-auto' : 'ml-auto')}
         >
           {/* One cell holding both: the settled controls drop out of it as the
               elapsed time rises into their place, and the row keeps one width
@@ -505,6 +500,19 @@ function Bar({
               </span>
             </div>
           </div>
+          {/* Work selects an eligible model and authenticated agent; Chat routes
+              models automatically. It sits beside the mic, where Work names the
+              model its next message will use. */}
+          {index === 0 && showWorkAgentSelector && (
+            <div className="max-w-44 min-w-0 shrink overflow-hidden sm:max-w-56">
+              <WorkAgentConversationSelector />
+            </div>
+          )}
+          {index === 0 && showWorkAgentSelector && (
+            <div className="hidden min-w-0 shrink items-center overflow-hidden md:flex md:max-w-56">
+              <WorkRoutingBadge />
+            </div>
+          )}
           {approvalSlot}
           <span role="status" aria-live="polite" className="sr-only">
             {dictationStatus}

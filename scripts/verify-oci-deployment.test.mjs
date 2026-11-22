@@ -93,6 +93,21 @@ test('OCI keeps Ollama private and opts native Work into free inference', async 
   assert.match(compose, /REGISTER_MAX: "5"/);
 });
 
+test('OCI documentation names the config its compose file mounts', async () => {
+  const readme = await read('deploy/oci/README.md');
+  assert.match(readme, /deploy\/oci\/coderax\.oci\.yaml/);
+  assert.doesNotMatch(readme, /deploy\/cloud\/coderax\.yaml/);
+});
+
+test('cloud Work offers hosted free models without embedding a key', async () => {
+  const config = await read('deploy/cloud/coderax.yaml');
+  const compose = await read('deploy/cloud/compose.yaml');
+  assert.match(config, /^freeInference:\r?\n {2}enabled: true\r?$/m);
+  assert.doesNotMatch(config, /^\s*(?:OPENROUTER_API_KEY|name: FreeOpenRouter)/m);
+  assert.match(config, /baseURL: http:\/\/ollama:11434\/v1\//);
+  assert.match(compose, /env_file:\s+- \.\.\/\.\.\/\.env/);
+});
+
 test('production image starts Node without depending on pruned dev tools', async () => {
   const dockerfile = await read('Dockerfile');
   assert.match(dockerfile, /^ENV NODE_ENV=production$/m);
@@ -108,6 +123,8 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
   assert.match(setup, /read_secret JWT_SECRET/);
   assert.match(setup, /read_secret CREDS_KEY/);
+  assert.match(setup, /read_secret OPENROUTER_API_KEY/);
+  assert.match(setup, /OPENROUTER_API_KEY=%s\\n' "\$OPENROUTER_API_KEY" >> app\.env/);
   assert.doesNotMatch(setup, /CREDS_KEY=\$\(openssl rand/);
   assert.match(setup, /openssl rand -hex 32/);
   assert.match(setup, /chmod 600 app\.env origin\.env/);
