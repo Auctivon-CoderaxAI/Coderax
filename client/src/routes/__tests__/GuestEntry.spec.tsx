@@ -2,8 +2,8 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
-import GuestEntry from '../GuestEntry';
 import { useAuthContext } from '~/hooks/AuthContext';
+import GuestEntry from '../GuestEntry';
 
 jest.mock('~/hooks/AuthContext', () => ({
   useAuthContext: jest.fn(),
@@ -117,10 +117,18 @@ describe('guest and password entry', () => {
     expect(screen.queryByText('com_auth_or')).not.toBeInTheDocument();
   });
 
-  it('shows the password-only gate instead of entering chat as a guest', () => {
+  it('enters the workspace with a guest session even when password login is advertised', async () => {
     (useAuthContext as jest.Mock).mockReturnValue(
       auth({ isAuthenticated: true, user: { provider: 'guest' } }),
     );
+    const router = renderEntry(true);
+    await screen.findByText('Chat workspace');
+    expect(router.state.location.pathname).toBe('/c/new');
+    expect(screen.queryByLabelText('com_auth_password')).not.toBeInTheDocument();
+  });
+
+  it('keeps the password form for a visitor with no session when guest access is off', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
     renderEntry(true);
     expect(screen.getByLabelText('com_auth_password')).toBeInTheDocument();
     expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();

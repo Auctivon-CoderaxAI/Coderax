@@ -76,13 +76,13 @@ describe('guestController', () => {
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
 
-  it('does not create a guest session when password-only login is enabled', async () => {
+  it('still issues a guest session when an owner password is configured', async () => {
     process.env.ENABLE_GUEST_ACCESS = 'true';
     process.env.PASSWORD_LOGIN_PASSWORD = 'test-owner-password-123!';
     const res = response();
     await guestController({}, res);
-    expect(res.sendStatus).toHaveBeenCalledWith(404);
-    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockCreateUser).toHaveBeenCalledTimes(1);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('creates only an expiring USER identity and issues normal tokens', async () => {
