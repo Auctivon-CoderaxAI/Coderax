@@ -17,10 +17,11 @@ export default function GuestEntry() {
   const { search } = useLocation();
   const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
-  const passwordLoginEnabled =
-    (startupConfig as { passwordLoginEnabled?: boolean } | null)?.passwordLoginEnabled === true;
+  const startupConfigLoaded = startupConfig !== null;
+  const passwordLoginEnabled = startupConfig?.passwordLoginEnabled === true;
   const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
-  const shouldEnterWorkspace = isAuthenticated && (!passwordLoginEnabled || isOwner);
+  const shouldEnterWorkspace =
+    startupConfigLoaded && isAuthenticated && (!passwordLoginEnabled || isOwner);
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
@@ -36,6 +37,11 @@ export default function GuestEntry() {
         <p>Connecting to your workspace.</p>
       </div>
     );
+  }
+
+  if (!startupConfigLoaded) {
+    // Unknown config is not evidence that passwordless guest access is enabled.
+    return <PasswordLoginForm />;
   }
 
   if (passwordLoginEnabled) {

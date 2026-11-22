@@ -29,7 +29,8 @@ const auth = (overrides: Record<string, unknown> = {}) => ({
 function renderEntry(
   passwordLoginEnabled = false,
   initialEntry = '/connect',
-  startupConfig: Record<string, unknown> = {},
+  startupConfig: Record<string, unknown> | null = {},
+  isFetching = false,
 ) {
   const router = createMemoryRouter(
     [
@@ -37,8 +38,9 @@ function renderEntry(
         element: (
           <Outlet
             context={{
-              startupConfig: { passwordLoginEnabled, ...startupConfig },
-              isFetching: false,
+              startupConfig:
+                startupConfig === null ? null : { passwordLoginEnabled, ...startupConfig },
+              isFetching,
             }}
           />
         ),
@@ -135,6 +137,27 @@ describe('guest and password entry', () => {
     const router = renderEntry(true);
     await screen.findByText('Chat workspace');
     expect(router.state.location.pathname).toBe('/c/new');
+  });
+
+  it('does not admit an authenticated guest when startup config failed to load', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const router = renderEntry(false, '/connect', null);
+    expect(screen.getByLabelText('com_auth_password')).toBeInTheDocument();
+    expect(screen.queryByText('Coderax is unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/connect');
+  });
+
+  it('waits for startup config before redirecting a passwordless guest', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const router = renderEntry(false, '/connect', null, true);
+    expect(screen.getByRole('status')).toHaveTextContent('Opening Coderax');
+    expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/connect');
   });
 
   it('keeps the password form for a visitor with no session when guest access is off', () => {

@@ -1,7 +1,7 @@
 const { randomBytes } = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { logger } = require('@coderax/data-schemas');
-const { isEnabled, sanitizeUserForAuthResponse } = require('@coderax/api');
+const { canCreateGuestSession, sanitizeUserForAuthResponse } = require('@coderax/api');
 const { SystemRoles } = require('coderax-data-provider');
 const { createUser, deleteUserById } = require('~/models');
 const { setAuthTokens } = require('~/server/services/AuthService');
@@ -17,9 +17,11 @@ const { isPasswordLoginEnabled } = require('~/server/services/Config/passwordLog
  */
 const guestController = async (req, res) => {
   if (
-    isPasswordLoginEnabled() ||
-    !isEnabled(process.env.ENABLE_GUEST_ACCESS) ||
-    isEnabled(process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION)
+    !canCreateGuestSession({
+      passwordLoginEnabled: isPasswordLoginEnabled(),
+      guestAccessEnabled: process.env.ENABLE_GUEST_ACCESS,
+      enforceTwoFactorAuthentication: process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION,
+    })
   ) {
     return res.sendStatus(404);
   }
