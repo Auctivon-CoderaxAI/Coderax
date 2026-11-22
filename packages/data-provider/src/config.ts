@@ -3976,6 +3976,7 @@ export type TCloudPowerConfig = z.infer<typeof cloudPowerConfigSchema>;
 
 export const DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY = 200;
 export const DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY = 400_000;
+export const DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS = 4_096;
 export const DEFAULT_FREE_INFERENCE_MAX_RETRIES = 2;
 export const DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD = 2;
 export const DEFAULT_FREE_INFERENCE_COOLDOWN_MS = 60_000;
@@ -4010,6 +4011,12 @@ export const freeInferenceConfigSchema = z
       .min(1)
       .max(1_000_000_000)
       .default(DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY),
+    /** Maximum output tokens per native free OpenRouter completion. */
+    openRouterMaxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS),
     /** Extra attempts after the first, so at most `maxRetries + 1` calls per turn. */
     maxRetries: z.number().int().min(0).max(3).default(DEFAULT_FREE_INFERENCE_MAX_RETRIES),
     failureThreshold: z
