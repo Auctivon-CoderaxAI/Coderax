@@ -22,7 +22,6 @@ export {
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
   getEngineWorkChatRuntime,
-  isOwnerEngineWorkChat,
 } from './workChat';
 export type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
 export { EngineRunArbiter } from './arbiter';

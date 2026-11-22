@@ -68,6 +68,29 @@ Run `npm run static-checks -- --against origin/dev` to reproduce the PR's static
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
 
+Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
+pull request. One command runs the four gates a merge has to show, in order:
+
+1. TypeScript for every workspace affected by the committed diff, staged or unstaged edits,
+   or non-ignored untracked files.
+2. The Work Jest suites (`packages/api/src/engines/workChat*`), after building data-provider.
+3. `npm run build:api`.
+4. The `--full` static-check tier for the same committed and local paths, with the TypeScript check
+   left to step 1 so no project is compiled twice.
+
+Then any additional focused test command and the manual observation:
+
+    npm run verify -- --against origin/main \
+      --test "cd packages/api && npx jest src/engines/workChat.spec.ts --ci" \
+      --manual "Sent one Work message; the stream rendered and the transcript survived reload."
+
+It prints a Markdown block naming the commit, the base, the working-tree state and every gate's
+result. **Paste that block into the pull request's Testing section: it is the PR's acceptance
+artifact.** A review that cannot see it has no evidence the change was checked, and a merge recorded
+without one is unverified. At least one `--test` or `--manual` is required, and a dirty working tree
+is called out in the artifact because the commit then does not identify what ran. `--skip-static`
+skips the four built-in gates for a quick re-run while iterating, and says so in the artifact.
+
 ## Module boundaries and configuration
 
 All new backend behavior belongs in TypeScript under `packages/api`; database-specific shared logic
