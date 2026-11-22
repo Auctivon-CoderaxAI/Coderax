@@ -428,12 +428,6 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* Work selects an eligible model and authenticated agent; Chat routes models automatically. */}
-        {index === 0 && showWorkAgentSelector && (
-          <div className="max-w-56 min-w-0 shrink overflow-hidden">
-            <WorkAgentConversationSelector />
-          </div>
-        )}
         {/* A box rather than `contents` so it has something to move: the split
             only puts chips here when they all fit on this line, so wrapping as
             one unit and wrapping as siblings come to the same layout. */}
@@ -462,7 +456,7 @@ function Bar({
             what has no job during a recording actually moves. */}
         <div
           ref={controlsRef}
-          className={cn('flex shrink-0 items-center gap-1.5', isRTL ? 'mr-auto' : 'ml-auto')}
+          className={cn('flex min-w-0 shrink items-center gap-1.5', isRTL ? 'mr-auto' : 'ml-auto')}
         >
           {/* One cell holding both: the settled controls drop out of it as the
               elapsed time rises into their place, and the row keeps one width
@@ -505,6 +499,14 @@ function Bar({
               </span>
             </div>
           </div>
+          {/* Work selects an eligible model and authenticated agent; Chat routes
+              models automatically. It sits beside the mic, where Work names the
+              model its next message will use. */}
+          {index === 0 && showWorkAgentSelector && (
+            <div className="max-w-44 min-w-0 shrink overflow-hidden sm:max-w-56">
+              <WorkAgentConversationSelector />
+            </div>
+          )}
           {approvalSlot}
           <span role="status" aria-live="polite" className="sr-only">
             {dictationStatus}

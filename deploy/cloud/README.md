@@ -3,7 +3,7 @@
 This stack runs **on a remote Linux GPU server**, not on the Windows machine used
 for development. Open Coderax from any browser over HTTPS. The Qwen model and
 MongoDB remain on the **private Docker network** and have no public ports.
-The only AI model is `qwen3.5:4b`; Ollama cloud access is disabled.
+Local inference is `qwen3.5:4b`; Ollama cloud access is disabled. Work also offers the verified $0 OpenRouter models when `OPENROUTER_API_KEY` is set in the server `.env`, so the local model is not the only choice.
 
 **Current status:** Infrastructure-as-code only. This repository does **not**
 include a leased server, working DNS, production secrets, or a verified deployment.
@@ -21,7 +21,9 @@ Do not call Coderax cloud-ready until the steps below and browser tests pass.
   `MONGO_ROOT_PASSWORD` (URL-safe random hex), `MEILI_MASTER_KEY`,
   `CREDS_KEY`, `CREDS_IV`, `JWT_SECRET`, and `JWT_REFRESH_SECRET`.
   Use separately generated high-entropy values. Keep `ALLOW_REGISTRATION=false`.
-  Remove `user_provided` provider keys if not intentionally used.
+  Remove `user_provided` provider keys if not intentionally used. Optionally set
+  `OPENROUTER_API_KEY` to add the verified OpenRouter `:free` models to Work's
+  zero-cost catalog; leave it unset for local-only inference.
 - Replace the supplied images with reviewed/pinned versions before long-term
   production operation. In particular, pin `ollama/ollama` to a known image
   digest after a supported-version review.
@@ -35,6 +37,11 @@ docker compose --env-file .env -f deploy/cloud/compose.yaml exec ollama ollama p
 docker compose --env-file .env -f deploy/cloud/compose.yaml exec api node scripts/probe-cloud-model.mjs
 docker compose --env-file .env -f deploy/cloud/compose.yaml exec api npm run create-user
 ```
+
+`OPENROUTER_API_KEY` comes from the same root `.env` that the `api` service reads
+through `env_file`. After adding or rotating it, recreate that service with
+`docker compose --env-file .env -f deploy/cloud/compose.yaml up -d api`; Work's
+picker then lists the OpenRouter `:free` models beside the local ones.
 
 If the deployment image doesn't include `scripts/probe-cloud-model.mjs`,
 rebuild using the updated repository revision. The smoke test explicitly checks
@@ -51,7 +58,9 @@ Do not turn on public signups until registration abuse controls are tested.
 ## Verification gate before calling it live
 
 1. Cloud model smoke test prints `CLOUD_MODEL_OK`; model inventory contains
-   `qwen3.5:4b`, and Ollama is not reachable from the public internet.
+   `qwen3.5:4b`, and Ollama is not reachable from the public internet. With
+   `OPENROUTER_API_KEY` set, Work's picker lists the OpenRouter `:free` models
+   next to the local ones.
 2. From **another device**, open `https://<CODERAX_DOMAIN>`, log in as the
    created user, select Ollama / Qwen 3.5 4B, send a prompt, and verify real
    streamed output. Refresh and verify the conversation persists in MongoDB.

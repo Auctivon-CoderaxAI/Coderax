@@ -48,6 +48,12 @@ done
 [ "${#CREDS_KEY}" -eq 64 ] || { echo 'CREDS_KEY must be a 32-byte hexadecimal AES-256 key.' >&2; exit 1; }
 [ "${#CREDS_IV}" -eq 32 ] || { echo 'CREDS_IV must be a 16-byte hexadecimal value.' >&2; exit 1; }
 
+read_secret OPENROUTER_API_KEY 'Enter an OpenRouter API key for the free hosted Work models (optional, press Enter to skip): '
+case "$OPENROUTER_API_KEY" in
+  '' ) ;;
+  *[!A-Za-z0-9._-]*) echo 'The OpenRouter API key must be a single token without spaces.' >&2; exit 1 ;;
+esac
+
 printf 'Enter the public IPv4 address assigned to the VM: '
 IFS= read -r PUBLIC_IP
 case "$PUBLIC_IP" in
@@ -79,11 +85,14 @@ JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 CREDS_KEY=$CREDS_KEY
 CREDS_IV=$CREDS_IV
 EOF
+if [ -n "$OPENROUTER_API_KEY" ]; then
+  printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
+fi
 cat > origin.env <<EOF
 CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET
 EOF
-unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV PROXY_SECRET secret_name secret_prompt
+unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_KEY PROXY_SECRET secret_name secret_prompt
 chmod 600 app.env origin.env
 
 printf 'Created protected environment files. API origin: https://%s\n' "$API_HOST"

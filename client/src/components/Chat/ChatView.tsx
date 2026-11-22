@@ -197,7 +197,9 @@ function ChatView({
   if (isProjectLandingPage && project) {
     chatFormPlaceholder = localize('com_ui_new_chat_in_project', { name: project.name });
   } else if (isLandingPage) {
-    chatFormPlaceholder = localize('com_cyvox_home_chat_placeholder');
+    chatFormPlaceholder = localize(
+      workMode ? 'com_cyvox_work_chat_placeholder' : 'com_cyvox_home_chat_placeholder',
+    );
   }
 
   // Recoil conversation can lag the route during navigation; only announce a
