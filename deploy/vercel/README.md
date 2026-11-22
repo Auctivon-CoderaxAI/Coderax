@@ -82,25 +82,50 @@ well only if preview deployments should reach the same API.
 
 ## How a deploy runs
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:29aaa461b1d97524d704d1b9eb7a9b0935c4be9f345bc7fb90e66017dbe98f61 -->
+
 1. `scripts/verify-coderax-deployment.mjs --repo-only` — the deployment contract
    (services, rewrites, traced API dependencies) still matches the repo.
-2. `vercel deploy --prod --yes` — remote build, so the services' own build
+2. After installing the CLI, compare the checked-out revision to current `main`.
+   Superseded runs skip deployment and verification; a failed lookup stops the run.
+3. `vercel deploy --prod --yes` — remote build, so the services' own build
    commands (and the release-gate tests they run) execute on Vercel. The workflow
    does not use `--prebuilt`.
-3. Alias check — the entry bundle served by `coderaxai.vercel.app` must match the
+4. Alias check — the entry bundle served by `coderaxai.vercel.app` must match the
    bundle the new deployment built, polled cache-busted for about three minutes.
-4. `/readyz` is reported as a warning, because the API is deployed separately on
+5. `/readyz` is reported as a warning, because the API is deployed separately on
    the OCI host.
+
+The check observes `main` immediately before deployment. A push after that check
+can still make an in-flight deployment temporarily stale; the newer push needs its
+own successful run.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Failure modes
 
 - **Missing secret:** the deploy step stops before installing the CLI and names
   the secret it needs.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b77f2160eb7fdf234f2d34fa28438eb0f6a0e1accbfe97c999ad91df5ff07af7 -->
+
 - **Unreadable deployment URL:** the alias check **fails closed**. If
   `https://<deployment>` does not return the SPA (Vercel Authentication, a bad
-  URL, an outage), the run fails instead of assuming the alias is fine. Keep
-  production deployments publicly readable; preview protection does not affect
-  them.
+  URL, an outage), the run fails instead of assuming the alias is fine. The
+  public production domain does not imply the generated production deployment
+  URL is public: [Standard Protection](https://vercel.com/docs/deployment-protection#standard-protection)
+  protects deployment URLs while exempting production domains. In **Settings →
+  Deployment Protection**, configure protection so that the generated production
+  deployment URL is publicly readable by this workflow; for example, disable
+  protection for the project where team policy permits. Verify the generated URL
+  directly. This may also expose preview deployments.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 - **Alias still on an older build:** after roughly three minutes of polling, the
   run fails with the bundle the deployment built and the one the alias serves.
   The deployment exists but is not what users get, so the release is not done.

@@ -12,9 +12,8 @@ on:
 permissions:
   contents: read
 
-# One production deploy at a time, in push order. An in-flight deploy is never
-# cancelled mid-upload, and an older queued run is dropped in favour of the
-# newer push, so the last completed run is the newest commit.
+# Serialize production deploys without cancelling an in-flight upload. GitHub
+# does not guarantee queue order, so each run also checks main before deploying.
 concurrency:
   group: vercel-production
   cancel-in-progress: false
@@ -49,8 +48,7 @@ jobs:
       - name: Check deployment configuration contract
         run: node scripts/verify-coderax-deployment.mjs --repo-only
 
-      - name: Deploy production build
-        id: deploy
+      - name: Check deployment secrets
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
@@ -61,9 +59,10 @@ jobs:
               exit 1
             fi
           done
-          # Remote build on purpose: the project declares Vercel Services in
-          # vercel.json, so their buildCommands (and the release-gate tests they
-          # run) execute on Vercel. This workflow does not use --prebuilt.
+
+      - name: Install Vercel CLI
+        run: |
+          set -euo pipefail
           npm install --global "vercel@$VERCEL_CLI_VERSION"
           # `vercel --version` is "Vercel CLI 66.6.0 (native)", so match the pinned
           # number instead of comparing the whole line.
@@ -71,6 +70,30 @@ jobs:
             echo "::error::Expected Vercel CLI $VERCEL_CLI_VERSION, got $(vercel --version | head -n 1)"
             exit 1
           fi
+
+      - name: Deploy production build
+        id: deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Checkout does not match the workflow revision."
+            exit 1
+          fi
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine the current main revision."
+            exit 1
+          fi
+          if [ "$checked_out_sha" != "$main_sha" ]; then
+            echo "Run is superseded by main at $main_sha; skipping deployment."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The services' build commands and release-gate tests run remotely.
           deployment_url=$(vercel deploy --prod --yes --token "$VERCEL_TOKEN" | tail -n 1)
           case "$deployment_url" in
             https://*) ;;
@@ -83,6 +106,7 @@ jobs:
           echo "Deployed $deployment_url"
 
       - name: Verify production alias serves this deployment
+        if: steps.deploy.outputs.superseded != 'true'
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         run: |
