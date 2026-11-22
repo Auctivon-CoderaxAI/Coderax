@@ -64,6 +64,7 @@ import { specsConfigSchema, TSpecsConfig } from './models';
 import { fileConfigSchema } from './file-config';
 import { isActionTool } from './types/tools';
 import { apiBaseUrl } from './api-endpoints';
+import { DEFAULT_PROVIDER_FALLBACK_ORDER, PROVIDER_FALLBACK_IDS } from './provider-fallback';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
 export {
@@ -4059,6 +4060,54 @@ export const freeInferenceConfigSchema = z
 
 export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
 
+/**
+ * Ordered OpenAI-compatible providers used when the selected provider can no
+ * longer serve a turn. Credentials stay in the named server environment
+ * variables; only the order, models and optional gateway URLs are config.
+ */
+export const providerFallbackConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    order: z
+      .array(z.enum([...PROVIDER_FALLBACK_IDS]))
+      .min(1)
+      .max(PROVIDER_FALLBACK_IDS.length)
+      .default(DEFAULT_PROVIDER_FALLBACK_ORDER)
+      .refine((order) => new Set(order).size === order.length, {
+        message: 'providerFallback.order must not repeat a provider',
+      }),
+    models: z
+      .object({
+        gemini: z.string().trim().min(1).default('gemini-3.5-flash-lite'),
+        cerebras: z.string().trim().min(1).default('gpt-oss-120b'),
+        groq: z.string().trim().min(1).default('openai/gpt-oss-120b'),
+        opencode: z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
+        apinex: z.string().trim().min(1).default('free/deepseek-v4.1-flash'),
+        cloudflare: z.string().trim().min(1).default('@cf/openai/gpt-oss-120b'),
+        vercel: z.string().trim().min(1).default('nvidia/nemotron-3.5-lightning-free'),
+        freeai: z.string().trim().min(1).default('qwen7b'),
+        '100millionseek': z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
+      })
+      .prefault({}),
+    /** Optional OpenAI-compatible gateway roots for any provider. */
+    baseURLs: z
+      .object({
+        gemini: z.string().trim().url().optional(),
+        cerebras: z.string().trim().url().optional(),
+        groq: z.string().trim().url().optional(),
+        opencode: z.string().trim().url().optional(),
+        apinex: z.string().trim().url().optional(),
+        cloudflare: z.string().trim().url().optional(),
+        vercel: z.string().trim().url().optional(),
+        freeai: z.string().trim().url().optional(),
+        '100millionseek': z.string().trim().url().optional(),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+export type TProviderFallbackConfig = z.infer<typeof providerFallbackConfigSchema>;
+
 export const configSchema = z.object({
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
@@ -4066,6 +4115,7 @@ export const configSchema = z.object({
   engines: enginesConfigSchema,
   cloudPower: cloudPowerConfigSchema,
   freeInference: freeInferenceConfigSchema,
+  providerFallback: providerFallbackConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   /** Durable workflow runner limits; omitted fields keep built-in defaults. */

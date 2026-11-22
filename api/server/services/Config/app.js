@@ -1,5 +1,9 @@
 const mongoose = require('mongoose');
-const { CacheKeys, mergeFreeInferenceCustomEndpoints } = require('coderax-data-provider');
+const {
+  CacheKeys,
+  mergeFreeInferenceCustomEndpoints,
+  mergeProviderFallbackCustomEndpoints,
+} = require('coderax-data-provider');
 const { AppService, logger } = require('@coderax/data-schemas');
 const {
   createAppConfigService,
@@ -38,7 +42,10 @@ const loadBaseConfig = async (mode) => {
   const rawConfig = (await loadCustomConfig(true, { mode })) ?? {};
   /** Opted-in, credentialed $0 providers become ordinary custom endpoints, so the
    *  native runner executes them; without a credential this is a no-op. */
-  const config = mergeFreeInferenceCustomEndpoints(rawConfig, process.env);
+  const withFreeProviders = mergeFreeInferenceCustomEndpoints(rawConfig, process.env);
+  /** Credentialed fallback providers become custom endpoints too, with the
+   *  other providers attached to each turn as SDK fallbacks. */
+  const config = mergeProviderFallbackCustomEndpoints(withFreeProviders, process.env);
   /** @type {Record<string, FunctionTool>} */
   const systemTools = loadAndFormatTools({
     adminFilter: config.filteredTools,
