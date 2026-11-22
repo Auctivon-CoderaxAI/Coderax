@@ -1,0 +1,161 @@
+name: Vercel production deployment
+
+# Nothing deployed this project from Git, so a merged frontend change never
+# reached production and the alias drifted behind main. This workflow uploads
+# the merged revision and then proves the canonical alias serves it.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize production deploys without cancelling an in-flight upload. GitHub
+# does not guarantee queue order, so each run also checks main before deploying.
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  PRODUCTION_ORIGIN: https://coderaxai.vercel.app
+  # Pinned deliberately: the CLI uploads a Vercel Services project, so a major
+  # bump changes the deploy path rather than being a routine upgrade. Bump it
+  # with the runbook in deploy/vercel/README.md.
+  VERCEL_CLI_VERSION: '66.6.0'
+
+jobs:
+  deploy:
+    name: Deploy and verify production
+    # A manual dispatch from a feature branch must never reach production.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout merged revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.16.0'
+
+      - name: Check deployment configuration contract
+        run: node scripts/verify-coderax-deployment.mjs --repo-only
+
+      - name: Check deployment secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing repository secret $name; see deploy/vercel/README.md."
+              exit 1
+            fi
+          done
+
+      - name: Install Vercel CLI
+        run: |
+          set -euo pipefail
+          npm install --global "vercel@$VERCEL_CLI_VERSION"
+          # `vercel --version` is "Vercel CLI 66.6.0 (native)", so match the pinned
+          # number instead of comparing the whole line.
+          if ! vercel --version | head -n 1 | grep -q "Vercel CLI $VERCEL_CLI_VERSION"; then
+            echo "::error::Expected Vercel CLI $VERCEL_CLI_VERSION, got $(vercel --version | head -n 1)"
+            exit 1
+          fi
+
+      - name: Deploy production build
+        id: deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Checkout does not match the workflow revision."
+            exit 1
+          fi
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ ! "$main_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not determine the current main revision."
+            exit 1
+          fi
+          if [ "$checked_out_sha" != "$main_sha" ]; then
+            echo "Run is superseded by main at $main_sha; skipping deployment."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The services' build commands and release-gate tests run remotely.
+          deployment_url=$(vercel deploy --prod --yes --token "$VERCEL_TOKEN" | tail -n 1)
+          case "$deployment_url" in
+            https://*) ;;
+            *)
+              echo "::error::vercel deploy did not return a deployment URL: $deployment_url"
+              exit 1
+              ;;
+          esac
+          echo "deployment_url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "Deployed $deployment_url"
+
+      - name: Verify production alias serves this deployment
+        if: steps.deploy.outputs.superseded != 'true'
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
+        run: |
+          set -euo pipefail
+          # The alias is the artifact users get, so compare the entry bundle the
+          # deployment built with the one the alias serves. A stale alias is a
+          # failed deploy even when Vercel reports success.
+          entry_asset() {
+            # Bypass the edge cache: the alias can serve a cached document for
+            # hours, and comparing a cached copy would report a false stale.
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+              "$1/?deploy-check=$RANDOM" |
+              grep -oE 'assets/index\.[A-Za-z0-9_-]+\.js' |
+              head -n 1 || true
+          }
+
+          # Fail closed. A deployment URL that cannot be read means production
+          # could not be confirmed, not that it is fine; the deployment must stay
+          # publicly readable for this check.
+          deployed_asset=$(entry_asset "$DEPLOYMENT_URL")
+          if [ -z "$deployed_asset" ]; then
+            echo "::error::Could not read the entry bundle from $DEPLOYMENT_URL, so production could not be verified (deployment protection or an unusable URL)."
+            exit 1
+          fi
+
+          matched=0
+          for _ in $(seq 1 30); do
+            if [ "$(entry_asset "$PRODUCTION_ORIGIN")" = "$deployed_asset" ]; then
+              matched=1
+              break
+            fi
+            sleep 6
+          done
+          if [ "$matched" != "1" ]; then
+            echo "::error::$PRODUCTION_ORIGIN is not serving $deployed_asset; production is still on an older build."
+            exit 1
+          fi
+
+          # The API is deployed separately on the OCI host, so its health is a
+          # warning here rather than a reason to fail the frontend release.
+          if [ "$(curl -fsS --max-time 15 "$PRODUCTION_ORIGIN/readyz" || true)" != "OK" ]; then
+            echo "::warning::$PRODUCTION_ORIGIN/readyz did not report OK; check the OCI API."
+          fi
+
+          {
+            echo "### Vercel production deployed"
+            echo ""
+            echo "- Deployment: $DEPLOYMENT_URL"
+            echo "- Alias: $PRODUCTION_ORIGIN"
+            echo "- Entry bundle: ${deployed_asset:-unknown}"
+            echo "- Merged revision: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"

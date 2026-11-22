@@ -233,10 +233,11 @@ spies over mocked internals; use `mongodb-memory-server` for database queries an
 for MCP behavior. Mock only external HTTP APIs or uncontrollable services. For frontend tests use
 the component's colocated `__tests__` and `test/layout-test-utils` where applicable.
 
-<!-- BEGIN freebuff-pr-policy (canonical: ~/AGENTS.md sections 1-8) -->
+<!-- BEGIN pr-review-policy -->
+
 ## Mandatory Pull Request Review & Automated Remediation
 
-**This policy applies to every Freebuff CLI session and every authorized repository.**
+**This policy applies to every agent session and every authorized repository.**
 
 ### 1. Pull Requests Must Be Ready for Review
 
@@ -257,7 +258,7 @@ the component's colocated `__tests__` and `test/layout-test-utils` where applica
 
 ### 3. Read ALL Pull Request Feedback
 
-Freebuff CLI MUST retrieve and inspect:
+The agent MUST retrieve and inspect:
 
 - PR conversation comments.
 - Inline code-review comments.
@@ -301,7 +302,7 @@ If merging is not authorized or any gate remains blocked, keep the PR unmerged a
 
 ### 7. Continuation Across Sessions
 
-At the beginning of every Freebuff CLI session:
+At the beginning of every agent session:
 
 - Identify the current GitHub account, repository, and active PRs.
 - Check for outstanding review feedback before starting duplicate work.
@@ -309,7 +310,7 @@ At the beginning of every Freebuff CLI session:
 - Revalidate the repository, branch, and latest SHA before writing.
 - Report the PR URL, review status, fixes completed, remaining blockers, and merge status.
 
-**Opening a PR is not completion. Freebuff is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
+**Opening a PR is not completion. The agent is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
 
 <!-- coderabbit-ai-generated:v1 -->
 
@@ -378,5 +379,4 @@ gh pr checks PR_NUMBER
 - An empty `reviews` or comment list is a result to report, not proof that reviewers accepted the
   request. Confirm the review was actually submitted (section 2).
 
-
-<!-- /coderabbit-ai-generated:v1 --><!-- END freebuff-pr-policy -->
+<!-- /coderabbit-ai-generated:v1 --><!-- END pr-review-policy -->

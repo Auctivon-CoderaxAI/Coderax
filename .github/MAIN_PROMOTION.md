@@ -61,10 +61,11 @@ GitHub without protection; the inline gate refuses that state before minting a t
      App. A fast-forward App update is not a PR merge: if a PR-only rule prevents
      it, decide the narrowly scoped release-App exception explicitly. Never give
      the App unrestricted bypass of force-push, deletion or other safety rules.
-   - `.github/CODEOWNERS` requests Danny's review of the release control plane;
-     it enforces nothing until the platform requires code-owner review. Add another
-     trusted code owner before Danny-authored control-plane changes can satisfy
-     mandatory code-owner review; the author cannot approve their own PR.
+   - `.github/CODEOWNERS` requests review from `@nnabdelshahid` for the whole
+     repository, including the release control plane. GitHub enforces this only
+     where the branch rule requires code-owner review. With a sole code owner,
+     their own PRs cannot satisfy that requirement; another eligible code owner
+     would be needed.
 2. Create an environment named **`main-promotion`**:
    - Configure trusted **Required reviewers** and enable **Prevent self-review**.
      Use enough trusted reviewers that someone other than the initiator can approve.
