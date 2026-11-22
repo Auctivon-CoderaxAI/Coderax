@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown } from 'lucide-react';
 import { QueryKeys, SystemRoles, dataService } from 'coderax-data-provider';
 import type { TWorkAgent, TWorkModel, TWorkReadinessAction } from 'coderax-data-provider';
+import type { ReactNode } from 'react';
 import type { WorkOptions, WorkSelection } from './workSelection';
 import type { WorkMode } from './workSelection';
 import {
@@ -22,6 +23,7 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { chipClasses, chipMenuClasses, chipMenuHeadingClasses, chipMenuItemClasses } from './chip';
+import { WorkProviderStatus } from './WorkProviderStatus';
 import { createStorageAtom } from '~/store/jotai-utils';
 import { useAuthContext, useLocalize } from '~/hooks';
 import { useConversationMode } from '../mode';
@@ -156,6 +158,7 @@ function WorkSelect({
   onChange,
   disabled = false,
   className,
+  details,
 }: {
   id: string;
   label: string;
@@ -165,6 +168,8 @@ function WorkSelect({
   onChange: (value: string) => void;
   disabled?: boolean;
   className?: string;
+  /** Server-reported status shown under the options, e.g. provider availability. */
+  details?: ReactNode;
 }) {
   const menuStore = Ariakit.useMenuStore({ focusLoop: true, placement: 'top-start' });
   const isOpen = menuStore.useState('open');
@@ -232,6 +237,7 @@ function WorkSelect({
             </Ariakit.MenuItemRadio>
           );
         })}
+        {details}
       </Ariakit.Menu>
     </Ariakit.MenuProvider>
   );
@@ -287,6 +293,7 @@ export function WorkModelSelect({
       id={id}
       label={localize('com_ui_model')}
       title={agent ? localize('com_work_model_set_by_agent') : undefined}
+      details={<WorkProviderStatus />}
       value={selection.modelKey}
       options={selectOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}

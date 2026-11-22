@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { appendMissingConfig, loadConfig, mergeLocalConfig, needsLocalConfig } from './config.mjs';
 import { bootId } from './lib.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -77,4 +78,94 @@ test('a clean dev:down releases the lock and exits 0', { skip }, () => {
   const { status, output } = cli(['down']);
   assert.equal(status, 0, output);
   assert.equal(existsSync(LOCK), false);
+});
+
+const configOptions = { modelPort: 8080, modelId: 'qwen2.5-1.5b-instruct' };
+
+test('dev config adds llama.cpp and free inference without dropping existing settings', () => {
+  const existing = {
+    version: '1.3.17',
+    freeInference: { enabled: false, maxRetries: 2 },
+    engines: { defaultEngine: 'freebuff' },
+    endpoints: { custom: [{ name: 'existing', baseURL: 'https://example.test/v1' }] },
+  };
+
+  const merged = mergeLocalConfig(existing, configOptions);
+
+  assert.equal(merged.freeInference.enabled, true);
+  assert.equal(merged.freeInference.maxRetries, 2);
+  assert.deepEqual(merged.engines, existing.engines);
+  assert.equal(merged.endpoints.custom.length, 2);
+  assert.ok(merged.endpoints.custom.some((entry) => entry.name === 'existing'));
+  assert.deepEqual(
+    merged.endpoints.custom.find((entry) => entry.name === 'llamacpp'),
+    {
+      name: 'llamacpp',
+      apiKey: 'local',
+      baseURL: 'http://127.0.0.1:8080/v1',
+      models: { default: ['qwen2.5-1.5b-instruct'], fetch: true },
+      titleConvo: false,
+      modelDisplayLabel: 'llama.cpp (local)',
+    },
+  );
+});
+
+test('an existing llama.cpp entry is updated in place and keeps extra fields', () => {
+  const merged = mergeLocalConfig(
+    {
+      freeInference: { enabled: true },
+      endpoints: {
+        custom: [
+          {
+            name: 'llamacpp',
+            baseURL: 'http://127.0.0.1:9999/v1',
+            models: { default: ['stale-model'] },
+            headers: { 'X-Dev': 'kept' },
+          },
+        ],
+      },
+    },
+    configOptions,
+  );
+
+  assert.equal(merged.endpoints.custom.length, 1);
+  assert.equal(merged.endpoints.custom[0].baseURL, 'http://127.0.0.1:8080/v1');
+  assert.deepEqual(merged.endpoints.custom[0].models.default, ['qwen2.5-1.5b-instruct']);
+  assert.deepEqual(merged.endpoints.custom[0].headers, { 'X-Dev': 'kept' });
+});
+
+test('appending missing sections preserves existing comments', () => {
+  const text = [
+    '# keep this comment',
+    'version: 1.3.17',
+    'freeInference:',
+    '  enabled: true',
+    '',
+  ].join('\n');
+  const appended = appendMissingConfig(text, loadConfig(text), configOptions);
+
+  assert.ok(appended);
+  assert.match(appended, /# keep this comment/);
+  assert.equal(needsLocalConfig(loadConfig(appended), configOptions), false);
+});
+
+test('appending the free-inference opt-in leaves existing endpoints and comments intact', () => {
+  const text = [
+    '# keep this comment',
+    'version: 1.3.17',
+    'endpoints:',
+    '  custom:',
+    "    - name: 'llamacpp'",
+    "      baseURL: 'http://127.0.0.1:8080/v1'",
+    '      models:',
+    '        default:',
+    "          - 'qwen2.5-1.5b-instruct'",
+    '',
+  ].join('\n');
+  const appended = appendMissingConfig(text, loadConfig(text), configOptions);
+
+  assert.ok(appended);
+  assert.match(appended, /# keep this comment/);
+  assert.match(appended, /freeInference:\n {2}enabled: true/);
+  assert.equal(needsLocalConfig(loadConfig(appended), configOptions), false);
 });

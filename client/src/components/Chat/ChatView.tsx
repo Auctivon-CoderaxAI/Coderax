@@ -46,7 +46,6 @@ import Header from './Header';
 import { cn } from '~/utils';
 import store from '~/store';
 
-
 function ChatView({
   index = 0,
   project,
@@ -184,9 +183,13 @@ function ChatView({
   const hasProjectBadge = badgeProjectId != null;
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
-    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
+    content = (
+      <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />
+    );
   } else if ((isLoading || isNavigating) && !isLandingPage) {
-    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
+    content = (
+      <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />
+    );
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} messages={messages} />;
   } else {

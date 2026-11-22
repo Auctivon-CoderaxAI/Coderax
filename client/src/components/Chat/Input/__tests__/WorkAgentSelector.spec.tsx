@@ -24,7 +24,7 @@ jest.mock('~/Providers', () => ({
 }));
 let mockRole = 'ADMIN';
 jest.mock('~/hooks', () => ({
-  useLocalize: () => (key: string) =>
+  useLocalize: () => (key: string, values?: Record<string, string>) =>
     ({
       com_ui_model: 'Model',
       com_work_agent: 'Work agent',
@@ -39,6 +39,18 @@ jest.mock('~/hooks', () => ({
       com_work_mode_mission_description: 'Carry a larger goal through verified milestones.',
       com_work_mode_skills: 'Skills',
       com_work_mode_skills_description: 'Apply your saved skills while working.',
+      com_work_provider_status: 'Provider status',
+      com_work_provider_requests_left: `${values?.[0]} of ${values?.[1]} requests left`,
+      com_work_provider_available: 'Available',
+      com_work_provider_no_paid: 'No paid fallback',
+      com_work_provider_primary: 'Preferred model',
+      com_work_provider_unverified: 'No verified free endpoint',
+      com_work_provider_quota_exhausted: 'Quota exhausted',
+      com_work_provider_cooling_down: 'Cooling down',
+      com_work_provider_unavailable: 'Unavailable',
+      com_work_provider_unconfigured: 'No server credential',
+      com_work_provider_not_enabled: 'Free routing is off.',
+      com_work_routing_exhausted: 'Free capacity is exhausted; no paid model is used.',
     })[key] ?? key,
   useAuthContext: () => ({ user: { role: mockRole } }),
 }));
@@ -222,6 +234,53 @@ it('shows full model labels in the themed menu', async () => {
   });
   expect(option).toHaveTextContent('NVIDIA Nemotron 3 Ultra (free)');
   expect(option.closest('[role="menu"]')).toHaveClass('bg-surface-menu');
+});
+
+it('shows server-reported provider availability in the model menu', async () => {
+  jest.mocked(dataService.getWorkRouting).mockResolvedValue({
+    routing: {
+      enabled: true,
+      primary: {
+        available: false,
+        label: 'DeepSeek-R1 671B',
+        modelIds: [],
+        reason: 'no_verified_free_endpoint',
+        checkedAt: '2026-11-08',
+        evidence: [],
+      },
+      activeModel: null,
+      endpoints: [
+        {
+          id: 'openrouter-nemotron-ultra-free',
+          provider: 'openrouter',
+          modelId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+          label: 'NVIDIA Nemotron 3 Ultra (free)',
+          kind: 'fallback',
+          available: true,
+          cooldownUntil: null,
+          tools: true,
+          quota: {
+            requestsUsed: 10,
+            requestsLimit: 200,
+            tokensUsed: 1_000,
+            tokensLimit: 400_000,
+            resetAt: 0,
+          },
+        },
+      ],
+      paidRoutesEnabled: false,
+    },
+  });
+  setup();
+  await openSelect('Model');
+
+  const status = await screen.findByTestId('work-provider-status');
+  expect(status).toHaveTextContent('Provider status');
+  expect(status).toHaveTextContent('NVIDIA Nemotron 3 Ultra (free)');
+  expect(status).toHaveTextContent('nvidia/nemotron-3-ultra-550b-a55b:free');
+  expect(status).toHaveTextContent('Available');
+  expect(status).toHaveTextContent('190 of 200 requests left');
+  expect(status).toHaveTextContent('No verified free endpoint');
 });
 
 it('localizes a readiness action instead of rendering the server English string', async () => {

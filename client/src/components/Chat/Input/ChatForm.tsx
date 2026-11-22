@@ -288,10 +288,7 @@ const ChatForm = memo(function ChatForm({
     [conversation?.assistant_id, endpoint, assistantMap, workMode],
   );
   const disableInputs = useMemo(
-    () =>
-      workMode
-        ? !workCanSubmit
-        : requiresKey || invalidAssistant || modelUnavailable,
+    () => (workMode ? !workCanSubmit : requiresKey || invalidAssistant || modelUnavailable),
     [workMode, workCanSubmit, requiresKey, invalidAssistant, modelUnavailable],
   );
 
