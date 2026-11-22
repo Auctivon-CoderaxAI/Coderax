@@ -8,19 +8,19 @@ import { useAuthContext } from '~/hooks/AuthContext';
 import { getPostLoginRedirect } from '~/utils';
 
 /**
- * Entry screen for passwordless guests and password-only owners. When the
- * server advertises password login, the visitor must enter the access password
- * before the workspace opens; a passwordless guest session is not enough.
+ * Entry screen for passwordless guests and password-only owners. Any issued
+ * session opens the workspace, including a guest session, so visitors are never
+ * stopped by the owner password gate. The password form is the fallback for a
+ * visitor who has no session and guest access is switched off.
  */
 export default function GuestEntry() {
   const navigate = useNavigate();
   const { search } = useLocation();
   const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
-  const { isAuthReady, isAuthenticated, user } = useAuthContext();
+  const { isAuthReady, isAuthenticated } = useAuthContext();
   const passwordLoginEnabled =
     (startupConfig as { passwordLoginEnabled?: boolean } | null)?.passwordLoginEnabled === true;
-  const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
-  const shouldEnterWorkspace = isAuthenticated && (!passwordLoginEnabled || isOwner);
+  const shouldEnterWorkspace = isAuthenticated;
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
