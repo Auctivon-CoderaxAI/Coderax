@@ -2,6 +2,25 @@ import { logger } from '@coderax/data-schemas';
 import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
 
+/** Explicit bindings win; hosted Vercel needs an externally reachable listener. */
+export function resolveListenerHost({
+  host,
+  vercel,
+  localDev,
+}: {
+  host?: string;
+  vercel?: string;
+  localDev?: string;
+}): string {
+  if (host) {
+    return host;
+  }
+  if (localDev === '1') {
+    return '127.0.0.1';
+  }
+  return vercel === '1' ? '0.0.0.0' : 'localhost';
+}
+
 export type InitializationGate = {
   middleware: (req: Request, res: Response, next: NextFunction) => void;
   markReady: () => void;

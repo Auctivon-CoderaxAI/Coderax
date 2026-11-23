@@ -49,6 +49,7 @@
     "dev:up": "node scripts/dev/stack.mjs up",
     "dev:down": "node scripts/dev/stack.mjs down",
     "dev:status": "node scripts/dev/stack.mjs status",
+    "test:dev-stack": "node --test scripts/dev/pid-record.test.mjs scripts/dev/stack.test.mjs",
     "dev:model": "node scripts/dev/model.mjs",
     "redis:single": "bash scripts/redis-mode.sh single",
     "redis:cluster": "bash scripts/redis-mode.sh cluster",

@@ -49,8 +49,13 @@ readiness without starting or stopping anything; it flags stale PID files and
 ports held by other processes, and exits non-zero when a service is missing or
 unready.
 
-`CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) supplies the hostname Vite must
-accept; without it the API and UI still start but the preview panel returns 403.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:15139b5d1e4b7c677dbf14065132a9ad8bb15d48f34d96692f07ab8290cf864a -->
+
+Vite binds to loopback by default. Setting `CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) enables a network listener and supplies the hostname Vite must accept. Enable it only on a trusted network.
+
+<!-- /coderabbit-ai-generated:v1 -->
 The model is skipped with a warning when its binary or weights are missing.
 
 ## MongoDB
@@ -118,13 +123,9 @@ JWT_REFRESH_SECRET=<32+ chars>
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:5f604591f694071bb110f4865a1e2e4fd952c48f2a58f36cdf1bd80e46135369 -->
+<!-- coderabbit-ai-generated-section:v1:983729b3d7acbbd8604c2118bbd2e1a9cb3bd327b77b614ed2bea9c9f4a6bc0e -->
 
-`npm run dev:api` sets `VERCEL=1`, selecting the server's supported no-client-shell
-branch: only `/api` and `/oauth` are served and no `client/dist` is needed, because
-Vite is the UI. Both development launch commands default the API to `127.0.0.1`;
-set `HOST` explicitly to bind it to another interface. A production run
-(`npm run backend`) still serves the compiled client from `npm run build:client`.
+`npm run dev:api` sets `VERCEL=1` to serve the API without a built client shell. Set `HOST` to override the standalone API listener. The managed stack fixes the API listener, readiness probe, and Vite proxy target at `127.0.0.1:3080`, overriding `HOST` and `PORT` for that child. A production run (`npm run backend`) still serves the compiled client.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

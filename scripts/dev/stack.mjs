@@ -38,6 +38,9 @@ const previewHost = (
   ''
 ).trim();
 
+const apiHost = '127.0.0.1';
+const apiPort = 3080;
+
 const services = [
   {
     name: 'mongo',
@@ -49,10 +52,16 @@ const services = [
   },
   {
     name: 'api',
-    port: 3080,
+    port: apiPort,
     timeoutMs: 90_000,
-    probe: () => httpOk('http://127.0.0.1:3080/api/config'),
-    env: { NODE_ENV: 'development', VERCEL: '1', CODERAX_LOCAL_DEV: '1' },
+    probe: () => httpOk(`http://${apiHost}:${apiPort}/api/config`),
+    env: {
+      NODE_ENV: 'development',
+      VERCEL: '1',
+      CODERAX_LOCAL_DEV: '1',
+      HOST: apiHost,
+      PORT: String(apiPort),
+    },
     command: () => ({
       file: nodeBin,
       args: [path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js'), 'api/server/index.js'],
@@ -74,7 +83,9 @@ const services = [
     probe: () => httpOk('http://127.0.0.1:3000/'),
     env: {
       NODE_ENV: 'development',
-      HOST: '0.0.0.0',
+      HOST: previewHost ? '0.0.0.0' : '127.0.0.1',
+      BACKEND_HOST: apiHost,
+      BACKEND_PORT: String(apiPort),
       PORT: '3000',
       VITE_ALLOWED_HOSTS: previewHost,
     },
@@ -167,10 +178,15 @@ async function startService(service) {
     stdio: ['ignore', fd, fd],
   });
   fs.closeSync(fd);
-  await new Promise((resolve, reject) => {
+  const spawned = new Promise((resolve, reject) => {
     child.once('spawn', resolve);
     child.once('error', reject);
   });
+  if (child.pid == null) {
+    await spawned;
+    fail(`${service.name}: spawned without a PID`);
+  }
+  // Publish the record before yielding to a queued SIGINT or SIGTERM handler.
   child.unref();
   const record = { pid: child.pid, token };
   const file = pidFile(service.name);
@@ -185,6 +201,7 @@ async function startService(service) {
     fs.rmSync(temporary, { force: true });
     throw error;
   }
+  await spawned;
   return record;
 }
 
@@ -206,9 +223,7 @@ async function up() {
   fs.mkdirSync(pidDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
   if (!previewHost) {
-    log(
-      'VITE_ALLOWED_HOSTS is empty — set CODERAX_PREVIEW_HOST to the preview hostname or the panel will 403',
-    );
+    log('UI will listen on loopback; set CODERAX_PREVIEW_HOST to enable a network preview');
   }
 
   for (const service of services) {
@@ -270,12 +285,12 @@ function signalGroup(pid, signal) {
 async function waitExit(record, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (groupState(record) !== 'owned') {
+    if (groupState(record) === 'gone') {
       return true;
     }
     await sleep(250);
   }
-  return groupState(record) !== 'owned';
+  return groupState(record) === 'gone';
 }
 
 async function down() {
@@ -303,11 +318,8 @@ async function down() {
           signalGroup(pid, 'SIGKILL');
         }
         if (!(await waitExit(record, 2_000))) {
-          throw new Error('still exists after SIGKILL');
+          throw new Error('could not confirm process group exit');
         }
-      }
-      if (groupState(record) === 'unverified') {
-        throw new Error('ownership could no longer be verified');
       }
     } catch (error) {
       console.error(
@@ -387,10 +399,21 @@ try {
       }
       throw error;
     }
+    const release = () => fs.rmdirSync(lockDir);
+    const interrupt = (code) => {
+      release();
+      process.exit(code);
+    };
+    const onInterrupt = () => interrupt(130);
+    const onTerminate = () => interrupt(143);
+    process.once('SIGINT', onInterrupt);
+    process.once('SIGTERM', onTerminate);
     try {
       await (action === 'up' ? up() : down());
     } finally {
-      fs.rmdirSync(lockDir);
+      process.off('SIGINT', onInterrupt);
+      process.off('SIGTERM', onTerminate);
+      release();
     }
   } else if (action === 'status') {
     await status();

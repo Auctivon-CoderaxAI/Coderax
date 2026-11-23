@@ -19,6 +19,7 @@ import { pipeline } from 'node:stream/promises';
 import { alias, binPath, ggufPath, host, modelDir, port, serverArgs } from './model-paths.mjs';
 
 const release = 'b12597';
+const binarySha256 = '34d3514902e08ceb05ca3f3e3ac2a928e4f4a8b5b40cd98838d0aeae4fd9dc42';
 const binaryUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${release}/llama-${release}-bin-ubuntu-x64.tar.gz`;
 
 /** Commit, not `main`, so an upstream change cannot silently alter the model. */
@@ -65,27 +66,33 @@ async function installBinary() {
     );
   }
   console.log(`[model] downloading llama.cpp ${release}`);
-  const archive = path.join(modelDir, 'llama.tar.gz');
-  await download(binaryUrl, archive);
-  fs.mkdirSync(path.dirname(binPath), { recursive: true });
-  // The archive has one top-level directory; keep only the server and its libraries.
-  execFileSync(
-    'tar',
-    [
-      '-xzf',
-      archive,
-      '-C',
-      path.dirname(binPath),
-      '--strip-components=1',
-      '--wildcards',
-      '*/llama-server',
-      '*/lib*.so*',
-    ],
-    { stdio: 'inherit' },
-  );
-  fs.rmSync(archive, { force: true });
-  if (!fs.existsSync(binPath)) {
-    throw new Error('llama-server missing from the downloaded archive');
+  const staging = fs.mkdtempSync(path.join(modelDir, '.llama-install-'));
+  const archive = path.join(staging, 'llama.tar.gz');
+  const extracted = path.join(staging, 'bin');
+  try {
+    await download(binaryUrl, archive);
+    if ((await sha256(archive)) !== binarySha256) {
+      throw new Error('llama.cpp archive checksum mismatch');
+    }
+    fs.mkdirSync(extracted);
+    execFileSync(
+      'tar',
+      [
+        '-xzf',
+        archive,
+        '-C',
+        extracted,
+        '--strip-components=1',
+        '--wildcards',
+        '*/llama-server',
+        '*/lib*.so*',
+      ],
+      { stdio: 'inherit' },
+    );
+    fs.accessSync(path.join(extracted, path.basename(binPath)), fs.constants.X_OK);
+    fs.renameSync(extracted, path.dirname(binPath));
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
   }
   console.log(`[model] installed ${binPath}`);
 }
