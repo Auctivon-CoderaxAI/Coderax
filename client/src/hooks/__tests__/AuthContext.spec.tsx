@@ -777,8 +777,38 @@ describe('AuthContextProvider — passwordless guest bootstrap', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    mockApiBaseUrl.mockReturnValue('');
     window.history.replaceState({}, '', '/');
   });
+
+  it.each([
+    ['', '/login?redirect=false&error=auth_failed', 'onSuccess', {}],
+    ['/app', '/app/connect?redirect_to=%2Fwork%2Fnew', 'onError', new Error('No session')],
+  ] as const)(
+    'preserves the entry URL %s %s after guest bootstrap fails',
+    async (base, url, method, data) => {
+      mockApiBaseUrl.mockReturnValue(base);
+      window.history.replaceState({}, '', url);
+      const guestFetch = jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(null, { status: 404 }));
+      const { getByTestId } = renderProviderLive();
+      const [, refreshOptions] = mockRefreshMutate.mock.calls[0] as [
+        unknown,
+        Record<typeof method, (result: unknown) => void>,
+      ];
+
+      await act(async () => {
+        refreshOptions[method](data);
+      });
+
+      expect(guestFetch).toHaveBeenCalledWith(`${base}/api/auth/guest`, expect.anything());
+      expect(getByTestId('consumer')).toHaveAttribute('data-auth-ready', 'true');
+      expect(mockNavigate).not.toHaveBeenCalledWith(expect.stringMatching(/^\/login(?:\?|$)/), {
+        replace: true,
+      });
+    },
+  );
 
   it('does not replace a completed sign-in with a delayed guest response', async () => {
     let resolveGuest!: (response: Response) => void;

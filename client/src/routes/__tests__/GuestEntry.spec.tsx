@@ -2,8 +2,9 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
-import GuestEntry from '../GuestEntry';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { SESSION_KEY } from '~/utils/redirect';
+import GuestEntry from '../GuestEntry';
 
 jest.mock('~/hooks/AuthContext', () => ({
   useAuthContext: jest.fn(),
@@ -29,7 +30,13 @@ function renderEntry(passwordLoginEnabled = false, initialEntry = '/connect') {
         element: (
           <Outlet
             context={{
-              startupConfig: { passwordLoginEnabled },
+              startupConfig: {
+                passwordLoginEnabled,
+                githubLoginEnabled: true,
+                socialLoginEnabled: true,
+                socialLogins: ['github'],
+                serverDomain: 'https://example.test',
+              },
               isFetching: false,
             }}
           />
@@ -43,12 +50,15 @@ function renderEntry(passwordLoginEnabled = false, initialEntry = '/connect') {
     ],
     { initialEntries: [initialEntry] },
   );
-  render(<RouterProvider router={router} />);
-  return router;
+  const { unmount } = render(<RouterProvider router={router} />);
+  return { router, unmount };
 }
 
 describe('guest and password entry', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    window.sessionStorage.removeItem(SESSION_KEY);
+  });
 
   it('never renders the old login form while a guest session is being requested', () => {
     (useAuthContext as jest.Mock).mockReturnValue(auth({ isAuthReady: false }));
@@ -71,7 +81,7 @@ describe('guest and password entry', () => {
     (useAuthContext as jest.Mock).mockReturnValue(
       auth({ isAuthenticated: true, user: { provider: 'local' } }),
     );
-    const router = renderEntry();
+    const { router } = renderEntry();
     await screen.findByText('Chat workspace');
     expect(router.state.location.pathname).toBe('/c/new');
   });
@@ -80,9 +90,52 @@ describe('guest and password entry', () => {
     (useAuthContext as jest.Mock).mockReturnValue(
       auth({ isAuthenticated: true, user: { provider: 'local' } }),
     );
-    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
+    const { router } = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
     await screen.findByText('Work workspace');
     expect(router.state.location.pathname).toBe('/work/new');
+  });
+
+  it('restores and consumes the requested workspace after a social sign-in round trip', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    const { unmount } = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew');
+    expect(screen.getByRole('link', { name: 'com_auth_github_login' })).toHaveAttribute(
+      'href',
+      'https://example.test/oauth/github',
+    );
+    expect(window.sessionStorage.getItem(SESSION_KEY)).toBe('/work/new');
+
+    unmount();
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'github' } }),
+    );
+    renderEntry();
+    expect(await screen.findByText('Work workspace')).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('does not persist an external redirect from the guest fallback', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, '/connect?redirect_to=%2F%2Fexample.test');
+    expect(window.sessionStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it.each([
+    ['auth_failed', 'com_auth_error_oauth_failed'],
+    ['auth_rate_limited', 'com_auth_error_login_rl'],
+    ['auth_banned', 'com_auth_error_login_ban'],
+  ])('shows the approved social sign-in error %s and keeps sign-in available', (code, message) => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, `/connect?redirect=false&error=${code}`);
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
+    expect(screen.queryByText('Coderax is unavailable')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'com_auth_github_login' })).toBeInTheDocument();
+  });
+
+  it('ignores an unrecognized error code', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(auth());
+    renderEntry(false, '/connect?error=toString');
+    expect(screen.getByRole('alert')).toHaveTextContent('Coderax is unavailable');
+    expect(screen.queryByText('toString')).not.toBeInTheDocument();
   });
 
   it('shows the password-only gate instead of entering chat as a guest', () => {

@@ -116,14 +116,6 @@ export function getPostLoginRedirect(searchParams: URLSearchParams): string | nu
   return target;
 }
 
-/**
- * Fallback destination when no post-login redirect was requested.
- *
- * A Work deep link is an explicit destination: a guest who lands on /work must
- * bootstrap into Work instead of having the session hand-off replace the URL
- * with the chat default. Bare /work canonicalizes to the new-Work route; a
- * specific Work conversation keeps its id, query and hash.
- */
 /** Strips the deployment basename so the router-relative route can be matched. */
 function stripBasePath(pathname: string, basePath: string): string {
   const base = basePath.replace(/\/+$/, '');
@@ -136,6 +128,22 @@ function stripBasePath(pathname: string, basePath: string): string {
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
 }
 
+/** Whether the browser is already on one of the guest entry URLs. */
+export function isGuestEntryRoute(): boolean {
+  const route = stripBasePath(window.location.pathname, apiBaseUrl())
+    .toLowerCase()
+    .replace(/\/+$/, '');
+  return route === '/login' || route === '/connect';
+}
+
+/**
+ * Fallback destination when no post-login redirect was requested.
+ *
+ * A Work deep link is an explicit destination: a guest who lands on /work must
+ * bootstrap into Work instead of having the session hand-off replace the URL
+ * with the chat default. Bare /work canonicalizes to the new-Work route; a
+ * specific Work conversation keeps its id, query and hash.
+ */
 export function getPostLoginFallback(
   {
     pathname,

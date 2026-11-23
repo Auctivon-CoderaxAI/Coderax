@@ -26,6 +26,7 @@ import type * as t from 'coderax-data-provider';
 import type { ReactNode } from 'react';
 import {
   isSafeRedirect,
+  isGuestEntryRoute,
   getPostLoginRedirect,
   getPostLoginFallback,
   clearPostLoginRedirect,
@@ -43,8 +44,8 @@ import {
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
-import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
+import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
 import useTimeout from './useTimeout';
 import store from '~/store';
@@ -370,6 +371,16 @@ const AuthContextProvider = ({
     if (isExternalRedirectRef.current) {
       return;
     }
+    const onGuestAttempt = (status: Awaited<ReturnType<typeof tryGuestSession>>) => {
+      if (status !== 'failed' || isExternalRedirectRef.current) {
+        return;
+      }
+      setIsAuthReady(true);
+      // Leave the OAuth error and requested destination intact on the entry routes.
+      if (!isGuestEntryRoute()) {
+        navigate(buildLoginRedirectUrl(), { replace: true });
+      }
+    };
     refreshToken.mutate(undefined, {
       onSuccess: (data: t.TRefreshTokenResponse | undefined) => {
         if (isExternalRedirectRef.current) {
@@ -423,13 +434,7 @@ const AuthContextProvider = ({
           setIsAuthReady(true);
           return;
         }
-        void tryGuestSession().then((status) => {
-          if (status !== 'failed' || isExternalRedirectRef.current) {
-            return;
-          }
-          setIsAuthReady(true);
-          navigate(buildLoginRedirectUrl(), { replace: true });
-        });
+        void tryGuestSession().then(onGuestAttempt);
       },
       onError: (error) => {
         if (isExternalRedirectRef.current) {
@@ -445,13 +450,7 @@ const AuthContextProvider = ({
           setIsAuthReady(true);
           return;
         }
-        void tryGuestSession().then((status) => {
-          if (status !== 'failed' || isExternalRedirectRef.current) {
-            return;
-          }
-          setIsAuthReady(true);
-          navigate(buildLoginRedirectUrl(), { replace: true });
-        });
+        void tryGuestSession().then(onGuestAttempt);
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are stable at mount; adding refreshToken causes infinite re-fire

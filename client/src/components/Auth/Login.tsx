@@ -1,26 +1,19 @@
 import { useEffect, useState } from 'react';
+import { registerPage } from 'coderax-data-provider';
 import { OpenIDIcon, useToastContext } from '@coderax/client';
-import { ErrorTypes, registerPage } from 'coderax-data-provider';
 import { useOutletContext, useSearchParams, useLocation } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
-import type { TranslationKeys } from '~/hooks';
 import { getLoginError, persistRedirectToSession } from '~/utils';
 import { ErrorMessage } from '~/components/Auth/ErrorMessage';
 import SocialButton from '~/components/Auth/SocialButton';
 import { useAuthContext } from '~/hooks/AuthContext';
+import { getOAuthErrorKey } from './oauthError';
 import { useLocalize } from '~/hooks';
 import LoginForm from './LoginForm';
 
 interface LoginLocationState {
   redirect_to?: string;
 }
-
-/** Error codes the server appends to the login redirect when an OAuth navigation is rejected. */
-const oauthErrorKeys: Record<string, TranslationKeys> = {
-  [ErrorTypes.AUTH_FAILED]: 'com_auth_error_oauth_failed',
-  [ErrorTypes.AUTH_RATE_LIMITED]: 'com_auth_error_login_rl',
-  [ErrorTypes.AUTH_BANNED]: 'com_auth_error_login_ban',
-};
 
 function Login() {
   const localize = useLocalize();
@@ -45,12 +38,7 @@ function Login() {
       }
     }
 
-    const oauthError = searchParams?.get('error');
-    /** `hasOwn` keeps an attacker-supplied `?error=toString` off the prototype chain. */
-    const oauthErrorKey =
-      oauthError != null && Object.hasOwn(oauthErrorKeys, oauthError)
-        ? oauthErrorKeys[oauthError]
-        : undefined;
+    const oauthErrorKey = getOAuthErrorKey(searchParams.get('error'));
     if (oauthErrorKey != null) {
       showToast({
         message: localize(oauthErrorKey),
