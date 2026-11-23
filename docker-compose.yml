@@ -12,7 +12,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Adds the source-built Freebuff SDK at /opt/freebuff-sdk. Point
+      # FREEBUFF_SDK_DIR at the trusted checkout that produced dist/index.cjs.
+      target: node-freebuff
+      additional_contexts:
+        freebuff-sdk-src: ${FREEBUFF_SDK_DIR:-../freebuff-main/sdk}
     image: coderax:local
+    # The image creates this on a fresh data volume; repeat it so an existing
+    # volume also has the private Work workspace root.
+    command:
+      - sh
+      - -c
+      - mkdir -p /app/data/freebuff-workspace && exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
@@ -35,8 +46,10 @@ services:
       - type: bind
         source: ./.env
         target: /app/.env
+      # Container paths and the in-image SDK; the host's coderax.yaml keeps
+      # pointing at the local checkout and is never mounted here.
       - type: bind
-        source: ./coderax.yaml
+        source: ./coderax.docker.yaml
         target: /app/coderax.yaml
       - ./images:/app/client/public/images
       - ./uploads:/app/uploads

@@ -1,0 +1,30 @@
+# Container configuration for the image built from Dockerfile target
+# `node-freebuff`. Local development keeps using coderax.yaml, which points at
+# the host checkout of the SDK; this file only ever runs inside Docker, where
+# the SDK is baked into the image and Ollama is reached over the host gateway.
+version: 1.3.17
+freeInference:
+  enabled: true
+
+providerFallback:
+  enabled: true
+
+engines:
+  workspaces:
+    # Under the persisted `coderax-data` volume (compose creates it on start).
+    privateRoot: /app/data/freebuff-workspace
+  workChat:
+    enabled: true
+    engine: freebuff
+    mode: private
+  freebuff:
+    enabled: true
+    # Installed by the `freebuff-sdk` stage; never a host path.
+    sdkPath: /opt/freebuff-sdk/dist/index.cjs
+    # The tool schema needs a 16k context, so this points at the Ollama
+    # instance started with OLLAMA_CONTEXT_LENGTH=16384. The default 11434
+    # instance loads qwen3.5 at 4096 and rejects the request.
+    baseURL: http://host.docker.internal:11435/v1
+    model: ollama/qwen3.5:4b
+    timeoutMs: 900000
+    maxAgentSteps: 24
