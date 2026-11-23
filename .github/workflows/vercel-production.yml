@@ -48,19 +48,37 @@ jobs:
       - name: Check deployment configuration contract
         run: node scripts/verify-coderax-deployment.mjs --repo-only
 
+      # Missing credentials are a configuration gap, not a broken build: report
+      # every absent name and skip the deploy instead of failing every push.
       - name: Check deployment secrets
+        id: secrets
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
+          missing=()
           for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
             if [ -z "${!name:-}" ]; then
-              echo "::error::Missing repository secret $name; see deploy/vercel/README.md."
-              exit 1
+              missing+=("$name")
             fi
           done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice title=Production deploy skipped::Missing repository secret(s): ${missing[*]}. See deploy/vercel/README.md; this run deployed nothing."
+            {
+              echo "### Production deploy skipped"
+              echo ""
+              echo "Missing repository secret(s): \`${missing[*]}\`."
+              echo ""
+              echo "Add them under Settings -> Secrets and variables -> Actions, then re-run this workflow."
+              echo "See \`deploy/vercel/README.md\`. This run deployed nothing."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
 
       - name: Install Vercel CLI
+        if: steps.secrets.outputs.present == 'true'
         run: |
           set -euo pipefail
           npm install --global "vercel@$VERCEL_CLI_VERSION"
@@ -73,6 +91,7 @@ jobs:
 
       - name: Deploy production build
         id: deploy
+        if: steps.secrets.outputs.present == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -106,7 +125,7 @@ jobs:
           echo "Deployed $deployment_url"
 
       - name: Verify production alias serves this deployment
-        if: steps.deploy.outputs.superseded != 'true'
+        if: steps.secrets.outputs.present == 'true' && steps.deploy.outputs.superseded != 'true'
         env:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment_url }}
         run: |
