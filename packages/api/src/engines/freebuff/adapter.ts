@@ -203,6 +203,12 @@ type ProbeResponse = {
   json: () => Promise<unknown>;
 };
 
+type ProbeRequest = {
+  signal: AbortSignal;
+  headers: Record<string, string>;
+  redirect: RequestRedirect;
+};
+
 type ProbeFetch = (
   input: string,
   init?: {
@@ -210,6 +216,7 @@ type ProbeFetch = (
     headers?: Record<string, string>;
     body?: string;
     signal?: AbortSignal;
+    redirect?: RequestRedirect;
   },
 ) => Promise<ProbeResponse>;
 
@@ -245,10 +252,10 @@ async function probeOllama(
   baseURL: string,
   modelId: string,
   minContextTokens: number,
-  signal: AbortSignal,
+  init: ProbeRequest,
 ): Promise<EngineAvailability> {
   const origin = new URL(baseURL).origin;
-  const tags = await fetcher(`${origin}/api/tags`, { signal });
+  const tags = await fetcher(`${origin}/api/tags`, init);
   if (!tags.ok) {
     return unavailable(
       'server_unavailable',
@@ -273,10 +280,10 @@ async function probeOllama(
   }
 
   const shown = await fetcher(`${origin}/api/show`, {
+    ...init,
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...init.headers, 'content-type': 'application/json' },
     body: JSON.stringify({ name: modelId }),
-    signal,
   });
   if (!shown.ok) {
     return shown.status === 404
@@ -303,9 +310,9 @@ async function probeLmStudio(
   fetcher: ProbeFetch,
   baseURL: string,
   modelId: string,
-  signal: AbortSignal,
+  init: ProbeRequest,
 ): Promise<EngineAvailability> {
-  const response = await fetcher(`${baseURL}/models`, { signal });
+  const response = await fetcher(`${baseURL}/models`, init);
   if (!response.ok) {
     return unavailable(
       'server_unavailable',
@@ -322,12 +329,19 @@ async function probeLmStudio(
     : unavailable('model_missing', 'The configured local model is not installed on the endpoint.');
 }
 
+function configuredLocalApiKey(): string | undefined {
+  return process.env.FREEBUFF_LOCAL_API_KEY?.trim() || undefined;
+}
+
 /**
  * Probe the configured local runtime within a fixed deadline. Ollama reports
  * both the installed model and its active num_ctx; LM Studio exposes model
  * presence only, so its context requirement is not asserted here.
  */
-export async function probeFreebuff(options: FreebuffAdapterOptions): Promise<EngineAvailability> {
+export async function probeFreebuff(
+  options: FreebuffAdapterOptions,
+  requestSignal?: AbortSignal,
+): Promise<EngineAvailability> {
   const configured = describeFreebuff(options);
   if (!configured.available) {
     return configured;
@@ -340,13 +354,18 @@ export async function probeFreebuff(options: FreebuffAdapterOptions): Promise<En
   const timeoutMs = options.probeTimeoutMs ?? DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS;
   const minContextTokens = options.minContextTokens ?? DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS;
   const fetcher: ProbeFetch = options.fetchImpl ?? fetch;
-  const signal = AbortSignal.timeout(timeoutMs);
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const signal = requestSignal ? AbortSignal.any([requestSignal, deadline]) : deadline;
+  const apiKey = configuredLocalApiKey();
+  const headers: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
+  const init: ProbeRequest = { signal, headers, redirect: 'error' };
   try {
+    signal.throwIfAborted();
     if (model.providerId === 'ollama') {
-      return await probeOllama(fetcher, baseURL, model.modelId, minContextTokens, signal);
+      return await probeOllama(fetcher, baseURL, model.modelId, minContextTokens, init);
     }
     if (model.providerId === 'lmstudio') {
-      return await probeLmStudio(fetcher, baseURL, model.modelId, signal);
+      return await probeLmStudio(fetcher, baseURL, model.modelId, init);
     }
     return configured;
   } catch {
@@ -590,11 +609,19 @@ async function waitForRunCleanup(run: Promise<void>): Promise<void> {
 export async function startFreebuffRun(
   options: FreebuffAdapterOptions,
   request: EngineRunRequest,
+  probe: (signal?: AbortSignal) => Promise<EngineAvailability> = (signal) =>
+    probeFreebuff(options, signal),
 ): Promise<EngineResult<EngineRunHandle>> {
+  if (request.signal?.aborted) {
+    return engineFailure('cancelled', 'The run was cancelled before it started.');
+  }
   if (!request.prompt.trim()) {
     return engineFailure('protocol_error', 'A task prompt is required.');
   }
-  const availability = await probeFreebuff(options);
+  const availability = await probe(request.signal);
+  if (request.signal?.aborted) {
+    return engineFailure('cancelled', 'The run was cancelled before it started.');
+  }
   if (!availability.available) {
     return engineFailure(failureReason(availability), availability.detail);
   }
@@ -631,7 +658,7 @@ export async function startFreebuffRun(
   queue.push({ type: 'started', sessionId });
 
   const timestamp = new Date().toISOString();
-  const localApiKey = process.env.FREEBUFF_LOCAL_API_KEY?.trim() || 'local';
+  const localApiKey = configuredLocalApiKey() ?? 'local';
   const byok = {
     id: randomUUID(),
     revision: 1,
@@ -804,13 +831,32 @@ export const freebuffCapabilities = {
 
 export function createFreebuffAdapter(options: FreebuffAdapterOptions): EngineAdapter {
   let runtimeAvailability: EngineAvailability | null = null;
+  let statusProbe: Promise<void> | undefined;
+  let sequence = 0;
+  let published = 0;
+
+  async function refresh(signal?: AbortSignal): Promise<EngineAvailability> {
+    const id = ++sequence;
+    const availability = await probeFreebuff(options, signal);
+    // An older request finishing late must not replace a newer observation.
+    if (!signal?.aborted && id > published) {
+      runtimeAvailability = availability;
+      published = id;
+    }
+    return availability;
+  }
+
   return {
     id: 'freebuff',
     capabilities: freebuffCapabilities,
     describe: () => runtimeAvailability ?? describeFreebuff(options),
-    probe: async () => {
-      runtimeAvailability = await probeFreebuff(options);
-    },
-    start: (request) => startFreebuffRun(options, request),
+    describeForStart: () => describeFreebuff(options),
+    probe: () =>
+      (statusProbe ??= refresh()
+        .then(() => undefined)
+        .finally(() => {
+          statusProbe = undefined;
+        })),
+    start: (request) => startFreebuffRun(options, request, refresh),
   };
 }

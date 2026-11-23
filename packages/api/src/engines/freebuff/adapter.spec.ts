@@ -1,9 +1,16 @@
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
-import type { LoadedFreebuffSdk } from './adapter';
+import type { FreebuffAdapterOptions, LoadedFreebuffSdk } from './adapter';
 import type { EngineLimits } from '../types';
-import { describeFreebuff, freebuffCapabilities, probeFreebuff, startFreebuffRun } from './adapter';
+import {
+  createFreebuffAdapter,
+  describeFreebuff,
+  freebuffCapabilities,
+  probeFreebuff,
+  startFreebuffRun,
+} from './adapter';
+import { createEngineRegistry } from '../registry';
 
 const limits: EngineLimits = { timeoutMs: 1_000, maxSummaryChars: 100 };
 const roots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
@@ -140,6 +147,107 @@ describe('Freebuff engine adapter', () => {
 
   it('probes the Ollama model and its declared 16k context', async () => {
     await expect(probeFreebuff(base)).resolves.toEqual({ available: true, reason: 'ready' });
+  });
+
+  it.each(['ollama', 'lmstudio'])(
+    'authenticates every %s discovery request',
+    async (providerId) => {
+      const env = jest.replaceProperty(process, 'env', {
+        ...process.env,
+        FREEBUFF_LOCAL_API_KEY: ' test-key ',
+      });
+      const fetchImpl: NonNullable<FreebuffAdapterOptions['fetchImpl']> = async (input, init) => {
+        if (init?.headers?.authorization !== 'Bearer test-key' || init.redirect !== 'error') {
+          return response({}, 401);
+        }
+        return input.endsWith('/models')
+          ? response({ data: [{ id: base.model.modelId }] })
+          : probeFetch(input);
+      };
+      try {
+        await expect(
+          probeFreebuff({ ...base, model: { ...base.model, providerId }, fetchImpl }),
+        ).resolves.toEqual({ available: true, reason: 'ready' });
+      } finally {
+        env.restore();
+      }
+    },
+  );
+
+  it('recovers on the next start and reports subsequent start failures in the snapshot', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'coderax-freebuff-'));
+    let online = false;
+    const adapter = createFreebuffAdapter({
+      ...base,
+      roots: { ...roots, private: root },
+      fetchImpl: async (input) => (online ? probeFetch(input) : response({}, 503)),
+    });
+    const registry = createEngineRegistry({
+      defaultEngine: 'freebuff',
+      adapters: { freebuff: adapter },
+    });
+    const request = {
+      taskKey: 'task',
+      conversationId: 'conversation',
+      prompt: 'Run',
+      mode: 'private' as const,
+      workspaceRoot: root,
+    };
+    try {
+      await registry.probe();
+      expect(registry.snapshot().engines[0]?.availability.reason).toBe('server_unavailable');
+      online = true;
+      const started = await registry.start({ request });
+      expect(started.ok).toBe(true);
+      if (started.ok) {
+        await started.value.close();
+      }
+      expect(registry.snapshot().engines[0]?.availability.reason).toBe('ready');
+      online = false;
+      await expect(registry.start({ request })).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'server_unavailable' },
+      });
+      expect(registry.snapshot().engines[0]?.availability.reason).toBe('server_unavailable');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('skips discovery on pre-abort and cancels in-flight discovery without caching an outage', async () => {
+    const fetchImpl = jest.fn<
+      ReturnType<NonNullable<FreebuffAdapterOptions['fetchImpl']>>,
+      Parameters<NonNullable<FreebuffAdapterOptions['fetchImpl']>>
+    >(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
+    const adapter = createFreebuffAdapter({ ...base, fetchImpl });
+    const request = {
+      taskKey: 'task',
+      conversationId: 'conversation',
+      prompt: 'Run',
+      mode: 'private' as const,
+      workspaceRoot: roots.private,
+    };
+    const cancelled = { ok: false, error: { code: 'cancelled' } };
+    await expect(adapter.start({ ...request, signal: AbortSignal.abort() })).resolves.toMatchObject(
+      cancelled,
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    const controller = new AbortController();
+    const started = adapter.start({ ...request, signal: controller.signal });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const probeSignal = fetchImpl.mock.calls[0]?.[1]?.signal;
+    controller.abort();
+    expect(probeSignal?.aborted).toBe(true);
+    await expect(started).resolves.toMatchObject(cancelled);
+    expect(adapter.describe()).toEqual({ available: true, reason: 'ready' });
   });
 
   it('reports a model that is not installed', async () => {
