@@ -71,6 +71,6 @@ CI is unblocked only when all of the following are true:
 - `static-checks`, the API/data-schema typechecks, and the affected tests pass.
 - The deployment smoke either passes or reports a named, owner-accepted blocker.
 
-The current repository is private. The billing/visibility decision belongs to
-the organization owner; this document and the preflight script prepare it, but
-do not perform it in a code change.
+This repository's public visibility is intentional. Do not change its visibility as a
+CI workaround. Organization owners control billing decisions; this document and the
+preflight script prepare diagnostics but do not perform billing or visibility changes.
