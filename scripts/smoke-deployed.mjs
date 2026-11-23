@@ -29,8 +29,9 @@ try {
   console.error("CODERAX_BASE_URL must be an absolute URL");
   process.exit(2);
 }
-if (!["http:", "https:"].includes(origin.protocol)) {
-  console.error("CODERAX_BASE_URL must use http or https");
+const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
+if (origin.protocol !== "https:" && !(origin.protocol === "http:" && loopback)) {
+  console.error("CODERAX_BASE_URL must use https unless it targets a loopback host");
   process.exit(2);
 }
 origin.pathname = origin.pathname.replace(/\/?$/, "/");
@@ -47,11 +48,17 @@ if (!token && !(email && password)) {
   process.exit(2);
 }
 
+let sessionToken = token;
+let refreshCookie;
+
 function urlFor(path) {
   return new URL(path.replace(/^\//, ""), origin).toString();
 }
 
-async function request(path, { method = "GET", body, bearer = token, allow = [200] } = {}) {
+async function request(
+  path,
+  { method = "GET", body, bearer = sessionToken, cookie, allow = [200] } = {}
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -60,12 +67,18 @@ async function request(path, { method = "GET", body, bearer = token, allow = [20
       headers: {
         accept: "application/json",
         ...(body === undefined ? {} : { "content-type": "application/json" }),
-        ...(bearer ? { authorization: `Bearer ${bearer}` } : {})
+        ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+        ...(cookie ? { cookie } : {})
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       redirect: "manual",
       signal: controller.signal
+    }).catch(() => {
+      throw new Error(`Request failed for ${path}`);
     });
+    if (!allow.includes(response.status)) {
+      throw new Error(`HTTP ${response.status} from ${path}`);
+    }
     const text = await response.text();
     let payload = null;
     if (text) {
@@ -74,10 +87,6 @@ async function request(path, { method = "GET", body, bearer = token, allow = [20
       } catch {
         payload = text;
       }
-    }
-    if (!allow.includes(response.status)) {
-      const detail = typeof payload === "string" ? payload.slice(0, 300) : JSON.stringify(payload).slice(0, 300);
-      throw new Error(`HTTP ${response.status} from ${path}: ${detail}`);
     }
     return { status: response.status, body: payload, headers: response.headers };
   } finally {
@@ -102,7 +111,6 @@ async function check(name, operation, { optional = false } = {}) {
   }
 }
 
-let sessionToken = token;
 async function resolveToken() {
   if (sessionToken) return "provided";
   const response = await request("/api/auth/login", {
@@ -111,8 +119,12 @@ async function resolveToken() {
     bearer: "",
     allow: [200, 201]
   });
-  sessionToken = response.body?.token || response.body?.accessToken;
-  if (!sessionToken) throw new Error("login succeeded without returning a token");
+  const resolved = response.body?.token || response.body?.accessToken;
+  if (typeof resolved !== "string" || !resolved) throw new Error("login succeeded without returning a token");
+  sessionToken = resolved;
+  refreshCookie = response.headers.getSetCookie()
+    .map((cookie) => cookie.split(";", 1)[0])
+    .find((cookie) => cookie.startsWith("refreshToken=") && cookie.length > "refreshToken=".length);
   return "password login";
 }
 
@@ -139,14 +151,17 @@ await check("authenticated user", async () => {
   const response = await request("/api/user", { allow: [200] });
   const user = response.body?.user ?? response.body;
   if (!user || (typeof user !== "object" && typeof user !== "string")) throw new Error("user response is empty");
-  return { id: user.id ?? user._id ?? "present", email: user.email ?? "redacted" };
+  return { status: response.status };
 });
 
 await check("models catalog", async () => {
   const response = await request("/api/models", { allow: [200] });
-  const models = Array.isArray(response.body) ? response.body : response.body?.models;
-  if (!Array.isArray(models) || models.length === 0) throw new Error("models catalog is empty");
-  const ids = models.map((model) => model?.id ?? model?.name ?? model?.model).filter(Boolean);
+  const catalog = response.body;
+  const lists = catalog && typeof catalog === "object" && !Array.isArray(catalog)
+    ? Object.values(catalog)
+    : [];
+  const ids = lists.filter(Array.isArray).flat().filter((name) => typeof name === "string" && name.trim());
+  if (ids.length === 0) throw new Error("models catalog is empty");
   if (requiredModel && !ids.includes(requiredModel)) {
     throw new Error(`configured model ${requiredModel} is not offered`);
   }
@@ -172,7 +187,7 @@ await check("OpenAPI discovery", async () => {
     try {
       const response = await request(path, { allow: [200] });
       if (response.body?.openapi || response.body?.paths) {
-        return { path, version: response.body.openapi ?? "unknown", paths: Object.keys(response.body.paths ?? {}).length };
+        return { path, paths: Object.keys(response.body.paths ?? {}).length };
       }
     } catch {
       // try the next discovery path
@@ -193,6 +208,13 @@ await check("invalid bearer is rejected without echoing it", async () => {
   if (serialized.includes(invalid)) throw new Error("error response echoed the supplied bearer token");
   return { status: response.status };
 });
+
+if (refreshCookie) {
+  await check("password session cleanup", async () => {
+    const response = await request("/api/auth/logout", { method: "POST", cookie: refreshCookie });
+    return { status: response.status };
+  });
+}
 
 const report = {
   ok: failures === 0,

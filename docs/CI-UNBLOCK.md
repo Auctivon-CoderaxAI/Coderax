@@ -3,9 +3,15 @@
 ## Symptom
 
 Workflow runs fail before `Set up job` with `startup_failure`, `steps=0`, and no
-runner assigned. This is **not** a YAML, dependency, or test failure. It is the
-account's GitHub Actions spending limit / billing state blocking runner startup.
-Issue #141 and the release-gate incident #52 record the same behavior.
+runner assigned. An Actions spending limit or billing problem can prevent runner
+startup, but an invalid workflow or incompatible permissions can also fail before
+a job starts.
+
+Open the failed run and inspect its annotations. Follow Option A or B only when
+the annotations confirm a billing or spending limit error. If they identify a
+workflow or configuration error, fix that error and rerun the check. If the
+annotations do not identify a cause, investigate before changing billing or
+repository visibility.
 
 ## Why a green preview is not evidence
 
