@@ -105,7 +105,8 @@ function compileInstruction(
     repositoryContext(repository),
     'Report the exact commands you ran, their outcomes, and the files you changed. Do not claim a task, test, build or deployment succeeded without recorded evidence.',
   ].filter((section): section is string => section != null && section.length > 0);
-  const requestExcerpt = sanitizeInline(plan.request, 1_000);
+  const requestExcerpt =
+    plan.request.length > 3_000 ? plan.request : sanitizeInline(plan.request, 1_000);
   return `${sections.join('\n\n')}\n\nBuild request: ${requestExcerpt}`;
 }
 

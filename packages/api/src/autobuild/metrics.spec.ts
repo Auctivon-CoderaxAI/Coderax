@@ -89,6 +89,20 @@ describe('summarizeBenchmarks', () => {
 });
 
 describe('compareBenchmarks', () => {
+  it('rejects a comparison with a better raw rate driven by a different complexity mix', () => {
+    const simple = sample({ complexity: 'simple' });
+    const complex = sample({ complexity: 'complex' });
+    const failed = { ...complex, outcome: 'complete_unverified' as const, firstPassTests: false };
+    const baseline = summarizeBenchmarks([simple, complex, failed, failed]);
+    const candidate = summarizeBenchmarks([simple, simple, simple, failed]);
+    expect(candidate.verifiedRate).toBeGreaterThan(baseline.verifiedRate ?? 0);
+    expect(compareBenchmarks(baseline, candidate)).toMatchObject({
+      verdict: 'incomparable',
+      comparable: false,
+      deltas: { verifiedRate: null, firstPassTestRate: null },
+    });
+  });
+
   it('is incomparable without samples on both sides', () => {
     const empty = summarizeBenchmarks([]);
     const populated = summarizeBenchmarks([sample()]);

@@ -79,6 +79,7 @@ const workflowSchema: Schema<IWorkflowDocument> = new Schema(
     id: { type: String, required: true, unique: true, index: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     tenantId: { type: String, index: true },
+    launchFingerprint: { type: String },
     name: { type: String, required: true, maxlength: WORKFLOW_NAME_MAX_LENGTH },
     description: { type: String, maxlength: WORKFLOW_DESCRIPTION_MAX_LENGTH },
     agentId: { type: String, required: true },

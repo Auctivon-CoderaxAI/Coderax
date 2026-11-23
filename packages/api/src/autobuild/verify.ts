@@ -121,6 +121,7 @@ export interface BuildVerification {
 }
 
 export type VerificationErrorCode =
+  | 'invalid_environment'
   | 'invalid_workspace'
   | 'no_commands'
   | 'too_many_commands'
@@ -134,6 +135,8 @@ export interface RunBuildVerificationInput {
   workspaceRoot: string;
   commands: readonly VerificationCommand[];
   runner?: CommandRunner;
+  /** Required by the built-in runner. Supply only job-authorized variables. */
+  env?: NodeJS.ProcessEnv;
   /** Replaces the default allowlist when supplied. */
   allowedCommands?: readonly string[];
   defaultTimeoutMs?: number;
@@ -289,13 +292,14 @@ function normalizeCommand(
   };
 }
 
-function killTree(child: ChildProcess): void {
+function killTree(child: ChildProcess, env: NodeJS.ProcessEnv): void {
   if (child.pid == null || child.killed) {
     return;
   }
   if (process.platform === 'win32') {
     try {
       const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+        env,
         windowsHide: true,
         stdio: 'ignore',
       });
@@ -332,9 +336,11 @@ function killTree(child: ChildProcess): void {
  * Real process runner. It never uses a POSIX shell; on Windows the shell is
  * used only to resolve `.cmd` shims, with arguments restricted to safe tokens.
  */
-export function createSpawnCommandRunner(
-  options: { env?: NodeJS.ProcessEnv; maxOutputBytes?: number } = {},
-): CommandRunner {
+export function createSpawnCommandRunner(options: {
+  env: NodeJS.ProcessEnv;
+  maxOutputBytes?: number;
+}): CommandRunner {
+  const env = { ...options.env };
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   return (input) => {
     const startedAt = Date.now();
@@ -353,7 +359,7 @@ export function createSpawnCommandRunner(
       try {
         child = spawn(input.command, input.args, {
           cwd: input.cwd,
-          env: options.env ?? process.env,
+          env,
           shell: process.platform === 'win32',
           windowsHide: true,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -376,16 +382,30 @@ export function createSpawnCommandRunner(
       let timedOut = false;
       let cancelled = false;
       let settled = false;
+      let cleanupTimer: NodeJS.Timeout | undefined;
+      const stop = (): void => {
+        if (cleanupTimer != null) return;
+        killTree(child, env);
+        // Let normal close drain output first; a separate job supervisor owns descendants
+        // outside the child process group.
+        cleanupTimer = setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+          child.unref();
+          finish(null);
+        }, 1_000);
+      };
       const timer = setTimeout(() => {
         if (settled) {
           return;
         }
         timedOut = true;
-        killTree(child);
+        stop();
       }, input.timeoutMs);
 
       const cleanup = (): void => {
         clearTimeout(timer);
+        clearTimeout(cleanupTimer);
         input.signal?.removeEventListener('abort', onAbort);
       };
       const finish = (exitCode: number | null): void => {
@@ -408,7 +428,8 @@ export function createSpawnCommandRunner(
           return;
         }
         cancelled = true;
-        killTree(child);
+        clearTimeout(timer);
+        stop();
       };
 
       child.stdout?.on('data', (chunk: Buffer) => {
@@ -472,8 +493,14 @@ export async function runBuildVerification(
     normalized.push(result.value);
   }
 
-  const runner = input.runner ?? createSpawnCommandRunner();
-  const secrets = input.secrets ?? sensitiveEnvironmentValues();
+  if (input.runner == null && input.env == null) {
+    return fail('invalid_environment', 'Verification requires an explicit job environment');
+  }
+  const runner = input.runner ?? createSpawnCommandRunner({ env: input.env ?? {} });
+  const secrets = [
+    ...(input.secrets ?? sensitiveEnvironmentValues()),
+    ...sensitiveEnvironmentValues(input.env ?? {}),
+  ];
   const now = input.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const results: VerificationCommandResult[] = [];
@@ -484,10 +511,22 @@ export async function runBuildVerification(
       cancelled = true;
       break;
     }
+    let cwd: string;
+    try {
+      cwd = realpathSync(command.cwd);
+      if (realpathSync(root) !== root || !insideRoot(root, cwd) || !statSync(cwd).isDirectory()) {
+        throw new Error('Invalid working directory');
+      }
+    } catch {
+      return fail(
+        'invalid_command',
+        'Verification stopped before spawning a command: its working directory no longer resolves inside the workspace',
+      );
+    }
     const result = await runner({
       command: command.command,
       args: command.args,
-      cwd: command.cwd,
+      cwd,
       timeoutMs: command.timeoutMs,
       ...(input.signal == null ? {} : { signal: input.signal }),
     });

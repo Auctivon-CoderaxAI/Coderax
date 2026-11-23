@@ -160,10 +160,10 @@ describe('summarizeBuild', () => {
 
   it('honors required gates supplied for a specific plan', () => {
     const report = summarizeBuild(
-      snapshot({ requiredGates: ['tests', 'build', 'review', 'security'] }),
+      snapshot({ requiredGates: ['security'], gates: [{ gate: 'security', status: 'passed' }] }),
     );
 
-    expect(report.missingGates).toEqual(['security']);
+    expect(report.missingGates).toEqual(['tests', 'build', 'review']);
     expect(report.outcome).toBe('complete_unverified');
   });
 

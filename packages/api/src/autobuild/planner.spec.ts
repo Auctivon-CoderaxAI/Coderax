@@ -55,6 +55,28 @@ function completing(...responses: string[]): PlannerCompletion {
 }
 
 describe('planBuild', () => {
+  it('retries model plans whose reviewer can run before testing', async () => {
+    const plan = validPlan();
+    const tasks = plan.tasks as Array<{ id: string; dependsOn: string[] }>;
+    const premature = {
+      ...plan,
+      tasks: tasks.map((task) =>
+        task.id === 'review' ? { ...task, dependsOn: ['backend'] } : task,
+      ),
+    };
+    const complete = jest.fn(completing(JSON.stringify(premature), JSON.stringify(plan)));
+    const result = await planBuild({
+      request: 'Add a health endpoint',
+      mode: 'autonomous',
+      orchestratorAgentId: 'agent-1',
+      model: MODEL,
+      complete,
+    });
+    expect(result).toMatchObject({ ok: true, value: { attempts: 2 } });
+    expect(complete.mock.calls[1][0].prompt).toContain('every reviewer must depend on testing');
+    expect(complete.mock.calls[1][0].system).toContain('fresh passing tests and build evidence');
+  });
+
   it('extracts fenced JSON and compiles a validated plan', async () => {
     const result = await planBuild({
       request: 'Add a health endpoint',
@@ -150,6 +172,18 @@ describe('planBuild', () => {
 });
 
 describe('createHeuristicBuildPlan', () => {
+  it('schedules security after explicit authentication work and requires post-edit verification', () => {
+    const result = createHeuristicBuildPlan('Add authentication to the settings page');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.tasks.find((task) => task.role === 'security')?.dependsOn).toContain(
+      'frontend',
+    );
+    expect(result.value.tasks.find((task) => task.role === 'reviewer')?.instruction).toContain(
+      'rerun the required tests and build',
+    );
+  });
+
   it('builds a valid frontend plan with verification and review', () => {
     const result = createHeuristicBuildPlan('Add a save button to the settings page');
     expect(result.ok).toBe(true);

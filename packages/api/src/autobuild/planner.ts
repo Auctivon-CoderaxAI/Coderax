@@ -83,6 +83,7 @@ Rules:
 - Every dependency must refer to an earlier task id. The first task has no dependencies.
 - Every task needs at least one acceptance criterion that names observable evidence.
 - Include a testing task and a reviewer task. The reviewer must depend on testing.
+- Reviewer instructions must require fresh passing tests and build evidence after reviewer edits and before opening a pull request; reuse existing evidence if the diff is unchanged.
 - A task that claims security work requires a security task with verifiable evidence.
 - Never claim a task is complete; describe what must be done and proven.
 - Keep the plan at eight tasks or fewer. Do not add deployment tasks.
@@ -134,9 +135,9 @@ function planNameForRequest(request: string): string {
 }
 
 function instructionFor(request: string, focus: string): string {
-  const excerpt = request.trim().slice(0, 3_000);
+  const excerpt = request.length > 3_000 ? '' : `Project request:\n${request.trim()}`;
   return [
-    `Project request:\n${excerpt}`,
+    excerpt,
     '',
     focus,
     '',
@@ -250,7 +251,9 @@ export function createHeuristicBuildPlan(request: string): BuildPlanResult<Build
     surface('backend', trimmed) || (!surface('frontend', trimmed) && complexity === 'simple');
   const frontend = surface('frontend', trimmed);
   const database = surface('database', trimmed);
-  const security = surface('security', trimmed);
+  const security =
+    surface('security', trimmed) ||
+    assessRequestComplexity(trimmed).surfaces.includes('authentication');
   const devops = surface('devops', trimmed);
   const implementationDeps: string[] = [];
 
@@ -399,7 +402,7 @@ export function createHeuristicBuildPlan(request: string): BuildPlanResult<Build
       'reviewer',
       instructionFor(
         trimmed,
-        'Review the complete diff for correctness, regressions, security issues and missing tests. Fix blocking findings, then open a reviewable pull request against the repository base branch. Do not merge it.',
+        'Review the complete diff for correctness, regressions, security issues and missing tests. Fix blocking findings. If you edit the diff, rerun the required tests and build and record fresh passing evidence before opening the pull request. If you make no edits, reuse evidence for the unchanged diff. Then open a reviewable pull request against the repository base branch. Do not merge it.',
       ),
       [
         'The complete diff is reviewed with no unaddressed blocking finding',
@@ -476,6 +479,19 @@ export async function planBuild(input: PlanBuildInput): Promise<PlanBuildResult>
     if (!result.ok) {
       lastMessage = result.error.message;
       feedback = result.error.message;
+      continue;
+    }
+    const taskById = new Map(result.value.tasks.map((task) => [task.id, task]));
+    const followsTesting = (task: BuildTask): boolean =>
+      task.dependsOn.some((id) => {
+        const dependency = taskById.get(id);
+        return dependency != null && (dependency.role === 'testing' || followsTesting(dependency));
+      });
+    const reviewers = result.value.tasks.filter((task) => task.role === 'reviewer');
+    if (reviewers.length === 0 || !reviewers.every(followsTesting)) {
+      lastMessage =
+        'Include a testing task and at least one reviewer; every reviewer must depend on testing.';
+      feedback = lastMessage;
       continue;
     }
     parsed = { ...result.value, request };

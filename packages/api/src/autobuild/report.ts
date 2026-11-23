@@ -277,7 +277,7 @@ export function summarizeBuild(
 ): BuildReport {
   const policy = getBuildModePolicy(snapshot.mode);
   const requiredGates = new Set<BuildGate>(
-    options.requiredGates ?? snapshot.requiredGates ?? policy.requiredGates,
+    options.requiredGates ?? [...policy.requiredGates, ...(snapshot.requiredGates ?? [])],
   );
   if (snapshot.steps.some((step) => step.role === 'security')) {
     requiredGates.add('security');

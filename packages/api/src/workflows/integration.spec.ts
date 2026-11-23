@@ -66,6 +66,60 @@ describe('workflow engine with Mongo persistence', () => {
     );
   }
 
+  it('resumes a partially persisted keyed launch and deduplicates concurrent retries', async () => {
+    await Promise.all([
+      mongoose.model('Workflow').syncIndexes(),
+      mongoose.model('WorkflowRun').syncIndexes(),
+    ]);
+    const userId = owner();
+    const createRun = jest
+      .spyOn(methods, 'createWorkflowRun')
+      .mockRejectedValueOnce(new Error('temporary persistence failure'));
+    try {
+      const handlers = createWorkflowHandlers({
+        methods,
+        canRunAgent: async () => true,
+        wake: jest.fn(),
+      });
+      const launch = {
+        request: 'Add a settings page',
+        agentId: 'agent-1',
+        mode: 'autonomous',
+        launchKey: '392ec373-86a5-4ac6-8dbb-ec7aa4d49bd2',
+      };
+      const submit = async (body = launch, id = userId) => {
+        const response = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+        await handlers.startBuild(
+          { user: { id }, body } as unknown as Parameters<typeof handlers.startBuild>[0],
+          response as unknown as Parameters<typeof handlers.startBuild>[1],
+        );
+        return response;
+      };
+      const failed = await submit();
+      expect(failed.status).toHaveBeenCalledWith(503);
+      const [persisted] = await methods.listWorkflows(userId);
+      expect(persisted).toBeDefined();
+      await methods.updateWorkflow(persisted.id, userId, { agentId: 'edited-agent' });
+      const [a, b] = await Promise.all([submit(), submit()]);
+      expect(a.status).toHaveBeenCalledWith(202);
+      expect(b.status).toHaveBeenCalledWith(202);
+      const first = a.json.mock.calls[0][0];
+      expect(first.workflow.id).toBe(persisted.id);
+      expect(first.workflow.agentId).toBe('edited-agent');
+      expect(first.run.agentId).toBe('agent-1');
+      expect(b.json.mock.calls[0][0].run.id).toBe(first.run.id);
+      expect(await methods.listWorkflows(userId)).toHaveLength(1);
+      expect(
+        (await submit({ ...launch, request: 'A different build' })).status,
+      ).toHaveBeenCalledWith(409);
+      const other = await submit(launch, owner());
+      expect(other.status).toHaveBeenCalledWith(202);
+      expect(other.json.mock.calls[0][0].workflow.id).not.toBe(persisted.id);
+    } finally {
+      createRun.mockRestore();
+    }
+  });
+
   it('runs create → execute → approval → continue → complete', async () => {
     const userId = owner();
     const workflow = await methods.createWorkflow({

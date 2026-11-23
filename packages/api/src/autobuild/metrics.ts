@@ -150,7 +150,13 @@ export function compareBenchmarks(
   baseline: BenchmarkSummary,
   candidate: BenchmarkSummary,
 ): BenchmarkComparison {
-  if (baseline.samples === 0 || candidate.samples === 0) {
+  const empty = baseline.samples === 0 || candidate.samples === 0;
+  const differentMix = COMPLEXITIES.some(
+    (complexity) =>
+      baseline.byComplexity[complexity].samples * candidate.samples !==
+      candidate.byComplexity[complexity].samples * baseline.samples,
+  );
+  if (empty || differentMix) {
     return {
       comparable: false,
       verdict: 'incomparable',
@@ -164,7 +170,11 @@ export function compareBenchmarks(
         meanSecurityFindings: null,
         meanModelLatencyMs: null,
       },
-      reasons: ['Both benchmark sets need at least one sample.'],
+      reasons: [
+        empty
+          ? 'Both benchmark sets need at least one sample.'
+          : 'Benchmark sets have different complexity distributions. Compare matching slices.',
+      ],
     };
   }
 

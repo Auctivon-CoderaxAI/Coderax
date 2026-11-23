@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { logger } from '@coderax/data-schemas';
+import { createHash, randomUUID } from 'node:crypto';
 import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
 import type {
   WorkflowArtifact,
@@ -419,7 +419,25 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             return;
           }
         }
+        const { launchKey, request, mode, agentId, roleAgents } = parsed.value;
+        const launch =
+          launchKey == null
+            ? undefined
+            : {
+                key: launchKey,
+                fingerprint: createHash('sha256')
+                  .update(
+                    JSON.stringify([
+                      request,
+                      mode,
+                      agentId,
+                      Object.entries(roleAgents ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+                    ]),
+                  )
+                  .digest('hex'),
+              };
         const workflow = await deps.methods.createWorkflow({
+          ...(launch == null ? {} : { launch }),
           userId: owner,
           ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
           name: payload.name,
@@ -428,15 +446,25 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           steps: payload.steps,
           ...(payload.settings == null ? {} : { settings: payload.settings }),
         });
+        if (launch != null && workflow.launchFingerprint !== launch.fingerprint) {
+          res
+            .status(409)
+            .json({ error: 'This launch key was already used for a different build request' });
+          return;
+        }
+        // A partial launch's workflow may have been edited. Retry only the plan
+        // authorized above, never a subsequently added agent or step.
+        const runDefinition = launch == null ? workflow : payload;
         const run = await deps.methods.createWorkflowRun({
+          ...(launch == null ? {} : { dedupeKey: `build-launch:${workflow.id}` }),
           userId: owner,
           ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
           workflowId: workflow.id,
           workflowName: workflow.name,
-          agentId: workflow.agentId,
-          steps: workflow.steps,
+          agentId: runDefinition.agentId,
+          steps: runDefinition.steps,
           conversationId: createRunId(),
-          ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          ...(runDefinition.settings == null ? {} : { settings: runDefinition.settings }),
           trigger: { type: 'manual' },
           input: parsed.value.request,
         });

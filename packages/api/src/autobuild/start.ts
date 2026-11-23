@@ -8,6 +8,7 @@ import { compileBuildPlan } from './compile';
 import { BUILD_ROLES } from './plan';
 
 export interface StartBuildRequest {
+  launchKey?: string;
   request: string;
   mode: BuildMode;
   agentId: string;
@@ -43,6 +44,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function parseStartBuild(value: unknown): StartBuildParseResult {
   if (!isRecord(value)) {
     return { ok: false, error: 'A build request is required' };
+  }
+  const launchKey = value.launchKey;
+  if (
+    launchKey !== undefined &&
+    (typeof launchKey !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(launchKey))
+  ) {
+    return { ok: false, error: 'Launch key must be a UUID v4' };
   }
   const request = typeof value.request === 'string' ? value.request.trim() : '';
   if (request.length === 0) {
@@ -89,6 +98,7 @@ export function parseStartBuild(value: unknown): StartBuildParseResult {
   return {
     ok: true,
     value: {
+      ...(launchKey == null ? {} : { launchKey: launchKey.toLowerCase() }),
       request,
       mode: mode as BuildMode,
       agentId,

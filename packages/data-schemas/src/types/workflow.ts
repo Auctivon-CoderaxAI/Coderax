@@ -26,6 +26,8 @@ export interface IWorkflowSchedule {
 }
 
 export interface IWorkflow {
+  /** Internal digest of the request that created a keyed build launch. */
+  launchFingerprint?: string;
   _id?: Types.ObjectId;
   id: string;
   user: Types.ObjectId;

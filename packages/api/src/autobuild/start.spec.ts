@@ -45,6 +45,20 @@ describe('parseStartBuild', () => {
 });
 
 describe('prepareBuildLaunch', () => {
+  it('delivers long requests to every step and rejects requests too large to compile', () => {
+    const request =
+      'Build a settings page. ' + 'Details. '.repeat(430) + '\nKeep the final constraint.';
+    const result = prepareBuildLaunch({ request, mode: 'autonomous', agentId: 'agent-1' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    for (const step of result.value.compiled.workflow.steps) {
+      expect(step.instruction).toContain(request);
+    }
+    expect(
+      prepareBuildLaunch({ request: 'x'.repeat(8_000), mode: 'autonomous', agentId: 'agent-1' }),
+    ).toMatchObject({ ok: false, error: { code: 'instruction_too_long' } });
+  });
+
   it('compiles a validated plan into a workflow with evidence gates', () => {
     const result = prepareBuildLaunch({
       request: 'Add a health endpoint to the API',

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Rocket } from 'lucide-react';
 import type { WorkflowBuildMode } from 'coderax-data-provider';
 import type { FormEvent } from 'react';
@@ -33,6 +33,7 @@ export default function BuildLauncher({
   const [request, setRequest] = useState('');
   const [mode, setMode] = useState<WorkflowBuildMode>('autonomous');
   const [agent, setAgent] = useState(agents[0]?.id ?? '');
+  const attempt = useRef<{ key: string; fields: string } | null>(null);
   const mutation = useStartWorkflowBuildMutation();
   const selectedAgent = agent.length > 0 ? agent : (agents[0]?.id ?? '');
   const failure =
@@ -44,9 +45,20 @@ export default function BuildLauncher({
     if (request.trim().length === 0 || selectedAgent.length === 0 || mutation.isLoading) {
       return;
     }
+    const payload = { request: request.trim(), mode, agentId: selectedAgent };
+    const fields = JSON.stringify(payload);
+    if (attempt.current?.fields !== fields) {
+      attempt.current = { key: crypto.randomUUID(), fields };
+    }
+    const { key } = attempt.current;
     mutation.mutate(
-      { request: request.trim(), mode, agentId: selectedAgent },
-      { onSuccess: ({ workflow }) => onStarted(workflow.id) },
+      { ...payload, launchKey: key },
+      {
+        onSuccess: ({ workflow }) => {
+          if (attempt.current?.key === key) attempt.current = null;
+          onStarted(workflow.id);
+        },
+      },
     );
   };
 

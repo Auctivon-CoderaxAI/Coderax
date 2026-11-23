@@ -123,16 +123,26 @@ success, repair iterations, manual interventions, security findings, model laten
 `mixed` instead of hiding one behind the other. These are pure aggregations: the samples must come
 from actual runs, not from estimates.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:58c41275235f37cff6db5396379d46c1f6524596ad2c8ef952f08edb7a7ab4aa -->
+
 ## Verification runner
 
-`runBuildVerification({ workspaceRoot, commands, signal })` executes commands instead of assuming a
+`runBuildVerification({ workspaceRoot, commands, env, signal })` executes commands instead of assuming a
 pass. It validates every executable against an allowlist, rejects executable paths, resolves `cwd`
 with symlinks and rejects paths outside the workspace, spawns with `shell: false` on POSIX (on
 Windows a shell resolves `.cmd` shims only when the arguments are restricted to shell-safe tokens),
-enforces a timeout with a process-tree kill, bounds and redacts output, and converts exit codes into
+enforces a timeout with a process-tree kill and a bounded cleanup wait, bounds and redacts output, and converts exit codes into
 `BuildGateEvidence`. `tests`, `build` and `security` are executable gates; `review` remains a
 judgement. A gate with no configured command is `not_run`, never `passed`. The resulting evidence is
 accepted by `summarizeBuild`.
+
+Pass an explicit job environment with the toolchain variables and any credentials authorized for that
+job. A custom runner is responsible for its own execution environment. If a working directory no
+longer resolves within the workspace before a command starts, verification stops and returns
+`invalid_command` without passing gate evidence. Directory checks are not a sandbox; an isolated
+job environment must contain workspace code and clean up any remaining descendants.
 
 ## Planner adapter and launch path
 
@@ -146,6 +156,14 @@ completion is configured.
 the request, compiles a deterministic plan, authorizes every bound agent, then creates and starts the
 ordinary durable workflow. The Workflows view has a **New autonomous build** launcher; on success it
 selects the created workflow so the existing run panel and stream monitor it.
+
+The UI sends a UUID launch key and reuses it when retrying unchanged launch inputs. The API scopes it
+to the user and tenant. A retry completes a partial launch or returns the existing run; using the
+same key with different inputs returns a conflict. Legacy requests that omit the key retain their
+original create-on-submit behavior. The compiler includes a full long request in every step and
+rejects the launch before persistence if an instruction exceeds the workflow limit.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Not implemented in this change
 

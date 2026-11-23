@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   WORKFLOW_EVENTS_MAX,
   WORKFLOW_RESULT_MAX_LENGTH,
@@ -30,6 +30,7 @@ export type WorkflowScheduleWrite = Omit<
 >;
 
 export interface CreateWorkflowInput {
+  launch?: { key: string; fingerprint: string };
   userId: string;
   tenantId?: string;
   name: string;
@@ -312,9 +313,24 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
 
   return {
     createWorkflow: async (input) => {
-      const created = await workflowModel().create({
-        id: randomUUID(),
-        user: objectId(input.userId),
+      const user = objectId(input.userId);
+      const id =
+        input.launch == null
+          ? randomUUID()
+          : createHash('sha256')
+              .update(
+                JSON.stringify([
+                  'build',
+                  user.toHexString(),
+                  input.tenantId ?? null,
+                  input.launch.key,
+                ]),
+              )
+              .digest('hex');
+      const fields = {
+        id,
+        user,
+        ...(input.launch == null ? {} : { launchFingerprint: input.launch.fingerprint }),
         ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
         name: input.name,
         ...(input.description == null ? {} : { description: input.description }),
@@ -328,7 +344,32 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         ...(input.onCompleteWorkflowId == null
           ? {}
           : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
-      });
+      };
+      if (input.launch != null) {
+        const filter = { id, user, tenantId: input.tenantId ?? null };
+        const now = new Date();
+        try {
+          return await workflowModel()
+            .findOneAndUpdate(
+              filter,
+              { $setOnInsert: { ...fields, createdAt: now, updatedAt: now } },
+              {
+                upsert: true,
+                new: true,
+                runValidators: true,
+                timestamps: false,
+              },
+            )
+            .lean<IWorkflow>()
+            .orFail();
+        } catch (error) {
+          if (!isDuplicateKey(error)) throw error;
+          const existing = await workflowModel().findOne(filter).lean<IWorkflow | null>();
+          if (existing != null) return existing;
+          throw error;
+        }
+      }
+      const created = await workflowModel().create(fields);
       return created.toObject() as IWorkflow;
     },
 

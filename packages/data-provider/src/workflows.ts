@@ -398,6 +398,8 @@ export type WorkflowBuildGate = 'tests' | 'build' | 'review' | 'security';
 
 /** Launch input: a request and saved agents, never a caller-supplied step list. */
 export interface StartWorkflowBuildRequest {
+  /** Stable UUID for retries of one launch. Omit only for legacy callers. */
+  launchKey?: string;
   request: string;
   mode: WorkflowBuildMode;
   agentId: string;

@@ -1,6 +1,9 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { PassThrough } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { CommandRunner } from './verify';
 import {
   createSpawnCommandRunner,
@@ -9,6 +12,11 @@ import {
   runBuildVerification,
 } from './verify';
 import { summarizeBuild } from './report';
+
+jest.mock('node:child_process', () => ({
+  ...jest.requireActual('node:child_process'),
+  spawn: jest.fn(jest.requireActual('node:child_process').spawn),
+}));
 
 function makeWorkspace(): { root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), 'coderax-verify-'));
@@ -26,7 +34,100 @@ function fakeRunner(exitByCommand: Record<string, number>): CommandRunner {
   });
 }
 
+describe('spawn cleanup', () => {
+  it.each(['timeout', 'cancellation'])(
+    'settles after %s even without a close event',
+    async (kind) => {
+      jest.useFakeTimers();
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        unref: jest.fn(),
+      });
+      jest.mocked(spawn).mockReturnValueOnce(child as unknown as ReturnType<typeof spawn>);
+      const controller = new AbortController();
+      try {
+        const result = createSpawnCommandRunner({ env: {} })({
+          command: 'node',
+          args: [],
+          cwd: process.cwd(),
+          timeoutMs: 200,
+          signal: controller.signal,
+        });
+        if (kind === 'cancellation') controller.abort();
+        await jest.advanceTimersByTimeAsync(1_200);
+        await expect(result).resolves.toMatchObject({
+          exitCode: null,
+          cancelled: kind === 'cancellation',
+          timedOut: kind === 'timeout',
+        });
+        expect(child.stdout.destroyed).toBe(true);
+        expect(child.stderr.destroyed).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    },
+  );
+});
+
 describe('runBuildVerification', () => {
+  it('uses only the explicit job environment', async () => {
+    const workspace = makeWorkspace();
+    const prior = process.env.VERIFICATION_PARENT_ONLY;
+    process.env.VERIFICATION_PARENT_ONLY = 'parent-fixture';
+    try {
+      writeFileSync(
+        join(workspace.root, 'env.js'),
+        "process.stdout.write([process.env.VERIFICATION_PARENT_ONLY ?? 'missing', process.env.JOB_SETTING].join(':'));",
+      );
+      const input = {
+        workspaceRoot: workspace.root,
+        commands: [{ gate: 'tests' as const, command: 'node', args: ['env.js'] }],
+      };
+      await expect(runBuildVerification(input)).resolves.toMatchObject({
+        ok: false,
+        error: { code: 'invalid_environment' },
+      });
+      const result = await runBuildVerification({
+        ...input,
+        env: { PATH: process.env.PATH, JOB_SETTING: 'present' },
+      });
+      expect(result).toMatchObject({
+        ok: true,
+        value: { passed: true, commands: [{ stdout: 'missing:present' }] },
+      });
+    } finally {
+      if (prior == null) delete process.env.VERIFICATION_PARENT_ONLY;
+      else process.env.VERIFICATION_PARENT_ONLY = prior;
+      workspace.cleanup();
+    }
+  });
+
+  it('stops before invoking a later command if its directory disappeared', async () => {
+    const workspace = makeWorkspace();
+    const cwd = join(workspace.root, 'later');
+    mkdirSync(cwd);
+    const run = fakeRunner({ node: 0 });
+    const runner = jest.fn<ReturnType<CommandRunner>, Parameters<CommandRunner>>(async (input) => {
+      rmSync(cwd, { recursive: true });
+      return run(input);
+    });
+    try {
+      const result = await runBuildVerification({
+        workspaceRoot: workspace.root,
+        runner,
+        commands: [
+          { gate: 'tests', command: 'node' },
+          { gate: 'build', command: 'node', cwd: 'later' },
+        ],
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: 'invalid_command' } });
+      expect(runner).toHaveBeenCalledTimes(1);
+    } finally {
+      workspace.cleanup();
+    }
+  });
+
   it('records gate evidence from commands that actually pass', async () => {
     const workspace = makeWorkspace();
     writeFileSync(join(workspace.root, 'ok.js'), "process.stdout.write('tests-ok');\n");
@@ -34,7 +135,7 @@ describe('runBuildVerification', () => {
       const result = await runBuildVerification({
         workspaceRoot: workspace.root,
         commands: [{ gate: 'tests', command: 'node', args: ['ok.js'] }],
-        runner: createSpawnCommandRunner(),
+        runner: createSpawnCommandRunner({ env: { PATH: process.env.PATH } }),
       });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -65,7 +166,7 @@ describe('runBuildVerification', () => {
       const result = await runBuildVerification({
         workspaceRoot: workspace.root,
         commands: [{ gate: 'build', command: 'node', args: ['bad.js'] }],
-        runner: createSpawnCommandRunner(),
+        runner: createSpawnCommandRunner({ env: { PATH: process.env.PATH } }),
       });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -85,7 +186,7 @@ describe('runBuildVerification', () => {
       const result = await runBuildVerification({
         workspaceRoot: workspace.root,
         commands: [{ gate: 'tests', command: 'node', args: ['hang.js'], timeoutMs: 300 }],
-        runner: createSpawnCommandRunner(),
+        runner: createSpawnCommandRunner({ env: { PATH: process.env.PATH } }),
       });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
@@ -106,7 +207,7 @@ describe('runBuildVerification', () => {
       const result = await runBuildVerification({
         workspaceRoot: workspace.root,
         commands: [{ gate: 'tests', command: 'node', args: ['hang.js'], timeoutMs: 10_000 }],
-        runner: createSpawnCommandRunner(),
+        runner: createSpawnCommandRunner({ env: { PATH: process.env.PATH } }),
         signal: controller.signal,
       });
       expect(result.ok).toBe(true);
@@ -204,7 +305,8 @@ describe('runBuildVerification', () => {
         checks: 'passed',
       },
     });
-    expect(report.verified).toBe(true);
+    expect(report.verified).toBe(false);
+    expect(report.missingGates).toEqual(['build', 'security', 'review']);
     expect(report.gates.find((gate) => gate.gate === 'tests')).toMatchObject({
       status: 'passed',
       command: 'pass',
