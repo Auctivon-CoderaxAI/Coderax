@@ -95,7 +95,8 @@ export async function auditPage({
     // execFile includes its arguments in thrown errors, which CI publishes in its log.
     fs.writeFileSync(headersFile, JSON.stringify({ Cookie: cookie }), { mode: 0o600 });
     for (let run = 1; run <= runs; run++) {
-      const output = path.join(directory, `lhr-${run}`);
+      // Keep raw reports outside the directory that CI uploads.
+      const output = path.join(tempDirectory, `lhr-${run}`);
       for (let attempt = 1; ; attempt++) {
         try {
           const { stdout } = await exec(process.execPath, [
@@ -104,7 +105,7 @@ export async function auditPage({
             `--extra-headers=${headersFile}`,
             `--output-path=${output}`,
           ]);
-          console.log(`Lighthouse run ${run}/${runs} wrote ${output}.report.json`);
+          console.log(`Lighthouse run ${run}/${runs} wrote lhr-${run}.report.json`);
           if (stdout.trim()) {
             console.log(stdout);
           }
@@ -127,13 +128,22 @@ export async function auditPage({
       }
     }
   } finally {
-    fs.rmSync(tempDirectory, { recursive: true, force: true });
-    // Lighthouse embeds extraHeaders in reports; keep disposable session cookies out of artifacts.
-    for (const file of fs.existsSync(directory) ? fs.readdirSync(directory) : []) {
-      if (!/\.report\.(json|html)$/.test(file)) continue;
-      const filename = path.join(directory, file);
-      const content = fs.readFileSync(filename, 'utf8');
-      fs.writeFileSync(filename, cookie ? content.replaceAll(cookie, '[redacted]') : content);
+    try {
+      // Lighthouse embeds extraHeaders as JSON, with additional escaping in HTML reports.
+      const jsonCookie = JSON.stringify(cookie).slice(1, -1);
+      const htmlCookie = jsonCookie
+        .replaceAll('<', '\\u003c')
+        .replaceAll('\u2028', '\\u2028')
+        .replaceAll('\u2029', '\\u2029');
+      for (const file of fs.readdirSync(tempDirectory)) {
+        if (!/^lhr-\d+\.report\.(json|html)$/.test(file)) continue;
+        const content = fs.readFileSync(path.join(tempDirectory, file), 'utf8');
+        const header = file.endsWith('.html') ? htmlCookie : jsonCookie;
+        const sanitized = header ? content.replaceAll(header, '[redacted]') : content;
+        fs.writeFileSync(path.join(directory, file), sanitized);
+      }
+    } finally {
+      fs.rmSync(tempDirectory, { recursive: true, force: true });
     }
   }
 
