@@ -136,4 +136,14 @@ Endpoints and models come from `coderax.yaml`.
 cd client && HOST=0.0.0.0 PORT=3000 npm run dev
 ```
 
-Vite proxies `/api` and `/oauth` to the API on port 3080.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:3fbea88cd7a6ff04c1ad366103a8efd454f3bf923f01d7e978c0d8a27d2977b6 -->
+
+Vite proxies `/api` and `/oauth` to the API on port 3080 by default.
+With `dev:up`, the API listener, readiness probe and Vite proxy share the API
+address configured by `HOST` and `PORT`. Shell variables take precedence over
+`.env`. The supervisor requires a fixed port; restart the stack after changing
+its address.
+
+<!-- /coderabbit-ai-generated:v1 -->

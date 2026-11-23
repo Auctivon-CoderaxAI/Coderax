@@ -17,6 +17,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +38,37 @@ const previewHost = (
   ''
 ).trim();
 
+// Express loads this file with dotenv, giving the inherited environment precedence.
+function apiBinding() {
+  const envPath = path.join(repoRoot, '.env');
+  const { parse } = createRequire(path.join(repoRoot, 'api/package.json'))('dotenv');
+  let fileEnv = {};
+  try {
+    fileEnv = parse(fs.readFileSync(envPath));
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+  const env = { ...fileEnv, ...process.env };
+  const host = env.HOST || '127.0.0.1';
+  const port = Number(env.PORT ?? 3080);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    fail('dev:up requires API PORT to be an integer from 1 to 65535');
+  }
+  // Wildcard addresses listen on loopback too, which is the destination we need.
+  const wildcardHosts = new Map([
+    ['0.0.0.0', '127.0.0.1'],
+    ['::', '::1'],
+  ]);
+  const connectHost = wildcardHosts.get(host) ?? host;
+  const urlHost = net.isIPv6(connectHost) ? `[${connectHost}]` : connectHost;
+  return { host, port, connectHost, probeUrl: `http://${urlHost}:${port}/api/config` };
+}
+
+let binding;
+const getApiBinding = () => (binding ??= apiBinding());
+
 const services = [
   {
     name: 'mongo',
@@ -48,10 +80,24 @@ const services = [
   },
   {
     name: 'api',
-    port: 3080,
+    get port() {
+      return getApiBinding().port;
+    },
+    get probeHost() {
+      return getApiBinding().connectHost;
+    },
     timeoutMs: 90_000,
-    probe: () => httpOk('http://127.0.0.1:3080/api/config'),
-    env: { NODE_ENV: 'development', VERCEL: '1', CODERAX_LOCAL_DEV: '1' },
+    probe: () => httpOk(getApiBinding().probeUrl),
+    get env() {
+      const { host, port } = getApiBinding();
+      return {
+        NODE_ENV: 'development',
+        VERCEL: '1',
+        CODERAX_LOCAL_DEV: '1',
+        HOST: host,
+        PORT: String(port),
+      };
+    },
     command: () => ({
       file: nodeBin,
       args: [path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js'), 'api/server/index.js'],
@@ -71,11 +117,16 @@ const services = [
     port: 3000,
     timeoutMs: 90_000,
     probe: () => httpOk('http://127.0.0.1:3000/'),
-    env: {
-      NODE_ENV: 'development',
-      HOST: '0.0.0.0',
-      PORT: '3000',
-      VITE_ALLOWED_HOSTS: previewHost,
+    get env() {
+      const { connectHost, port } = getApiBinding();
+      return {
+        NODE_ENV: 'development',
+        HOST: '0.0.0.0',
+        PORT: '3000',
+        BACKEND_HOST: connectHost,
+        BACKEND_PORT: String(port),
+        VITE_ALLOWED_HOSTS: previewHost,
+      };
     },
     command: () => ({
       file: nodeBin,
@@ -205,9 +256,9 @@ function clearPid(name) {
   fs.rmSync(pidFile(name), { force: true });
 }
 
-async function portOpen(port) {
+async function portOpen(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
-    const socket = net.connect({ host: '127.0.0.1', port });
+    const socket = net.connect({ host, port });
     const done = (open) => {
       socket.destroy();
       resolve(open);
@@ -274,7 +325,7 @@ async function waitReady(service, { pid, token }) {
     if (!hasToken(pid, token)) {
       return false;
     }
-    if (service.probe ? await service.probe() : await portOpen(service.port)) {
+    if (service.probe ? await service.probe() : await portOpen(service.port, service.probeHost)) {
       return hasToken(pid, token);
     }
     await sleep(500);
@@ -318,7 +369,7 @@ async function up() {
       continue;
     }
 
-    if (await portOpen(service.port)) {
+    if (await portOpen(service.port, service.probeHost)) {
       fail(
         `port ${service.port} is already in use by a process dev:up did not start; stop it, then retry`,
       );
@@ -420,7 +471,7 @@ async function status() {
             ok: false,
           };
         }
-        const busy = await portOpen(service.port);
+        const busy = await portOpen(service.port, service.probeHost);
         return {
           service,
           pid,
@@ -441,7 +492,9 @@ async function status() {
       if (service.available && !service.available()) {
         return { service, pid, state: 'not installed', ok: false };
       }
-      const responding = service.probe ? await service.probe() : await portOpen(service.port);
+      const responding = service.probe
+        ? await service.probe()
+        : await portOpen(service.port, service.probeHost);
       const ready = responding && hasToken(pid, record.token);
       return { service, pid, state: ready ? 'ready' : 'running, not ready', ok: ready };
     }),

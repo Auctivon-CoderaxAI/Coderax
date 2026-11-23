@@ -5,6 +5,7 @@ import {
   AgentCapabilities,
   FileContext,
   FileSources,
+  ResourceType,
   getCodeEnvRefs,
   canToolResourceConsume,
   hasToolResourceProvisioning,
@@ -130,6 +131,16 @@ export type TFilterFilesByAgentAccess = (params: {
   role?: string;
   agentId: string;
 }) => Promise<Array<TFile>>;
+
+/** Bind file checks to the permission resource selected by the endpoint. */
+export function bindAgentFileAccessResourceType(
+  filter: (
+    params: Parameters<TFilterFilesByAgentAccess>[0] & { resourceType: ResourceType },
+  ) => ReturnType<TFilterFilesByAgentAccess>,
+  resourceType: ResourceType,
+): TFilterFilesByAgentAccess {
+  return (params) => filter({ ...params, resourceType });
+}
 
 /**
  * Helper function to add a file to a specific tool resource category

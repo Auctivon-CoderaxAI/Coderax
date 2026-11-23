@@ -175,6 +175,8 @@ jest.mock('@librechat/agents', () => ({
 }));
 
 jest.mock('@coderax/api', () => ({
+  bindAgentFileAccessResourceType: (...args) =>
+    jest.requireActual('@coderax/api').bindAgentFileAccessResourceType(...args),
   getAgentErrorMetadata: (...args) =>
     jest.requireActual('@coderax/api').getAgentErrorMetadata(...args),
   /* Provisioning moved into this package; the controllers build the callback from it. */
