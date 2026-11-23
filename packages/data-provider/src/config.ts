@@ -3952,13 +3952,13 @@ export const enginesConfigSchema = z
          */
         sdkPath: z.string().trim().optional(),
         /**
-         * OpenAI-compatible endpoint. Loopback is implicit; any other host must
-         * be listed in allowedHosts. Coderax never calls a hosted Freebuff API.
+         * OpenAI-compatible loopback endpoint. The pinned SDK rejects plain HTTP
+         * for every other host. Coderax never calls a hosted Freebuff API.
          */
         baseURL: z.string().trim().url().optional(),
         /**
-         * Explicitly trusted non-loopback endpoint hostnames, e.g.
-         * host.docker.internal or a Compose service name. Bare hostnames only.
+         * Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+         * only on loopback, so these entries do not make a host available.
          */
         allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
         /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */

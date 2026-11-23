@@ -1744,8 +1744,8 @@ endpoints:
 # Build it once from the Freebuff checkout (`bun install && bun run build:sdk`),
 # then point sdkPath at the absolute CommonJS entrypoint (or set
 # FREEBUFF_SDK_PATH). Freebuff runs local weights only, through an
-# OpenAI-compatible endpoint that is loopback unless its bare hostname is listed
-# in allowedHosts.
+# OpenAI-compatible loopback endpoint. allowedHosts is reserved for a future SDK
+# allowlist and cannot make a non-loopback host available.
 # engines:
 #   workspaces:
 #     privateRoot: /srv/coderax/private
@@ -1757,10 +1757,10 @@ endpoints:
 #     enabled: true
 #     sdkPath: /srv/freebuff/sdk/dist/index.cjs
 #     baseURL: http://127.0.0.1:11434/v1
-#     # Non-loopback endpoints only: a Compose service name or host.docker.internal.
-#     # HTTP sends prompts and FREEBUFF_LOCAL_API_KEY without encryption.
-#     # Allowlist only hosts on a trusted network path.
-#     # allowedHosts: [ollama]
+#     # Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+#     # only on loopback, so a non-loopback host is reported as not configured.
+#     # Use a loopback forwarder for a model server in another container.
+#     # allowedHosts: [model-gateway.internal]
 #     model: ollama/qwen2.5-coder:7b
 #     timeoutMs: 900000
 #     maxAgentSteps: 24
