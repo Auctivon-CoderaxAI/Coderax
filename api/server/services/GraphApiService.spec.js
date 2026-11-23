@@ -1,5 +1,8 @@
 jest.mock('@microsoft/microsoft-graph-client');
 jest.mock('~/strategies/openidStrategy');
+jest.mock('~/server/utils/openIdClient', () => ({
+  openIdClient: { genericGrantRequest: jest.fn() },
+}));
 jest.mock('~/cache/getLogStores');
 jest.mock('@coderax/data-schemas', () => ({
   ...jest.requireActual('@coderax/data-schemas'),
@@ -25,7 +28,7 @@ jest.mock('~/server/services/Files/strategies', () => ({
 }));
 
 const mongoose = require('mongoose');
-const client = require('openid-client');
+const { openIdClient: client } = require('~/server/utils/openIdClient');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const { Client } = require('@microsoft/microsoft-graph-client');
 const { getOpenIdConfig } = require('~/strategies/openidStrategy');

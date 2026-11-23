@@ -3,7 +3,20 @@ const { logger } = require('@coderax/data-schemas');
 const { CacheKeys } = require('coderax-data-provider');
 const getLogStores = require('~/cache/getLogStores');
 const { saveConvo, getConvo } = require('~/models');
-const { resolveConversationTitle } = require('../titlePolicy');
+const { SAFE_CONVERSATION_TITLE, resolveConversationTitle } = require('../titlePolicy');
+
+const TITLE_MAX_LENGTH = 80;
+
+/** A topic title from the user's first message when the title model is unavailable. */
+function fallbackTitleFromText(text) {
+  const normalized = typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '';
+  if (normalized === '') {
+    return null;
+  }
+  return normalized.length > TITLE_MAX_LENGTH
+    ? `${normalized.slice(0, TITLE_MAX_LENGTH - 1)}…`
+    : normalized;
+}
 
 /**
  * Add title to conversation in a way that avoids memory retention.
@@ -65,9 +78,32 @@ const addTitle = async (
     logger.warn('[addTitle] Missing conversationId; skipping title generation');
     return;
   }
-
   const titleCache = getLogStores(CacheKeys.GEN_TITLE);
   const key = `${req.user.id}-${convoId}`;
+  const publishTitle = async (candidate, { allowSafe = false } = {}) => {
+    const title = resolveConversationTitle(req, candidate);
+    if (title == null || (title === SAFE_CONVERSATION_TITLE && !allowSafe)) {
+      return;
+    }
+    await publishConversationTitle(
+      { saveConvo, getConvo, titleCache },
+      {
+        ctx: {
+          userId: req?.user?.id,
+          isTemporary: req?.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
+          expiredAt: req?.resolvedConversation?.expiredAt,
+          interfaceConfig: req?.config?.interfaceConfig,
+        },
+        conversationId: convoId,
+        title,
+        convoReady,
+        discardSignal,
+        signal,
+        onTitleGenerated,
+      },
+    );
+  };
+  const publishFallbackTitle = () => publishTitle(fallbackTitleFromText(text));
   /** @type {NodeJS.Timeout} */
   let timeoutId;
   try {
@@ -102,6 +138,7 @@ const addTitle = async (
         timeoutPromise,
       ]);
     } else {
+      await publishFallbackTitle();
       return;
     }
 
@@ -114,7 +151,8 @@ const addTitle = async (
     }
 
     if (!generatedTitle) {
-      logger.debug(`[${key}] No title generated`);
+      logger.debug(`[${key}] No title generated; using the first message`);
+      await publishFallbackTitle();
       return;
     }
 
@@ -122,24 +160,7 @@ const addTitle = async (
     if (title == null) {
       return;
     }
-
-    await publishConversationTitle(
-      { saveConvo, getConvo, titleCache },
-      {
-        ctx: {
-          userId: req?.user?.id,
-          isTemporary: req?.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
-          expiredAt: req?.resolvedConversation?.expiredAt,
-          interfaceConfig: req?.config?.interfaceConfig,
-        },
-        conversationId: convoId,
-        title,
-        convoReady,
-        discardSignal,
-        signal,
-        onTitleGenerated,
-      },
-    );
+    await publishTitle(title, { allowSafe: true });
   } catch (error) {
     logger.error('Error generating title:', error);
   }

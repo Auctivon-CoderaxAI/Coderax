@@ -84,6 +84,8 @@ export interface AppConfig {
   cloudfront?: CloudFrontConfig;
   /** Chat Projects limits resolved from the deployment configuration */
   projects?: TChatProjectsConfig;
+  /** Durable workflow runner limits and build settlement verification */
+  workflows?: TCustomConfig['workflows'];
   /** Registration configurations */
   registration?: TCustomConfig['registration'];
   /** Changing the registered email address */

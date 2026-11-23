@@ -38,8 +38,8 @@
     "build:watch": "npm run openapi:copy && tsdown --watch",
     "build:watch:prod": "npm run openapi:copy && tsdown --watch",
     "openapi:copy": "node -e \"const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.copyFileSync('openapi/agents.openapi.json','dist/agents.openapi.json')\"",
-    "test": "jest --coverage --watch --testPathIgnorePatterns=\"\\.*integration\\.|\\.*helper\\.|__tests__/helpers/|\\.*manual\\.spec\\.\"",
-    "test:ci": "jest --coverage --ci --testPathIgnorePatterns=\"\\.*integration\\.|\\.*helper\\.|__tests__/helpers/|\\.*manual\\.spec\\.\"",
+    "test": "jest --coverage --watch --testPathIgnorePatterns=\"\\.*integration\\.|\\.*helper\\.|__tests__/helpers/|\\.*manual\\.spec\\.|\\.test\\.mjs$\"",
+    "test:ci": "jest --coverage --ci --testPathIgnorePatterns=\"\\.*integration\\.|\\.*helper\\.|__tests__/helpers/|\\.*manual\\.spec\\.|\\.test\\.mjs$\"",
     "test:cache-integration:core": "jest --testPathPatterns=\"src/(cache|middleware)/.*\\.cache_integration\\.(spec|test)\\.ts$\" --coverage=false",
     "test:cache-integration:cluster": "jest --testPathPatterns=\"src/cluster/.*\\.cache_integration\\.(spec|test)\\.ts$\" --coverage=false --runInBand",
     "test:cache-integration:mcp": "jest --testPathPatterns=\"src/mcp/.*\\.cache_integration\\.(spec|test)\\.ts$\" --coverage=false",
@@ -181,6 +181,7 @@
     "zod": "^3.25.67"
   },
   "dependencies": {
+    "@opencode-ai/sdk": "1.19.6",
     "@langchain/langgraph-checkpoint": "^1.1.2",
     "@langchain/langgraph-checkpoint-mongodb": "^1.4.0",
     "@modelcontextprotocol/sdk": "^1.32.2",

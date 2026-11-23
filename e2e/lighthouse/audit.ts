@@ -24,17 +24,27 @@ const DEFAULT_BUDGETS: MedianBudgets = {
   'total-blocking-time': 500,
 };
 
-/**
- * Lighthouse 13 removed `largest-contentful-paint-element` and moved the LCP node into the
- * breakdown insight. Scenarios read the element through here so a future rename fails once,
- * loudly, instead of silently passing an assertion against an absent audit.
- */
+/** Text captured in the same Lighthouse navigation, tied to its measured LCP. */
 export function lcpElement(report: Result): string {
-  const details = report.audits['lcp-breakdown-insight']?.details;
-  if (!details) {
-    throw new Error('Lighthouse reported no LCP element; check the `lcp-breakdown-insight` audit.');
+  const details = report.audits['observed-lcp-element']?.details;
+  const candidate = details?.type === 'debugdata' ? details.candidate : null;
+  const measured = report.audits['largest-contentful-paint']?.numericValue;
+  if (
+    !candidate ||
+    typeof candidate !== 'object' ||
+    !('time' in candidate) ||
+    typeof candidate.time !== 'number' ||
+    !Number.isFinite(candidate.time) ||
+    typeof measured !== 'number' ||
+    !Number.isFinite(measured) ||
+    // Chrome rounds the PerformanceObserver timestamp for privacy.
+    Math.abs(candidate.time - measured) > 8 ||
+    !('text' in candidate) ||
+    typeof candidate.text !== 'string'
+  ) {
+    throw new Error('Could not match the observed browser candidate to the Lighthouse LCP.');
   }
-  return JSON.stringify(details);
+  return candidate.text;
 }
 
 function medianOf(results: Result[], audit: string): number {
@@ -70,7 +80,7 @@ export async function auditPage({
   const flags = [
     url,
     '--quiet',
-    '--preset=desktop',
+    `--config-path=${path.join(__dirname, 'config.mjs')}`,
     '--throttling-method=provided',
     '--only-categories=performance',
     `--chrome-flags=${chromeFlags}`,

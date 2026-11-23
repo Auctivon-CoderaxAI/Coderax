@@ -43,7 +43,7 @@ test.describe('rate limits from coderax.yaml', () => {
     const user: User = {
       email: `yaml-rate-limits-${randomUUID()}@example.com`,
       name: 'Yaml Rate Limits',
-      password: 'securepassword123',
+      password: `pw-${randomUUID()}`,
     };
 
     try {

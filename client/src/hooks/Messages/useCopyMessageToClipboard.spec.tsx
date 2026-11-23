@@ -9,15 +9,16 @@ import {
   useCopyMessageToClipboard,
   getMessageClipboardSource,
   hasCopyableText,
+  preloadRichTextClipboard,
 } from '~/hooks/Messages/useCopyToClipboard';
 import store from '~/store';
 
 jest.mock('copy-to-clipboard');
 
 describe('useCopyMessageToClipboard', () => {
-  /* The rich-text serializer is a lazy chunk. Compile it before the timed tests. */
+  /* Rich copy assertions exercise the path where the serializer is already loaded. */
   beforeAll(async () => {
-    await import('~/utils/richtext');
+    await preloadRichTextClipboard();
   }, 120000);
 
   const TEXT = '$E=mc^2$';

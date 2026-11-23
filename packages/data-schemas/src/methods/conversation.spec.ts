@@ -1998,6 +1998,16 @@ describe('Conversation Operations', () => {
       getMessages.mockClear();
     });
 
+    it('returns null when the update fails instead of a truthy error record', async () => {
+      const result = await saveConvo(
+        ctx,
+        { conversationId },
+        { appendMessageIds: ['not-an-object-id'] },
+      );
+
+      expect(result).toBeNull();
+    });
+
     it('appends the provided ids without reading the messages collection', async () => {
       const seeded = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
       getMessages.mockResolvedValueOnce(seeded.map((_id) => ({ _id })));
@@ -5026,12 +5036,11 @@ describe('Conversation Operations', () => {
       // Force a database error by disconnecting
       await mongoose.disconnect();
 
-      const result = await saveConvo(mockCtx, mockConversationData);
-
-      expect(result).toEqual({ message: 'Error saving conversation' });
-
-      // Reconnect for other tests
-      await mongoose.connect(mongoServer.getUri());
+      try {
+        await expect(saveConvo(mockCtx, mockConversationData)).resolves.toBeNull();
+      } finally {
+        await mongoose.connect(mongoServer.getUri());
+      }
     });
   });
 
@@ -5508,19 +5517,43 @@ describe('Conversation Operations', () => {
       const b = uuidv4();
       const unscoped = uuidv4();
       await Conversation.collection.insertMany([
-        { conversationId: a, user: 'user123', tenantId: 'tenant-a', isWork: true,
-          title: 'Tenant A Work', endpoint: EModelEndpoint.openAI,
-          isArchived: false, createdAt: now, updatedAt: now },
-        { conversationId: b, user: 'user123', tenantId: 'tenant-b', isWork: true,
-          title: 'Tenant B Work', endpoint: EModelEndpoint.openAI,
-          isArchived: false, createdAt: now, updatedAt: now },
-        { conversationId: unscoped, user: 'user123', isWork: true,
-          title: 'Tenantless Work', endpoint: EModelEndpoint.openAI,
-          isArchived: false, createdAt: now, updatedAt: now },
+        {
+          conversationId: a,
+          user: 'user123',
+          tenantId: 'tenant-a',
+          isWork: true,
+          title: 'Tenant A Work',
+          endpoint: EModelEndpoint.openAI,
+          isArchived: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          conversationId: b,
+          user: 'user123',
+          tenantId: 'tenant-b',
+          isWork: true,
+          title: 'Tenant B Work',
+          endpoint: EModelEndpoint.openAI,
+          isArchived: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          conversationId: unscoped,
+          user: 'user123',
+          isWork: true,
+          title: 'Tenantless Work',
+          endpoint: EModelEndpoint.openAI,
+          isArchived: false,
+          createdAt: now,
+          updatedAt: now,
+        },
       ]);
       const readIds = async (tenantId: string | null) =>
-        (await getConvosByCursor('user123', { isWork: true, tenantId }))
-          .conversations.map((row) => row.conversationId);
+        (await getConvosByCursor('user123', { isWork: true, tenantId })).conversations.map(
+          (row) => row.conversationId,
+        );
       await expect(readIds('tenant-a')).resolves.toEqual([a]);
       await expect(readIds('tenant-b')).resolves.toEqual([b]);
       await expect(readIds(null)).resolves.toEqual([unscoped]);

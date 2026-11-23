@@ -122,6 +122,11 @@ jest.mock('~/cache/getLogStores', () =>
   })),
 );
 
+jest.mock('~/server/utils/openIdClient', () => ({
+  loadOpenIdClient: async () => require('openid-client'),
+  loadOpenIdPassport: async () => require('openid-client/passport'),
+}));
+
 // Mock the openid-client module and all its dependencies
 jest.mock('openid-client', () => {
   return {

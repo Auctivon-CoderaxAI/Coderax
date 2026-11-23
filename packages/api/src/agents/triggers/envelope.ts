@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { isCodeWorkspaceSelections } from 'coderax-data-provider';
+import type { CodeWorkspaceSelection } from 'coderax-data-provider';
 import type { AgentRunPrincipal, AgentRunPrincipalInput } from '../envelope';
 import type { AgentTriggerExpectedAction } from './types';
 import type { JsonValue } from '../json';
@@ -48,6 +50,10 @@ export interface AgentFireRunContext {
    *  rest of this context — never sourced from the event payload. */
   chatProjectId?: string;
   files?: JsonValue[];
+  /** Attached machine and checkout the host bound this run to. A build step
+   *  carries its reserved workspace here so reads, writes and commands run in
+   *  that checkout rather than wherever the agent's machine happens to point. */
+  codeWorkspaces?: CodeWorkspaceSelection[];
   metadata?: JsonValue;
 }
 
@@ -246,6 +252,17 @@ function createFireRunContext(
       throw error('run.files must be an array');
     }
     context.files = cloneJsonValue(run.files, 'run.files', error) as JsonValue[];
+  }
+  if (run.codeWorkspaces != null) {
+    if (!isCodeWorkspaceSelections(run.codeWorkspaces)) {
+      throw error('run.codeWorkspaces must be a valid workspace selection list');
+    }
+    context.codeWorkspaces = run.codeWorkspaces.map((selection) => ({
+      environmentId: selection.environmentId,
+      workspaceId: selection.workspaceId,
+      ...(selection.checkout == null ? {} : { checkout: selection.checkout }),
+      ...(selection.agentIds == null ? {} : { agentIds: [...selection.agentIds] }),
+    }));
   }
   if (run.metadata !== undefined) {
     context.metadata = cloneJsonValue(run.metadata, 'run.metadata', error) as JsonValue;

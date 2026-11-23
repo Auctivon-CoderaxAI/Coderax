@@ -1,5 +1,5 @@
 #!/bin/sh
-# Freebuff pre-push guard: refuse pushes that update a protected branch.
+# Pre-push guard: refuse pushes that update a protected branch.
 #
 # Canonical copy: ~/git-hooks/pre-push
 # Installed into: <repo>/.git/hooks/pre-push, or <repo>/.husky/pre-push in husky repos.
@@ -44,7 +44,7 @@ if [ -x "$here/pre-push.local" ]; then
 fi
 
 if [ "${ALLOW_PROTECTED_PUSH:-0}" = "1" ]; then
-  echo "freebuff-guard: ALLOW_PROTECTED_PUSH=1 -- allowing this push, branch policy waived for this command only." >&2
+  echo "pre-push-guard: ALLOW_PROTECTED_PUSH=1 -- allowing this push, branch policy waived for this command only." >&2
   rm -f "$refs"
   exit 0
 fi
@@ -55,7 +55,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   branch=${remote_ref#refs/heads/}
   for protected in $PROTECTED; do
     if [ "$branch" = "$protected" ]; then
-      echo "freebuff-guard: REFUSED -- push would update protected branch '$branch'." >&2
+      echo "pre-push-guard: REFUSED -- push would update protected branch '$branch'." >&2
       echo "  Work on a topic branch and open a pull request instead (see AGENTS.md, sections 1-8)." >&2
       blocked=1
     fi
@@ -65,7 +65,7 @@ done < "$refs"
 rm -f "$refs"
 
 if [ "$blocked" -ne 0 ]; then
-  echo "freebuff-guard: nothing was pushed. If the user explicitly approved this exact push, re-run with ALLOW_PROTECTED_PUSH=1." >&2
+  echo "pre-push-guard: nothing was pushed. If the user explicitly approved this exact push, re-run with ALLOW_PROTECTED_PUSH=1." >&2
   exit 1
 fi
 

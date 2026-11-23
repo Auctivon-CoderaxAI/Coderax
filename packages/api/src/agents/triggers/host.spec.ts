@@ -21,6 +21,7 @@ const createFireEnvelope = () =>
       timezone: 'Europe/Paris',
       chatProjectId: 'project-1',
       files: [{ file_id: 'file-1' }],
+      codeWorkspaces: [{ environmentId: 'build-machine', workspaceId: 'checkout-1' }],
       metadata: { manual: false },
     },
     event: {
@@ -179,6 +180,7 @@ describe('createAgentTriggerExecutionHost fire adapter', () => {
       newConversationId: 'scheduled-conversation-1',
       chatProjectId: 'project-1',
       files: [{ file_id: 'file-1' }],
+      codeWorkspaces: [{ environmentId: 'build-machine', workspaceId: 'checkout-1' }],
       timezone: 'Europe/Paris',
     });
     expect(mintToken).toHaveBeenCalledWith(envelope.principal, envelope);

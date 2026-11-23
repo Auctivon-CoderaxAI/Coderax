@@ -322,6 +322,10 @@ export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };
 
+export const passwordLogin = (payload: t.TPasswordLogin): Promise<t.TLoginResponse> => {
+  return request.post(endpoints.passwordLogin(), payload);
+};
+
 export const logout = (): Promise<m.TLogoutResponse> => {
   return request.post(endpoints.logout());
 };
@@ -1444,6 +1448,12 @@ export function deleteWorkflow(id: string): Promise<{ id: string }> {
 
 export function listWorkflowTemplates(): Promise<wf.WorkflowTemplatesResponse> {
   return request.get(endpoints.workflowTemplates());
+}
+
+export function startWorkflowBuild(
+  payload: wf.StartWorkflowBuildRequest,
+): Promise<wf.StartWorkflowBuildResponse> {
+  return request.post(endpoints.workflowBuilds(), payload);
 }
 
 export function listWorkflowRuns(workflowId: string): Promise<wf.WorkflowRunListResponse> {

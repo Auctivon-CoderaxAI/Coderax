@@ -1,19 +1,15 @@
 const express = require('express');
 const request = require('supertest');
 
-jest.mock(
-  'coderax-data-provider',
-  () => ({
-    PermissionBits: { VIEW: 1 },
-    buildFreeInferenceWorkSources: jest.fn((config) =>
-      config?.freeInference?.enabled ? [{ id: 'free-model', provider: 'FreeOpenRouter' }] : [],
-    ),
-    describeFreeInferenceCatalog: jest.fn((config) => ({
-      enabled: config?.freeInference?.enabled === true,
-    })),
-  }),
-  { virtual: true },
-);
+jest.mock('coderax-data-provider', () => ({
+  PermissionBits: { VIEW: 1 },
+  buildFreeInferenceWorkSources: jest.fn((config) =>
+    config?.freeInference?.enabled ? [{ id: 'free-model', provider: 'FreeOpenRouter' }] : [],
+  ),
+  describeFreeInferenceCatalog: jest.fn((config) => ({
+    enabled: config?.freeInference?.enabled === true,
+  })),
+}));
 
 jest.mock('~/server/middleware/config/app', () => ({
   strictConfigMiddleware: jest.fn((req, _res, next) => {
@@ -22,38 +18,41 @@ jest.mock('~/server/middleware/config/app', () => ({
   }),
 }));
 
-jest.mock(
-  '@coderax/api',
-  () => {
-    const express = require('express');
-    return {
-      createWorkDepsFactory: jest.fn(() => () => ({ listModels: async () => [] })),
-      createWorkRouter: jest.fn((deps) => {
-        const router = express.Router();
-        router.get('/models', async (_req, res) => {
-          res.json({ models: await deps.listModels() });
-        });
-        router.get('/readiness', (_req, res) => {
-          res.json({ enabled: deps.freeInference().enabled });
-        });
-        return router;
-      }),
-      getAgentListAccess: jest.fn(),
-      createWorkAgentPageLoader: jest.fn(() => async () => []),
-      GenerationJobManager: { onGenerationSettled: jest.fn() },
-      persistTerminalWorkState: jest.fn(),
-      workStateForJobStatus: jest.fn(),
-      getFreeRouterForConfig: jest.fn(() => ({ snapshot: () => ({}) })),
-    };
-  },
-  { virtual: true },
-);
+jest.mock('@coderax/api', () => {
+  const express = require('express');
+  return {
+    createWorkDepsFactory: jest.fn(() => () => ({ listModels: async () => [] })),
+    createWorkRouter: jest.fn((deps) => {
+      const router = express.Router();
+      router.get('/models', async (_req, res) => {
+        res.json({ models: await deps.listModels() });
+      });
+      router.get('/readiness', (_req, res) => {
+        res.json({ enabled: deps.freeInference().enabled });
+      });
+      return router;
+    }),
+    getAgentListAccess: jest.fn(),
+    createWorkAgentPageLoader: jest.fn(() => async () => []),
+    GenerationJobManager: { onGenerationSettled: jest.fn() },
+    persistTerminalWorkState: jest.fn(),
+    workStateForJobStatus: jest.fn(),
+    getFreeRouterForConfig: jest.fn(() => ({ snapshot: () => ({}) })),
+    createEngineWorkChatHandler: jest.fn(() => (_req, _res, next) => next()),
+    createEngineWorkChatPersistence: jest.fn(),
+    getEngineWorkChatRuntime: jest.fn(() => ({
+      state: () => null,
+      cancel: async () => false,
+      snapshot: () => ({}),
+    })),
+  };
+});
 
 jest.mock('~/models', () => ({ getListAgentsByAccess: jest.fn() }));
 jest.mock('~/server/controllers/ModelController', () => ({ loadModels: jest.fn() }));
 jest.mock('~/server/services/PermissionService', () => ({ findAccessibleResources: jest.fn() }));
 jest.mock('~/server/middleware/roles/capabilities', () => ({ hasCapability: jest.fn() }));
-jest.mock('@coderax/data-schemas', () => ({ logger: { warn: jest.fn() } }), { virtual: true });
+jest.mock('@coderax/data-schemas', () => ({ logger: { warn: jest.fn() } }));
 jest.mock('../workChat', () => ({
   getWorkChatRouter: () => {
     const router = require('express').Router();

@@ -13,10 +13,13 @@ import {
   useUpdateConversationMutation,
 } from '~/data-provider';
 import { cn, logger, setDocumentTitle, isConversationUnseen, hasRealTitle } from '~/utils';
-import { useNavigateToConvo, useLocalize, useShiftKey } from '~/hooks';
+import { useNavigateToConvo, useLocalize, useShiftKey, useAuthContext } from '~/hooks';
+import { useSavedConversationMode } from '~/components/Chat/mode';
 import ConversationEndpointIcon from './ConversationEndpointIcon';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
+import ConversationModeBadge from './ConversationModeBadge';
 import { focusableInRow, resolveRowBeside } from './focus';
+import { resolveConversationModeBadge } from './modeBadge';
 import { areConversationRenderPropsEqual } from './utils';
 import { NotificationSeverity } from '~/common';
 import { CONVERSATION_DRAG_TYPE } from './dnd';
@@ -59,6 +62,7 @@ function Conversation({
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const { navigateToConvo } = useNavigateToConvo();
+  const { user } = useAuthContext();
   const currentConvoId = useMemo(() => params.conversationId, [params.conversationId]);
   const updateConvoMutation = useUpdateConversationMutation(currentConvoId ?? '');
   const unpinMutation = usePinConversationMutation();
@@ -70,10 +74,16 @@ function Conversation({
   const sharedLinksEnabled = startupConfig?.sharedLinksEnabled === true;
   const isSharedBadgeVisible = conversation.isShared === true && sharedLinksEnabled;
   const projectLabelId = useId();
+  const modeLabelId = useId();
   const projectBadgeProjectId = showProjectBadge ? conversation.chatProjectId : undefined;
   const isUnseen = isConversationUnseen(conversation);
   const isShiftHeld = useShiftKey();
   const { conversationId, title = '' } = conversation;
+  /* Read where the row is drawn rather than passed down from each list: the atom is
+     the same one the mode switcher writes, so a flip reaches every list at once and
+     the memo comparator never has to learn about modes. */
+  const savedMode = useSavedConversationMode(user?.id, conversationId ?? undefined);
+  const modeBadge = resolveConversationModeBadge(savedMode);
   const canRename =
     supportsConversationTitleOwnership(startupConfig) ||
     (!isGenerating && (conversation.titleSetByUser === true || hasRealTitle(title)));
@@ -387,7 +397,14 @@ function Conversation({
           isSmallScreen={isSmallScreen}
           localize={localize}
           keyShortcuts={keyShortcuts}
-          describedBy={projectBadgeProjectId ? projectLabelId : undefined}
+          describedBy={
+            [
+              projectBadgeProjectId ? projectLabelId : undefined,
+              modeBadge ? modeLabelId : undefined,
+            ]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
         >
           {/* Status sits on the avatar so the row's trailing edge stays free for its badges
               and menu. The ring is 2.125rem around the 1.25rem icon: offset by half the
@@ -417,6 +434,7 @@ function Conversation({
           </span>
         </ConvoLink>
       )}
+      {modeBadge && <ConversationModeBadge badge={modeBadge} labelId={modeLabelId} />}
       {isSharedBadgeVisible && (
         <Link2 className="icon-sm text-text-secondary mr-1 shrink-0" aria-hidden="true" />
       )}

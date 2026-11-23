@@ -2,10 +2,12 @@ import express from 'express';
 import {
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+  SystemRoles,
 } from 'coderax-data-provider';
 import type { FreeInferenceCatalogState } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
+import type { EngineStatusSnapshot } from '../engines/registry';
 import type { FreeRoutingSnapshot } from '../routing/router';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
@@ -57,6 +59,8 @@ export type WorkDeps = {
   routing?: () => Promise<FreeRoutingSnapshot> | FreeRoutingSnapshot;
   /** Why free inference is or is not usable, from the server credential state. */
   freeInference?: () => FreeInferenceCatalogState;
+  /** Safe execution-engine availability; never a path or credential. */
+  engines?: () => Promise<EngineStatusSnapshot> | EngineStatusSnapshot;
 };
 
 const HISTORY_LIMIT = 50;
@@ -159,15 +163,67 @@ export function createWorkRouter(deps: WorkDeps): Router {
     }
   });
 
-  router.get('/models', async (_req: Request, res: Response) => {
+  /**
+   * Whether an optional execution engine can run, and why not. A disabled
+   * engine is listed as unavailable instead of disappearing, so the owner can
+   * see the prerequisite without reading server logs.
+   */
+  router.get('/engines', async (_req: Request, res: Response) => {
+    if (!deps.engines) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ defaultEngine: null, engines: [] });
+      return;
+    }
+    try {
+      const snapshot = await deps.engines();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(snapshot);
+    } catch {
+      res.status(503).json({ code: 'WORK_ENGINES_UNAVAILABLE' });
+    }
+  });
+
+  router.get('/models', async (req: Request, res: Response) => {
     try {
       const [sources, configuredDefault] = await Promise.all([
         deps.listModels(),
         readConfiguredDefault(deps),
       ]);
       const models = buildWorkModelOptions(sources, configuredDefault);
+      let engineModels: Array<{
+        id: string;
+        label: string;
+        provider: string;
+        engine: 'opencode' | 'freebuff';
+      }> = [];
+      const user = req.user as { role?: unknown } | undefined;
+      const workChatEnabled =
+        (
+          req as Request & {
+            config?: { config?: { engines?: { workChat?: { enabled?: unknown } } } };
+          }
+        ).config?.config?.engines?.workChat?.enabled === true;
+      if (user?.role === SystemRoles.ADMIN && workChatEnabled && deps.engines) {
+        try {
+          const snapshot = await deps.engines();
+          engineModels = snapshot.engines.flatMap((engine): typeof engineModels => {
+            if (!engine.availability.available) {
+              return [];
+            }
+            if (engine.id === 'opencode') {
+              return [{ id: engine.id, label: 'OpenCode', provider: engine.id, engine: engine.id }];
+            }
+            if (engine.id === 'freebuff') {
+              return [{ id: engine.id, label: 'Freebuff', provider: engine.id, engine: engine.id }];
+            }
+            return [];
+          });
+        } catch {
+          // Model discovery remains available when an optional engine is down.
+        }
+      }
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ models });
+      res.json({ models: [...models, ...engineModels] });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
     }

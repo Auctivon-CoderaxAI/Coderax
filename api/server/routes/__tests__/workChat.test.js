@@ -2,15 +2,26 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 const http = require('node:http');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
+const { load } = require('js-yaml');
+const {
+  buildFreeInferenceWorkSources,
+  configSchema,
+  describeFreeInferenceCatalog,
+} = require('coderax-data-provider');
 const { createWorkApiRouter } = require('../workApi');
 const {
   createWorkChatRouter,
   delegateToAgents,
+  releaseWorkRun,
+  reserveWorkRun,
   resolveWorkContext,
   resolveConfiguredDefaultModel,
   stripClientWorkFields,
   workContextMiddleware,
   seedWorkConversation,
+  workChatRunReservationMiddleware,
 } = require('../workChat');
 
 const LOCAL = { id: 'llama3:latest', label: 'Llama 3', provider: 'ollama', local: true };
@@ -32,6 +43,37 @@ const response = () => ({
 });
 
 const noConversationSeed = async () => ({ seeded: false, reason: 'no_target' });
+
+test('active OCI Work config refuses every hosted free model without the server key', async () => {
+  const filename = path.resolve(__dirname, '../../../../deploy/oci/coderax.oci.yaml');
+  const config = configSchema.parse(load(readFileSync(filename, 'utf8')));
+  const env = {};
+  const catalog = describeFreeInferenceCatalog(config, env);
+
+  assert.equal(catalog.enabled, true);
+  assert.deepEqual(catalog.executableProviders, []);
+  const openRouter = catalog.endpoints.filter((entry) => entry.provider === 'openrouter');
+  assert.ok(openRouter.length > 0);
+  assert.ok(openRouter.every((entry) => entry.blocked === 'missing_credential'));
+  assert.deepEqual(buildFreeInferenceWorkSources(config, env), []);
+
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [LOCAL.id] }),
+    () => null,
+    noConversationSeed,
+    undefined,
+    undefined,
+    () => buildFreeInferenceWorkSources(config, env),
+  );
+  for (const { modelId } of catalog.endpoints) {
+    const res = response();
+    await middleware({ body: { model: modelId } }, res, () => {
+      assert.fail('A hosted model reached the native runner without credentials');
+    });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.payload.error, 'WORK_MODEL_NOT_ALLOWED');
+  }
+});
 
 test('auto resolves through the configured default when it is offered', () => {
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'llama3:latest'), {
@@ -1006,6 +1048,50 @@ test('/api/work/chat checks access to the selected agent before reading its mode
   } finally {
     server.close();
   }
+});
+
+test('the shared reservation blocks a native Work run while another runner owns the task', () => {
+  const conversationId = '44444444-4444-4444-8444-444444444444';
+  const scope = { userId: 'reservation-user', tenantId: 'tenant-r', conversationId };
+  assert.equal(reserveWorkRun(scope), true);
+
+  const first = response();
+  first.once = () => undefined;
+  let firstNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    first,
+    () => {
+      firstNextCalls += 1;
+    },
+  );
+  assert.equal(first.statusCode, 409);
+  assert.equal(firstNextCalls, 0);
+  assert.equal(releaseWorkRun(scope), true);
+
+  const second = response();
+  second.once = () => undefined;
+  let secondNextCalls = 0;
+  workChatRunReservationMiddleware(
+    {
+      method: 'POST',
+      path: '/chat',
+      body: { conversationId },
+      user: { id: scope.userId, tenantId: scope.tenantId },
+    },
+    second,
+    () => {
+      secondNextCalls += 1;
+    },
+  );
+  assert.equal(secondNextCalls, 1);
+  assert.equal(reserveWorkRun(scope), false);
+  assert.equal(releaseWorkRun(scope), true);
 });
 
 test('Work model reads skip chat-only model resolution', async () => {

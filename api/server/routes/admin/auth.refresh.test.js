@@ -6,8 +6,8 @@ jest.mock('passport', () => ({
   _strategy: jest.fn(),
 }));
 
-jest.mock('openid-client', () => ({
-  refreshTokenGrant: jest.fn(),
+jest.mock('~/server/utils/openIdClient', () => ({
+  openIdClient: { refreshTokenGrant: jest.fn() },
 }));
 
 jest.mock('coderax-data-provider', () => ({
@@ -109,7 +109,7 @@ jest.mock('~/server/middleware', () => ({
 }));
 
 const passport = require('passport');
-const openIdClient = require('openid-client');
+const { openIdClient } = require('~/server/utils/openIdClient');
 const { logger } = require('@coderax/data-schemas');
 const {
   isEnabled,

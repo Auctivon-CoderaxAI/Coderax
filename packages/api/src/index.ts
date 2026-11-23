@@ -78,6 +78,10 @@ export * from './memory';
 export * from './modelSpecs';
 /* Agents */
 export * from './agents';
+/* Execution engines */
+export * from './engines';
+/* Cloud Power Mode and private/cloud isolation */
+export * from './cloud';
 /* Assistants */
 export * from './assistants';
 /* Actions */
@@ -95,7 +99,6 @@ export * from './work/admission';
 export * from './work/configuredDefault';
 export * from './work/deps';
 export * from './work/agents';
-export * from './work/admission';
 export * from './work/graph';
 export * from './work/ids';
 export * from './work/models';
@@ -109,6 +112,7 @@ export * from './messages';
 /* Skills */
 export * from './schedules';
 export * from './schedules/service';
+export * from './autobuild';
 export * from './workflows';
 export * from './skills';
 export * from './favorites';

@@ -319,6 +319,25 @@ describe('createAgentTriggerEnvelope', () => {
     ).toThrow('run.chatProjectId must be a non-empty string');
   });
 
+  it('carries the checkout a build step is bound to', () => {
+    const bound = createAgentTriggerEnvelope({
+      ...createFireInput(),
+      run: {
+        codeWorkspaces: [{ environmentId: 'build-machine', workspaceId: 'checkout-1' }],
+      },
+    } as CreateAgentTriggerEnvelopeInput);
+
+    expect(bound.mode === 'fire' && bound.run?.codeWorkspaces).toEqual([
+      { environmentId: 'build-machine', workspaceId: 'checkout-1' },
+    ]);
+    expect(() =>
+      createAgentTriggerEnvelope({
+        ...createFireInput(),
+        run: { codeWorkspaces: [{ environmentId: 'build-machine' }] },
+      } as unknown as CreateAgentTriggerEnvelopeInput),
+    ).toThrow('run.codeWorkspaces must be a valid workspace selection list');
+  });
+
   it('rejects non-JSON and circular event payloads', () => {
     expect(() =>
       createAgentTriggerEnvelope({

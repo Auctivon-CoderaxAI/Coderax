@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -15,6 +15,7 @@ import {
   isAgentsEndpoint,
 } from 'coderax-data-provider';
 import type { TPreset, TAgentsMap } from 'coderax-data-provider';
+import type { StoredConversationMode } from '~/components/Chat/mode';
 import {
   defaultSpecAwaitsAgents,
   mergeQuerySettingsWithSpec,
@@ -43,6 +44,11 @@ import {
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
 import {
+  GUEST_WORK_HANDOFF_PARAM,
+  saveGuestWorkHandoffDraft,
+  takeGuestWorkHandoffDraft,
+} from '~/utils/guestWorkHandoff';
+import {
   buildChatModelSources,
   getConfiguredDefaultModel,
   toChatModelPreset,
@@ -61,11 +67,6 @@ import {
 } from '~/hooks';
 import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
 import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
-import {
-  GUEST_WORK_HANDOFF_PARAM,
-  saveGuestWorkHandoffDraft,
-  takeGuestWorkHandoffDraft,
-} from '~/utils/guestWorkHandoff';
 import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
 import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
@@ -203,17 +204,17 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         : 'chat',
     forceInitialMode: workMode,
   });
-  const isWorkMode = modeState.mode === 'work';
+  const isWorkMode = modeState.mode === 'code';
   const isGuestSession = user?.provider === 'guest';
   const handoffIdRef = useRef<string | null>(null);
   const [workHandoffDraft, setWorkHandoffDraft] = useState<string | null>(null);
   const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
   const setConversationMode = useCallback(
-    (nextMode: 'chat' | 'work') => {
-      if (nextMode === 'work' && isGuestSession) {
+    (nextMode: StoredConversationMode) => {
+      if ((nextMode === 'code' || nextMode === 'work') && isGuestSession) {
         const draftText =
-          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')?.value ??
-          '';
+          document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')
+            ?.value ?? '';
         handoffIdRef.current = saveGuestWorkHandoffDraft(draftText);
       } else if (nextMode === 'chat') {
         handoffIdRef.current = null;
@@ -231,33 +232,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     enabled: isAuthenticated && !isGuestSession && isWorkMode,
   });
   useEffect(() => {
-    if (!ownerSignInRequired) {
-      return;
-    }
-    const redirectParams = new URLSearchParams(location.search);
-    // Owner sign-in must review a prepared task before it runs. Guest conversation ids are not
-    // valid owner destinations, so every handoff starts a fresh owner Work conversation.
-    redirectParams.delete('submit');
-    redirectParams.delete(GUEST_WORK_HANDOFF_PARAM);
-    if (handoffIdRef.current) {
-      redirectParams.set(GUEST_WORK_HANDOFF_PARAM, handoffIdRef.current);
-    }
-    const redirectSearch = redirectParams.toString();
-    const redirectTo = [
-      '/work/new',
-      redirectSearch ? `?${redirectSearch}` : '',
-      location.hash,
-    ].join('');
-    const loginParams = new URLSearchParams({ manual: '1', redirect_to: redirectTo });
-    navigate(`/login?${loginParams.toString()}`, { replace: true });
-  }, [
-    location.hash,
-    location.search,
-    navigate,
-    ownerSignInRequired,
-  ]);
-
-  useEffect(() => {
     if (!isAuthenticated || isGuestSession || !isWorkMode) {
       return;
     }
@@ -274,10 +248,9 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     }
     returnParams.delete(GUEST_WORK_HANDOFF_PARAM);
     const returnSearch = returnParams.toString();
-    navigate(
-      `${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`,
-      { replace: true },
-    );
+    navigate(`${location.pathname}${returnSearch ? `?${returnSearch}` : ''}${location.hash}`, {
+      replace: true,
+    });
   }, [
     isAuthenticated,
     isGuestSession,
@@ -600,11 +573,12 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   if (ownerSignInRequired) {
     return (
       <div
-        className="flex h-screen items-center justify-center px-6 text-center"
+        className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center"
         aria-live="polite"
         role="status"
       >
-        {localize('com_work_owner_signin_required')}
+        <p>{localize('com_work_owner_signin_required')}</p>
+        <Button onClick={() => setConversationMode('chat')}>{localize('com_ui_chat')}</Button>
       </div>
     );
   }

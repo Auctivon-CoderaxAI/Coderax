@@ -34,16 +34,18 @@ import {
   clearRetainedFileDeletions,
   openFileDeletionRetention,
   isRequiredTwoFactorSetupRoute,
+  isManualLoginEntry,
 } from '~/utils';
 import {
   useGetRole,
   useGetUserQuery,
   useLoginUserMutation,
+  usePasswordLoginMutation,
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
+import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
-import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
 import useTimeout from './useTimeout';
 import store from '~/store';
@@ -76,6 +78,11 @@ const getLoginErrorText = (error: TResError): string | undefined => {
     : error?.message;
 };
 
+/** Explicit password sign-in must survive a missing refresh session. */
+const isManualLoginRoute = () =>
+  window.location.pathname === `${apiBaseUrl()}/login` &&
+  new URLSearchParams(window.location.search).get('manual') === '1';
+
 const AuthContextProvider = ({
   authConfig,
   children,
@@ -90,6 +97,7 @@ const AuthContextProvider = ({
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
+  const [passwordLoginError, setPasswordLoginError] = useState<string | undefined>(undefined);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState<boolean>(authConfig?.test === true);
   const setQueriesEnabled = useSetRecoilState<boolean>(store.queriesEnabled);
@@ -197,14 +205,29 @@ const AuthContextProvider = ({
       const currentLoginParams = new URLSearchParams(window.location.search);
       const redirectTo = currentLoginParams.get('redirect_to');
       const retryParams = new URLSearchParams();
-      if (currentLoginParams.get('manual') === '1') {
-        retryParams.set('manual', '1');
-      }
       if (redirectTo && isSafeRedirect(redirectTo)) {
         retryParams.set('redirect_to', redirectTo);
       }
       const retryQuery = retryParams.toString();
       navigate(retryQuery ? `/login?${retryQuery}` : '/login', { replace: true });
+    },
+  });
+  const { mutate: passwordLoginMutate } = usePasswordLoginMutation({
+    onMutate: () => setPasswordLoginError(undefined),
+    onSuccess: (data: t.TLoginResponse) => {
+      guestAttemptRef.current += 1;
+      const { user, token } = data;
+      if (!user || !token) {
+        setPasswordLoginError('Unable to sign in.');
+        return;
+      }
+      setPasswordLoginError(undefined);
+      const redirect =
+        getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? getPostLoginFallback();
+      setUserContext({ token, isAuthenticated: true, user, redirect });
+    },
+    onError: (error: TResError | unknown) => {
+      setPasswordLoginError(getLoginErrorText(error as TResError) ?? 'Unable to sign in.');
     },
   });
   const { mutate: logoutMutate } = useLogoutUserMutation({
@@ -275,7 +298,7 @@ const AuthContextProvider = ({
 
   /** Obtain an isolated USER guest session before sending a passwordless visitor
    * to the login page. The endpoint is 404 when guest access is disabled, so
-   * existing manual-account and mandatory 2FA flows keep working unchanged.
+   * mandatory 2FA flows keep working unchanged.
    */
   const tryGuestSession = useCallback(async (): Promise<'created' | 'failed' | 'stale'> => {
     const attemptId = ++guestAttemptRef.current;
@@ -283,9 +306,9 @@ const AuthContextProvider = ({
     if (
       authConfig?.test === true ||
       authConfig?.optional === true ||
+      isManualLoginEntry() ||
       isRequiredTwoFactorSetupRoute() ||
-      pathname.startsWith('/login/2fa') ||
-      new URLSearchParams(window.location.search).get('manual') === '1'
+      pathname.startsWith('/login/2fa')
     ) {
       return 'failed';
     }
@@ -339,6 +362,14 @@ const AuthContextProvider = ({
     [loginMutate],
   );
 
+  const passwordLogin = useCallback(
+    (data: TPasswordLogin) => {
+      guestAttemptRef.current += 1;
+      passwordLoginMutate(data);
+    },
+    [passwordLoginMutate],
+  );
+
   const silentRefresh = useCallback(() => {
     if (authConfig?.test === true) {
       return;
@@ -384,8 +415,12 @@ const AuthContextProvider = ({
               : rawPath;
           const currentUrl = `${strippedPath}${window.location.search}`;
           const fallbackRedirect = isSafeRedirect(currentUrl) ? currentUrl : '/c/new';
-          const redirect =
-            getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? fallbackRedirect;
+          /** The manual form owns the page: navigating to the fallback would replace it
+           *  with the conversation before an existing account can sign in. */
+          const redirect = isManualLoginEntry()
+            ? undefined
+            : (getPostLoginRedirect(new URLSearchParams(window.location.search)) ??
+              fallbackRedirect);
           setUserContext({ user, token, isAuthenticated: true, redirect });
           return;
         }
@@ -394,6 +429,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -404,15 +440,9 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
+          if (!isManualLoginEntry()) {
+            navigate(buildLoginRedirectUrl(), { replace: true });
           }
-          navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
       onError: (error) => {
@@ -424,6 +454,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -434,15 +465,9 @@ const AuthContextProvider = ({
             return;
           }
           setIsAuthReady(true);
-          // Explicit account owners may still open /login?manual=1.
-          // Do not strip the manual flag and bounce them back to guest entry.
-          if (
-            window.location.pathname === '/login' &&
-            new URLSearchParams(window.location.search).get('manual') === '1'
-          ) {
-            return;
+          if (!isManualLoginEntry()) {
+            navigate(buildLoginRedirectUrl(), { replace: true });
           }
-          navigate(buildLoginRedirectUrl(), { replace: true });
         });
       },
     });
@@ -459,7 +484,7 @@ const AuthContextProvider = ({
       endSessionClientState();
       doSetError((userQuery.error as Error).message);
       setIsAuthReady(true);
-      if (authConfig?.optional !== true) {
+      if (authConfig?.optional !== true && !isManualLoginRoute()) {
         navigate(buildLoginRedirectUrl(), { replace: true });
       }
     }
@@ -524,6 +549,8 @@ const AuthContextProvider = ({
       token,
       error,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
       setError,
@@ -548,6 +575,8 @@ const AuthContextProvider = ({
       userRoleName,
       customRole,
       login,
+      passwordLogin,
+      passwordLoginError,
       logout,
       completeAuthentication,
     ],

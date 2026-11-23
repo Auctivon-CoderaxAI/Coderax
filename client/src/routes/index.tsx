@@ -1,6 +1,12 @@
-import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
 import {
-  Login,
+  createBrowserRouter,
+  Navigate,
+  Outlet,
+  useLocation,
+  useOutletContext,
+} from 'react-router-dom';
+import type { TLoginLayoutContext } from '~/common';
+import {
   VerifyEmail,
   Registration,
   ResetPassword,
@@ -13,8 +19,10 @@ import { OAuthSuccess, OAuthError } from '~/components/OAuth';
 import { AuthContextProvider } from '~/hooks/AuthContext';
 import { importWithRecovery } from '~/lib/assets/lazy';
 import RouteErrorBoundary from './RouteErrorBoundary';
+import LandingPage from '~/components/Landing';
 import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
+import Login from '~/components/Auth/Login';
 import LoginLayout from './Layouts/Login';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
@@ -25,18 +33,33 @@ import ChatRoute from './ChatRoute';
 import WorkRoute from './WorkRoute';
 import Search from './Search';
 import Studio from './Studio';
-import LandingPage from '~/components/Landing';
 import Root from './Root';
 
-/** Keep the former login URL as a redirect; only explicit administrator/manual
- * access can open the existing account sign-in form. Never show it by default.
+/**
+ * Keep the former login URL as a passwordless guest entry. `manual=1` is the
+ * explicit escape hatch for an existing account: it renders the ordinary login
+ * form instead of the guest hand-off, so a deployment without guest access can
+ * still be signed into and the e2e setup keeps a deterministic form to fill.
  */
 const LegacyLoginEntry = () => {
   const location = useLocation();
-  if (new URLSearchParams(location.search).get('manual') === '1') {
-    return <Login />;
+  const { startupConfig, startupConfigError } = useOutletContext<TLoginLayoutContext>();
+  const search = new URLSearchParams(location.search);
+  const manual = search.get('manual') === '1';
+  search.delete('manual');
+  if (manual && startupConfig == null && startupConfigError == null) {
+    return null;
   }
-  return <Navigate to={{ pathname: '/connect', search: location.search }} replace />;
+  if (manual && startupConfig?.emailLoginEnabled === true) {
+    return <Login manual />;
+  }
+  const redirectSearch = search.toString();
+  return (
+    <Navigate
+      to={{ pathname: '/connect', search: redirectSearch ? `?${redirectSearch}` : '' }}
+      replace
+    />
+  );
 };
 
 const AuthLayout = () => (

@@ -187,7 +187,7 @@ test.describe('attached stateful code environment', () => {
     const stranger = {
       email: `code-bridge-stranger-${Date.now()}@example.com`,
       name: 'Code Bridge Stranger',
-      password: 'securepassword123',
+      password: `pw-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     };
 
     try {

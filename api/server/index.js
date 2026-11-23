@@ -58,6 +58,7 @@ const {
   getRemainingShutdownMs,
   registerBackgroundTaskShutdown,
   configureServerTimeouts,
+  startOllamaLoopback,
   setupGracefulShutdown,
   updateInterfacePermissions,
   configureMessageFilterRegexValidator,
@@ -246,6 +247,10 @@ const startServer = async () => {
     logger.error('[sweepOrphanedPreviews] Background sweep failed:', err);
   });
   const appConfig = await getAppConfig({ baseOnly: true });
+  await startOllamaLoopback(appConfig?.config?.ollamaLoopback, process.env, (err) => {
+    logger.error('[ollama-loopback] listener failed:', err);
+    process.exit(1);
+  });
   await configureSubagentTaskRouting(appConfig?.endpoints?.agents?.subagentActivity);
   registerBackgroundTaskShutdown({
     interruptGraceMs: appConfig?.endpoints?.agents?.backgroundTasks?.shutdownInterruptGraceMs,
@@ -292,11 +297,18 @@ const startServer = async () => {
    * startup checks have applied `rateLimits` from coderax.yaml. */
   const routes = require('./routes');
 
+  /* `SERVE_CLIENT=false` runs the API without a built client. A dev frontend (Vite)
+   * serves the shell and proxies /api here, so the API must not need a placeholder
+   * client/dist/index.html to boot. */
+  const clientShellEnabled = process.env.SERVE_CLIENT !== 'false';
   const indexPath = path.join(appConfig.paths.dist, 'index.html');
   const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);
-  let indexHTML = clientShellAvailable ? fs.readFileSync(indexPath, 'utf8') : '';
+  const serveClientShell = clientShellEnabled && clientShellAvailable;
+  let indexHTML = serveClientShell ? fs.readFileSync(indexPath, 'utf8') : '';
 
-  if (!clientShellAvailable) {
+  if (!clientShellEnabled) {
+    logger.info('SERVE_CLIENT=false: serving API routes only; non-API requests return 404.');
+  } else if (!clientShellAvailable) {
     logger.warn(
       'Vercel backend service has no client shell; non-API requests are handled by the frontend service.',
     );
@@ -304,7 +316,7 @@ const startServer = async () => {
 
   // In order to provide support to serving the application in a sub-directory
   // We need to update the base href if the DOMAIN_CLIENT is specified and not the root path
-  if (clientShellAvailable && process.env.DOMAIN_CLIENT) {
+  if (serveClientShell && process.env.DOMAIN_CLIENT) {
     const clientUrl = new URL(process.env.DOMAIN_CLIENT);
     const baseHref = clientUrl.pathname.endsWith('/')
       ? clientUrl.pathname
@@ -328,7 +340,7 @@ const startServer = async () => {
   const shellCache = shellCacheHeaders(cspPolicy != null);
 
   const sendIndexHtml = (req, res) => {
-    if (!clientShellAvailable) {
+    if (!serveClientShell) {
       return res.status(404).end();
     }
     res.set(shellCache);
@@ -392,7 +404,7 @@ const startServer = async () => {
   }
 
   app.get('/index.html', sendIndexHtml);
-  if (clientShellAvailable) {
+  if (serveClientShell) {
     app.use(staticCache(appConfig.paths.dist));
     app.use(staticCache(appConfig.paths.fonts));
     app.use(staticCache(appConfig.paths.assets));
@@ -571,7 +583,10 @@ const startServer = async () => {
       // bypass their mocked schedule/trigger services. The API route starts it
       // lazily, and production arms it at boot so queued runs recover unattended.
       if (process.env.NODE_ENV !== 'test') {
-        const workflowEngineArmed = initializeWorkflowEngine(appConfig?.workflows);
+        const workflowEngineArmed = initializeWorkflowEngine(
+          appConfig?.workflows,
+          appConfig?.endpoints?.agents?.statefulCodeSessions?.environments,
+        );
         if (!workflowEngineArmed) {
           console.warn('[workflows] engine unavailable; runs remain queued until a later startup');
         }

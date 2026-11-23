@@ -4,6 +4,8 @@ import { QueryKeys, dataService } from 'coderax-data-provider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   CreateWorkflowRequest,
+  StartWorkflowBuildRequest,
+  StartWorkflowBuildResponse,
   StartWorkflowRunRequest,
   StartWorkflowRunResponse,
   UpdateWorkflowRequest,
@@ -55,6 +57,30 @@ export const useCreateWorkflowMutation = () => {
       queryClient.invalidateQueries([QueryKeys.workflows]);
     },
   });
+};
+
+export const useStartWorkflowBuildMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation(
+    (payload: StartWorkflowBuildRequest) => dataService.startWorkflowBuild(payload),
+    {
+      onSuccess: ({ workflow, run }: StartWorkflowBuildResponse) => {
+        // Insert the accepted workflow and its first run immediately so the
+        // existing run panel can open the stream without another list fetch.
+        queryClient.setQueryData<WorkflowListResponse>([QueryKeys.workflows], (current) => ({
+          workflows: [
+            workflow,
+            ...(current?.workflows ?? []).filter((entry) => entry.id !== workflow.id),
+          ],
+        }));
+        queryClient.setQueryData<WorkflowRunListResponse>([QueryKeys.workflowRuns, workflow.id], {
+          runs: [run],
+        });
+        void queryClient.invalidateQueries([QueryKeys.workflows]);
+        void queryClient.invalidateQueries([QueryKeys.workflowRuns, workflow.id]);
+      },
+    },
+  );
 };
 
 export const useUpdateWorkflowMutation = (id: string) => {
