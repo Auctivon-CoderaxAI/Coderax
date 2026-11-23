@@ -1,8 +1,14 @@
 /* eslint-disable i18next/no-literal-string */
-import { useEffect } from 'react';
+import { useEffect, type MouseEventHandler } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
-import { getPostLoginRedirect, persistRedirectToSession, REDIRECT_PARAM } from '~/utils';
+import {
+  clearPostLoginRedirect,
+  getPostLoginRedirect,
+  isSafeRedirect,
+  persistRedirectToSession,
+  REDIRECT_PARAM,
+} from '~/utils';
 import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
 import SocialLoginRender from '~/components/Auth/SocialLoginRender';
 import { getOAuthErrorKey } from '~/components/Auth/oauthError';
@@ -11,31 +17,41 @@ import { useLocalize } from '~/hooks';
 
 /**
  * Entry screen for passwordless guests and password-only owners. When the
- * server advertises password login, the visitor must enter the access password
- * before the workspace opens; a passwordless guest session is not enough.
+ * server advertises password login, only an owner session opens the workspace;
+ * a guest session must not bypass the owner password gate.
  */
 export default function GuestEntry() {
-  const localize = useLocalize();
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
+  const { startupConfig, startupConfigError, isFetching } = useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
-  const passwordLoginEnabled =
-    (startupConfig as { passwordLoginEnabled?: boolean } | null)?.passwordLoginEnabled === true;
+  const localize = useLocalize();
+  const configReady = startupConfig != null && startupConfigError == null && !isFetching;
+  const passwordLoginEnabled = startupConfig?.passwordLoginEnabled === true;
   const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
-  const shouldEnterWorkspace = isAuthenticated && (!passwordLoginEnabled || isOwner);
+  const shouldEnterWorkspace =
+    configReady && isAuthReady && isAuthenticated && (!passwordLoginEnabled || isOwner);
 
   const searchParams = new URLSearchParams(search);
-  const redirectTo = searchParams.get(REDIRECT_PARAM);
   const oauthErrorKey = getOAuthErrorKey(searchParams.get('error'));
-  const showGuestFallback =
-    isAuthReady && !isFetching && !shouldEnterWorkspace && !passwordLoginEnabled;
-
-  useEffect(() => {
-    if (showGuestFallback && redirectTo) {
-      persistRedirectToSession(redirectTo);
+  const prepareSocialSignIn: MouseEventHandler<HTMLAnchorElement> = (event) => {
+    // A modified click opens a separate tab and does not start a handoff in this tab.
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
     }
-  }, [showGuestFallback, redirectTo]);
+    const destination = searchParams.get(REDIRECT_PARAM);
+    if (destination && isSafeRedirect(destination)) {
+      persistRedirectToSession(destination);
+    } else {
+      clearPostLoginRedirect();
+    }
+  };
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
@@ -53,33 +69,40 @@ export default function GuestEntry() {
     );
   }
 
-  if (passwordLoginEnabled) {
+  if (configReady && passwordLoginEnabled) {
     return <PasswordLoginForm />;
   }
 
   return (
     <div role="alert" className="text-text-secondary space-y-4 text-center">
-      {oauthErrorKey ? (
-        <p className="text-text-primary text-lg font-semibold">{localize(oauthErrorKey)}</p>
-      ) : (
+      <p className="text-text-primary text-lg font-semibold">
+        {oauthErrorKey ? localize(oauthErrorKey) : 'Coderax is unavailable'}
+      </p>
+      {configReady ? (
         <>
-          <p className="text-text-primary text-lg font-semibold">Coderax is unavailable</p>
-          <p>
-            We could not establish a guest session with the server. Your workspace is protected; no
-            sign-in is required when guest access is available.
-          </p>
+          {!oauthErrorKey && (
+            <p>
+              We could not establish a guest session with the server. Your workspace is protected;
+              no sign-in is required when guest access is available.
+            </p>
+          )}
+          <SocialLoginRender
+            startupConfig={startupConfig}
+            showPasskey
+            showEmailDivider={false}
+            onSocialSignIn={prepareSocialSignIn}
+          />
         </>
+      ) : (
+        <p>{localize('com_auth_error_login_server')}</p>
       )}
-      <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
-      {!oauthErrorKey && (
-        <button
-          className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
-          type="button"
-          onClick={() => window.location.reload()}
-        >
-          Retry connection
-        </button>
-      )}
+      <button
+        className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
+        type="button"
+        onClick={() => window.location.reload()}
+      >
+        Retry connection
+      </button>
     </div>
   );
 }

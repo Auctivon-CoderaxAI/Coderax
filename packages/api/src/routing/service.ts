@@ -1,7 +1,3 @@
-import type { TFreeInferenceConfig } from 'coderax-data-provider';
-import type { FreeRoutingLimits, FreeRouter } from './router';
-import type { EndpointHealth } from './health';
-import type { QuotaLedger } from './quota';
 import {
   DEFAULT_FREE_INFERENCE_COOLDOWN_MS,
   DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD,
@@ -9,6 +5,10 @@ import {
   DEFAULT_FREE_INFERENCE_MAX_RETRIES,
   DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
 } from 'coderax-data-provider';
+import type { TFreeInferenceConfig } from 'coderax-data-provider';
+import type { FreeRoutingLimits, FreeRouter, FreeRoutingSnapshot } from './router';
+import type { EndpointHealth } from './health';
+import type { QuotaLedger } from './quota';
 import { createFreeRouter, createDisabledRoutingSnapshot } from './router';
 
 /**
@@ -38,6 +38,7 @@ export function resolveFreeRoutingLimits(config: FreeInferenceConfigLike): FreeR
 
 export type FreeRouterDeps = {
   endpoints?: Parameters<typeof createFreeRouter>[0]['endpoints'];
+  credentialEnvNames?: readonly string[];
   now?: () => number;
   health?: EndpointHealth;
   quota?: QuotaLedger;
@@ -65,7 +66,8 @@ export function getFreeRouterForConfig(
   deps: FreeRouterDeps = {},
 ): FreeRouter {
   const limits = resolveFreeRoutingLimits(config);
-  const key = JSON.stringify(limits);
+  const credentialEnvNames = [...(deps.credentialEnvNames ?? [])].sort();
+  const key = JSON.stringify({ limits, credentialEnvNames });
   const existing = routers.get(key);
   if (existing) {
     return existing;
@@ -76,6 +78,6 @@ export function getFreeRouterForConfig(
 }
 
 /** The snapshot a deployment without hosted routing reports. */
-export function disabledRoutingSnapshot() {
+export function disabledRoutingSnapshot(): FreeRoutingSnapshot {
   return createDisabledRoutingSnapshot();
 }

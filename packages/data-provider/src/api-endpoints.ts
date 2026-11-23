@@ -501,6 +501,7 @@ export const workflows = () => `${BASE_URL}/api/workflows`;
 export const workflow = (id: string) => `${workflows()}/${encodeURIComponent(id)}`;
 export const workflowRuns = (id: string) => `${workflow(id)}/runs`;
 export const workflowTemplates = () => `${workflows()}/templates`;
+export const workflowBuilds = () => `${workflows()}/builds`;
 export const workflowRun = (runId: string) => `${workflows()}/runs/${encodeURIComponent(runId)}`;
 export const approveWorkflowStep = (runId: string) => `${workflowRun(runId)}/approve`;
 export const pauseWorkflowRun = (runId: string) => `${workflowRun(runId)}/pause`;

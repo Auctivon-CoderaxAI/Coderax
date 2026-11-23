@@ -61,6 +61,7 @@ function routerWith(
   const now = () => clock;
   const router = createFreeRouter({
     endpoints,
+    credentialEnvNames: [...new Set(endpoints.map((endpoint) => endpoint.apiKeyEnv))],
     limits: { ...limits, ...overrides },
     now,
   });
@@ -73,6 +74,52 @@ function routerWith(
 }
 
 describe('free route planning', () => {
+  it('enforces the shared provider minute limit and exposes the reset window', async () => {
+    const rateLimitedEndpoints = [primary, fallbackA, fallbackB].map((endpoint) => ({
+      ...endpoint,
+      quotaGroup: 'openrouter-free-account',
+      requestsPerMinuteLimit: 2,
+    }));
+    const { router, advance } = routerWith({}, rateLimitedEndpoints);
+    const stalePlan = router.plan();
+    expect(stalePlan.ok).toBe(true);
+
+    if (!stalePlan.ok) {
+      return;
+    }
+
+    await router.run(stalePlan, async () => ({ ok: true, value: 'synthetic' }));
+    await router.run(stalePlan, async () => ({ ok: true, value: 'synthetic' }));
+    const blocked = await router.run(stalePlan, async () => ({ ok: true, value: 'must-not-run' }));
+    expect(blocked).toMatchObject({
+      ok: false,
+      attempts: 0,
+      errors: expect.arrayContaining(['primary:rate_limit']),
+    });
+
+    const snapshot = router.snapshot();
+    expect(snapshot.endpoints[0]).toMatchObject({
+      available: false,
+      rejectionReason: 'rate_limit',
+      quota: {
+        requestsPerMinuteUsed: 2,
+        requestsPerMinuteLimit: 2,
+        requestsPerMinuteResetAt: Math.ceil(1_000_000 / 60_000) * 60_000,
+      },
+    });
+    expect(router.plan()).toMatchObject({
+      ok: false,
+      rejected: expect.arrayContaining([expect.objectContaining({ reason: 'rate_limit' })]),
+    });
+
+    advance(60_000);
+    expect(router.snapshot().endpoints[0]).toMatchObject({
+      available: true,
+      quota: { requestsPerMinuteUsed: 0, requestsPerMinuteLimit: 2 },
+    });
+    expect(router.plan().ok).toBe(true);
+  });
+
   it('prefers the healthy primary and names it as the active model', () => {
     const { router } = routerWith();
     const plan = router.plan();
@@ -92,7 +139,81 @@ describe('free route planning', () => {
   it('never routes at all while disabled, and says so', () => {
     const { router } = routerWith({ enabled: false });
     expect(router.plan()).toMatchObject({ ok: false, reason: 'disabled' });
-    expect(router.snapshot()).toMatchObject({ enabled: false, activeModel: null });
+    expect(router.snapshot()).toMatchObject({
+      enabled: false,
+      activeModel: null,
+      endpoints: expect.arrayContaining([
+        expect.objectContaining({ available: false, rejectionReason: 'disabled' }),
+      ]),
+    });
+  });
+
+  it('reports Work availability only when healthy, credentialed and $0-policy eligible', () => {
+    const unverified: FreeEndpoint = {
+      ...fallbackA,
+      id: 'unverified-groq',
+      provider: 'groq',
+      apiKeyEnv: 'GROQ_API_KEY',
+      baseURL: 'https://api.groq.com/openai/v1',
+      pricing: {
+        ...fallbackA.pricing,
+        basis: 'free-tier',
+        evidenceUrl: 'https://console.groq.com/docs/billing-faqs',
+      },
+    };
+    const { router } = routerWith({}, [fallbackA, unverified]);
+    const snapshot = router.snapshot();
+    const eligible = snapshot.endpoints.find((endpoint) => endpoint.id === 'fallback-a');
+    const blocked = snapshot.endpoints.find((endpoint) => endpoint.id === 'unverified-groq');
+
+    expect(eligible).toMatchObject({
+      freeEligible: true,
+      credentialPresent: true,
+      healthy: true,
+      tools: true,
+      available: true,
+      rejectionReason: null,
+    });
+    expect(blocked).toMatchObject({
+      freeEligible: false,
+      credentialPresent: true,
+      healthy: true,
+      available: false,
+      rejectionReason: 'billing_plan_unverified',
+    });
+    expect(snapshot.paidRoutesEnabled).toBe(false);
+    expect(JSON.stringify(snapshot)).not.toContain('OPENROUTER_API_KEY=');
+  });
+
+  it('reports text-only, missing-key, cooldown and exhausted-quota rejection reasons', async () => {
+    const textOnly: FreeEndpoint = {
+      ...fallbackA,
+      id: 'text-only',
+      capabilities: { streaming: true, tools: false, reasoning: false },
+    };
+    const missingKey = createFreeRouter({ endpoints: [fallbackA], limits });
+    expect(missingKey.snapshot().endpoints[0]).toMatchObject({
+      available: false,
+      credentialPresent: false,
+      rejectionReason: 'missing_credential',
+    });
+
+    const { router } = routerWith({ maxRequestsPerDay: 1 }, [fallbackA]);
+    const plan = router.plan();
+    await router.run(plan, async () => ({ ok: true, value: 'synthetic' }));
+    expect(router.snapshot().endpoints[0]).toMatchObject({
+      available: false,
+      rejectionReason: 'quota',
+      quota: { requestsUsed: 1, requestsLimit: 1 },
+    });
+
+    const { router: noToolRouter } = routerWith({}, [textOnly]);
+    expect(noToolRouter.snapshot().endpoints[0]).toMatchObject({
+      freeEligible: true,
+      healthy: true,
+      available: false,
+      rejectionReason: 'tools_unavailable',
+    });
   });
 
   it('honours allowFallback: false instead of silently using another provider', () => {
@@ -412,6 +533,7 @@ describe('cooldowns and budgets', () => {
     const health = createEndpointHealth({ cooldownMs: 30_000, failureThreshold: 1, now });
     const router = createFreeRouter({
       endpoints: [primary, fallbackA],
+      credentialEnvNames: [primary.apiKeyEnv],
       limits,
       now,
       health,
@@ -568,7 +690,12 @@ describe('cooldowns and budgets', () => {
 
   it('rejects a plan when every endpoint is in cooldown', () => {
     const health = createEndpointHealth({ cooldownMs: 60_000, failureThreshold: 1 });
-    const router = createFreeRouter({ endpoints: [primary], limits, health });
+    const router = createFreeRouter({
+      endpoints: [primary],
+      credentialEnvNames: [primary.apiKeyEnv],
+      limits,
+      health,
+    });
     health.recordFailure('primary', 'provider_error');
     expect(router.plan()).toMatchObject({ ok: false, reason: 'free_capacity_exhausted' });
   });

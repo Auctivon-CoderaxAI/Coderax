@@ -52,14 +52,21 @@ function isZeroPrice(value) {
   return value === '0' || value === 0;
 }
 
-function readContent(payload, provider) {
+const PROBE_MAX_TOKENS = 64;
+
+function readGeneratedText(payload, provider) {
   if (payload == null || typeof payload !== 'object') return null;
   if (provider === 'cloudflare') {
     const response = payload.result?.response;
     return typeof response === 'string' && response.trim() !== '' ? response : null;
   }
-  const content = payload.choices?.[0]?.message?.content;
-  return typeof content === 'string' && content.trim() !== '' ? content : null;
+  const message = payload.choices?.[0]?.message;
+  if (message == null || typeof message !== 'object') return null;
+  for (const field of ['content', 'reasoning', 'reasoning_content']) {
+    const value = message[field];
+    if (typeof value === 'string' && value.trim() !== '') return value;
+  }
+  return null;
 }
 
 function errorCodeFor(status) {
@@ -142,11 +149,14 @@ async function probe(endpoint) {
       : `${endpoint.baseURL.replace(/\/$/, '')}/chat/completions`;
   const body =
     endpoint.provider === 'cloudflare'
-      ? { messages: [{ role: 'user', content: 'Reply with the single word OK.' }], max_tokens: 8 }
+      ? {
+          messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
+          max_tokens: PROBE_MAX_TOKENS,
+        }
       : {
           model: endpoint.modelId,
           messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
-          max_tokens: 8,
+          max_tokens: PROBE_MAX_TOKENS,
           stream: false,
         };
 
@@ -173,7 +183,7 @@ async function probe(endpoint) {
       };
     }
     const payload = await response.json();
-    if (!readContent(payload, endpoint.provider)) {
+    if (!readGeneratedText(payload, endpoint.provider)) {
       return {
         ...base,
         status: 'failed',

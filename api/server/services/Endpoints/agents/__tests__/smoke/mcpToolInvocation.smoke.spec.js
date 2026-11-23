@@ -1,45 +1,33 @@
-jest.mock('@librechat/agents/langchain/tools', () => ({ tool: jest.fn() }), { virtual: true });
-jest.mock('@librechat/agents', () => ({ Providers: {}, Constants: {} }), { virtual: true });
-jest.mock(
-  '@coderax/data-schemas',
-  () => ({
-    logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
-    getTenantId: jest.fn(),
-  }),
-  { virtual: true },
-);
-jest.mock(
-  'coderax-data-provider',
-  () => ({
-    Constants: { mcp_delimiter: '_mcp_' },
-    Permissions: { USE: 'USE' },
-    PermissionTypes: { MCP_SERVERS: 'MCP_SERVERS' },
-    Time: {},
-    CacheKeys: {},
-    resolveMCPAppsPolicy: jest.fn(),
-  }),
-  { virtual: true },
-);
-jest.mock(
-  '@coderax/api',
-  () => ({
-    checkAccessWithRequestCache: jest.fn(),
-    resolveMCPClientCapabilityProfile: jest.fn(() => 'default-profile'),
-    splitMCPToolKey: jest.fn((key) => key.split('_mcp_')),
-    normalizeServerName: jest.fn((name) => name),
-    stripServerNamePrefix: jest.fn((name) => name),
-    buildServerNameAliases: jest.fn(() => new Map()),
-    requiresEphemeralUserConnection: jest.fn(() => false),
-    getMCPConnectionPoolKey: jest.fn((key) => key),
-    processMCPEnv: jest.fn(({ options }) => options),
-    isUserSourced: jest.fn(() => false),
-    buildMCPDomainValidationConfig: jest.fn((config) => ({ url: config.url })),
-    getServerCustomUserVars: jest.fn(() => ({})),
-    containsGraphTokenPlaceholder: jest.fn(() => false),
-    isMCPDomainAllowed: jest.fn(),
-  }),
-  { virtual: true },
-);
+jest.mock('@librechat/agents/langchain/tools', () => ({ tool: jest.fn() }));
+jest.mock('@librechat/agents', () => ({ Providers: {}, Constants: {} }));
+jest.mock('@coderax/data-schemas', () => ({
+  logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
+  getTenantId: jest.fn(),
+}));
+jest.mock('coderax-data-provider', () => ({
+  Constants: { mcp_delimiter: '_mcp_' },
+  Permissions: { USE: 'USE' },
+  PermissionTypes: { MCP_SERVERS: 'MCP_SERVERS' },
+  Time: {},
+  CacheKeys: {},
+  resolveMCPAppsPolicy: jest.fn(),
+}));
+jest.mock('@coderax/api', () => ({
+  checkAccessWithRequestCache: jest.fn(),
+  resolveMCPClientCapabilityProfile: jest.fn(() => 'default-profile'),
+  splitMCPToolKey: jest.fn((key) => key.split('_mcp_')),
+  normalizeServerName: jest.fn((name) => name),
+  stripServerNamePrefix: jest.fn((name) => name),
+  buildServerNameAliases: jest.fn(() => new Map()),
+  requiresEphemeralUserConnection: jest.fn(() => false),
+  getMCPConnectionPoolKey: jest.fn((key) => key),
+  processMCPEnv: jest.fn(({ options }) => options),
+  isUserSourced: jest.fn(() => false),
+  buildMCPDomainValidationConfig: jest.fn((config) => ({ url: config.url })),
+  getServerCustomUserVars: jest.fn(() => ({})),
+  containsGraphTokenPlaceholder: jest.fn(() => false),
+  isMCPDomainAllowed: jest.fn(),
+}));
 jest.mock('~/config', () => ({
   getOAuthReconnectionManager: jest.fn(),
   getMCPServersRegistry: jest.fn(),
@@ -51,7 +39,9 @@ jest.mock('~/cache', () => ({ getLogStores: jest.fn() }));
 jest.mock('~/server/services/GraphTokenService', () => ({ getGraphApiToken: jest.fn() }));
 jest.mock('~/server/services/OboTokenService', () => ({ exchangeOboToken: jest.fn() }));
 jest.mock('~/server/services/OboPolicyService', () => ({ createOboTrustChecker: jest.fn() }));
-jest.mock('~/server/services/OpenIDSessionRefresh', () => ({ createOpenIDSessionTokenProvider: jest.fn() }));
+jest.mock('~/server/services/OpenIDSessionRefresh', () => ({
+  createOpenIDSessionTokenProvider: jest.fn(),
+}));
 jest.mock('~/server/services/Tools/mcp', () => ({ reinitMCPServer: jest.fn() }));
 jest.mock('~/server/services/MCPAuthorizationFenceRetry', () => ({
   clearMCPAuthorizationFenceRetry: jest.fn(),
@@ -125,7 +115,9 @@ describe('MCP tool-invocation (MCP.js)', () => {
       ['allowed.example'],
       ['127.0.0.1:3000'],
     );
-    expect(logger.warn).toHaveBeenCalledWith('[MCP] Domain no longer allowed; skipping tool creation');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[MCP] Domain no longer allowed; skipping tool creation',
+    );
     expect(getMCPServersRegistry).not.toHaveBeenCalled();
     expect(getMCPManager).not.toHaveBeenCalled();
   });

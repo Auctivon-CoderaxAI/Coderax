@@ -1,5 +1,3 @@
-# Enable required code-owner reviews in dev/main branch rules to enforce this.
-/.github/CODEOWNERS @danny-avila
-/.github/workflows/ @danny-avila
-/.github/scripts/ @danny-avila
-/.github/MAIN_PROMOTION.md @danny-avila
+# Sole code owner for the whole repository, including .github/workflows/.
+# Enable "Require review from Code Owners" on the main branch rule to enforce it.
+* @nnabdelshahid

@@ -1,8 +1,8 @@
-import type { ConversationMode } from './mode';
+import type { StoredConversationMode } from './mode';
 import { useConversationMode } from './mode';
 
 type ConversationModeNavProps = {
-  active?: ConversationMode;
+  active?: StoredConversationMode;
   labels: {
     ariaLabel: string;
     chat: string;
@@ -11,7 +11,7 @@ type ConversationModeNavProps = {
 };
 
 const segmentClassName =
-  'flex min-w-[5.5rem] items-center justify-center rounded-full px-6 py-1.5 text-sm transition-colors';
+  'flex min-w-[5rem] items-center justify-center rounded-full px-6 py-2 text-sm transition-colors';
 const selectedClassName = `${segmentClassName} bg-surface-tertiary text-text-primary shadow-sm`;
 const idleClassName = `${segmentClassName} text-text-secondary hover:text-text-primary`;
 
@@ -21,7 +21,7 @@ export default function ConversationModeNav({ active, labels }: ConversationMode
   return (
     <nav
       aria-label={labels.ariaLabel}
-      className="border-border-light bg-surface-primary-alt flex items-center gap-1 rounded-full border p-1"
+      className="border-border-light bg-surface-primary-alt flex items-center gap-1 rounded-full border p-1 shadow-sm"
     >
       <button
         type="button"
@@ -33,9 +33,9 @@ export default function ConversationModeNav({ active, labels }: ConversationMode
       </button>
       <button
         type="button"
-        onClick={() => setMode('work')}
-        aria-pressed={selected === 'work'}
-        className={selected === 'work' ? selectedClassName : idleClassName}
+        onClick={() => setMode('code')}
+        aria-pressed={selected === 'code' || selected === 'work'}
+        className={selected === 'code' || selected === 'work' ? selectedClassName : idleClassName}
       >
         {labels.work}
       </button>

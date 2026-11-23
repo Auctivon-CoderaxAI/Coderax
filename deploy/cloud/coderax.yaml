@@ -1,8 +1,13 @@
 # This configuration is mounted at /app/coderax.yaml by compose.yaml.
-# The only model comes from Ollama on the REMOTE server's private Docker network.
+# Local inference comes from Ollama on the REMOTE server's private Docker network.
 # Ollama ignores the required nonsecret compatibility apiKey placeholder.
 version: 1.3.17
 cache: true
+# Verified zero-cost OpenRouter models join the Work catalog when the server
+# environment provides an OpenRouter API key. Without that key this is a no-op
+# and Work offers only the local Ollama models.
+freeInference:
+  enabled: true
 endpoints:
   custom:
     - name: Ollama

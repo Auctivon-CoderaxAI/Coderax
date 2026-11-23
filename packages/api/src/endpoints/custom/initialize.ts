@@ -5,6 +5,8 @@ import {
   EModelEndpoint,
   FetchTokenConfig,
   extractEnvVariable,
+  describeFreeInferenceCatalog,
+  isFreeOpenRouterEndpoint,
 } from 'coderax-data-provider';
 import type { TEndpoint } from 'coderax-data-provider';
 import type { AppConfig } from '@coderax/data-schemas';
@@ -15,6 +17,7 @@ import type {
   ProviderInitializeParams,
 } from '~/types';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
+import { buildProviderFallbackOptions } from './providerFallback';
 import { resolveModelTransportTimeouts } from '~/agents/config';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
@@ -178,10 +181,27 @@ function buildAnthropicCustomConfig({
  */
 export async function initializeCustom(
   params: ProviderInitializeParams,
+  freeOpenRouterCredentialPresent = false,
 ): Promise<InitializeResultBase> {
   const { endpoint, model_parameters, db } = params;
   const { appConfig, user, requestBody } = resolveEndpointRuntime(params);
   const { key: expiresAt } = requestBody;
+
+  if (isFreeOpenRouterEndpoint(endpoint)) {
+    const catalog = describeFreeInferenceCatalog(
+      { freeInference: appConfig?.config?.freeInference, endpoints: appConfig?.endpoints },
+      { OPENROUTER_API_KEY: freeOpenRouterCredentialPresent ? 'present' : undefined },
+    );
+    const model = model_parameters?.model;
+    const executable =
+      typeof model === 'string' &&
+      catalog.executableProviders.some(
+        (provider) => provider.name === endpoint && provider.models.includes(model),
+      );
+    if (!executable) {
+      throw new Error('The selected free OpenRouter model is unavailable.');
+    }
+  }
 
   const endpointConfig = getCustomEndpointConfig({
     endpoint,
@@ -302,6 +322,17 @@ export async function initializeCustom(
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
   }
 
+  const providerFallbacks = buildProviderFallbackOptions({
+    endpoint,
+    endpointConfig,
+    config: {
+      providerFallback: appConfig?.config?.providerFallback,
+      endpoints: appConfig?.endpoints,
+    },
+    env: process.env,
+    modelParameters: model_parameters,
+  });
+
   const customOptions = buildCustomOptions(
     endpointConfig,
     appConfig,
@@ -338,6 +369,8 @@ export async function initializeCustom(
     const finalClientOptions = {
       modelOptions,
       ...clientOptions,
+      freeOpenRouterMaxOutputTokens: appConfig?.config?.freeInference?.openRouterMaxOutputTokens,
+      ...(providerFallbacks != null ? { fallbacks: providerFallbacks } : {}),
     };
     // The OpenAI-compatible client requires a nonempty identifier even though
     // local Ollama ignores authorization. This is an internal placeholder,

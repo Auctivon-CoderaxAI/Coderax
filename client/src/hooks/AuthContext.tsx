@@ -35,6 +35,7 @@ import {
   clearRetainedFileDeletions,
   openFileDeletionRetention,
   isRequiredTwoFactorSetupRoute,
+  isManualLoginEntry,
 } from '~/utils';
 import {
   useGetRole,
@@ -77,6 +78,11 @@ const getLoginErrorText = (error: TResError): string | undefined => {
     ? code
     : error?.message;
 };
+
+/** Explicit password sign-in must survive a missing refresh session. */
+const isManualLoginRoute = () =>
+  window.location.pathname === `${apiBaseUrl()}/login` &&
+  new URLSearchParams(window.location.search).get('manual') === '1';
 
 const AuthContextProvider = ({
   authConfig,
@@ -301,6 +307,7 @@ const AuthContextProvider = ({
     if (
       authConfig?.test === true ||
       authConfig?.optional === true ||
+      isManualLoginEntry() ||
       isRequiredTwoFactorSetupRoute() ||
       pathname.startsWith('/login/2fa')
     ) {
@@ -376,7 +383,7 @@ const AuthContextProvider = ({
         return;
       }
       setIsAuthReady(true);
-      // Leave the OAuth error and requested destination intact on the entry routes.
+      // Leave OAuth errors and the requested destination intact on the entry routes.
       if (!isGuestEntryRoute()) {
         navigate(buildLoginRedirectUrl(), { replace: true });
       }
@@ -419,8 +426,12 @@ const AuthContextProvider = ({
               : rawPath;
           const currentUrl = `${strippedPath}${window.location.search}`;
           const fallbackRedirect = isSafeRedirect(currentUrl) ? currentUrl : '/c/new';
-          const redirect =
-            getPostLoginRedirect(new URLSearchParams(window.location.search)) ?? fallbackRedirect;
+          /** The manual form owns the page: navigating to the fallback would replace it
+           *  with the conversation before an existing account can sign in. */
+          const redirect = isManualLoginEntry()
+            ? undefined
+            : (getPostLoginRedirect(new URLSearchParams(window.location.search)) ??
+              fallbackRedirect);
           setUserContext({ user, token, isAuthenticated: true, redirect });
           return;
         }
@@ -429,6 +440,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -445,6 +457,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
+          isManualLoginRoute() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -466,7 +479,7 @@ const AuthContextProvider = ({
       endSessionClientState();
       doSetError((userQuery.error as Error).message);
       setIsAuthReady(true);
-      if (authConfig?.optional !== true) {
+      if (authConfig?.optional !== true && !isManualLoginRoute()) {
         navigate(buildLoginRedirectUrl(), { replace: true });
       }
     }

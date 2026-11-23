@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -15,6 +15,7 @@ import {
   isAgentsEndpoint,
 } from 'coderax-data-provider';
 import type { TPreset, TAgentsMap } from 'coderax-data-provider';
+import type { StoredConversationMode } from '~/components/Chat/mode';
 import {
   defaultSpecAwaitsAgents,
   mergeQuerySettingsWithSpec,
@@ -43,6 +44,11 @@ import {
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
 import {
+  GUEST_WORK_HANDOFF_PARAM,
+  saveGuestWorkHandoffDraft,
+  takeGuestWorkHandoffDraft,
+} from '~/utils/guestWorkHandoff';
+import {
   buildChatModelSources,
   getConfiguredDefaultModel,
   toChatModelPreset,
@@ -61,11 +67,6 @@ import {
 } from '~/hooks';
 import { useWorkOptions, workSelectionFamily } from '~/components/Chat/Input/WorkAgentSelector';
 import { ConversationModeContext, useStoredConversationMode } from '~/components/Chat/mode';
-import {
-  GUEST_WORK_HANDOFF_PARAM,
-  saveGuestWorkHandoffDraft,
-  takeGuestWorkHandoffDraft,
-} from '~/utils/guestWorkHandoff';
 import { createAutomaticChatTransport } from '~/Providers/automaticChatTransport';
 import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ToolCallsMapProvider, useAgentsMapContext } from '~/Providers';
@@ -203,14 +204,14 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         : 'chat',
     forceInitialMode: workMode,
   });
-  const isWorkMode = modeState.mode === 'work';
+  const isWorkMode = modeState.mode === 'code';
   const isGuestSession = user?.provider === 'guest';
   const handoffIdRef = useRef<string | null>(null);
   const [workHandoffDraft, setWorkHandoffDraft] = useState<string | null>(null);
   const clearWorkHandoffDraft = useCallback(() => setWorkHandoffDraft(null), []);
   const setConversationMode = useCallback(
-    (nextMode: 'chat' | 'work') => {
-      if (nextMode === 'work' && isGuestSession) {
+    (nextMode: StoredConversationMode) => {
+      if ((nextMode === 'code' || nextMode === 'work') && isGuestSession) {
         const draftText =
           document.querySelector<HTMLTextAreaElement>('textarea[data-testid="text-input"]')
             ?.value ?? '';
@@ -572,11 +573,12 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   if (ownerSignInRequired) {
     return (
       <div
-        className="flex h-screen items-center justify-center px-6 text-center"
+        className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center"
         aria-live="polite"
         role="status"
       >
-        {localize('com_work_owner_signin_required')}
+        <p>{localize('com_work_owner_signin_required')}</p>
+        <Button onClick={() => setConversationMode('chat')}>{localize('com_ui_chat')}</Button>
       </div>
     );
   }

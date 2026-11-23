@@ -46,8 +46,9 @@ const STATE_ALIASES: Record<string, WorkTaskState> = {
 export type WorkConversation = {
   conversationId: string;
   title?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  /** Mongo returns Dates; history normalizes them at this boundary. */
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   isWork?: boolean;
   workModel?: string;
   workState?: string;
@@ -119,6 +120,14 @@ export function isValidWorkTask(task: unknown): task is string {
   return typeof task === 'string' && task.trim().length > 0 && task.length <= WORK_MAX_TASK_LENGTH;
 }
 
+function toIsoDate(value: string | Date | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 /**
  * Project a persisted conversation into the shape the Work surface renders.
  * `state` wins when the caller has live run state; otherwise the stored state
@@ -132,8 +141,8 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
     id: conversation.conversationId,
     title: conversation.title?.trim() || conversation.conversationId,
     state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
+    createdAt: toIsoDate(conversation.createdAt),
+    updatedAt: toIsoDate(conversation.updatedAt),
     ...(conversation.workModel ? { model: conversation.workModel } : {}),
     ...(conversation.agentId ? { agentId: conversation.agentId } : {}),
   };

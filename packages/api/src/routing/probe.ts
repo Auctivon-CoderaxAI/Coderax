@@ -1,5 +1,5 @@
-import type { FreeEndpoint } from 'coderax-data-provider';
 import { isFullDeepSeekR1 } from 'coderax-data-provider';
+import type { FreeEndpoint } from 'coderax-data-provider';
 
 /**
  * A real, authenticated inference check for one endpoint.
@@ -51,6 +51,7 @@ export type FreeFetch = (
 ) => Promise<FetchResponse>;
 
 const PROBE_PROMPT = 'Reply with the single word OK.';
+const PROBE_MAX_TOKENS = 64;
 
 /** Substitute deployment values into an endpoint URL without keeping them anywhere. */
 export function freeEndpointUrl(endpoint: FreeEndpoint, accountId?: string): string {
@@ -74,7 +75,7 @@ function safeErrorCode(status: number): FreeProbeErrorCode {
   return 'invalid_response';
 }
 
-function readContent(payload: unknown, provider: string): string | null {
+function readGeneratedText(payload: unknown, provider: string): string | null {
   if (payload == null || typeof payload !== 'object') {
     return null;
   }
@@ -99,8 +100,14 @@ function readContent(payload: unknown, provider: string): string | null {
   if (message == null || typeof message !== 'object') {
     return null;
   }
-  const content = (message as Record<string, unknown>).content;
-  return typeof content === 'string' && content.trim() !== '' ? content : null;
+  const fields = message as Record<string, unknown>;
+  for (const field of ['content', 'reasoning', 'reasoning_content']) {
+    const value = fields[field];
+    if (typeof value === 'string' && value.trim() !== '') {
+      return value;
+    }
+  }
+  return null;
 }
 
 function readModelEcho(payload: unknown): string | null {
@@ -150,12 +157,12 @@ export async function probeFreeEndpoint({
     endpoint.provider === 'cloudflare'
       ? JSON.stringify({
           messages: [{ role: 'user', content: PROBE_PROMPT }],
-          max_tokens: 8,
+          max_tokens: PROBE_MAX_TOKENS,
         })
       : JSON.stringify({
           model: endpoint.modelId,
           messages: [{ role: 'user', content: PROBE_PROMPT }],
-          max_tokens: 8,
+          max_tokens: PROBE_MAX_TOKENS,
           stream: false,
         });
 
@@ -180,7 +187,7 @@ export async function probeFreeEndpoint({
       };
     }
     const payload = await response.json();
-    const content = readContent(payload, endpoint.provider);
+    const content = readGeneratedText(payload, endpoint.provider);
     const modelEcho = readModelEcho(payload);
     if (!content) {
       return {

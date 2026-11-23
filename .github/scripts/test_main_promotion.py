@@ -442,8 +442,10 @@ class WorkflowBoundaryTests(unittest.TestCase):
 
     def test_control_plane_is_code_owned(self):
         owners = (ROOT / '.github/CODEOWNERS').read_text()
-        for path in ('/.github/CODEOWNERS', '/.github/workflows/', '/.github/scripts/'):
-            self.assertIn(f'{path} @danny-avila', owners)
+        rules = [line.split() for line in owners.splitlines()
+                 if line.strip() and not line.lstrip().startswith('#')]
+        # The single wildcard covers the control plane without later overrides.
+        self.assertEqual(rules, [['*', '@nnabdelshahid']])
 
 
 if __name__ == '__main__':

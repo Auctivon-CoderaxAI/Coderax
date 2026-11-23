@@ -352,6 +352,25 @@ describe('resolveCodeExecutionWorkspaceContext', () => {
     delete process.env.TEST_CODE_CAPABILITY_TOKEN;
   });
 
+  it('rejects a selected checkout when the turn cannot run stateful code', async () => {
+    await expect(
+      resolveCodeExecutionWorkspaceContext({
+        context: {
+          baseUrl: 'https://bridge.example',
+          codeSessionKey: 'session',
+          executionProfile: 'default',
+          statefulSessions: false,
+        },
+        requestedSelections: [{ environmentId: 'build-machine', workspaceId: 'checkout-1' }],
+        environments,
+        getAppConfig,
+      }),
+    ).rejects.toMatchObject({
+      code: ErrorTypes.CODE_WORKSPACE_UNAVAILABLE,
+      reason: 'invalid',
+    });
+  });
+
   function workspaceStatus(
     workspaces: unknown[],
     statefulWorkspace: boolean = true,
