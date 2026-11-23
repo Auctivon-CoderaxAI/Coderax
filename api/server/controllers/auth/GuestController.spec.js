@@ -2,7 +2,6 @@ const mockCreateUser = jest.fn();
 const mockDeleteUserById = jest.fn();
 const mockSetAuthTokens = jest.fn();
 const mockGetAppConfig = jest.fn();
-const mockCanCreateGuestSession = jest.fn();
 const mockSanitizeUser = jest.fn((user) => ({
   _id: user._id,
   email: user.email,
@@ -13,7 +12,8 @@ const mockLogger = { error: jest.fn() };
 
 jest.mock('@coderax/data-schemas', () => ({ logger: mockLogger }));
 jest.mock('@coderax/api', () => ({
-  canCreateGuestSession: (...args) => mockCanCreateGuestSession(...args),
+  ...jest.requireActual('../../../../packages/api/src/auth/guestAccess'),
+  isEnabled: jest.requireActual('../../../../packages/api/src/utils/common').isEnabled,
   sanitizeUserForAuthResponse: (...args) => mockSanitizeUser(...args),
 }));
 jest.mock('~/models', () => ({
@@ -43,7 +43,6 @@ describe('guestController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCanCreateGuestSession.mockReturnValue(false);
     delete process.env.ENABLE_GUEST_ACCESS;
     delete process.env.PASSWORD_LOGIN_PASSWORD;
     delete process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION;
@@ -84,17 +83,11 @@ describe('guestController', () => {
     const res = response();
     await guestController({}, res);
     expect(res.sendStatus).toHaveBeenCalledWith(404);
-    expect(mockCanCreateGuestSession).toHaveBeenCalledWith({
-      passwordLoginEnabled: true,
-      guestAccessEnabled: 'true',
-      enforceTwoFactorAuthentication: undefined,
-    });
     expect(mockCreateUser).not.toHaveBeenCalled();
   });
 
   it('creates only an expiring USER identity and issues normal tokens', async () => {
     process.env.ENABLE_GUEST_ACCESS = 'true';
-    mockCanCreateGuestSession.mockReturnValue(true);
     const req = { headers: {} };
     const res = response();
     await guestController(req, res);
@@ -124,7 +117,6 @@ describe('guestController', () => {
 
   it('deletes an incomplete guest account if session issuance fails', async () => {
     process.env.ENABLE_GUEST_ACCESS = 'true';
-    mockCanCreateGuestSession.mockReturnValue(true);
     mockSetAuthTokens.mockRejectedValue(new Error('session storage unavailable'));
     const res = response();
     await guestController({}, res);

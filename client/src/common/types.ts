@@ -631,6 +631,7 @@ export interface SwitcherProps {
 export type TLoginLayoutContext = {
   startupConfig: t.TStartupConfig | null;
   startupConfigError: unknown;
+  refetchStartupConfig: () => Promise<unknown>;
   isFetching: boolean;
   error: string | null;
   setError: React.Dispatch<React.SetStateAction<string | null>>;

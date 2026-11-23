@@ -6,6 +6,7 @@ import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
 import SocialLoginRender from '~/components/Auth/SocialLoginRender';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { getPostLoginRedirect } from '~/utils';
+import { useLocalize } from '~/hooks';
 
 /**
  * Entry screen for passwordless guests and password-only owners. When the
@@ -15,7 +16,9 @@ import { getPostLoginRedirect } from '~/utils';
 export default function GuestEntry() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { startupConfig, isFetching } = useOutletContext<TLoginLayoutContext>();
+  const localize = useLocalize();
+  const { startupConfig, isFetching, refetchStartupConfig } =
+    useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
   const startupConfigLoaded = startupConfig !== null;
   const passwordLoginEnabled = startupConfig?.passwordLoginEnabled === true;
@@ -41,7 +44,18 @@ export default function GuestEntry() {
 
   if (!startupConfigLoaded) {
     // Unknown config is not evidence that passwordless guest access is enabled.
-    return <PasswordLoginForm />;
+    return (
+      <div className="space-y-4">
+        <PasswordLoginForm />
+        <button
+          className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
+          type="button"
+          onClick={() => void refetchStartupConfig()}
+        >
+          {localize('com_ui_retry')}
+        </button>
+      </div>
+    );
   }
 
   if (passwordLoginEnabled) {

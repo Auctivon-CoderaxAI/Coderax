@@ -1,11 +1,14 @@
 /* eslint-disable i18next/no-literal-string */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createMemoryRouter, RouterProvider, useOutletContext } from 'react-router-dom';
+import type { TLoginLayoutContext } from '~/common';
 import StartupLayout from '../Startup';
 
+const mockRefetch = jest.fn().mockResolvedValue(undefined);
+
 jest.mock('~/data-provider', () => ({
-  useGetStartupConfig: () => ({ data: null, isFetching: false, error: null }),
+  useGetStartupConfig: () => ({ data: null, isFetching: false, error: null, refetch: mockRefetch }),
 }));
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
@@ -16,6 +19,7 @@ jest.mock('~/utils', () => ({
   getPostLoginRedirect: jest.fn(() => '/work/new'),
   getPostLoginFallback: jest.fn(() => '/c/new'),
   isRequiredTwoFactorSetupRoute: jest.fn(() => false),
+  isManualLoginEntry: jest.fn(() => false),
 }));
 jest.mock('~/components/Auth/AuthLayout', () => ({
   __esModule: true,
@@ -51,12 +55,19 @@ it('redirects an authenticated arrival to the requested destination', async () =
   expect(screen.getByTestId('destination')).toBeInTheDocument();
 });
 
-it('leaves the passwordless entry route to GuestEntry', async () => {
-  const router = renderStartup(
-    '/connect?redirect_to=%2Fwork%2Fnew',
-    <div data-testid="guest-entry">Connecting</div>,
+function ConfigRetry() {
+  const { refetchStartupConfig } = useOutletContext<TLoginLayoutContext>();
+  return (
+    <button type="button" onClick={() => void refetchStartupConfig()}>
+      Retry
+    </button>
   );
+}
+
+it('leaves the guest hand-off to the child route and lets it retry config', async () => {
+  const router = renderStartup('/connect?redirect_to=%2Fwork%2Fnew', <ConfigRetry />);
 
   await waitFor(() => expect(router.state.location.pathname).toBe('/connect'));
-  expect(screen.getByTestId('guest-entry')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  expect(mockRefetch).toHaveBeenCalledTimes(1);
 });

@@ -1,6 +1,6 @@
 /* eslint-disable i18next/no-literal-string */
-import React from 'react';
-import { render, screen } from '@testing-library/react';
+import React, { useState } from 'react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { useAuthContext } from '~/hooks/AuthContext';
 import GuestEntry from '../GuestEntry';
@@ -31,19 +31,32 @@ function renderEntry(
   initialEntry = '/connect',
   startupConfig: Record<string, unknown> | null = {},
   isFetching = false,
+  loadConfig?: () => Promise<Record<string, unknown>>,
 ) {
+  function Layout() {
+    const [config, setConfig] = useState(startupConfig);
+    const [fetching, setFetching] = useState(isFetching);
+    return (
+      <Outlet
+        context={{
+          startupConfig: config === null ? null : { passwordLoginEnabled, ...config },
+          isFetching: fetching,
+          refetchStartupConfig: async () => {
+            setFetching(true);
+            try {
+              setConfig((await loadConfig?.()) ?? null);
+            } finally {
+              setFetching(false);
+            }
+          },
+        }}
+      />
+    );
+  }
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <Outlet
-            context={{
-              startupConfig:
-                startupConfig === null ? null : { passwordLoginEnabled, ...startupConfig },
-              isFetching,
-            }}
-          />
-        ),
+        element: <Layout />,
         children: [
           { path: '/connect', element: <GuestEntry /> },
           { path: '/c/new', element: <div>Chat workspace</div> },
@@ -148,6 +161,25 @@ describe('guest and password entry', () => {
     expect(screen.queryByText('Coderax is unavailable')).not.toBeInTheDocument();
     expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/connect');
+  });
+
+  it('retries failed startup configuration before opening the workspace', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const loadConfig = jest.fn(async () => ({}));
+    const router = renderEntry(
+      false,
+      '/connect?redirect_to=%2Fwork%2Fnew',
+      null,
+      false,
+      loadConfig,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_retry' }));
+    expect(loadConfig).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('Opening Coderax');
+    expect(router.state.location.pathname).toBe('/connect');
+    expect(await screen.findByText('Work workspace')).toBeInTheDocument();
   });
 
   it('waits for startup config before redirecting a passwordless guest', () => {
