@@ -12,11 +12,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # Adds the source-built Freebuff SDK at /opt/freebuff-sdk. Point
+      # Adds the pinned source-built Freebuff SDK at /opt/freebuff-sdk. Point
       # FREEBUFF_SDK_DIR at the trusted checkout that produced dist/index.cjs.
       target: node-freebuff
       additional_contexts:
         freebuff-sdk-src: ${FREEBUFF_SDK_DIR:-../freebuff-main/sdk}
+      args:
+        # Bump with the SDK checkout and the lockfile in docker/freebuff-sdk/.
+        FREEBUFF_SDK_VERSION: ${FREEBUFF_SDK_VERSION:-0.10.7}
     image: coderax:local
     # The image creates this on a fresh data volume; repeat it so an existing
     # volume also has the private Work workspace root.

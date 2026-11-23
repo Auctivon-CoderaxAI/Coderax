@@ -88,12 +88,30 @@ CMD ["node", "api/server/index.js"]
 #     --target node-freebuff -t coderax:freebuff .
 # docker-compose.yml declares that context and targets the stage below.
 FROM node:24.16.0-alpine AS freebuff-sdk
+ARG FREEBUFF_SDK_VERSION=0.10.7
 WORKDIR /opt/freebuff-sdk
 COPY --from=freebuff-sdk-src package.json /opt/freebuff-sdk/package.json
 COPY --from=freebuff-sdk-src dist /opt/freebuff-sdk/dist
+COPY docker/freebuff-sdk/package-lock.json /opt/freebuff-sdk/package-lock.json
 # The bundle externalizes its dependencies, so they are installed here rather
-# than shipped inside dist. No lifecycle scripts are needed on Alpine.
-RUN npm install --omit=dev --no-audit --no-fund --ignore-scripts
+# than shipped inside dist. The Linux production install is pinned by the
+# lockfile in docker/freebuff-sdk/; no lifecycle scripts are needed here.
+RUN set -eu; \
+    test "$(node -p 'require("/opt/freebuff-sdk/package.json").version')" = "$FREEBUFF_SDK_VERSION"; \
+    npm ci --omit=dev --no-audit --no-fund --ignore-scripts; \
+    node -e "const sdk = require('/opt/freebuff-sdk/dist/index.cjs'); for (const name of ['CodebuffClient', 'normalizeByokBaseUrl', 'isUntrustedAgentPublisherError']) { if (typeof sdk[name] !== 'function') throw new Error('Freebuff SDK is missing ' + name); }"
+# The bundled ripgrep is architecture-specific and is staged into a temp file
+# by the SDK; verify the copy that matches this image can actually execute.
+RUN set -eu; \
+    case "$(uname -m)" in \
+      x86_64) rg=x64-linux ;; \
+      aarch64) rg=arm64-linux ;; \
+      *) echo "Unsupported Freebuff ripgrep architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    cp "/opt/freebuff-sdk/dist/vendor/ripgrep/$rg/rg" /tmp/rg; \
+    chmod +x /tmp/rg; \
+    /tmp/rg --version; \
+    rm -f /tmp/rg
 
 # Deployment image: the API plus a self-contained SDK at /opt/freebuff-sdk, so
 # runtime never reads a host checkout. Other builds keep targeting the `node`
