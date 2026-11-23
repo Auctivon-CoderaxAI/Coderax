@@ -60,7 +60,7 @@ ARG VITE_MCP_SANDBOX_URL=
 RUN \
     # React client build with configurable memory
     NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend && \
-    npm prune --production && \
+    npm prune --omit=dev --no-audit && \
     npm cache clean --force
 
 # Optional build metadata surfaced in Settings -> About for support triage.
@@ -88,7 +88,6 @@ CMD ["node", "api/server/index.js"]
 #     --target node-freebuff -t coderax:freebuff .
 # docker-compose.yml declares that context and targets the stage below.
 FROM node:24.16.0-alpine AS freebuff-sdk
-ARG FREEBUFF_SDK_VERSION=0.10.7
 WORKDIR /opt/freebuff-sdk
 COPY --from=freebuff-sdk-src package.json /opt/freebuff-sdk/package.json
 COPY --from=freebuff-sdk-src dist /opt/freebuff-sdk/dist
@@ -96,8 +95,11 @@ COPY docker/freebuff-sdk/package-lock.json /opt/freebuff-sdk/package-lock.json
 # The bundle externalizes its dependencies, so they are installed here rather
 # than shipped inside dist. The Linux production install is pinned by the
 # lockfile in docker/freebuff-sdk/; no lifecycle scripts are needed here.
+# The lockfile pins the SDK version and its production dependency tree. Check
+# the checkout before installing, then verify the public contract the engine
+# requires after the dependencies are available.
 RUN set -eu; \
-    test "$(node -p 'require("/opt/freebuff-sdk/package.json").version')" = "$FREEBUFF_SDK_VERSION"; \
+    node -e "const pkg = require('/opt/freebuff-sdk/package.json'); const lock = require('/opt/freebuff-sdk/package-lock.json'); if (pkg.version !== lock.version) throw new Error('Freebuff SDK version does not match its lockfile: ' + pkg.version + ' != ' + lock.version);"; \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts; \
     node -e "const sdk = require('/opt/freebuff-sdk/dist/index.cjs'); for (const name of ['CodebuffClient', 'normalizeByokBaseUrl', 'isUntrustedAgentPublisherError']) { if (typeof sdk[name] !== 'function') throw new Error('Freebuff SDK is missing ' + name); }"
 # The bundled ripgrep is architecture-specific and is staged into a temp file
