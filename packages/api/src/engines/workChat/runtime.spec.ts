@@ -18,6 +18,7 @@ function fakeRegistry(start: jest.Mock) {
   return {
     start,
     select: jest.fn(),
+    probe: jest.fn(async () => undefined),
     snapshot: () => ({ defaultEngine: 'opencode' as const, engines: [] }),
     arbiter: {},
   } as unknown as EngineRegistryApi;
@@ -149,8 +150,19 @@ describe('EngineWorkChatRuntime', () => {
     expect(runtime.state(scope(conversation))).toBeNull();
   });
 
-  it('reports the registry snapshot', () => {
-    const runtime = new EngineWorkChatRuntime(fakeRegistry(jest.fn()), roots);
-    expect(runtime.snapshot()).toEqual({ defaultEngine: 'opencode', engines: [] });
+  it('waits for readiness before taking the registry snapshot', async () => {
+    const registry = fakeRegistry(jest.fn());
+    const snapshot = jest.spyOn(registry, 'snapshot');
+    let finishProbe!: () => void;
+    jest.spyOn(registry, 'probe').mockReturnValue(
+      new Promise((resolve) => {
+        finishProbe = resolve;
+      }),
+    );
+    const runtime = new EngineWorkChatRuntime(registry, roots);
+    const refreshed = runtime.refreshSnapshot();
+    expect(snapshot).not.toHaveBeenCalled();
+    finishProbe();
+    await expect(refreshed).resolves.toEqual({ defaultEngine: 'opencode', engines: [] });
   });
 });

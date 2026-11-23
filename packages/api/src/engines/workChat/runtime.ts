@@ -1,6 +1,6 @@
 import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
-import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
+import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
@@ -33,6 +33,11 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
 
   snapshot(): EngineStatusSnapshot {
     return this.registry.snapshot();
+  }
+
+  async refreshSnapshot(): Promise<EngineStatusSnapshot> {
+    await this.registry.probe();
+    return this.snapshot();
   }
 
   state(input: RunScope): string | null {
