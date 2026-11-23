@@ -145,4 +145,3 @@ test('trailing commas are read and a comma inside a string survives', () => {
   );
   assert.deepEqual(parsed, { overrides: { a: '^1.0.0' }, note: 'keep, this', packages: {} });
 });
-
