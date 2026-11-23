@@ -1,4 +1,5 @@
 import {
+  assertZeroCostEndpoint,
   describePrimaryStatus,
   FREE_ENDPOINTS,
   FREE_PROVIDER_ALLOWLIST,
@@ -40,7 +41,15 @@ export type FreeRouteRequirements = {
 
 export type FreeRouteRejection = {
   id: string;
-  reason: FreeEndpointRejection | 'cooldown' | 'quota' | 'fallback_disabled';
+  reason:
+    | FreeEndpointRejection
+    | 'cooldown'
+    | 'quota'
+    | 'rate_limit'
+    | 'fallback_disabled'
+    | 'disabled'
+    | 'missing_credential'
+    | 'tools_unavailable';
 };
 
 export type FreeRoutePlan =
@@ -79,7 +88,13 @@ export type FreeEndpointStatus = {
   modelId: string;
   label: string;
   kind: 'primary' | 'fallback';
+  /** Pricing and provider policy are verified and allowlisted for $0 use. */
+  freeEligible: boolean;
+  /** Credential presence only; no credential value is ever returned. */
+  credentialPresent: boolean;
+  healthy: boolean;
   available: boolean;
+  rejectionReason: FreeRouteRejection['reason'] | null;
   cooldownUntil: number | null;
   tools: boolean;
   quota: {
@@ -88,6 +103,9 @@ export type FreeEndpointStatus = {
     tokensUsed: number;
     tokensLimit: number;
     resetAt: number;
+    requestsPerMinuteUsed: number | null;
+    requestsPerMinuteLimit: number | null;
+    requestsPerMinuteResetAt: number | null;
   };
 };
 
@@ -129,17 +147,21 @@ export type FreeRouter = {
 
 export function createFreeRouter({
   endpoints = FREE_ENDPOINTS,
+  credentialEnvNames = [],
   limits,
   now = Date.now,
   health,
   quota,
 }: {
   endpoints?: readonly FreeEndpoint[];
+  /** Present server environment variable names only. */
+  credentialEnvNames?: readonly string[];
   limits: FreeRoutingLimits;
   now?: () => number;
   health?: EndpointHealth;
   quota?: QuotaLedger;
 }): FreeRouter {
+  const configuredCredentials = new Set(credentialEnvNames);
   const tracker =
     health ??
     createEndpointHealth({
@@ -156,9 +178,97 @@ export function createFreeRouter({
       },
       now,
     });
+  const minuteRequests = new Map<string, { windowStart: number; requests: number }>();
   const primary = describePrimaryStatus(endpoints);
   // Bind tool requirements to plans issued by this router, not caller-editable fields.
   const issuedToolRequirements = new WeakMap<FreeRoutePlan, boolean>();
+
+  function quotaKey(endpoint: FreeEndpoint): string {
+    return endpoint.quotaGroup ?? endpoint.id;
+  }
+
+  function quotaFor(endpoint: FreeEndpoint) {
+    const quotaSnapshot = ledger.snapshot(quotaKey(endpoint));
+    const minuteQuota = minuteQuotaFor(endpoint);
+    return {
+      ...quotaSnapshot,
+      requestsLimit:
+        endpoint.dailyRequestLimit == null
+          ? quotaSnapshot.requestsLimit
+          : Math.min(quotaSnapshot.requestsLimit, endpoint.dailyRequestLimit),
+      requestsPerMinuteUsed: minuteQuota.requestsUsed,
+      requestsPerMinuteLimit: minuteQuota.requestsLimit,
+      requestsPerMinuteResetAt: minuteQuota.resetAt,
+    };
+  }
+
+  function minuteQuotaFor(endpoint: FreeEndpoint) {
+    const requestsLimit = endpoint.requestsPerMinuteLimit;
+    if (requestsLimit == null) {
+      return { requestsUsed: null, requestsLimit: null, resetAt: null, windowStart: null };
+    }
+    const windowStart = Math.floor(now() / 60_000) * 60_000;
+    const existing = minuteRequests.get(quotaKey(endpoint));
+    return {
+      requestsUsed: existing?.windowStart === windowStart ? existing.requests : 0,
+      requestsLimit,
+      resetAt: windowStart + 60_000,
+      windowStart,
+    };
+  }
+
+  function reserveMinuteRequest(endpoint: FreeEndpoint, windowStart: number | null): void {
+    if (windowStart == null) {
+      return;
+    }
+    const key = quotaKey(endpoint);
+    const existing = minuteRequests.get(key);
+    const requests = existing?.windowStart === windowStart ? existing.requests : 0;
+    minuteRequests.set(key, { windowStart, requests: requests + 1 });
+  }
+
+  function rejectionFor(
+    endpoint: FreeEndpoint,
+    requireTools: boolean,
+    estimatedTokens: number,
+  ): FreeRouteRejection['reason'] | null {
+    if (!limits.enabled) {
+      return 'disabled';
+    }
+    const policy = assertZeroCostEndpoint(endpoint);
+    if (!policy.ok) {
+      return policy.reason;
+    }
+    if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
+      return 'unknown_provider';
+    }
+    if (endpoint.kind === 'fallback' && !limits.allowFallback) {
+      return 'fallback_disabled';
+    }
+    if (!configuredCredentials.has(endpoint.apiKeyEnv)) {
+      return 'missing_credential';
+    }
+    if (requireTools && !endpoint.capabilities.tools) {
+      return 'tools_unavailable';
+    }
+    if (!tracker.isAvailable(endpoint.id)) {
+      return 'cooldown';
+    }
+    const remaining = quotaFor(endpoint);
+    if (
+      remaining.requestsUsed + 1 > remaining.requestsLimit ||
+      remaining.tokensUsed + estimatedTokens > remaining.tokensLimit
+    ) {
+      return 'quota';
+    }
+    if (
+      remaining.requestsPerMinuteLimit != null &&
+      remaining.requestsPerMinuteUsed! + 1 > remaining.requestsPerMinuteLimit
+    ) {
+      return 'rate_limit';
+    }
+    return null;
+  }
 
   function plan(requirements: FreeRouteRequirements = {}): FreeRoutePlan {
     if (!limits.enabled) {
@@ -176,37 +286,27 @@ export function createFreeRouter({
       return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
     }
     const requiresTools = requirements.requireTools === true;
-    const selection = selectFreeEndpoints(endpoints, {
-      requireTools: requiresTools,
-    });
-    for (const entry of selection.rejected) {
-      rejected.push({ id: entry.id, reason: entry.reason });
-    }
-
+    const selection = selectFreeEndpoints(endpoints);
+    const rejectedByPolicy = new Map(selection.rejected.map((entry) => [entry.id, entry.reason]));
     const eligible: FreeEndpoint[] = [];
-    for (const endpoint of selection.usable) {
-      if (endpoint.kind === 'fallback' && !limits.allowFallback) {
-        rejected.push({ id: endpoint.id, reason: 'fallback_disabled' });
-        continue;
-      }
-      if (!FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider)) {
-        rejected.push({ id: endpoint.id, reason: 'unknown_provider' });
-        continue;
-      }
-      if (!tracker.isAvailable(endpoint.id)) {
-        rejected.push({ id: endpoint.id, reason: 'cooldown' });
-        continue;
-      }
-      const remaining = ledger.snapshot(endpoint.id);
-      if (
-        remaining.requestsUsed + 1 > remaining.requestsLimit ||
-        remaining.tokensUsed + estimatedTokens > remaining.tokensLimit
-      ) {
-        rejected.push({ id: endpoint.id, reason: 'quota' });
+    for (const endpoint of endpoints) {
+      const reason =
+        rejectedByPolicy.get(endpoint.id) ?? rejectionFor(endpoint, requiresTools, estimatedTokens);
+      if (reason !== null && reason !== undefined) {
+        rejected.push({ id: endpoint.id, reason });
         continue;
       }
       eligible.push(endpoint);
     }
+    eligible.sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind === 'primary' ? -1 : 1;
+      }
+      if (a.routingPriority !== b.routingPriority) {
+        return a.routingPriority - b.routingPriority;
+      }
+      return a.id.localeCompare(b.id);
+    });
 
     if (eligible.length === 0) {
       return { ok: false, reason: 'free_capacity_exhausted', primary, rejected };
@@ -260,6 +360,7 @@ export function createFreeRouter({
       selectFreeEndpoints(endpoints).usable.filter(
         (endpoint) =>
           FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider) &&
+          configuredCredentials.has(endpoint.apiKeyEnv) &&
           (limits.allowFallback || endpoint.kind !== 'fallback') &&
           (!trustedRequireTools || endpoint.capabilities.tools),
       ),
@@ -287,11 +388,30 @@ export function createFreeRouter({
       }
       // Recheck and reserve at execution time: a plan can become stale while
       // another concurrent turn consumes the remaining quota.
-      const reservation = ledger.reserve(endpoint.id, { tokens: routePlan.estimatedTokens });
+      const remaining = quotaFor(endpoint);
+      if (
+        remaining.requestsPerMinuteLimit != null &&
+        remaining.requestsPerMinuteUsed! + 1 > remaining.requestsPerMinuteLimit
+      ) {
+        errors.push(`${endpoint.id}:rate_limit`);
+        continue;
+      }
+      if (remaining.requestsUsed + 1 > remaining.requestsLimit) {
+        errors.push(`${endpoint.id}:request_budget`);
+        continue;
+      }
+      if (remaining.tokensUsed + routePlan.estimatedTokens > remaining.tokensLimit) {
+        errors.push(`${endpoint.id}:token_budget`);
+        continue;
+      }
+      const reservation = ledger.reserve(quotaKey(endpoint), {
+        tokens: routePlan.estimatedTokens,
+      });
       if (!reservation.ok) {
         errors.push(`${endpoint.id}:${reservation.reason}`);
         continue;
       }
+      reserveMinuteRequest(endpoint, minuteQuotaFor(endpoint).windowStart);
 
       attempts += 1;
       let outcome: FreeAttemptOutcome<T>;
@@ -309,7 +429,7 @@ export function createFreeRouter({
         tracker.recordSuccess(endpoint.id);
         if (outcome.tokens != null) {
           ledger.settle(
-            endpoint.id,
+            quotaKey(endpoint),
             outcome.tokens,
             routePlan.estimatedTokens,
             reservation.resetAt,
@@ -320,7 +440,12 @@ export function createFreeRouter({
 
       tracker.recordFailure(endpoint.id, outcome.code);
       if (outcome.tokens != null) {
-        ledger.settle(endpoint.id, outcome.tokens, routePlan.estimatedTokens, reservation.resetAt);
+        ledger.settle(
+          quotaKey(endpoint),
+          outcome.tokens,
+          routePlan.estimatedTokens,
+          reservation.resetAt,
+        );
       }
       errors.push(`${endpoint.id}:${outcome.code}`);
       if (!outcome.retryable) {
@@ -332,7 +457,9 @@ export function createFreeRouter({
   }
 
   function snapshot(): FreeRoutingSnapshot {
-    const current = plan();
+    // This endpoint describes native Work availability, so text-only endpoints
+    // must not appear available even if a non-Work plan could use them.
+    const current = plan({ requireTools: true });
     return {
       enabled: limits.enabled,
       primary,
@@ -345,16 +472,23 @@ export function createFreeRouter({
         : null,
       endpoints: endpoints.map((endpoint) => {
         const healthSnapshot = tracker.snapshot(endpoint.id);
+        const policy = assertZeroCostEndpoint(endpoint);
+        const rejectionReason = rejectionFor(endpoint, true, 0);
+        const endpointQuota = quotaFor(endpoint);
         return {
           id: endpoint.id,
           provider: endpoint.provider,
           modelId: endpoint.modelId,
           label: endpoint.label,
           kind: endpoint.kind,
-          available: limits.enabled && healthSnapshot.available,
+          freeEligible: policy.ok && FREE_PROVIDER_ALLOWLIST.includes(endpoint.provider),
+          credentialPresent: configuredCredentials.has(endpoint.apiKeyEnv),
+          healthy: healthSnapshot.available,
+          available: rejectionReason === null,
+          rejectionReason,
           cooldownUntil: healthSnapshot.cooldownUntil,
           tools: endpoint.capabilities.tools,
-          quota: ledger.snapshot(endpoint.id),
+          quota: endpointQuota,
         };
       }),
       paidRoutesEnabled: false,

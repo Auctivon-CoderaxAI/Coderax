@@ -8,6 +8,8 @@ import type {
   WorkflowRunRecord,
 } from './types';
 import type { TerminalHostActionHandler } from '../stream/GenerationJobManager';
+import type { ConfiguredWorkflowCodeEnvironment } from './config';
+import { validateBuildWorkspaceEnvironment } from './config';
 
 interface WorkflowMessage {
   isCreatedByUser?: boolean;
@@ -344,8 +346,12 @@ export function isWorkflowStepActive(
 
 export interface WorkflowLifecycle {
   getEngine: () => WorkflowEngine;
-  /** Arms the runner; the first caller supplies the deployment configuration. */
-  initialize: (options?: WorkflowEngineOptions) => boolean;
+  /** Arms the runner; the first caller supplies the deployment configuration.
+   *  The configured code environments are checked before the runner starts. */
+  initialize: (
+    options?: WorkflowEngineOptions,
+    environments?: readonly ConfiguredWorkflowCodeEnvironment[],
+  ) => boolean;
   wake: () => void;
 }
 
@@ -371,17 +377,26 @@ export function createWorkflowLifecycle(
     return engine;
   };
 
-  const initialize = (next?: WorkflowEngineOptions): boolean => {
+  const initialize = (
+    next?: WorkflowEngineOptions,
+    environments?: readonly ConfiguredWorkflowCodeEnvironment[],
+  ): boolean => {
     if (next != null) {
       options = next;
     }
     try {
+      validateBuildWorkspaceEnvironment(options, environments);
       initialized = true;
       getEngine().start();
       return true;
     } catch (error) {
       initialized = false;
-      logger.error('[workflows] engine initialization failed', error);
+      logger.error(
+        `[workflows] engine arming failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error,
+      );
       return false;
     }
   };

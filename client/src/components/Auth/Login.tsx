@@ -22,7 +22,7 @@ const oauthErrorKeys: Record<string, TranslationKeys> = {
   [ErrorTypes.AUTH_BANNED]: 'com_auth_error_login_ban',
 };
 
-function Login() {
+function Login({ manual = false }: { manual?: boolean }) {
   const localize = useLocalize();
   const { showToast } = useToastContext();
   const { error, setError, login, isAuthReady } = useAuthContext();
@@ -33,7 +33,6 @@ function Login() {
   const disableAutoRedirect = searchParams.get('redirect') === 'false';
 
   const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
-  const manualSignIn = searchParams.get('manual') === '1';
 
   useEffect(() => {
     const redirectTo = searchParams.get('redirect_to');
@@ -73,6 +72,7 @@ function Login() {
   }, [disableAutoRedirect, searchParams, setSearchParams]);
 
   const shouldAutoRedirect =
+    !manual &&
     startupConfig?.openidLoginEnabled &&
     startupConfig?.openidAutoRedirect &&
     startupConfig?.serverDomain &&
@@ -112,8 +112,9 @@ function Login() {
     );
   }
 
-  if (!manualSignIn && !isAuthReady) {
+  if (!isAuthReady) {
     return (
+      // eslint-disable-next-line i18next/no-literal-string
       <div className="text-text-secondary py-6 text-center" role="status">
         Opening Coderax…
       </div>

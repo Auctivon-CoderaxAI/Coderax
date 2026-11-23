@@ -1,12 +1,20 @@
-import type { EngineLimits } from './types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
-import type { WorkspaceRoots } from './workspace';
-import type { LoadedOpenCodeSdk } from './opencode/sdk';
-import type { OpenCodeTransport } from './opencode/adapter';
 import type { OpenHandsTransport } from './openhands/adapter';
-import { createEngineRegistry } from './registry';
-import { createOpenCodeAdapter } from './opencode/adapter';
+import type { OpenCodeTransport } from './opencode/adapter';
+import type { LoadedFreebuffSdk } from './freebuff/adapter';
+import type { LoadedOpenCodeSdk } from './opencode/sdk';
+import type { WorkspaceRoots } from './workspace';
+import type { EngineLimits } from './types';
+import {
+  isModelAllowedForMode,
+  parseEngineModel,
+  PRIVATE_MODEL_DETAIL,
+  ZERO_COST_MODEL_DETAIL,
+} from './opencode/models';
+import { createFreebuffAdapter, loadFreebuffSdk } from './freebuff/adapter';
 import { createOpenHandsAdapter } from './openhands/adapter';
+import { createOpenCodeAdapter } from './opencode/adapter';
+import { createEngineRegistry } from './registry';
 import { loadOpenCodeSdk } from './opencode/sdk';
 
 /**
@@ -21,10 +29,11 @@ import { loadOpenCodeSdk } from './opencode/sdk';
 export type ExecutionEnginesConfig =
   | {
       engines?: {
-        defaultEngine?: 'opencode' | 'openhands';
+        defaultEngine?: 'opencode' | 'openhands' | 'freebuff';
         workChat?: {
           enabled?: boolean;
-          engine?: 'opencode';
+          engine?: 'opencode' | 'freebuff';
+          mode?: 'private' | 'cloud';
         } | null;
         workspaces?: {
           privateRoot?: string;
@@ -33,12 +42,26 @@ export type ExecutionEnginesConfig =
         opencode?: {
           enabled?: boolean;
           baseURL?: string;
+          model?: string;
           timeoutMs?: number;
         } | null;
         openhands?: {
           enabled?: boolean;
           agentServerUrl?: string;
           timeoutMs?: number;
+        } | null;
+        freebuff?: {
+          enabled?: boolean;
+          /** Absolute path to a source-built Freebuff SDK CommonJS entrypoint. */
+          sdkPath?: string;
+          baseURL?: string;
+          /** Explicitly trusted non-loopback endpoint hostnames. */
+          allowedHosts?: string[];
+          model?: string;
+          minContextTokens?: number;
+          probeTimeoutMs?: number;
+          timeoutMs?: number;
+          maxAgentSteps?: number;
         } | null;
       } | null;
     }
@@ -47,6 +70,10 @@ export type ExecutionEnginesConfig =
 
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_SUMMARY_CHARS = 4_000;
+
+function defaultEngineFor(value: 'opencode' | 'openhands' | 'freebuff' | undefined) {
+  return value === 'openhands' || value === 'freebuff' ? value : 'opencode';
+}
 
 function limitsFor(timeoutMs?: number): EngineLimits {
   return {
@@ -59,6 +86,7 @@ export function createExecutionEngines(
   config: ExecutionEnginesConfig,
   loadSdk: typeof loadOpenCodeSdk = loadOpenCodeSdk,
   openHandsTransport: OpenHandsTransport | null = null,
+  loadFreebuff: typeof loadFreebuffSdk = loadFreebuffSdk,
 ): EngineRegistryApi {
   const engines = config?.engines ?? null;
   const roots: WorkspaceRoots = {
@@ -67,13 +95,21 @@ export function createExecutionEngines(
   };
   const openCode = engines?.opencode ?? null;
   const openHands = engines?.openhands ?? null;
+  const freebuff = engines?.freebuff ?? null;
 
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    if (!openCode.baseURL || !roots.private) {
+    const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
+    const requiredRoot = workMode === 'cloud' ? roots.cloud : roots.private;
+    const model = parseEngineModel(openCode.model);
+    if (!openCode.baseURL || !requiredRoot) {
+      unavailableDetail = `engines.opencode.baseURL and engines.workspaces.${workMode}Root must both be configured.`;
+    } else if (!isModelAllowedForMode(model, workMode)) {
       unavailableDetail =
-        'engines.opencode.baseURL and engines.workspaces.privateRoot must both be configured.';
+        workMode === 'private' && model?.providerId === 'opencode'
+          ? PRIVATE_MODEL_DETAIL
+          : ZERO_COST_MODEL_DETAIL;
     } else {
       const loaded = loadSdk({ baseURL: openCode.baseURL, directory: roots.private });
       if (loaded.ok) {
@@ -81,6 +117,17 @@ export function createExecutionEngines(
       } else {
         unavailableDetail = loaded.error.message;
       }
+    }
+  }
+
+  let loadedFreebuff: LoadedFreebuffSdk | null = null;
+  let freebuffUnavailableDetail: string | undefined;
+  if (freebuff?.enabled === true) {
+    const loaded = loadFreebuff({ sdkPath: freebuff.sdkPath });
+    if (loaded.ok) {
+      loadedFreebuff = loaded.value;
+    } else {
+      freebuffUnavailableDetail = loaded.error.message;
     }
   }
 
@@ -99,10 +146,30 @@ export function createExecutionEngines(
       roots,
       limits: limitsFor(openHands?.timeoutMs),
     }),
+    ...(freebuff?.enabled === true
+      ? {
+          freebuff: createFreebuffAdapter({
+            enabled: true,
+            ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
+            ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
+            model: parseEngineModel(freebuff.model),
+            ...(freebuff.minContextTokens != null
+              ? { minContextTokens: freebuff.minContextTokens }
+              : {}),
+            ...(freebuff.probeTimeoutMs != null ? { probeTimeoutMs: freebuff.probeTimeoutMs } : {}),
+            sdk: loadedFreebuff,
+            ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
+            roots,
+            mode: engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private',
+            limits: limitsFor(freebuff.timeoutMs),
+            maxAgentSteps: freebuff.maxAgentSteps,
+          }),
+        }
+      : {}),
   };
 
   return createEngineRegistry({
-    defaultEngine: engines?.defaultEngine === 'openhands' ? 'openhands' : 'opencode',
+    defaultEngine: defaultEngineFor(engines?.defaultEngine),
     adapters,
   });
 }
@@ -111,8 +178,10 @@ export function createExecutionEngines(
 export function describeExecutionEngines(
   config: ExecutionEnginesConfig,
   loadSdk?: typeof loadOpenCodeSdk,
+  openHandsTransport?: OpenHandsTransport | null,
+  loadFreebuff?: typeof loadFreebuffSdk,
 ): EngineStatusSnapshot {
-  return createExecutionEngines(config, loadSdk).snapshot();
+  return createExecutionEngines(config, loadSdk, openHandsTransport, loadFreebuff).snapshot();
 }
 
 export type LoadedOpenCode = LoadedOpenCodeSdk;

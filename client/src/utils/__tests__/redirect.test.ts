@@ -7,8 +7,37 @@ import {
   peekPostLoginRedirect,
   isSafeRedirect,
   withBasePath,
+  isManualLoginEntry,
   SESSION_KEY,
 } from '../redirect';
+
+describe('isManualLoginEntry', () => {
+  it('recognises the explicit manual form', () => {
+    expect(isManualLoginEntry({ pathname: '/login', search: '?manual=1', basePath: '' })).toBe(
+      true,
+    );
+  });
+
+  it('ignores the guest entry and other login routes', () => {
+    expect(isManualLoginEntry({ pathname: '/login', search: '', basePath: '' })).toBe(false);
+    expect(isManualLoginEntry({ pathname: '/login', search: '?manual=0', basePath: '' })).toBe(
+      false,
+    );
+    expect(isManualLoginEntry({ pathname: '/login/2fa', search: '?manual=1', basePath: '' })).toBe(
+      false,
+    );
+  });
+
+  it('matches under a deployment basename and a trailing slash', () => {
+    expect(
+      isManualLoginEntry({
+        pathname: '/coderax/login/',
+        search: '?manual=1',
+        basePath: '/coderax',
+      }),
+    ).toBe(true);
+  });
+});
 
 describe('withBasePath', () => {
   afterEach(() => {

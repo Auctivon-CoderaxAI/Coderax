@@ -32,6 +32,7 @@ import {
   resolveMCPAppRateLimits,
   resolveMCPAppsPolicy,
   endpointSchema,
+  enginesConfigSchema,
   getConfigDefaults,
   getSchemaDefaults,
   isTwoFactorPolicyProvider,
@@ -91,12 +92,29 @@ describe('config schema defaults', () => {
       allowToolsInFallback: false,
       maxRequestsPerDay: DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
       maxTokensPerDay: DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
+      openRouterMaxOutputTokens: 4096,
       maxRetries: DEFAULT_FREE_INFERENCE_MAX_RETRIES,
       failureThreshold: 2,
       cooldownMs: 60_000,
       requestTimeoutMs: 60_000,
     });
   });
+
+  it('accepts an operator override for the native OpenRouter output ceiling', () => {
+    expect(
+      configSchema.parse({ version: '1.0', freeInference: { openRouterMaxOutputTokens: 8192 } })
+        .freeInference.openRouterMaxOutputTokens,
+    ).toBe(8192);
+  });
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '8192'])(
+    'rejects invalid native OpenRouter output ceiling %p',
+    (openRouterMaxOutputTokens) => {
+      expect(freeInferenceConfigSchema.safeParse({ openRouterMaxOutputTokens }).success).toBe(
+        false,
+      );
+    },
+  );
 
   it('bounds retries and budgets so a bad config cannot retry forever', () => {
     expect(freeInferenceConfigSchema.safeParse({ maxRetries: 4 }).success).toBe(false);
@@ -2855,38 +2873,82 @@ describe('GitHub comparison configuration', () => {
   });
 });
 
-describe('swarm lease config', () => {
-  it('applies the coordinator defaults inside an empty swarm section', () => {
-    expect(
-      configSchema.parse({ version: '1.0', interface: { swarm: {} } }).interface?.swarm,
-    ).toEqual({
-      leaseMs: 30_000,
-      maxAttempts: 3,
-      maxResultChars: 100_000,
+describe('build settlement verification configuration', () => {
+  /** The workflows block requires every runner limit whenever it is present. */
+  const workflows = {
+    concurrency: 4,
+    leaseMs: 30_000,
+    tickMs: 1_000,
+    retryBaseMs: 2_000,
+    retryCapMs: 60_000,
+    stepTimeoutMs: 1_800_000,
+    scheduleConcurrency: 5,
+  };
+
+  const buildVerification = {
+    workspaceRoot: '/srv/builds',
+    workspaceEnvironmentId: 'build-machine',
+    commands: [
+      { gate: 'tests', command: 'npm', args: ['test', '--', '--ci'], timeoutMs: 600_000 },
+      { gate: 'build', command: 'npm', args: ['run', 'build'], label: 'Production build' },
+      { gate: 'security', command: 'npm', args: ['audit', '--omit=dev'] },
+    ],
+    allowedCommands: ['npm', 'node'],
+    requirePullRequest: true,
+    defaultTimeoutMs: 120_000,
+  };
+
+  it('parses every executable gate with its workspace root', () => {
+    const parsed = configSchema.parse({
+      version: '1.0',
+      workflows: { ...workflows, buildVerification },
     });
+
+    expect(parsed.workflows?.buildVerification).toEqual(buildVerification);
   });
 
-  it('accepts bounded deployment overrides', () => {
+  it.each(['lint', 'review'])('rejects a command gate %p that cannot be executed', (gate) => {
+    const result = configSchema.safeParse({
+      version: '1.0',
+      workflows: {
+        ...workflows,
+        buildVerification: {
+          ...buildVerification,
+          commands: [...buildVerification.commands, { gate, command: 'npm' }],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a verifier without a workspace root', () => {
+    const { workspaceRoot: _workspaceRoot, ...unrooted } = buildVerification;
     expect(
-      configSchema.parse({
+      configSchema.safeParse({
         version: '1.0',
-        interface: { swarm: { leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 } },
-      }).interface?.swarm,
-    ).toEqual({ leaseMs: 5_000, maxAttempts: 5, maxResultChars: 200_000 });
+        workflows: { ...workflows, buildVerification: unrooted },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('engines config', () => {
+  it('defaults Freebuff allowed hosts to none', () => {
+    expect(enginesConfigSchema.parse({}).freebuff.allowedHosts).toEqual([]);
   });
 
-  it.each([
-    ['leaseMs', 0],
-    ['leaseMs', 999],
-    ['leaseMs', 600_001],
-    ['maxAttempts', 0],
-    ['maxAttempts', 101],
-    ['maxAttempts', 1.5],
-    ['maxResultChars', 0],
-    ['maxResultChars', 1_000_001],
-  ])('rejects an invalid %s value', (key, value) => {
+  it('trims Freebuff allowed hosts and bounds the list', () => {
+    const parsed = enginesConfigSchema.parse({
+      freebuff: { enabled: true, allowedHosts: [' host.docker.internal ', 'ollama'] },
+    });
+    expect(parsed.freebuff.allowedHosts).toEqual(['host.docker.internal', 'ollama']);
+
+    expect(enginesConfigSchema.safeParse({ freebuff: { allowedHosts: [''] } }).success).toBe(false);
     expect(
-      configSchema.safeParse({ version: '1.0', interface: { swarm: { [key]: value } } }).success,
+      enginesConfigSchema.safeParse({
+        freebuff: { allowedHosts: Array.from({ length: 17 }, (_, index) => `host${index}`) },
+      }).success,
     ).toBe(false);
   });
 });

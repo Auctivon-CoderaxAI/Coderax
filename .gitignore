@@ -11,6 +11,8 @@ logs
 pids
 *.pid
 *.seed
+# Local dev supervisor: recorded PIDs, logs, Mongo data and the workspace-local model
+/.dev/
 .git
 
 # CI/CD data

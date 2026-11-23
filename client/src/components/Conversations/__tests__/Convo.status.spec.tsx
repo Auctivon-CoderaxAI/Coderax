@@ -1,9 +1,14 @@
+import { createContext } from 'react';
 import { DndProvider } from 'react-dnd';
+import { createStore, Provider } from 'jotai';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
+import type { StoredConversationMode } from '~/components/Chat/mode';
+import { getConversationModesAtom } from '~/components/Chat/mode';
 
 let mockIsUnseen = false;
+const mockAuthUserId = createContext('user-1');
 
 jest.mock('@coderax/client', () => ({
   useMediaQuery: () => false,
@@ -21,6 +26,9 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useNavigateToConvo: () => ({ navigateToConvo: jest.fn() }),
   useShiftKey: () => false,
+  useAuthContext: () => ({
+    user: { id: jest.requireActual<typeof import('react')>('react').useContext(mockAuthUserId) },
+  }),
 }));
 
 jest.mock('~/data-provider', () => ({
@@ -75,18 +83,33 @@ const conversation = {
   title: 'Tool Approval UI',
 } as TConversation;
 
-const renderRow = (props: { isGenerating?: boolean; convo?: TConversation } = {}) =>
-  render(
-    <DndProvider backend={HTML5Backend}>
-      <Conversation
-        conversation={props.convo ?? conversation}
-        retainView={jest.fn()}
-        toggleNav={jest.fn()}
-        isGenerating={props.isGenerating}
-        showProjectBadge
-      />
-    </DndProvider>,
+/** Every render gets its own store with the shared modes atom seeded, so a mode
+ *  saved by one test's localStorage write cannot leak into the next one. */
+const renderRow = (
+  props: { isGenerating?: boolean; convo?: TConversation } = {},
+  modes: Record<string, StoredConversationMode> = {},
+) => {
+  const store = createStore();
+  store.set(getConversationModesAtom('user-1'), modes);
+
+  const row = (userId: string) => (
+    <Provider store={store}>
+      <DndProvider backend={HTML5Backend}>
+        <mockAuthUserId.Provider value={userId}>
+          <Conversation
+            conversation={props.convo ?? conversation}
+            retainView={jest.fn()}
+            toggleNav={jest.fn()}
+            isGenerating={props.isGenerating}
+            showProjectBadge
+          />
+        </mockAuthUserId.Provider>
+      </DndProvider>
+    </Provider>
   );
+  const view = render(row('user-1'));
+  return { ...view, store, rerenderRow: (userId: string) => view.rerender(row(userId)) };
+};
 
 const rowButton = () => screen.getByRole('button', { name: /^com_ui_conversation_label/ });
 const unreadDot = (container: HTMLElement) =>
@@ -160,5 +183,54 @@ describe('Conversation row status', () => {
 
     expect(screen.getByTestId('convo-project-badge')).toHaveAttribute('title', 'com_ui_in_project');
     expect(rowButton()).toHaveAccessibleDescription('com_ui_in_project');
+  });
+
+  it('badges a chat the user switched to Work', () => {
+    renderRow({}, { 'convo-1': 'work' });
+
+    expect(screen.getByTestId('convo-mode-badge')).toHaveAttribute('title', 'com_ui_work');
+    expect(rowButton()).toHaveAccessibleDescription('com_ui_work');
+  });
+
+  it('leaves a chat with no saved mode unbadged', () => {
+    renderRow();
+
+    expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
+  });
+
+  it('reacts to mode changes without remounting and retains the project description', () => {
+    const filed = { ...conversation, chatProjectId: 'project-1' } as TConversation;
+    const { store } = renderRow({ convo: filed });
+    const button = rowButton();
+    const modes = getConversationModesAtom('user-1');
+
+    expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
+    expect(button).toHaveAccessibleDescription('com_ui_in_project');
+
+    act(() => store.set(modes, { 'convo-1': 'work' }));
+    expect(rowButton()).toBe(button);
+    expect(screen.getByTestId('convo-mode-badge')).toHaveAttribute('title', 'com_ui_work');
+    expect(button).toHaveAccessibleDescription('com_ui_in_project com_ui_work');
+
+    act(() => store.set(modes, { 'convo-1': 'chat' }));
+    expect(rowButton()).toBe(button);
+    expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
+    expect(button).toHaveAccessibleDescription('com_ui_in_project');
+  });
+
+  it("does not show a different account's saved mode after switching account", () => {
+    const { store, rerenderRow } = renderRow({}, { 'convo-1': 'work' });
+    expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
+
+    act(() => {
+      store.set(getConversationModesAtom('user-2'), {});
+      rerenderRow('user-2');
+    });
+    expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
+
+    act(() => store.set(getConversationModesAtom('user-2'), { 'convo-1': 'work' }));
+    expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
+    act(() => rerenderRow('user-1'));
+    expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
   });
 });

@@ -95,9 +95,9 @@ function containsPrivate(entries: readonly ExportEntry[]): boolean {
 }
 
 function contentOf(entries: readonly ExportEntry[]): string {
-  // Order and separators are part of the hash: an approval covers this exact
-  // payload, so reordering or appending a message invalidates it.
-  return entries.map((entry) => `${entry.source}\u0000${entry.text}`).join('\u0001');
+  // JSON array framing is unambiguous even when message text contains delimiters.
+  // Hash both source and text so an approval cannot be reused for a different payload.
+  return JSON.stringify(entries.map((entry) => [entry.source, entry.text]));
 }
 
 export class ModeBoundary {

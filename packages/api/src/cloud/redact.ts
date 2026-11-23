@@ -40,12 +40,12 @@ const SENSITIVE_ENV = /(API_?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_?KEY)/
 function exactValues(options: ScrubOptions): string[] {
   const values = new Set<string>();
   for (const [name, value] of Object.entries(options.env ?? {})) {
-    if (value && value.length >= 8 && SENSITIVE_ENV.test(name)) {
+    if (value && SENSITIVE_ENV.test(name)) {
       values.add(value);
     }
   }
   for (const value of options.knownSecrets ?? []) {
-    if (value && value.length >= 8) {
+    if (value) {
       values.add(value);
     }
   }

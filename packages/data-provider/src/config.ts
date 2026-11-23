@@ -64,6 +64,7 @@ import { specsConfigSchema, TSpecsConfig } from './models';
 import { fileConfigSchema } from './file-config';
 import { isActionTool } from './types/tools';
 import { apiBaseUrl } from './api-endpoints';
+import { DEFAULT_PROVIDER_FALLBACK_ORDER, PROVIDER_FALLBACK_IDS } from './provider-fallback';
 import { FileSources } from './types/files';
 import { MCPServersSchema } from './mcp';
 export {
@@ -2856,30 +2857,6 @@ export const interfaceSchema = z
         }),
       ])
       .optional(),
-    /** Durable workflow runner limits; omitted fields keep built-in defaults. */
-    workflows: z
-      .object({
-        concurrency: z.number().int().min(1).max(64),
-        leaseMs: z.number().int().min(1_000).max(600_000),
-        tickMs: z.number().int().min(100).max(60_000),
-        retryBaseMs: z.number().int().min(100).max(600_000),
-        retryCapMs: z.number().int().min(100).max(3_600_000),
-        stepTimeoutMs: z
-          .number()
-          .int()
-          .min(10_000)
-          .max(24 * 60 * 60_000),
-        scheduleConcurrency: z.number().int().min(1).max(100),
-      })
-      .optional(),
-    /** Decentralized swarm lease limits; omitted fields keep built-in defaults. */
-    swarm: z
-      .object({
-        leaseMs: z.number().int().min(1_000).max(600_000).default(30_000),
-        maxAttempts: z.number().int().min(1).max(100).default(3),
-        maxResultChars: z.number().int().min(1).max(1_000_000).default(100_000),
-      })
-      .optional(),
     /** Client confirmation window for a steer escalation arm, in milliseconds. */
     steerArmConfirmationTimeoutMs: z
       .number()
@@ -3215,6 +3192,8 @@ export type TStartupConfig = {
   };
   serverDomain: string;
   emailLoginEnabled: boolean;
+  /** Server-checked password-only owner login; the password itself is never exposed. */
+  passwordLoginEnabled?: boolean;
   registrationEnabled: boolean;
   socialLoginEnabled: boolean;
   passwordResetEnabled: boolean;
@@ -3911,6 +3890,8 @@ export const workConfigSchema = z
 
 export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
+export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
+export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Coding-agent execution engines. Both are disabled by default, which keeps the
@@ -3920,7 +3901,7 @@ export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
  */
 export const enginesConfigSchema = z
   .object({
-    defaultEngine: z.enum(['opencode', 'openhands']).default('opencode'),
+    defaultEngine: z.enum(['opencode', 'openhands', 'freebuff']).default('opencode'),
     /** Separate real roots; an engine is confined to the root for its data mode. */
     workspaces: z
       .object({
@@ -3937,7 +3918,9 @@ export const enginesConfigSchema = z
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.literal('opencode').default('opencode'),
+        engine: z.enum(['opencode', 'freebuff']).default('opencode'),
+        /** Private runs use local weights; cloud runs may use free hosted models. */
+        mode: z.enum(['private', 'cloud']).default('private'),
       })
       .prefault({}),
     opencode: z
@@ -3945,6 +3928,11 @@ export const enginesConfigSchema = z
         enabled: z.boolean().default(false),
         /** An existing `opencode serve` endpoint; Coderax never spawns it. */
         baseURL: z.string().trim().url().optional(),
+        /**
+         * Pinned zero-cost model in `provider/model` form. Required when the
+         * engine is enabled so OpenCode never falls back to a paid default.
+         */
+        model: z.string().trim().optional(),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
       })
       .prefault({}),
@@ -3954,6 +3942,45 @@ export const enginesConfigSchema = z
         /** A remote OpenHands Agent Server; the Python runtime is not bundled. */
         agentServerUrl: z.string().trim().url().optional(),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+      })
+      .prefault({}),
+    freebuff: z
+      .object({
+        enabled: z.boolean().default(false),
+        /**
+         * Absolute path to a source-built Freebuff SDK CommonJS entrypoint,
+         * e.g. /srv/freebuff/sdk/dist/index.cjs. Falls back to
+         * FREEBUFF_SDK_PATH, then the published package.
+         */
+        sdkPath: z.string().trim().optional(),
+        /**
+         * OpenAI-compatible loopback endpoint. The pinned SDK rejects plain HTTP
+         * for every other host. Coderax never calls a hosted Freebuff API.
+         */
+        baseURL: z.string().trim().url().optional(),
+        /**
+         * Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+         * only on loopback, so these entries do not make a host available.
+         */
+        allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
+        /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
+        model: z.string().trim().optional(),
+        /** Minimum declared Ollama num_ctx accepted for a Work run. */
+        minContextTokens: z
+          .number()
+          .int()
+          .min(1_024)
+          .max(2_000_000)
+          .default(DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS),
+        /** Bound on the runtime model-presence/context probe. */
+        probeTimeoutMs: z
+          .number()
+          .int()
+          .min(100)
+          .max(30_000)
+          .default(DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS),
+        timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
+        maxAgentSteps: z.number().int().min(1).max(100).default(24),
       })
       .prefault({}),
   })
@@ -3991,6 +4018,7 @@ export type TCloudPowerConfig = z.infer<typeof cloudPowerConfigSchema>;
 
 export const DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY = 200;
 export const DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY = 400_000;
+export const DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS = 4_096;
 export const DEFAULT_FREE_INFERENCE_MAX_RETRIES = 2;
 export const DEFAULT_FREE_INFERENCE_FAILURE_THRESHOLD = 2;
 export const DEFAULT_FREE_INFERENCE_COOLDOWN_MS = 60_000;
@@ -4025,6 +4053,12 @@ export const freeInferenceConfigSchema = z
       .min(1)
       .max(1_000_000_000)
       .default(DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY),
+    /** Maximum output tokens per native free OpenRouter completion. */
+    openRouterMaxOutputTokens: z
+      .number()
+      .int()
+      .positive()
+      .default(DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS),
     /** Extra attempts after the first, so at most `maxRetries + 1` calls per turn. */
     maxRetries: z.number().int().min(0).max(3).default(DEFAULT_FREE_INFERENCE_MAX_RETRIES),
     failureThreshold: z
@@ -4050,15 +4084,129 @@ export const freeInferenceConfigSchema = z
 
 export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
 
+/**
+ * Ordered OpenAI-compatible providers used when the selected provider can no
+ * longer serve a turn. Credentials stay in the named server environment
+ * variables; only the order, models and optional gateway URLs are config.
+ */
+export const providerFallbackConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    order: z
+      .array(z.enum([...PROVIDER_FALLBACK_IDS]))
+      .min(1)
+      .max(PROVIDER_FALLBACK_IDS.length)
+      .default(DEFAULT_PROVIDER_FALLBACK_ORDER)
+      .refine((order) => new Set(order).size === order.length, {
+        message: 'providerFallback.order must not repeat a provider',
+      }),
+    models: z
+      .object({
+        gemini: z.string().trim().min(1).default('gemini-3.5-flash-lite'),
+        cerebras: z.string().trim().min(1).default('gpt-oss-120b'),
+        groq: z.string().trim().min(1).default('openai/gpt-oss-120b'),
+        opencode: z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
+        apinex: z.string().trim().min(1).default('free/deepseek-v4.1-flash'),
+        cloudflare: z.string().trim().min(1).default('@cf/openai/gpt-oss-120b'),
+        vercel: z.string().trim().min(1).default('nvidia/nemotron-3.5-lightning-free'),
+        freeai: z.string().trim().min(1).default('qwen7b'),
+        '100millionseek': z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
+      })
+      .prefault({}),
+    /** Optional OpenAI-compatible gateway roots for any provider. */
+    baseURLs: z
+      .object({
+        gemini: z.string().trim().url().optional(),
+        cerebras: z.string().trim().url().optional(),
+        groq: z.string().trim().url().optional(),
+        opencode: z.string().trim().url().optional(),
+        apinex: z.string().trim().url().optional(),
+        cloudflare: z.string().trim().url().optional(),
+        vercel: z.string().trim().url().optional(),
+        freeai: z.string().trim().url().optional(),
+        '100millionseek': z.string().trim().url().optional(),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+export type TProviderFallbackConfig = z.infer<typeof providerFallbackConfigSchema>;
+
+/** Deployment-local TCP forwarder. Disabled unless the deployment opts in. */
+export const ollamaLoopbackConfigSchema = z.strictObject({
+  enabled: z.boolean().default(false),
+  listenHost: z
+    .string()
+    .trim()
+    .refine(
+      (host) =>
+        host.toLowerCase() === 'localhost' ||
+        host === '::1' ||
+        /^127(?:\.(?:0|[1-9]\d?|1\d{2}|2[0-4]\d|25[0-5])){3}$/.test(host),
+      'The listener host must be a loopback address',
+    )
+    .transform((host) => (host.toLowerCase() === 'localhost' ? '127.0.0.1' : host))
+    .default('127.0.0.1'),
+  listenPort: z.number().int().min(1).max(65_535).default(11_434),
+  upstreamHost: z.string().trim().min(1).default('ollama'),
+  upstreamPort: z.number().int().min(1).max(65_535).default(11_434),
+  connectTimeoutMs: z.number().int().min(1).max(2_147_483_647).default(10_000),
+});
+
 export const configSchema = z.object({
+  ollamaLoopback: ollamaLoopbackConfigSchema.optional(),
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,
   engines: enginesConfigSchema,
   cloudPower: cloudPowerConfigSchema,
   freeInference: freeInferenceConfigSchema,
+  providerFallback: providerFallbackConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
+  /** Durable workflow runner limits; omitted fields keep built-in defaults. */
+  workflows: z
+    .object({
+      concurrency: z.number().int().min(1).max(64),
+      leaseMs: z.number().int().min(1_000).max(600_000),
+      tickMs: z.number().int().min(100).max(60_000),
+      retryBaseMs: z.number().int().min(100).max(600_000),
+      retryCapMs: z.number().int().min(100).max(3_600_000),
+      stepTimeoutMs: z
+        .number()
+        .int()
+        .min(10_000)
+        .max(24 * 60 * 60_000),
+      scheduleConcurrency: z.number().int().min(1).max(100),
+      /** Settlement verification for autonomous build runs. The workspace
+       *  root and argv are deployment policy, never request input, so a build
+       *  plan cannot turn settlement into arbitrary command execution. */
+      buildVerification: z
+        .object({
+          workspaceRoot: z.string().trim().min(1),
+          /** Attached environment that registers each checkout under
+           *  `workspaceRoot` with its directory name as the workspace id. */
+          workspaceEnvironmentId: z.string().trim().min(1),
+          commands: z
+            .array(
+              z.object({
+                gate: z.enum(['tests', 'build', 'security']),
+                command: z.string().trim().min(1).max(256),
+                args: z.array(z.string().max(2_000)).max(50).optional(),
+                cwd: z.string().trim().min(1).optional(),
+                timeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+                label: z.string().trim().min(1).max(256).optional(),
+              }),
+            )
+            .min(1)
+            .max(20),
+          allowedCommands: z.array(z.string().trim().min(1).max(256)).max(64).optional(),
+          requirePullRequest: z.boolean().optional(),
+          defaultTimeoutMs: z.number().int().min(100).max(3_600_000).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   ocr: ocrSchema.optional(),
   webSearch: webSearchSchema.optional(),
   githubCompare: z

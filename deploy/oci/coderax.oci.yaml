@@ -2,6 +2,11 @@
 # Ollama is reachable only on the private Docker model network.
 version: 1.3.17
 cache: true
+# The native Work catalog adds the verified $0 OpenRouter models only when the
+# server environment provides OPENROUTER_API_KEY. Without it, Work offers only
+# the local Ollama models below.
+freeInference:
+  enabled: true
 endpoints:
   custom:
     - name: Ollama

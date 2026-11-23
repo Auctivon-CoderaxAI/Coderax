@@ -11,6 +11,7 @@ import {
   Keyboard,
   LifeBuoy,
   LogOut,
+  RefreshCw,
   Scale,
   ShieldCheck,
 } from 'lucide-react';
@@ -39,6 +40,8 @@ function HelpSubmenu({
   onShowShortcuts: () => void;
 }) {
   const localize = useLocalize();
+  const canCheckForUpdates =
+    typeof window !== 'undefined' && typeof window.coderaxDesktop?.checkForUpdates === 'function';
   const hasHelpFaq = !!helpAndFaqURL && helpAndFaqURL !== '/';
   const hasTos = !!termsOfServiceURL;
   const hasPrivacy = !!privacyPolicyURL;
@@ -68,6 +71,18 @@ function HelpSubmenu({
           >
             <LifeBuoy className="icon-md" aria-hidden="true" />
             {localize('com_nav_help_faq')}
+          </Menu.MenuItem>
+        )}
+        {canCheckForUpdates && (
+          <Menu.MenuItem
+            onClick={() => {
+              const checkForUpdates = window.coderaxDesktop?.checkForUpdates;
+              if (checkForUpdates) void checkForUpdates().catch(() => undefined);
+            }}
+            className="select-item text-sm"
+          >
+            <RefreshCw className="icon-md" aria-hidden="true" />
+            {localize('com_nav_check_for_updates')}
           </Menu.MenuItem>
         )}
         <Menu.MenuItem onClick={onShowShortcuts} className="select-item text-sm">

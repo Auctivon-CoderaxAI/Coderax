@@ -288,10 +288,7 @@ const ChatForm = memo(function ChatForm({
     [conversation?.assistant_id, endpoint, assistantMap, workMode],
   );
   const disableInputs = useMemo(
-    () =>
-      workMode
-        ? !workCanSubmit
-        : requiresKey || invalidAssistant || modelUnavailable,
+    () => (workMode ? !workCanSubmit : requiresKey || invalidAssistant || modelUnavailable),
     [workMode, workCanSubmit, requiresKey, invalidAssistant, modelUnavailable],
   );
 
@@ -842,7 +839,7 @@ const ChatForm = memo(function ChatForm({
            composer overrides both with its own `transition-all`, and a reader who
            asked for less motion gets the new position outright — this one is a
            slide across the page rather than decoration. */
-        'mx-auto flex w-full flex-row gap-3 transition-[max-width,margin-bottom] duration-300 motion-reduce:transition-none sm:px-2',
+        'mx-auto flex w-full flex-row gap-3 px-3 pb-3 transition-[max-width,margin-bottom] duration-300 motion-reduce:transition-none sm:px-2 sm:pb-0',
         maximizeChatSpace ? 'max-w-full' : composerWidthClass,
         bottomClearance,
       )}
@@ -905,10 +902,8 @@ const ChatForm = memo(function ChatForm({
               data-testid="composer-surface"
               onClick={handleContainerClick}
               className={cn(
-                /* The surface runs to the viewport floor below `sm`, where it is
-                   squared off at the bottom (`rounded-t-theme-surface-lg`) and no disclaimer
-                   follows it — so the action row is the last thing in it, with no
-                   band of padding under the buttons. */
+                /* A floating card at every width, so the action row is the last
+                   thing in it and the gutter around it stays visible. */
                 composerShapeClass,
                 'relative flex w-full grow flex-col overflow-hidden',
                 composerSurfaceClasses(),

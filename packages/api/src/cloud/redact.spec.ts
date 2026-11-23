@@ -12,6 +12,16 @@ describe('secret scrubbing', () => {
     expect(result.redactions).toBe(2);
   });
 
+  it('redacts explicitly identified short secrets without relying on a minimum length', () => {
+    const result = scrubSecrets('token=abc; pin=xy', {
+      env: { SERVICE_TOKEN: 'abc' },
+      knownSecrets: ['xy'],
+    });
+    expect(result.text).not.toContain('abc');
+    expect(result.text).not.toContain('xy');
+    expect(result.redactions).toBeGreaterThanOrEqual(2);
+  });
+
   it('keeps unquoted assignments covered', () => {
     const result = scrubSecrets('password = hunter2');
     expect(result.text).toBe('password = [REDACTED]');

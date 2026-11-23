@@ -136,6 +136,27 @@ function stripBasePath(pathname: string, basePath: string): string {
   return pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
 }
 
+/**
+ * `/login?manual=1` is the explicit escape hatch that renders the email form.
+ * Authenticated state changes must not navigate away from it: the post-login
+ * fallback rejects login paths and would replace the form with `/c/new`
+ * before an existing account can sign in.
+ */
+export function isManualLoginEntry(
+  {
+    pathname,
+    search = '',
+    basePath = apiBaseUrl(),
+  }: {
+    pathname: string;
+    search?: string;
+    basePath?: string;
+  } = window.location,
+): boolean {
+  const route = stripBasePath(pathname, basePath).replace(/\/+$/, '');
+  return route === '/login' && new URLSearchParams(search).get('manual') === '1';
+}
+
 export function getPostLoginFallback(
   {
     pathname,

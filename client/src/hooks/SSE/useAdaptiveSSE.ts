@@ -24,7 +24,7 @@ export default function useAdaptiveSSE(
   runIndex = 0,
   forceResumable = false,
 ) {
-  const submissionKey = submission
+  const submissionKey = submission?.userMessage?.messageId
     ? `${submission.userMessage.messageId}:${submission.clientTimestamp ?? ''}`
     : null;
   const transportModeRef = useRef({ submissionKey, forceResumable });

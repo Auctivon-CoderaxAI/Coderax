@@ -2,18 +2,11 @@ const mockCreateUser = jest.fn();
 const mockDeleteUserById = jest.fn();
 const mockSetAuthTokens = jest.fn();
 const mockGetAppConfig = jest.fn();
-const mockSanitizeUser = jest.fn((user) => ({
-  _id: user._id,
-  email: user.email,
-  role: user.role,
-  provider: user.provider,
-}));
 const mockLogger = { error: jest.fn() };
 
-jest.mock('@coderax/data-schemas', () => ({ logger: mockLogger }));
-jest.mock('@coderax/api', () => ({
-  isEnabled: (value) => value === 'true',
-  sanitizeUserForAuthResponse: (...args) => mockSanitizeUser(...args),
+jest.mock('@coderax/data-schemas', () => ({
+  ...jest.requireActual('@coderax/data-schemas'),
+  logger: mockLogger,
 }));
 jest.mock('~/models', () => ({
   createUser: (...args) => mockCreateUser(...args),
@@ -37,11 +30,13 @@ const response = () => ({
 
 describe('guestController', () => {
   const originalGuest = process.env.ENABLE_GUEST_ACCESS;
+  const originalPasswordLogin = process.env.PASSWORD_LOGIN_PASSWORD;
   const originalTwoFactor = process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION;
 
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.ENABLE_GUEST_ACCESS;
+    delete process.env.PASSWORD_LOGIN_PASSWORD;
     delete process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION;
     mockGetAppConfig.mockResolvedValue({ balance: { enabled: false } });
     mockCreateUser.mockImplementation(async (data) => ({ _id: 'isolated-guest-id', ...data }));
@@ -52,6 +47,8 @@ describe('guestController', () => {
   afterAll(() => {
     if (originalGuest === undefined) delete process.env.ENABLE_GUEST_ACCESS;
     else process.env.ENABLE_GUEST_ACCESS = originalGuest;
+    if (originalPasswordLogin === undefined) delete process.env.PASSWORD_LOGIN_PASSWORD;
+    else process.env.PASSWORD_LOGIN_PASSWORD = originalPasswordLogin;
     if (originalTwoFactor === undefined) delete process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION;
     else process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION = originalTwoFactor;
   });
@@ -65,7 +62,16 @@ describe('guestController', () => {
 
   it('does not bypass mandatory two-factor authentication', async () => {
     process.env.ENABLE_GUEST_ACCESS = 'true';
-    process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION = 'true';
+    process.env.ENFORCE_TWO_FACTOR_AUTHENTICATION = ' TRUE ';
+    const res = response();
+    await guestController({}, res);
+    expect(res.sendStatus).toHaveBeenCalledWith(404);
+    expect(mockCreateUser).not.toHaveBeenCalled();
+  });
+
+  it('keeps guest access disabled when an owner password is configured', async () => {
+    process.env.ENABLE_GUEST_ACCESS = 'true';
+    process.env.PASSWORD_LOGIN_PASSWORD = 'test-owner-password-123!';
     const res = response();
     await guestController({}, res);
     expect(res.sendStatus).toHaveBeenCalledWith(404);
@@ -78,14 +84,16 @@ describe('guestController', () => {
     const res = response();
     await guestController(req, res);
     const [data, balance, disableTTL, returnUser] = mockCreateUser.mock.calls[0];
-    expect(data).toEqual(expect.objectContaining({
-      name: 'Guest',
-      role: 'USER',
-      provider: 'guest',
-      emailVerified: true,
-      email: expect.stringMatching(/^guest-[a-f0-9]{32}@guests[.]invalid$/),
-      password: expect.any(String),
-    }));
+    expect(data).toEqual(
+      expect.objectContaining({
+        name: 'Guest',
+        role: 'USER',
+        provider: 'guest',
+        emailVerified: true,
+        email: expect.stringMatching(/^guest-[a-f0-9]{32}@guests[.]invalid$/),
+        password: expect.any(String),
+      }),
+    );
     expect(data.password).not.toBe('issued-session-token');
     expect(balance).toEqual({ enabled: false });
     expect(disableTTL).toBe(false);
@@ -106,8 +114,10 @@ describe('guestController', () => {
     await guestController({}, res);
     expect(mockDeleteUserById).toHaveBeenCalledWith('isolated-guest-id');
     expect(res.status).toHaveBeenCalledWith(503);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      code: 'GUEST_SESSION_UNAVAILABLE',
-    }));
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'GUEST_SESSION_UNAVAILABLE',
+      }),
+    );
   });
 });

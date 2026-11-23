@@ -787,6 +787,10 @@ export type TLoginUser = {
   backupCode?: string;
 };
 
+export type TPasswordLogin = {
+  password: string;
+};
+
 export type TLoginResponse = {
   token?: string;
   user?: TUser;

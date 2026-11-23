@@ -106,16 +106,16 @@ not a substitute for that gate.
 
 This is a **product direction, not a claim of universal production capability**.
 The repository has agent discovery, MCP, subagents, attached code workspaces and
-a workflow engine. The swarm coordination code includes an opt-in, atomic
-compare-and-swap coordinator. A durable Mongo-backed lease repository now lives
-in `packages/data-schemas` with locally executed cross-process claim and fencing
-tests; no runtime constructs a swarm yet, so an explicit permission-scoped
-feature gate and production certification remain incomplete.
+a workflow engine. The swarm coordination layer — an in-process coordinator, a
+Mongo-backed lease repository and its config schema — was removed on 2026-11-20
+because no runtime ever constructed it, so it never shipped a capability. A swarm
+implementation, an explicit permission-scoped feature gate and production
+certification remain incomplete.
 
 | Workstream | Current validation boundary | Tracking |
 | --- | --- | --- |
 | Native Work and CyVox independence | Source changes and focused regressions under review; deployed real-model lifecycle still needs verification | [#92](https://github.com/CoderaxAI/Coderax/issues/92) |
-| Seven multi-agent capabilities | Individual local tests exist, but real multi-agent, external A2A, durable swarm runtime and production behavior are not certified | [#88](https://github.com/CoderaxAI/Coderax/issues/88) |
+| Seven multi-agent capabilities | Individual local tests exist, but real multi-agent, external A2A, swarm runtime (none exists in this tree) and production behavior are not certified | [#88](https://github.com/CoderaxAI/Coderax/issues/88) |
 | CI and real deployed end-to-end checks | GitHub-hosted Actions have been blocked before job steps by an account-level restriction; staging/production certification must not be inferred from tests or previews | [#141](https://github.com/CoderaxAI/Coderax/issues/141) |
 
 ### Verified local checks (2026-11-04)
@@ -123,14 +123,15 @@ feature gate and production certification remain incomplete.
 Run with installed dependencies on `main@1ef8647`: durable lease repository 5/5,
 durable lease adapter 5/5, in-memory lease contract 17/17, Work dependency guards
 18/18, conversation turn saves 24/24, conversation storage 352/352, Work chat
-route 48/48 and Work model projection 8/8. GitHub Actions is still blocked before
-any job step (#141), and `tsc --noEmit` still reports unrelated existing errors,
-so this is not CI or deployment evidence.
+route 48/48 and Work model projection 8/8. The three lease suites counted here
+covered the swarm code removed on 2026-11-20 and no longer exist. GitHub Actions
+is still blocked before any job step (#141), and `tsc --noEmit` still reports
+unrelated existing errors, so this is not CI or deployment evidence.
 
 See [multi-agent certification](docs/MULTI_AGENT_CERTIFICATION.md) for evidence
-and acceptance tests. The Mongo swarm adapter, when present in a release,
-requires an authenticated user/tenant/run scope and a suitable Mongo collection
-with acknowledged atomic writes; its existence alone does not activate a swarm.
+and acceptance tests. No swarm adapter ships in this tree; a future one would
+require an authenticated user/tenant/run scope and a suitable Mongo collection
+with acknowledged atomic writes before it could be enabled.
 For a zero-additional-spend workflow, prefer already-approved local/free
 inference and do not bypass release security checks.
 

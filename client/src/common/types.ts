@@ -500,6 +500,10 @@ export type TResError = {
   message: string;
 };
 
+export type TPasswordLogin = {
+  password: string;
+};
+
 export type TAuthContext = {
   user: t.TUser | undefined;
   token: string | undefined;
@@ -507,6 +511,8 @@ export type TAuthContext = {
   isAuthReady: boolean;
   error: string | undefined;
   login: (data: t.TLoginUser) => void;
+  passwordLogin: (data: TPasswordLogin) => void;
+  passwordLoginError: string | undefined;
   logout: (redirect?: string) => void;
   completeAuthentication: (token: string, user: t.TUser) => void;
   setError: React.Dispatch<React.SetStateAction<string | undefined>>;

@@ -7,7 +7,13 @@ import { createWorkRouter } from './router';
 
 type Stored = WorkConversation & { userId: string };
 
-function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): Application {
+function app(
+  deps: Partial<WorkDeps> & {
+    user?: { id: string } | null;
+    role?: string;
+    workChatEnabled?: boolean;
+  } = {},
+): Application {
   const conversations: Stored[] = [
     { conversationId: 'c-1', title: 'Plan', isWork: true, userId: 'user-a' },
     { conversationId: 'c-2', title: 'Other chat', isWork: false, userId: 'user-a' },
@@ -30,7 +36,15 @@ function app(deps: Partial<WorkDeps> & { user?: { id: string } | null } = {}): A
   server.use(express.json());
   server.use((req, _res, next) => {
     if (deps.user === null) return next();
-    (req as never as { user: { id: string } }).user = deps.user ?? { id: 'user-a' };
+    const user = deps.user ?? { id: 'user-a' };
+    (req as never as { user: { id: string; role?: string } }).user = deps.role
+      ? { ...user, role: deps.role }
+      : user;
+    if (deps.workChatEnabled === true) {
+      (req as never as { config: unknown }).config = {
+        config: { engines: { workChat: { enabled: true } } },
+      };
+    }
     next();
   });
   server.use('/api/work', createWorkRouter(full));
@@ -112,19 +126,82 @@ describe('native Work router', () => {
     ]);
   });
 
-  it('offers the configured default even when it is not marked free', async () => {
+  it('offers an available Freebuff engine as a Work model', async () => {
     const res = await request(
-      app({ configuredDefaultModel: async () => 'openai:gpt-4o' }),
+      app({
+        role: 'ADMIN',
+        workChatEnabled: true,
+        engines: async () => ({
+          defaultEngine: 'freebuff',
+          engines: [
+            {
+              id: 'freebuff',
+              capabilities: {
+                streaming: true,
+                tools: true,
+                cancellation: true,
+                modelSelection: false,
+              },
+              availability: { available: true, reason: 'ready' },
+            },
+          ],
+        }),
+      }),
     ).get('/api/work/models');
+
+    expect(res.status).toBe(200);
+    expect(res.body.models).toContainEqual({
+      id: 'freebuff',
+      label: 'Freebuff',
+      provider: 'freebuff',
+      engine: 'freebuff',
+    });
+  });
+
+  it('surfaces a stable Freebuff readiness reason', async () => {
+    const res = await request(
+      app({
+        engines: async () => ({
+          defaultEngine: 'freebuff',
+          engines: [
+            {
+              id: 'freebuff',
+              capabilities: {
+                streaming: true,
+                tools: true,
+                cancellation: true,
+                modelSelection: false,
+              },
+              availability: {
+                available: false,
+                reason: 'context_too_small',
+                detail: 'The configured local model declares an 8192-token context.',
+              },
+            },
+          ],
+        }),
+      }),
+    ).get('/api/work/engines');
+
+    expect(res.status).toBe(200);
+    expect(res.body.engines[0].availability).toEqual({
+      available: false,
+      reason: 'context_too_small',
+      detail: 'The configured local model declares an 8192-token context.',
+    });
+  });
+
+  it('does not offer an unverified paid configured default', async () => {
+    const res = await request(app({ configuredDefaultModel: async () => 'openai:gpt-4o' })).get(
+      '/api/work/models',
+    );
     expect(res.status).toBe(200);
     expect(res.body.models.map((model: { id: string }) => model.id)).toEqual([
       'auto',
       'llama3:latest',
-      'openai:gpt-4o',
     ]);
     expect(res.body.models[0].target).toMatchObject({
-      id: 'openai:gpt-4o',
-      provider: 'gateway',
+      id: 'llama3:latest',
     });
   });
 
@@ -200,6 +277,27 @@ describe('native Work router', () => {
     expect(res.status).toBe(200);
     expect(res.body.tasks.map((task: { id: string }) => task.id)).toEqual(['c-1']);
     expect(res.body.tasks[0].state).toBe('unknown');
+  });
+
+  it('serves history when stored timestamps are Date objects', async () => {
+    const server = app({
+      listConversations: async () => [
+        {
+          conversationId: 'c-1',
+          title: 'Plan',
+          isWork: true,
+          createdAt: new Date('2026-11-22T16:00:00.000Z'),
+          updatedAt: new Date('2026-11-22T16:01:00.000Z'),
+        },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks[0]).toMatchObject({
+      id: 'c-1',
+      createdAt: '2026-11-22T16:00:00.000Z',
+      updatedAt: '2026-11-22T16:01:00.000Z',
+    });
   });
 
   it('uses live native job state and clears a stale running marker', async () => {
@@ -359,7 +457,7 @@ describe('native Work router', () => {
       { id: 'gpt-4o', provider: 'openAI' },
     ];
 
-    it('offers an agent that runs on the configured paid default', async () => {
+    it('does not offer an agent on the unverified paid configured default', async () => {
       const res = await request(
         app({
           listModels: catalog,
@@ -370,7 +468,7 @@ describe('native Work router', () => {
         }),
       ).get('/api/work/agents');
       expect(res.status).toBe(200);
-      expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual(['paid']);
+      expect(res.body.agents).toEqual([]);
     });
 
     it('offers only agents whose whole graph runs on free or local models', async () => {

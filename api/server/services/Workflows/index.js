@@ -18,6 +18,7 @@ function buildEngine(options) {
     createWorkflowStepResultReader,
     createWorkflowStore,
     createWorkflowTerminalOutcomeHandler,
+    createBuildVerifier,
   } = require('@coderax/api');
   const { enqueueAgentTrigger } = require('~/server/services/Agents/triggers');
   const methods = require('~/models');
@@ -32,11 +33,24 @@ function buildEngine(options) {
   return createWorkflowEngine(
     {
       store: createWorkflowStore(methods),
-      enqueueStep: createWorkflowStepEnqueuer({ enqueueTrigger: enqueueAgentTrigger }),
+      enqueueStep: createWorkflowStepEnqueuer({
+        enqueueTrigger: enqueueAgentTrigger,
+        // Build steps edit the run's reserved checkout, so their turns are
+        // bound to the workspace id that names it on that attached machine.
+        buildWorkspaceEnvironmentId: options?.buildVerification?.workspaceEnvironmentId,
+      }),
       getGeneration: (conversationId) => GenerationJobManager.getJob(conversationId),
       abortGeneration: (conversationId, abortOptions) =>
         abortWorkflowTurn(conversationId, abortOptions?.expectedCreatedAt),
       readStepResult: createWorkflowStepResultReader(methods),
+      // Settlement verification is deployment policy: the workspace, the
+      // attached machine that hosts it and the argv come from config, never
+      // from a build request body. Without it a build run fails closed instead
+      // of settling complete unverified.
+      verifyRun:
+        options?.buildVerification == null
+          ? undefined
+          : createBuildVerifier(options.buildVerification),
       onRunSettled: createWorkflowSettlementHandler({
         methods,
         wake: wakeWorkflowEngine,
@@ -105,9 +119,11 @@ async function handleWorkflowAgentEvent(event) {
   return getEventStarter()(event);
 }
 
-/** Arms the recovery poll with the deployment's configured runner limits. */
-function initializeWorkflowEngine(options) {
-  return getLifecycle().initialize(options);
+/** Arms the recovery poll with the deployment's configured runner limits. The
+ *  configured code environments are checked before the runner starts, so a bad
+ *  build workspace id fails startup instead of every build step later. */
+function initializeWorkflowEngine(options, environments) {
+  return getLifecycle().initialize(options, environments);
 }
 
 function wakeWorkflowEngine() {

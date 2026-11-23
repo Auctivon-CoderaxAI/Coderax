@@ -41,6 +41,7 @@ const {
 const { logoutController } = require('~/server/controllers/auth/LogoutController');
 const { loginController } = require('~/server/controllers/auth/LoginController');
 const { guestController } = require('~/server/controllers/auth/GuestController');
+const { passwordLoginController } = require('~/server/controllers/auth/PasswordLoginController');
 const { findBalanceByUser, upsertBalanceFields } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const middleware = require('~/server/middleware');
@@ -69,6 +70,14 @@ const ldapAuth = !!process.env.LDAP_URL && !!process.env.LDAP_USER_SEARCH_BASE;
 //Local
 // Same-origin only and registration-rate-limited; a guest receives a separate USER session.
 router.post('/guest', middleware.requireSameOrigin, middleware.registerLimiter, guestController);
+router.post(
+  '/password',
+  middleware.logHeaders,
+  middleware.requireSameOrigin,
+  middleware.loginLimiter,
+  middleware.checkBan,
+  passwordLoginController,
+);
 router.post('/logout', middleware.requireJwtAuth, logoutController);
 router.post(
   '/login',

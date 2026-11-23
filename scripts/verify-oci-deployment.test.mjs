@@ -16,7 +16,7 @@ function serviceBlock(source, name) {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line === `  ${name}:`);
   assert.notEqual(start, -1, `missing Compose service ${name}`);
-  const end = lines.findIndex((line, index) => index > start && /^  [a-zA-Z0-9_-]+:$/.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^ {2}[a-zA-Z0-9_-]+:$/.test(line));
   return lines.slice(start, end === -1 ? undefined : end).join('\n');
 }
 
@@ -41,8 +41,16 @@ test('OCI Compose publishes only Caddy and keeps model/app ports private', async
 });
 
 test('Caddy requires the private proxy header and preserves origin and streaming metadata', async () => {
-  const caddy = await read('deploy/oci/Caddyfile');
-  assert.match(caddy, /@unauthorized not header X-Coderax-Proxy-Secret/);
+  const caddy = (await read('deploy/oci/Caddyfile')).replace(/\r\n/g, '\n');
+  assert.match(
+    caddy,
+    /@unauthorized \{[\s\S]*?not header X-Coderax-Proxy-Secret \{\$CODERAX_PROXY_SECRET\}[\s\S]*?not path \/api\/work\/chat\n[\s\S]*?not path \/api\/work\/chat\/\*/,
+  );
+  assert.match(
+    caddy,
+    /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?path \/api\/agents\/chat\/stream\n[\s\S]*?path \/api\/agents\/chat\/stream\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
+  );
+  assert.match(caddy, /header_up Host coderaxai\.vercel\.app/);
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);
   assert.match(caddy, /header_up Host \{http\.request\.header\.X-Forwarded-Host\}/);
   assert.match(caddy, /header_up X-Forwarded-Proto https/);
@@ -53,17 +61,27 @@ test('Caddy requires the private proxy header and preserves origin and streaming
 test('Vercel uses the authenticated proxy for every API and health rewrite', async () => {
   const vercel = JSON.parse(await read('vercel.json'));
   assert.equal(vercel.services.backend.entrypoint, 'api/proxy.js');
-  assert.match(vercel.services.backend.functions['api/proxy.js'].includeFiles, /packages\/api\/dist\/proxy\.cjs/);
+  assert.match(
+    vercel.services.backend.functions['api/proxy.js'].includeFiles,
+    /packages\/api\/dist\/proxy\.cjs/,
+  );
   assert.equal(vercel.services.backend.functions['api/proxy.js'].maxDuration, 300);
   for (const route of ['/api/(.*)', '/oauth/(.*)', '/readyz']) {
-    assert.equal(vercel.rewrites.find((item) => item.source === route)?.destination?.service, 'backend');
+    assert.equal(
+      vercel.rewrites.find((item) => item.source === route)?.destination?.service,
+      'backend',
+    );
   }
 });
 
-test('OCI uses private local Qwen and never opens cloud inference', async () => {
+test('OCI keeps Ollama private and opts native Work into free inference', async () => {
   const config = await read('deploy/oci/coderax.oci.yaml');
   const compose = await read('deploy/oci/compose.yaml');
   const app = serviceBlock(compose, 'app');
+  assert.match(config, /^freeInference:\r?\n {2}enabled: true\r?$/m);
+  assert.doesNotMatch(config, /^\s*(?:OPENROUTER_API_KEY|name: FreeOpenRouter)/m);
+  assert.match(app, /env_file:\s+- \.\/app\.env/);
+  assert.match(app, /CONFIG_PATH: \/app\/deploy\/oci\/coderax\.yaml/);
   assert.match(config, /baseURL: http:\/\/ollama:11434\/v1\//);
   assert.match(config, /qwen3\.5:9b[\s\S]*qwen3\.5:4b/);
   assert.match(app, /\.\/coderax\.oci\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
@@ -73,6 +91,21 @@ test('OCI uses private local Qwen and never opens cloud inference', async () => 
   assert.match(compose, /ENABLE_GUEST_ACCESS: "true"/);
   assert.match(compose, /REGISTER_WINDOW: "60"/);
   assert.match(compose, /REGISTER_MAX: "5"/);
+});
+
+test('OCI documentation names the config its compose file mounts', async () => {
+  const readme = await read('deploy/oci/README.md');
+  assert.match(readme, /deploy\/oci\/coderax\.oci\.yaml/);
+  assert.doesNotMatch(readme, /deploy\/cloud\/coderax\.yaml/);
+});
+
+test('cloud Work offers hosted free models without embedding a key', async () => {
+  const config = await read('deploy/cloud/coderax.yaml');
+  const compose = await read('deploy/cloud/compose.yaml');
+  assert.match(config, /^freeInference:\r?\n {2}enabled: true\r?$/m);
+  assert.doesNotMatch(config, /^\s*(?:OPENROUTER_API_KEY|name: FreeOpenRouter)/m);
+  assert.match(config, /baseURL: http:\/\/ollama:11434\/v1\//);
+  assert.match(compose, /env_file:\s+- \.\.\/\.\.\/\.env/);
 });
 
 test('production image starts Node without depending on pruned dev tools', async () => {
@@ -90,6 +123,8 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
   assert.match(setup, /read_secret JWT_SECRET/);
   assert.match(setup, /read_secret CREDS_KEY/);
+  assert.match(setup, /read_secret OPENROUTER_API_KEY/);
+  assert.match(setup, /OPENROUTER_API_KEY=%s\\n' "\$OPENROUTER_API_KEY" >> app\.env/);
   assert.doesNotMatch(setup, /CREDS_KEY=\$\(openssl rand/);
   assert.match(setup, /openssl rand -hex 32/);
   assert.match(setup, /chmod 600 app\.env origin\.env/);

@@ -33,6 +33,7 @@
  *   Explicit files:
  *     node scripts/static-checks.mts packages/api/src/index.ts
  *
+ * With --against, add --include-worktree to also select local edits and untracked files.
  * Flags: --staged, --full, --fast, --only <ids>, --skip <ids>, --verbose,
  * --list. Check ids: eslint, prettier, imports, eslint-config, json,
  * suppressions, circular-deps, typecheck, config-tests, i18n, depcheck.
@@ -351,6 +352,7 @@ const argv = process.argv.slice(2);
 /** Every accepted flag, so a typo fails loudly instead of changing the run. */
 const KNOWN_FLAGS = new Set([
   '--against',
+  '--include-worktree',
   '--commit',
   '--only',
   '--skip',
@@ -378,6 +380,7 @@ const VALUED_OPTIONS = {
 
 const OPTIONS = {
   against: VALUED_OPTIONS.against,
+  includeWorktree: argv.includes('--include-worktree'),
   commit: VALUED_OPTIONS.commit,
   only: parseList(VALUED_OPTIONS.only),
   skip: parseList(VALUED_OPTIONS.skip),
@@ -573,6 +576,8 @@ function diffPaths(args: string[]): { files: string[]; existing: string[] } {
 }
 
 function resolveTarget(): Target {
+  if (OPTIONS.includeWorktree && !OPTIONS.against) fail('--include-worktree requires --against');
+
   // Precedence would silently drop the losers: `--against origin/dev pkg.json`
   // checked only the file, and paired with --commit the base ref was never even
   // resolved, so a caller could believe a range had been checked.
@@ -640,9 +645,24 @@ function resolveTarget(): Target {
     // Three dots: diff from the merge base, not between the two tips. Once the
     // base branch advances, a two-dot diff reports its commits in reverse as
     // part of this target, activating gates for files the branch never touched.
+    const range = `${OPTIONS.against}...HEAD`;
+    const committed = diffPaths(['diff', '-z', '--name-only', range]);
+    if (!OPTIONS.includeWorktree) return { label: range, ...committed };
+
+    const files = [
+      ...new Set([
+        ...committed.files,
+        ...diffPaths(['diff', '-z', '--cached', '--name-only']).files,
+        ...diffPaths(['diff', '-z', '--name-only']).files,
+        ...captureStdout(GIT, ['ls-files', '-z', '--others', '--exclude-standard'])
+          .split('\0')
+          .filter(Boolean),
+      ]),
+    ];
     return {
-      label: `${OPTIONS.against}...HEAD`,
-      ...diffPaths(['diff', '-z', '--name-only', `${OPTIONS.against}...HEAD`]),
+      label: `${range} plus working-tree changes`,
+      files,
+      existing: files.filter((file) => existsSync(resolve(ROOT, file))),
     };
   }
 

@@ -1,4 +1,7 @@
-jest.mock('~/strategies/openidStrategy');
+jest.mock('~/strategies/openidStrategy', () => ({ getOpenIdConfig: jest.fn() }));
+jest.mock('~/server/utils/openIdClient', () => ({
+  openIdClient: { genericGrantRequest: jest.fn() },
+}));
 jest.mock('~/cache/getLogStores');
 jest.mock('@coderax/data-schemas', () => ({
   ...jest.requireActual('@coderax/data-schemas'),
@@ -9,7 +12,7 @@ jest.mock('@coderax/data-schemas', () => ({
   },
 }));
 
-const client = require('openid-client');
+const { openIdClient: client } = require('~/server/utils/openIdClient');
 const { getOpenIdConfig } = require('~/strategies/openidStrategy');
 const getLogStores = require('~/cache/getLogStores');
 const { exchangeOboToken, __internals } = require('./OboTokenService');

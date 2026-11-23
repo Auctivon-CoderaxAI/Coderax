@@ -4,6 +4,7 @@ import type {
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunTrigger,
+  WorkflowRunVerification,
   WorkflowSettings,
   WorkflowStepCondition,
   WorkflowStepInput,
@@ -98,9 +99,13 @@ export interface IWorkflowRun {
   currentStep: number;
   steps: IWorkflowStepRun[];
   settings?: WorkflowSettings;
+  /** Transient checkout reservation, released when the run reaches a terminal status. */
+  workspaceKey?: string;
   conversationId?: string;
   input?: string;
   trigger?: WorkflowRunTrigger;
+  /** Retained build settlement verdict; absent when the run was never checked. */
+  verification?: WorkflowRunVerification;
   events: IWorkflowRunEvent[];
   /** Workflow ids already traversed by this automatic chain. */
   workflowAncestry?: string[];

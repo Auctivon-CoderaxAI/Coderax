@@ -15,6 +15,7 @@ jest.mock('~/utils', () => ({
   setDocumentTitle: jest.fn(),
   getPostLoginRedirect: jest.fn(() => '/work/new'),
   getPostLoginFallback: jest.fn(() => '/c/new'),
+  isManualLoginEntry: jest.fn(() => false),
   isRequiredTwoFactorSetupRoute: jest.fn(() => false),
 }));
 jest.mock('~/components/Auth/AuthLayout', () => ({
@@ -22,34 +23,41 @@ jest.mock('~/components/Auth/AuthLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-function renderLogin(isGuestSession: boolean) {
+function renderStartup(initialEntry: string, children: React.ReactNode) {
   const router = createMemoryRouter(
     [
       {
         path: '/',
-        element: <StartupLayout isAuthenticated isGuestSession={isGuestSession} />,
+        element: <StartupLayout isAuthenticated />,
         children: [
-          { path: 'login', element: <div data-testid="manual-login">Sign in</div> },
-          { path: 'work/new', element: <div data-testid="work-page">Work</div> },
+          { path: 'login', element: children },
+          { path: 'connect', element: children },
+          { path: 'work/new', element: children },
         ],
       },
     ],
-    { initialEntries: ['/login?manual=1&redirect_to=%2Fwork%2Fnew'] },
+    { initialEntries: [initialEntry] },
   );
   render(<RouterProvider router={router} />);
   return router;
 }
 
-it('keeps manual owner sign-in open for an authenticated guest', async () => {
-  const router = renderLogin(true);
-
-  await waitFor(() => expect(screen.getByTestId('manual-login')).toBeInTheDocument());
-  expect(router.state.location.pathname).toBe('/login');
-});
-
-it('redirects an already-authenticated owner away from the manual login page', async () => {
-  const router = renderLogin(false);
+it('redirects an authenticated arrival to the requested destination', async () => {
+  const router = renderStartup(
+    '/login?redirect_to=%2Fwork%2Fnew',
+    <div data-testid="destination">Destination</div>,
+  );
 
   await waitFor(() => expect(router.state.location.pathname).toBe('/work/new'));
-  expect(screen.getByTestId('work-page')).toBeInTheDocument();
+  expect(screen.getByTestId('destination')).toBeInTheDocument();
+});
+
+it('leaves the passwordless entry route to GuestEntry', async () => {
+  const router = renderStartup(
+    '/connect?redirect_to=%2Fwork%2Fnew',
+    <div data-testid="guest-entry">Connecting</div>,
+  );
+
+  await waitFor(() => expect(router.state.location.pathname).toBe('/connect'));
+  expect(screen.getByTestId('guest-entry')).toBeInTheDocument();
 });

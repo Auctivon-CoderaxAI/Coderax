@@ -9,13 +9,13 @@ import useSideNavLinks from '../useSideNavLinks';
  * permission(s). Each test grants a set of "<type>:<permission>" keys and checks
  * which link ids are produced.
  */
-let granted = new Set<string>();
-let mcpServers: unknown[] = [];
+let mockGranted = new Set<string>();
+let mockMCPServers: unknown[] = [];
 
 jest.mock('~/hooks', () => ({
   useHasAccess: ({ permissionType, permission }: { permissionType: string; permission: string }) =>
-    granted.has(`${permissionType}:${permission}`),
-  useMCPServerManager: () => ({ availableMCPServers: mcpServers }),
+    mockGranted.has(`${permissionType}:${permission}`),
+  useMCPServerManager: () => ({ availableMCPServers: mockMCPServers }),
   useGetAgentsConfig: () => ({ agentsConfig: undefined }),
   useAgentCapabilities: () => ({ skillsEnabled: false }),
 }));
@@ -48,8 +48,8 @@ const renderLinks = (
 
 describe('useSideNavLinks access gating', () => {
   beforeEach(() => {
-    granted = new Set();
-    mcpServers = [];
+    mockGranted = new Set();
+    mockMCPServers = [];
   });
 
   it('registers no gated panels without any permission', () => {
@@ -57,29 +57,29 @@ describe('useSideNavLinks access gating', () => {
   });
 
   it('gates prompts and bookmarks on USE', () => {
-    granted.add(key(PermissionTypes.PROMPTS, Permissions.USE));
-    granted.add(key(PermissionTypes.BOOKMARKS, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.PROMPTS, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.BOOKMARKS, Permissions.USE));
     expect(renderLinks()).toEqual(['prompts', 'bookmarks']);
   });
 
   it('requires both USE and READ for memories', () => {
-    granted.add(key(PermissionTypes.MEMORIES, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.MEMORIES, Permissions.USE));
     expect(renderLinks()).not.toContain('memories');
 
-    granted.add(key(PermissionTypes.MEMORIES, Permissions.READ));
+    mockGranted.add(key(PermissionTypes.MEMORIES, Permissions.READ));
     expect(renderLinks()).toContain('memories');
   });
 
   it('shows the MCP builder with CREATE even when no servers exist', () => {
-    granted.add(key(PermissionTypes.MCP_SERVERS, Permissions.CREATE));
+    mockGranted.add(key(PermissionTypes.MCP_SERVERS, Permissions.CREATE));
     expect(renderLinks()).toContain('mcp-builder');
   });
 
   it('shows the MCP builder with USE only when servers are available', () => {
-    granted.add(key(PermissionTypes.MCP_SERVERS, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.MCP_SERVERS, Permissions.USE));
     expect(renderLinks()).not.toContain('mcp-builder');
 
-    mcpServers = [{ serverName: 'local' }];
+    mockMCPServers = [{ serverName: 'local' }];
     expect(renderLinks()).toContain('mcp-builder');
   });
 
@@ -90,7 +90,7 @@ describe('useSideNavLinks access gating', () => {
     [{ use: false }, false],
     [{}, true],
   ])('schedules config %p with access -> shown: %p', (schedules, shown) => {
-    granted.add(key(PermissionTypes.SCHEDULES, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.SCHEDULES, Permissions.USE));
     expect(renderLinks({ schedules }).includes('schedules')).toBe(shown);
   });
 
@@ -99,7 +99,7 @@ describe('useSideNavLinks access gating', () => {
   });
 
   it('appends hide-panel last when a handler is given', () => {
-    granted.add(key(PermissionTypes.PROMPTS, Permissions.USE));
+    mockGranted.add(key(PermissionTypes.PROMPTS, Permissions.USE));
     const ids = renderLinks({}, { hidePanel: jest.fn() });
     expect(ids[ids.length - 1]).toBe('hide-panel');
   });

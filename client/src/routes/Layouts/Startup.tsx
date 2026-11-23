@@ -7,6 +7,7 @@ import {
   getPostLoginRedirect,
   getPostLoginFallback,
   isRequiredTwoFactorSetupRoute,
+  isManualLoginEntry,
 } from '~/utils';
 import { TranslationKeys, useLocalize } from '~/hooks';
 import { useGetStartupConfig } from '~/data-provider';
@@ -21,13 +22,7 @@ const headerMap: Record<string, TranslationKeys> = {
   '/login/2fa/setup': 'com_auth_two_factor_setup_required',
 };
 
-export default function StartupLayout({
-  isAuthenticated,
-  isGuestSession = false,
-}: {
-  isAuthenticated?: boolean;
-  isGuestSession?: boolean;
-}) {
+export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: boolean }) {
   const [error, setError] = useState<TranslationKeys | null>(null);
   const [headerText, setHeaderText] = useState<TranslationKeys | null>(null);
   const [startupConfig, setStartupConfig] = useState<TStartupConfig | null>(null);
@@ -52,15 +47,16 @@ export default function StartupLayout({
    * destination with `/c/new`. Mandatory enrollment is the one arrival that stays put: the user
    * holding a setup token is authenticated precisely until they enroll, so sending them on would
    * bounce them straight back out of the screen the server is demanding they complete.
-   * An authenticated guest in the explicit manual sign-in flow must also stay so the owner can
-   * replace the isolated guest session.
+   * `/connect` is left to GuestEntry, which owns the guest-session hand-off and its redirect.
    */
   useEffect(() => {
-    const isManualGuestSignIn =
-      isGuestSession &&
-      location.pathname === '/login' &&
-      new URLSearchParams(location.search).get('manual') === '1';
-    if (!isAuthenticated || isRequiredTwoFactorSetupRoute() || isManualGuestSignIn) {
+    const isGuestEntry = location.pathname === '/connect';
+    if (
+      !isAuthenticated ||
+      isRequiredTwoFactorSetupRoute() ||
+      isGuestEntry ||
+      isManualLoginEntry()
+    ) {
       return;
     }
     const destination =
@@ -94,19 +90,19 @@ export default function StartupLayout({
     isFetching,
   };
 
+  let header: string | null = null;
+  if (location.pathname !== '/connect' && location.pathname !== '/login') {
+    if (headerText) {
+      header = localize(headerText);
+    } else {
+      const mappedHeader = headerMap[location.pathname];
+      header = mappedHeader ? localize(mappedHeader) : null;
+    }
+  }
+
   return (
     <AuthLayout
-      header={
-        location.pathname === '/connect' ||
-        (location.pathname === '/login' &&
-          new URLSearchParams(location.search).get('manual') !== '1')
-          ? null
-          : headerText
-            ? localize(headerText)
-            : headerMap[location.pathname]
-              ? localize(headerMap[location.pathname])
-              : null
-      }
+      header={header}
       isFetching={isFetching}
       startupConfig={startupConfig}
       startupConfigError={startupConfigError}

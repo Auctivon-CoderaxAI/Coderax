@@ -52,6 +52,10 @@ export type FreeEndpoint = {
   routingPriority: number;
   /** Optional provider-documented ceilings; absent means the app budget governs. */
   dailyRequestLimit?: number;
+  /** Optional provider-documented request limit over a rolling minute window. */
+  requestsPerMinuteLimit?: number;
+  /** Share one provider-account quota across model aliases when required. */
+  quotaGroup?: string;
   /** A non-zero rate here would make the endpoint chargeable and is rejected. */
   promptCostPerMillion?: number;
   completionCostPerMillion?: number;
@@ -143,6 +147,10 @@ export const DEEPSEEK_R1_PRIMARY: FreePrimaryStatus = {
 };
 
 /** Providers Coderax can prove stay at $0. Anything else is rejected, not disabled. */
+export const FREE_OPENROUTER_NAME = 'FreeOpenRouter';
+export const FREE_OPENROUTER_URL = 'https://openrouter.ai/api/v1';
+export const FREE_OPENROUTER_KEY_REF = '${OPENROUTER_API_KEY}';
+
 export const FREE_PROVIDER_ALLOWLIST: readonly FreeProviderId[] = ['openrouter'];
 
 /**
@@ -157,17 +165,20 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     modelId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     label: 'NVIDIA Nemotron 3 Ultra (free)',
     kind: 'fallback',
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: FREE_OPENROUTER_URL,
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 10,
+    dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
+    quotaGroup: 'openrouter-free-account',
   },
   {
     id: 'groq-gpt-oss-120b',
@@ -194,17 +205,20 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     modelId: 'nvidia/nemotron-3.5-lightning:free',
     label: 'NVIDIA Nemotron 3.5 Lightning (free)',
     kind: 'fallback',
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: FREE_OPENROUTER_URL,
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 30,
+    dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
+    quotaGroup: 'openrouter-free-account',
   },
   {
     id: 'cloudflare-llama-3-3-70b-free',
@@ -213,10 +227,10 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     label: 'Llama 3.3 70B on Workers AI',
     kind: 'fallback',
     baseURL: 'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run',
-    apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
+    apiKeyEnv: 'CLOUDFLARE_TOKEN',
     pricing: {
       basis: 'free-daily-allocation',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://developers.cloudflare.com/workers-ai/platform/pricing/',
       note: 'The daily allocation is free on the Workers Free plan, but the API does not expose the account plan to this router; paid-plan overage cannot be ruled out.',
     },
@@ -230,17 +244,20 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     modelId: 'google/gemma-4-31b-it:free',
     label: 'Google Gemma 4 31B (free)',
     kind: 'fallback',
-    baseURL: 'https://openrouter.ai/api/v1',
+    baseURL: FREE_OPENROUTER_URL,
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 262_144,
     routingPriority: 50,
+    dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
+    quotaGroup: 'openrouter-free-account',
   },
 ];
 
@@ -384,8 +401,8 @@ export type FreeProviderEndpoint = {
 export const FREE_PROVIDER_ENDPOINTS: readonly FreeProviderEndpoint[] = [
   {
     provider: 'openrouter',
-    name: 'FreeOpenRouter',
-    baseURL: 'https://openrouter.ai/api/v1',
+    name: FREE_OPENROUTER_NAME,
+    baseURL: FREE_OPENROUTER_URL,
     label: 'OpenRouter (free)',
   },
 ];
@@ -429,9 +446,37 @@ export const DISABLED_FREE_INFERENCE_CATALOG: FreeInferenceCatalogState = {
 
 type CustomEndpointConfig = {
   name?: unknown;
+  apiKey?: unknown;
   baseURL?: unknown;
-  models?: { default?: unknown } | null;
+  models?: { default?: unknown; fetch?: unknown } | null;
 };
+
+export function isFreeOpenRouterEndpoint(name: unknown): boolean {
+  return typeof name === 'string' && name.toLowerCase() === FREE_OPENROUTER_NAME.toLowerCase();
+}
+
+export function isFreeOpenRouterModel(model: unknown): model is string {
+  return (
+    typeof model === 'string' &&
+    model.endsWith(':free') &&
+    FREE_ENDPOINTS.some(
+      (endpoint) =>
+        endpoint.provider === 'openrouter' &&
+        endpoint.baseURL === FREE_OPENROUTER_URL &&
+        endpoint.modelId === model &&
+        assertZeroCostEndpoint(endpoint).ok,
+    )
+  );
+}
+
+const freeEndpointFields = new Set([
+  'name',
+  'apiKey',
+  'baseURL',
+  'models',
+  'modelDisplayLabel',
+  'titleConvo',
+]);
 
 /**
  * A deployment may already use a reserved free-provider name. Trust that
@@ -451,8 +496,8 @@ function hasCompatibleCustomEndpoint(
     return false;
   }
 
-  const matching = (configured as CustomEndpointConfig[]).filter(
-    (endpoint) => endpoint?.name === provider.name,
+  const matching = (configured as CustomEndpointConfig[]).filter((endpoint) =>
+    isFreeOpenRouterEndpoint(endpoint?.name),
   );
   if (matching.length === 0) {
     return true;
@@ -463,8 +508,13 @@ function hasCompatibleCustomEndpoint(
 
   const [endpoint] = matching;
   return (
+    endpoint.name === provider.name &&
     endpoint.baseURL === provider.baseURL &&
+    endpoint.apiKey === FREE_OPENROUTER_KEY_REF &&
+    Object.keys(endpoint).every((key) => freeEndpointFields.has(key)) &&
+    endpoint.models?.fetch !== true &&
     Array.isArray(endpoint.models?.default) &&
+    endpoint.models.default.every(isFreeOpenRouterModel) &&
     endpoint.models.default.includes(modelId)
   );
 }
@@ -481,7 +531,9 @@ export function describeFreeInferenceCatalog(
   const endpoints = FREE_ENDPOINTS.map((endpoint): FreeInferenceEndpointState => {
     const credentialPresent = Boolean(env?.[endpoint.apiKeyEnv]);
     const policy = assertZeroCostEndpoint(endpoint);
-    const supported = FREE_EXECUTABLE_PROVIDERS.includes(endpoint.provider);
+    const supported =
+      FREE_EXECUTABLE_PROVIDERS.includes(endpoint.provider) &&
+      isFreeOpenRouterModel(endpoint.modelId);
     const providerConfig = FREE_PROVIDER_ENDPOINTS.find(
       (candidate) => candidate.provider === endpoint.provider,
     );
@@ -538,7 +590,7 @@ export function buildFreeInferenceCustomEndpoints(
   apiKey: string;
   modelDisplayLabel: string;
   models: { default: string[] };
-  titleConvo: true;
+  titleConvo: false;
 }> {
   const catalog = describeFreeInferenceCatalog(config, env);
   return catalog.executableProviders.map((group) => {
@@ -553,7 +605,7 @@ export function buildFreeInferenceCustomEndpoints(
       apiKey: '${' + first.apiKeyEnv + '}',
       modelDisplayLabel: meta.label,
       models: { default: group.models },
-      titleConvo: true,
+      titleConvo: false,
     };
   });
 }

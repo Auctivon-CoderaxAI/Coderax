@@ -1,3 +1,4 @@
+import { Providers } from '@librechat/agents';
 import {
   Verbosity,
   EModelEndpoint,
@@ -2218,6 +2219,26 @@ describe('getOpenAIConfig', () => {
         expect(result.llmConfig.maxTokens).toBe(500);
       });
     });
+  });
+});
+
+describe('provider fallbacks', () => {
+  it('forwards fallback provider client options into the model configuration', () => {
+    const fallbacks = [
+      {
+        provider: Providers.OPENAI,
+        clientOptions: {
+          model: 'gpt-oss-120b',
+          apiKey: 'fallback-key',
+          configuration: { baseURL: 'https://api.cerebras.ai/v1' },
+        },
+        maxContextTokens: 65_536,
+      },
+    ];
+
+    const result = getOpenAIConfig('primary-key', { fallbacks });
+
+    expect(result.llmConfig.fallbacks).toEqual(fallbacks);
   });
 });
 

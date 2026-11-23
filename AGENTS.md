@@ -55,6 +55,9 @@ and checks you could not run.
 
 ## Verification
 
+Local repository work has no model-selection or model-identity prerequisite. Follow the active
+task's authorization, privacy, cost and validation requirements without adding a model identity gate.
+
 For startup, auth, config, file, or message-loading changes, avoid serial database
 reads and reuse loaded request data. Run `npm run lighthouse` before completion:
 the CI lane adds 250 ms per Mongo query and checks the visible conversation's LCP.
@@ -67,6 +70,29 @@ changed. `packages/client` excludes `*.spec.ts(x)` and `*.test.ts(x)` from typec
 Run `npm run static-checks -- --against origin/dev` to reproduce the PR's static checks; use
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
+
+Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
+pull request. One command runs the four gates a merge has to show, in order:
+
+1. TypeScript for every workspace affected by the committed diff, staged or unstaged edits,
+   or non-ignored untracked files.
+2. The Work Jest suites (`packages/api/src/engines/workChat*`), after building data-provider.
+3. `npm run build:api`.
+4. The `--full` static-check tier for the same committed and local paths, with the TypeScript check
+   left to step 1 so no project is compiled twice.
+
+Then any additional focused test command and the manual observation:
+
+    npm run verify -- --against origin/main \
+      --test "cd packages/api && npx jest src/engines/workChat.spec.ts --ci" \
+      --manual "Sent one Work message; the stream rendered and the transcript survived reload."
+
+It prints a Markdown block naming the commit, the base, the working-tree state and every gate's
+result. **Paste that block into the pull request's Testing section: it is the PR's acceptance
+artifact.** A review that cannot see it has no evidence the change was checked, and a merge recorded
+without one is unverified. At least one `--test` or `--manual` is required, and a dirty working tree
+is called out in the artifact because the commit then does not identify what ran. `--skip-static`
+skips the four built-in gates for a quick re-run while iterating, and says so in the artifact.
 
 ## Module boundaries and configuration
 
@@ -210,10 +236,11 @@ spies over mocked internals; use `mongodb-memory-server` for database queries an
 for MCP behavior. Mock only external HTTP APIs or uncontrollable services. For frontend tests use
 the component's colocated `__tests__` and `test/layout-test-utils` where applicable.
 
-<!-- BEGIN freebuff-pr-policy (canonical: ~/AGENTS.md sections 1-8) -->
+<!-- BEGIN pr-review-policy -->
+
 ## Mandatory Pull Request Review & Automated Remediation
 
-**This policy applies to every Freebuff CLI session and every authorized repository.**
+**This policy applies to every agent session and every authorized repository.**
 
 ### 1. Pull Requests Must Be Ready for Review
 
@@ -234,7 +261,7 @@ the component's colocated `__tests__` and `test/layout-test-utils` where applica
 
 ### 3. Read ALL Pull Request Feedback
 
-Freebuff CLI MUST retrieve and inspect:
+The agent MUST retrieve and inspect:
 
 - PR conversation comments.
 - Inline code-review comments.
@@ -278,7 +305,7 @@ If merging is not authorized or any gate remains blocked, keep the PR unmerged a
 
 ### 7. Continuation Across Sessions
 
-At the beginning of every Freebuff CLI session:
+At the beginning of every agent session:
 
 - Identify the current GitHub account, repository, and active PRs.
 - Check for outstanding review feedback before starting duplicate work.
@@ -286,7 +313,7 @@ At the beginning of every Freebuff CLI session:
 - Revalidate the repository, branch, and latest SHA before writing.
 - Report the PR URL, review status, fixes completed, remaining blockers, and merge status.
 
-**Opening a PR is not completion. Freebuff is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
+**Opening a PR is not completion. The agent is responsible for the review-and-remediation lifecycle within its authorized execution scope.**
 
 <!-- coderabbit-ai-generated:v1 -->
 
@@ -355,7 +382,4 @@ gh pr checks PR_NUMBER
 - An empty `reviews` or comment list is a result to report, not proof that reviewers accepted the
   request. Confirm the review was actually submitted (section 2).
 
-
-
-
-<!-- /coderabbit-ai-generated:v1 --><!-- END freebuff-pr-policy -->
+<!-- /coderabbit-ai-generated:v1 --><!-- END pr-review-policy -->

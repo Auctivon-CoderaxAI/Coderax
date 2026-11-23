@@ -1,5 +1,6 @@
-import type { ExecutionEnginesConfig } from './service';
 import type { OpenHandsTransport } from './openhands/adapter';
+import type { LoadedFreebuffSdk } from './freebuff/adapter';
+import type { ExecutionEnginesConfig } from './service';
 import { createExecutionEngines, describeExecutionEngines } from './service';
 
 const config = (overrides: ExecutionEnginesConfig = {}): ExecutionEnginesConfig => ({
@@ -36,7 +37,11 @@ describe('config-driven execution engines', () => {
     const snapshot = describeExecutionEngines(
       {
         engines: {
-          opencode: { enabled: true, baseURL: 'http://127.0.0.1:4096' },
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'ollama/qwen2.5-coder:7b',
+          },
           workspaces: {},
         },
       },
@@ -73,7 +78,13 @@ describe('config-driven execution engines', () => {
 
     const enabled = describeExecutionEngines(
       config({
-        engines: { opencode: { enabled: true, baseURL: 'http://127.0.0.1:4096' } },
+        engines: {
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'ollama/qwen2.5-coder:7b',
+          },
+        },
       }),
       loadSdk,
     );
@@ -109,6 +120,49 @@ describe('config-driven execution engines', () => {
     expect(serialized).not.toContain('/srv/coderax');
     expect(serialized).not.toContain('127.0.0.1');
     expect(serialized).not.toMatch(/api[_-]?key|token|secret/i);
+  });
+
+  it('keeps an allowlisted non-loopback Freebuff endpoint unavailable', () => {
+    const loadFreebuff = jest.fn(() => ({
+      ok: true as const,
+      value: {
+        module: {
+          CodebuffClient: jest.fn(),
+          normalizeByokBaseUrl: jest.fn(),
+          isUntrustedAgentPublisherError: jest.fn(),
+        },
+      } satisfies LoadedFreebuffSdk,
+    }));
+    const freebuff = {
+      enabled: true as const,
+      sdkPath: '/opt/freebuff-sdk/dist/index.cjs',
+      baseURL: 'http://ollama:11434/v1',
+      model: 'ollama/qwen3.5:4b-16k',
+    };
+
+    const blocked = describeExecutionEngines(
+      config({ engines: { freebuff } }),
+      undefined,
+      null,
+      loadFreebuff,
+    );
+    expect(blocked.engines.find((engine) => engine.id === 'freebuff')?.availability).toEqual(
+      expect.objectContaining({ available: false, reason: 'not_configured' }),
+    );
+
+    const allowlisted = describeExecutionEngines(
+      config({ engines: { freebuff: { ...freebuff, allowedHosts: ['ollama'] } } }),
+      undefined,
+      null,
+      loadFreebuff,
+    );
+    expect(allowlisted.engines.find((engine) => engine.id === 'freebuff')?.availability).toEqual(
+      expect.objectContaining({
+        available: false,
+        reason: 'not_configured',
+        detail: expect.stringContaining('allowedHosts'),
+      }),
+    );
   });
 
   it('fails closed on the selected engine instead of using the other one', async () => {

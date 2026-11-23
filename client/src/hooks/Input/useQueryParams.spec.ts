@@ -541,7 +541,8 @@ describe('useQueryParams', () => {
 
   it('keeps URL prompts alive while a Work conversation route loads', () => {
     (useLocation as jest.Mock).mockReturnValue({ pathname: '/work/new', key: 'origin' });
-    const hook = mountQuery({ agent_id: 'agent_test', q: 'hi', submit: 'true' });
+    const params = { agent_id: 'agent_test', q: 'hi', submit: 'true' };
+    const hook = mountQuery(params);
     let finishValidation: (() => void) | undefined;
     const methods = (useChatFormContext as jest.Mock).mock.results.at(-1)?.value;
     methods.handleSubmit.mockImplementation((callback) => () => {
@@ -550,7 +551,7 @@ describe('useQueryParams', () => {
     hook.updateConversation({ endpoint: EModelEndpoint.agents, agent_id: 'agent_test' });
     hook.rerender();
     expect(finishValidation).toBeDefined();
-    hook.updateRoute('/work/new');
+    hook.updateRoute('/work/new', params);
     hook.updateConversation({
       conversationId: 'new',
       isWork: false,

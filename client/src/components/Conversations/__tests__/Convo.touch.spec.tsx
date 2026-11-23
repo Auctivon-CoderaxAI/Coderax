@@ -24,6 +24,7 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useNavigateToConvo: () => ({ navigateToConvo: jest.fn() }),
   useShiftKey: () => false,
+  useAuthContext: () => ({ user: { id: 'user-1' } }),
 }));
 
 jest.mock('~/data-provider', () => ({

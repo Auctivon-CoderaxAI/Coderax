@@ -12,7 +12,7 @@
  * instead of overlapping the switch.
  */
 export const modeHeaderClass =
-  'from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 grid h-[3.25rem] w-full grid-cols-[1fr_auto_1fr] items-center gap-2 bg-gradient-to-b to-transparent p-2 font-semibold 2xl:via-transparent';
+  'from-surface-canvas via-surface-canvas/70 text-text-primary md:from-surface-canvas/80 md:via-surface-canvas/50 2xl:from-surface-canvas/0 absolute top-0 z-20 grid h-14 w-full grid-cols-[1fr_auto_1fr] items-center gap-2 bg-gradient-to-b to-transparent px-3 py-2 font-semibold md:h-[3.25rem] md:px-2 2xl:via-transparent';
 
 /** A header column keeps its grid cell even when its controls are hidden. */
 export const modeHeaderStartClass = 'flex min-w-0 items-center justify-start';
@@ -36,8 +36,8 @@ export const landingBandClass = 'max-w-3xl xl:max-w-4xl';
 
 export const composerWidthClass = 'md:max-w-3xl xl:max-w-4xl';
 
-/** Squared off at the viewport floor below `sm`, where nothing follows it. */
-export const composerShapeClass = 'rounded-t-theme-surface-lg sm:rounded-theme-surface-lg';
+/** A floating card in every state: the composer keeps a gutter on a phone. */
+export const composerShapeClass = 'rounded-t-theme-surface-lg rounded-b-theme-surface-lg';
 
 /** From `sm` up the landing composer leaves room for the footer beneath it. */
 export function landingComposerClearance(centerFormOnLanding: boolean): string {

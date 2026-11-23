@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { logger } from '@coderax/data-schemas';
 import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
+import { logger, WorkflowWorkspaceConflictError } from '@coderax/data-schemas';
 import type {
   WorkflowArtifact,
   WorkflowEventTrigger,
@@ -21,6 +21,7 @@ import {
   parseStartWorkflowRun,
   parseUpdateWorkflow,
 } from './definition';
+import { parseStartBuild, prepareBuildLaunch } from '../autobuild/start';
 import { computeNextRunAt, isValidTimezone } from '../schedules/cadence';
 
 interface WorkflowRecord {
@@ -73,6 +74,7 @@ interface WorkflowRunRecordView {
   input?: string;
   steps: WorkflowStepRunRecord[];
   error?: string;
+  verification?: WorkflowRunView['verification'];
   trigger?: WorkflowRunView['trigger'];
   events?: Array<{
     at: Date | string;
@@ -193,6 +195,7 @@ export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
     ...(run.conversationId == null ? {} : { conversationId: run.conversationId }),
     ...(run.input == null ? {} : { input: run.input }),
     ...(run.error == null ? {} : { error: run.error }),
+    ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.trigger == null ? {} : { trigger: run.trigger }),
     events: (run.events ?? []).map((entry) => ({
       at: iso(entry.at) ?? new Date(0).toISOString(),
@@ -328,12 +331,13 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     return cursor == null;
   };
 
+  /** True only when every known writer for this run has been stopped. */
   const stopActiveTurns = async (run: {
     conversationId?: string;
     steps: Array<{ conversationId?: string; status: string }>;
-  }): Promise<void> => {
+  }): Promise<boolean> => {
     if (deps.abortActiveRun == null) {
-      return;
+      return true;
     }
     const conversations = new Set<string>();
     for (const step of run.steps) {
@@ -347,7 +351,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
     if (conversations.size === 0 && run.conversationId != null) {
       conversations.add(run.conversationId);
     }
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       Array.from(conversations).map(async (conversationId) => {
         try {
           await deps.abortActiveRun?.(conversationId);
@@ -356,9 +360,11 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
             conversationId,
             error: cause instanceof Error ? cause.message : String(cause),
           });
+          throw cause;
         }
       }),
     );
+    return results.every((result) => result.status === 'fulfilled');
   };
 
   return {
@@ -379,6 +385,105 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
 
     listTemplates: async (_req: ServerRequest, res: Response): Promise<void> => {
       res.status(200).json({ templates: WORKFLOW_TEMPLATES });
+    },
+
+    /**
+     * Plan, validate and compile a project request, then create and start the
+     * ordinary durable workflow that executes it. Planning is deterministic and
+     * zero-cost here; a free/local model adapter can supply richer plans through
+     * `planBuild` without changing this launch contract.
+     */
+    startBuild: async (req: ServerRequest, res: Response): Promise<void> => {
+      const owner = userId(req);
+      if (owner == null) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const parsed = parseStartBuild(req.body);
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+      const prepared = prepareBuildLaunch(parsed.value);
+      if (!prepared.ok) {
+        res.status(400).json({ error: prepared.error.message });
+        return;
+      }
+
+      const payload = prepared.value.compiled.workflow;
+      const agentIds = new Set<string>([payload.agentId]);
+      for (const step of payload.steps) {
+        if (step.agentId != null) {
+          agentIds.add(step.agentId);
+        }
+      }
+      let createdWorkflowId: string | null = null;
+      try {
+        for (const agentId of agentIds) {
+          if (!(await deps.canRunAgent(agentId, req))) {
+            res.status(403).json({ error: 'You cannot run that agent' });
+            return;
+          }
+        }
+        const workflow = await deps.methods.createWorkflow({
+          userId: owner,
+          ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+          name: payload.name,
+          ...(payload.description == null ? {} : { description: payload.description }),
+          agentId: payload.agentId,
+          steps: payload.steps,
+          ...(payload.settings == null ? {} : { settings: payload.settings }),
+        });
+        createdWorkflowId = workflow.id;
+        const run = await deps.methods.createWorkflowRun({
+          userId: owner,
+          ...(req.user?.tenantId == null ? {} : { tenantId: req.user.tenantId }),
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          agentId: workflow.agentId,
+          steps: workflow.steps,
+          conversationId: createRunId(),
+          ...(workflow.settings == null ? {} : { settings: workflow.settings }),
+          trigger: { type: 'manual' },
+          input: parsed.value.request,
+        });
+        // The run now owns the workflow; a later failure must not delete it.
+        createdWorkflowId = null;
+        deps.wake();
+        res.status(202).json({
+          workflow: toWorkflowView(workflow),
+          run: toRunView(run),
+          build: {
+            planner: 'deterministic',
+            requestedMode: prepared.value.decision.requested,
+            mode: prepared.value.decision.mode,
+            degraded: prepared.value.decision.degraded,
+            ...(prepared.value.decision.reason == null
+              ? {}
+              : { reason: prepared.value.decision.reason }),
+            taskCount: prepared.value.plan.tasks.length,
+            requiredGates: prepared.value.compiled.requiredGates,
+            unresolvedRoles: prepared.value.compiled.unresolvedRoles,
+          },
+        });
+      } catch (error) {
+        if (createdWorkflowId != null) {
+          await deps.methods.deleteWorkflow(createdWorkflowId, owner).catch((cleanupError) => {
+            logger.warn('[workflows] failed to clean up unstarted build workflow', {
+              workflowId: createdWorkflowId,
+              error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+            });
+          });
+        }
+        if (error instanceof WorkflowWorkspaceConflictError) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
+        logger.error('[workflows] failed to start autonomous build', error);
+        unavailable(res);
+      }
     },
 
     createWorkflow: async (req: ServerRequest, res: Response): Promise<void> => {
@@ -627,6 +732,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         deps.wake();
         res.status(202).json({ run: toRunView(run) });
       } catch (error) {
+        if (error instanceof WorkflowWorkspaceConflictError) {
+          res
+            .status(409)
+            .json({ error: 'That build workspace is already in use by an active run' });
+          return;
+        }
         logger.error('[workflows] failed to start run', error);
         unavailable(res);
       }
@@ -900,29 +1011,46 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           res.status(404).json({ error: 'Run not found' });
           return;
         }
-        const retire = deps.retireQueuedDelivery;
-        if (retire != null) {
-          await Promise.all(
-            existing.steps.map(async (step) => {
-              if (
-                (step.status !== 'running' && step.status !== 'queued') ||
-                step.deliveryKey == null
-              ) {
-                return;
-              }
-              try {
-                await retire(step.deliveryKey, existing.workflowId);
-              } catch (cause) {
-                logger.warn('[workflows] queued delivery retirement failed', {
-                  runId,
-                  stepId: step.id,
-                  error: cause instanceof Error ? cause.message : String(cause),
-                });
-              }
-            }),
-          );
+        let stopped = false;
+        try {
+          const retire = deps.retireQueuedDelivery;
+          if (retire != null) {
+            await Promise.all(
+              existing.steps.map(async (step) => {
+                if (
+                  (step.status !== 'running' && step.status !== 'queued') ||
+                  step.deliveryKey == null
+                ) {
+                  return;
+                }
+                try {
+                  await retire(step.deliveryKey, existing.workflowId);
+                } catch (cause) {
+                  logger.warn('[workflows] queued delivery retirement failed', {
+                    runId,
+                    stepId: step.id,
+                    error: cause instanceof Error ? cause.message : String(cause),
+                  });
+                }
+              }),
+            );
+          }
+          stopped = await stopActiveTurns(existing);
+        } finally {
+          // The checkout stays reserved while retirement and abort are in
+          // flight, so a new build cannot start before the old writer stops.
+          if (stopped) {
+            await deps.methods.releaseWorkflowWorkspace(runId, owner).catch((cause) => {
+              logger.warn('[workflows] workspace release after cancellation failed', {
+                runId,
+                error: cause instanceof Error ? cause.message : String(cause),
+              });
+            });
+          } else {
+            // Fail closed: a writer we could not stop must not share its checkout.
+            logger.warn('[workflows] workspace held because a writer did not stop', { runId });
+          }
         }
-        await stopActiveTurns(existing);
         res.status(200).json({ run: toRunView(run) });
       } catch (error) {
         logger.error('[workflows] failed to cancel run', error);

@@ -1956,6 +1956,9 @@ export class MCPConnection extends EventEmitter {
             Object.keys(headers).map((key) => key.toLowerCase()),
           );
           const transport = new StreamableHTTPClientTransport(url, {
+            // Leave redirect handling to the custom fetch so the SDK cannot
+            // follow a redirect that our hop limit or admission checks stopped.
+            redirectPolicy: 'follow',
             requestInit: {
               headers,
               signal: abortController.signal,

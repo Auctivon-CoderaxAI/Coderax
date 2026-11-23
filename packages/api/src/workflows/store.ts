@@ -27,6 +27,7 @@ interface StoredRun {
   events?: Array<Omit<WorkflowRunEvent, 'at'> & { at: Date | string }>;
   workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
+  verification?: WorkflowRunRecord['verification'];
   error?: string;
   pauseRequestedAt?: Date;
   startedAt?: Date;
@@ -54,6 +55,7 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
     })),
     ...(run.workflowAncestry == null ? {} : { workflowAncestry: run.workflowAncestry }),
     ...(run.onCompleteWorkflowId == null ? {} : { onCompleteWorkflowId: run.onCompleteWorkflowId }),
+    ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.pauseRequestedAt == null ? {} : { pauseRequestedAt: run.pauseRequestedAt }),
     ...(run.startedAt == null ? {} : { startedAt: run.startedAt }),
@@ -63,7 +65,10 @@ function toRunRecord(run: StoredRun): WorkflowRunRecord {
 
 /** Adapts the data-schemas run methods to the runner's small store port. */
 export function createWorkflowStore(
-  methods: Pick<WorkflowMethods, 'claimWorkflowRuns' | 'updateWorkflowRun' | 'releaseWorkflowRun'>,
+  methods: Pick<
+    WorkflowMethods,
+    'claimWorkflowRuns' | 'updateWorkflowRun' | 'extendWorkflowRunLease' | 'releaseWorkflowRun'
+  >,
 ): WorkflowEngineStore {
   return {
     claimRuns: async (input) => {
@@ -98,6 +103,8 @@ export function createWorkflowStore(
       });
       return saved != null;
     },
+    extendLease: async ({ runId, leaseToken, now, leaseUntil }) =>
+      methods.extendWorkflowRunLease({ id: runId, leaseToken, leaseUntil, now }),
     releaseRun: async ({ runId, leaseToken, now }) => {
       await methods.releaseWorkflowRun(runId, leaseToken, now);
     },
@@ -111,6 +118,10 @@ export interface WorkflowStepEnqueuerDeps {
     envelope: unknown,
     options?: { orderingKey?: string },
   ) => Promise<{ deliveryKey?: string } | unknown>;
+  /** Attached code environment whose registered workspace ids name the build
+   *  checkouts. Without it a build step has no checkout to bind to, so the run
+   *  cannot claim its edits are confined to the reserved workspace. */
+  buildWorkspaceEnvironmentId?: string;
 }
 
 /**
@@ -129,6 +140,20 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
     const attempt = step.attempts;
     const deliveryId = `wf:${run.id}:${step.id}:${attempt}`;
     const conversationId = step.conversationId ?? run.conversationId;
+    const buildWorkspace = run.settings?.build?.workspace;
+    const buildWorkspaceEnvironmentId = deps.buildWorkspaceEnvironmentId;
+    const codeWorkspaces =
+      buildWorkspace == null || buildWorkspaceEnvironmentId == null
+        ? undefined
+        : [
+            {
+              environmentId: buildWorkspaceEnvironmentId,
+              workspaceId: buildWorkspace,
+              // Settlement verifies the registered checkout, never an isolated
+              // worktree, so the step must run in that same tree.
+              checkout: 'source' as const,
+            },
+          ];
     const envelope = createAgentTriggerEnvelope({
       mode: 'fire',
       requestId: randomUUID(),
@@ -148,6 +173,7 @@ export function createWorkflowStepEnqueuer(deps: WorkflowStepEnqueuerDeps) {
       input: step.instruction,
       run: {
         ...(conversationId == null ? {} : { conversationId }),
+        ...(codeWorkspaces == null ? {} : { codeWorkspaces }),
         metadata: {
           workflowRunId: run.id,
           workflowStepId: step.id,

@@ -7,8 +7,14 @@ import {
   sanitizeWorkSelection,
   workSelectionFromConversation,
 } from '~/components/Chat/Input/workSelection';
+import {
+  configuredWorkEngineOrigin,
+  toWorkChatServer,
+  toWorkEngineChatServer,
+  toWorkEngineStreamUrl,
+} from './workTransport';
+import { attachEngineStream, engineStreamIdFromUrl, startEngineWorkChat } from './engineStream';
 import { createSSETransport } from '~/hooks/SSE/transport';
-import { toWorkChatServer } from './workTransport';
 import * as requests from '~/data-provider';
 
 export { toWorkChatServer } from './workTransport';
@@ -45,9 +51,34 @@ export function createWorkChatTransport(
   transport: Transport = defaultChatTransport,
   options?: WorkOptions,
   selection?: WorkSelection | null,
+  engineOrigin?: string,
 ): Transport {
+  const directEngineOrigin = engineOrigin ?? configuredWorkEngineOrigin();
+
   return {
     ...transport,
+    stream: (auth) => {
+      const stream = transport.stream(auth);
+      return {
+        ...stream,
+        reconnectToStream: (request, requestOptions) => {
+          const engineStreamId = engineStreamIdFromUrl(request.url);
+          if (engineStreamId) {
+            const attached = attachEngineStream(engineStreamId, requestOptions);
+            if (attached) {
+              return attached;
+            }
+          }
+          if (!directEngineOrigin) {
+            return stream.reconnectToStream(request, requestOptions);
+          }
+          return stream.reconnectToStream(
+            { ...request, url: toWorkEngineStreamUrl(request.url, directEngineOrigin) },
+            requestOptions,
+          );
+        },
+      };
+    },
     start: ({ server, payload }, requestOptions) => {
       const selected = options
         ? resolveWorkSelection(
@@ -60,16 +91,56 @@ export function createWorkChatTransport(
       if (options && !selected) {
         throw new Error('WORK_NO_FREE_MODEL');
       }
-      const workPayload = selected
-        ? {
+      const engineSelected = selected?.model.engine != null;
+      /** Built-in modes guide the automatic agent; a saved agent owns its own
+       *  instructions and capabilities, so the mode payload applies only here. */
+      const modePayload =
+        selected?.agent == null
+          ? {
+              promptPrefix: selected?.promptPrefix,
+              ...(selected?.ephemeralAgent != null
+                ? {
+                    ephemeralAgent: {
+                      ...(payload.ephemeralAgent ?? {}),
+                      ...selected.ephemeralAgent,
+                    },
+                  }
+                : {}),
+            }
+          : {};
+      const workPayload = (() => {
+        if (!selected) {
+          return payload;
+        }
+        if (engineSelected) {
+          return {
             ...payload,
-            ...selected.preset,
-            agent_id: selected.preset.agent_id,
+            ...modePayload,
+            model: selected.model.id,
+            agent_id: undefined,
             assistant_id: undefined,
-            endpointType: selected.preset.endpoint,
+            endpoint: undefined,
+            endpointType: undefined,
             spec: null,
-          }
-        : payload;
+          };
+        }
+        return {
+          ...payload,
+          ...modePayload,
+          ...selected.preset,
+          agent_id: selected.preset.agent_id,
+          assistant_id: undefined,
+          endpointType: selected.preset.endpoint,
+          spec: null,
+        };
+      })();
+      if (engineSelected) {
+        return startEngineWorkChat({
+          url: toWorkEngineChatServer(directEngineOrigin),
+          payload: workPayload,
+          signal: requestOptions?.signal,
+        });
+      }
       return transport.start(
         {
           server: toWorkChatServer(
