@@ -689,7 +689,7 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     jest.useRealTimers();
   });
 
-  it('keeps the manual sign-in form mounted when refresh fails without a guest session', () => {
+  it('keeps the manual sign-in form mounted when refresh fails without a guest session', async () => {
     window.history.replaceState({}, '', '/login?manual=1');
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
 
@@ -699,7 +699,9 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
       { onError: (error: Error) => void },
     ];
 
-    act(() => refreshOptions.onError(new Error('No refresh session')));
+    await act(async () => {
+      refreshOptions.onError(new Error('No refresh session'));
+    });
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();

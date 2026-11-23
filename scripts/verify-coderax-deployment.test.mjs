@@ -7,13 +7,32 @@ import vm from 'node:vm';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
-import { findMissingBuildTestFiles, validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
+import { findMissingBuildTestFiles, validateLiveURL, verifyDataSchemasModelsExport, verifyLiveBackend, verifyRepositoryContracts, verifyVercelAliasRuntimeDependencies, verifyVercelApiRuntimeDependencies, verifyVercelBackendBootstrapDependencies, verifyVercelBackendWorkspaceDependencies, verifyVercelClientShellAvailability, verifyVercelEntrypointRuntimeDependency, verifyVercelEntrypointDependency, verifyVercelOpenIdClientEsmCompatibility, verifyVercelRuntimeDependency, verifyWorkspaceBuildTooling } from './verify-coderax-deployment.mjs';
 
 const headers = (type, extras = {}) => ({
   get(name) {
     const values = { 'content-type': type, ...extras };
     return values[name.toLowerCase()] ?? null;
   },
+});
+
+test('client shell availability requires both guards in the initializer', () => {
+  const assetGuard = '(!process.env.VERCEL || fs.existsSync(indexPath))';
+  assert.doesNotThrow(() =>
+    verifyVercelClientShellAvailability(
+      `  const clientShellAvailable =\n    serveClientShell && ${assetGuard};`,
+    ),
+  );
+  assert.throws(() =>
+    verifyVercelClientShellAvailability(
+      `const clientShellAvailable = serveClientShell || ${assetGuard};`,
+    ),
+  );
+  assert.throws(() =>
+    verifyVercelClientShellAvailability(
+      `const clientShellAvailable = serveClientShell;\nconst other = ${assetGuard};`,
+    ),
+  );
 });
 
 test('database startup tolerates an absent optional Mongoose telemetry export', async () => {
