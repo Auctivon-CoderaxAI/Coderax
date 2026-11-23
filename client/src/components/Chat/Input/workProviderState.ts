@@ -18,8 +18,21 @@ export function workProviderAvailability(
   endpoint: TWorkRoutingEndpoint,
   now = Date.now(),
 ): WorkProviderAvailability {
-  const { requestsUsed, requestsLimit, tokensUsed, tokensLimit } = endpoint.quota;
-  if (requestsUsed >= requestsLimit || tokensUsed >= tokensLimit) {
+  const {
+    requestsUsed,
+    requestsLimit,
+    tokensUsed,
+    tokensLimit,
+    requestsPerMinuteUsed,
+    requestsPerMinuteLimit,
+  } = endpoint.quota;
+  if (
+    requestsUsed >= requestsLimit ||
+    tokensUsed >= tokensLimit ||
+    (requestsPerMinuteLimit != null &&
+      requestsPerMinuteUsed != null &&
+      requestsPerMinuteUsed >= requestsPerMinuteLimit)
+  ) {
     return 'quota_exhausted';
   }
   if (endpoint.cooldownUntil != null && endpoint.cooldownUntil > now) {

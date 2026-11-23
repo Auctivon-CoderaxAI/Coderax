@@ -133,6 +133,7 @@ export type TWorkRoutingEndpoint = {
     | 'distilled_model_as_primary'
     | 'cooldown'
     | 'quota'
+    | 'rate_limit'
     | 'fallback_disabled'
     | 'disabled'
     | 'missing_credential'
@@ -146,6 +147,9 @@ export type TWorkRoutingEndpoint = {
     tokensUsed: number;
     tokensLimit: number;
     resetAt: number;
+    requestsPerMinuteUsed: number | null;
+    requestsPerMinuteLimit: number | null;
+    requestsPerMinuteResetAt: number | null;
   };
 };
 

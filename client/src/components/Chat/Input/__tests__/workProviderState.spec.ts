@@ -26,6 +26,9 @@ function endpoint(overrides: Partial<TWorkRoutingEndpoint> = {}): TWorkRoutingEn
       tokensUsed: 1_000,
       tokensLimit: 400_000,
       resetAt: 0,
+      requestsPerMinuteUsed: 0,
+      requestsPerMinuteLimit: 20,
+      requestsPerMinuteResetAt: 60_000,
     },
     ...overrides,
   };
@@ -65,6 +68,14 @@ describe('workProviderAvailability', () => {
     ).toBe('quota_exhausted');
     expect(
       workProviderAvailability(endpoint({ quota: { ...endpoint().quota, tokensUsed: 400_000 } })),
+    ).toBe('quota_exhausted');
+  });
+
+  it('reports provider minute-limit exhaustion as exhausted free quota', () => {
+    expect(
+      workProviderAvailability(
+        endpoint({ quota: { ...endpoint().quota, requestsPerMinuteUsed: 20 } }),
+      ),
     ).toBe('quota_exhausted');
   });
 

@@ -74,6 +74,9 @@ function endpoint() {
       tokensUsed: 1_000,
       tokensLimit: 400_000,
       resetAt: 0,
+      requestsPerMinuteUsed: 0,
+      requestsPerMinuteLimit: 20,
+      requestsPerMinuteResetAt: 60_000,
     },
   };
 }

@@ -45,6 +45,7 @@ export type FreeRouteRejection = {
     | FreeEndpointRejection
     | 'cooldown'
     | 'quota'
+    | 'rate_limit'
     | 'fallback_disabled'
     | 'disabled'
     | 'missing_credential'
@@ -102,6 +103,9 @@ export type FreeEndpointStatus = {
     tokensUsed: number;
     tokensLimit: number;
     resetAt: number;
+    requestsPerMinuteUsed: number | null;
+    requestsPerMinuteLimit: number | null;
+    requestsPerMinuteResetAt: number | null;
   };
 };
 
@@ -174,6 +178,7 @@ export function createFreeRouter({
       },
       now,
     });
+  const minuteRequests = new Map<string, { windowStart: number; requests: number }>();
   const primary = describePrimaryStatus(endpoints);
   // Bind tool requirements to plans issued by this router, not caller-editable fields.
   const issuedToolRequirements = new WeakMap<FreeRoutePlan, boolean>();
@@ -184,13 +189,42 @@ export function createFreeRouter({
 
   function quotaFor(endpoint: FreeEndpoint) {
     const quotaSnapshot = ledger.snapshot(quotaKey(endpoint));
+    const minuteQuota = minuteQuotaFor(endpoint);
     return {
       ...quotaSnapshot,
       requestsLimit:
         endpoint.dailyRequestLimit == null
           ? quotaSnapshot.requestsLimit
           : Math.min(quotaSnapshot.requestsLimit, endpoint.dailyRequestLimit),
+      requestsPerMinuteUsed: minuteQuota.requestsUsed,
+      requestsPerMinuteLimit: minuteQuota.requestsLimit,
+      requestsPerMinuteResetAt: minuteQuota.resetAt,
     };
+  }
+
+  function minuteQuotaFor(endpoint: FreeEndpoint) {
+    const requestsLimit = endpoint.requestsPerMinuteLimit;
+    if (requestsLimit == null) {
+      return { requestsUsed: null, requestsLimit: null, resetAt: null, windowStart: null };
+    }
+    const windowStart = Math.floor(now() / 60_000) * 60_000;
+    const existing = minuteRequests.get(quotaKey(endpoint));
+    return {
+      requestsUsed: existing?.windowStart === windowStart ? existing.requests : 0,
+      requestsLimit,
+      resetAt: windowStart + 60_000,
+      windowStart,
+    };
+  }
+
+  function reserveMinuteRequest(endpoint: FreeEndpoint, windowStart: number | null): void {
+    if (windowStart == null) {
+      return;
+    }
+    const key = quotaKey(endpoint);
+    const existing = minuteRequests.get(key);
+    const requests = existing?.windowStart === windowStart ? existing.requests : 0;
+    minuteRequests.set(key, { windowStart, requests: requests + 1 });
   }
 
   function rejectionFor(
@@ -226,6 +260,12 @@ export function createFreeRouter({
       remaining.tokensUsed + estimatedTokens > remaining.tokensLimit
     ) {
       return 'quota';
+    }
+    if (
+      remaining.requestsPerMinuteLimit != null &&
+      remaining.requestsPerMinuteUsed! + 1 > remaining.requestsPerMinuteLimit
+    ) {
+      return 'rate_limit';
     }
     return null;
   }
@@ -349,6 +389,13 @@ export function createFreeRouter({
       // Recheck and reserve at execution time: a plan can become stale while
       // another concurrent turn consumes the remaining quota.
       const remaining = quotaFor(endpoint);
+      if (
+        remaining.requestsPerMinuteLimit != null &&
+        remaining.requestsPerMinuteUsed! + 1 > remaining.requestsPerMinuteLimit
+      ) {
+        errors.push(`${endpoint.id}:rate_limit`);
+        continue;
+      }
       if (remaining.requestsUsed + 1 > remaining.requestsLimit) {
         errors.push(`${endpoint.id}:request_budget`);
         continue;
@@ -364,6 +411,7 @@ export function createFreeRouter({
         errors.push(`${endpoint.id}:${reservation.reason}`);
         continue;
       }
+      reserveMinuteRequest(endpoint, minuteQuotaFor(endpoint).windowStart);
 
       attempts += 1;
       let outcome: FreeAttemptOutcome<T>;

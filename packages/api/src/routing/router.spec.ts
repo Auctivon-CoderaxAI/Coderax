@@ -74,6 +74,52 @@ function routerWith(
 }
 
 describe('free route planning', () => {
+  it('enforces the shared provider minute limit and exposes the reset window', async () => {
+    const rateLimitedEndpoints = [primary, fallbackA, fallbackB].map((endpoint) => ({
+      ...endpoint,
+      quotaGroup: 'openrouter-free-account',
+      requestsPerMinuteLimit: 2,
+    }));
+    const { router, advance } = routerWith({}, rateLimitedEndpoints);
+    const stalePlan = router.plan();
+    expect(stalePlan.ok).toBe(true);
+
+    if (!stalePlan.ok) {
+      return;
+    }
+
+    await router.run(stalePlan, async () => ({ ok: true, value: 'synthetic' }));
+    await router.run(stalePlan, async () => ({ ok: true, value: 'synthetic' }));
+    const blocked = await router.run(stalePlan, async () => ({ ok: true, value: 'must-not-run' }));
+    expect(blocked).toMatchObject({
+      ok: false,
+      attempts: 0,
+      errors: expect.arrayContaining(['primary:rate_limit']),
+    });
+
+    const snapshot = router.snapshot();
+    expect(snapshot.endpoints[0]).toMatchObject({
+      available: false,
+      rejectionReason: 'rate_limit',
+      quota: {
+        requestsPerMinuteUsed: 2,
+        requestsPerMinuteLimit: 2,
+        requestsPerMinuteResetAt: Math.ceil(1_000_000 / 60_000) * 60_000,
+      },
+    });
+    expect(router.plan()).toMatchObject({
+      ok: false,
+      rejected: expect.arrayContaining([expect.objectContaining({ reason: 'rate_limit' })]),
+    });
+
+    advance(60_000);
+    expect(router.snapshot().endpoints[0]).toMatchObject({
+      available: true,
+      quota: { requestsPerMinuteUsed: 0, requestsPerMinuteLimit: 2 },
+    });
+    expect(router.plan().ok).toBe(true);
+  });
+
   it('prefers the healthy primary and names it as the active model', () => {
     const { router } = routerWith();
     const plan = router.plan();

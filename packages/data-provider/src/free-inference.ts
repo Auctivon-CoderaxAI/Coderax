@@ -52,6 +52,8 @@ export type FreeEndpoint = {
   routingPriority: number;
   /** Optional provider-documented ceilings; absent means the app budget governs. */
   dailyRequestLimit?: number;
+  /** Optional provider-documented request limit over a rolling minute window. */
+  requestsPerMinuteLimit?: number;
   /** Share one provider-account quota across model aliases when required. */
   quotaGroup?: string;
   /** A non-zero rate here would make the endpoint chargeable and is rejected. */
@@ -175,6 +177,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     contextTokens: 1_000_000,
     routingPriority: 10,
     dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
     quotaGroup: 'openrouter-free-account',
   },
   {
@@ -214,6 +217,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     contextTokens: 1_000_000,
     routingPriority: 30,
     dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
     quotaGroup: 'openrouter-free-account',
   },
   {
@@ -244,7 +248,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
@@ -252,6 +256,7 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     contextTokens: 262_144,
     routingPriority: 50,
     dailyRequestLimit: 50,
+    requestsPerMinuteLimit: 20,
     quotaGroup: 'openrouter-free-account',
   },
 ];
