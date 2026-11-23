@@ -141,11 +141,6 @@
       "count": 1
     }
   },
-  "client/src/components/Chat/Header.tsx": {
-    "shadcn/no-restyle": {
-      "count": 1
-    }
-  },
   "client/src/components/Chat/Input/AddedConvo.tsx": {
     "shadcn/no-raw-colors": {
       "count": 1
