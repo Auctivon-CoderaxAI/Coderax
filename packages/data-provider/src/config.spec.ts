@@ -32,6 +32,7 @@ import {
   resolveMCPAppRateLimits,
   resolveMCPAppsPolicy,
   endpointSchema,
+  enginesConfigSchema,
   getConfigDefaults,
   getSchemaDefaults,
   isTwoFactorPolicyProvider,
@@ -2927,6 +2928,26 @@ describe('build settlement verification configuration', () => {
       configSchema.safeParse({
         version: '1.0',
         workflows: { ...workflows, buildVerification: unrooted },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('engines config', () => {
+  it('defaults Freebuff allowed hosts to none', () => {
+    expect(enginesConfigSchema.parse({}).freebuff.allowedHosts).toEqual([]);
+  });
+
+  it('trims Freebuff allowed hosts and bounds the list', () => {
+    const parsed = enginesConfigSchema.parse({
+      freebuff: { enabled: true, allowedHosts: [' host.docker.internal ', 'ollama'] },
+    });
+    expect(parsed.freebuff.allowedHosts).toEqual(['host.docker.internal', 'ollama']);
+
+    expect(enginesConfigSchema.safeParse({ freebuff: { allowedHosts: [''] } }).success).toBe(false);
+    expect(
+      enginesConfigSchema.safeParse({
+        freebuff: { allowedHosts: Array.from({ length: 17 }, (_, index) => `host${index}`) },
       }).success,
     ).toBe(false);
   });

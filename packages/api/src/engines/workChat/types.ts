@@ -17,7 +17,6 @@ export type EngineWorkChatStore = {
     title?: string;
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
     create?: boolean;
-    appendMessageIds?: string[];
   }) => Promise<void>;
   saveMessage: (input: {
     messageId: string;

@@ -12,6 +12,7 @@ import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import useToolFavorites from '~/hooks/Input/useToolFavorites';
 import useElementSize from '~/hooks/Generic/useElementSize';
 import useChipPacking from '~/hooks/Input/useChipPacking';
+import { WorkRoutingBadge } from '../WorkRoutingBadge';
 import { useBadgeRowContext } from '~/Providers';
 import TokenUsage from '../TokenUsage';
 import { useLocalize } from '~/hooks';
@@ -505,6 +506,11 @@ function Bar({
           {index === 0 && showWorkAgentSelector && (
             <div className="max-w-44 min-w-0 shrink overflow-hidden sm:max-w-56">
               <WorkAgentConversationSelector />
+            </div>
+          )}
+          {index === 0 && showWorkAgentSelector && (
+            <div className="hidden min-w-0 shrink items-center overflow-hidden md:flex md:max-w-56">
+              <WorkRoutingBadge />
             </div>
           )}
           {approvalSlot}

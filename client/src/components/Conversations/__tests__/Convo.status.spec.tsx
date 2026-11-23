@@ -1,13 +1,14 @@
-import { createStore, Provider } from 'jotai';
+import { createContext } from 'react';
 import { DndProvider } from 'react-dnd';
+import { createStore, Provider } from 'jotai';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import type { StoredConversationMode } from '~/components/Chat/mode';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
+import type { StoredConversationMode } from '~/components/Chat/mode';
 import { getConversationModesAtom } from '~/components/Chat/mode';
 
 let mockIsUnseen = false;
-let mockUserId = 'user-1';
+const mockAuthUserId = createContext('user-1');
 
 jest.mock('@coderax/client', () => ({
   useMediaQuery: () => false,
@@ -25,7 +26,9 @@ jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
   useNavigateToConvo: () => ({ navigateToConvo: jest.fn() }),
   useShiftKey: () => false,
-  useAuthContext: () => ({ user: { id: mockUserId } }),
+  useAuthContext: () => ({
+    user: { id: jest.requireActual<typeof import('react')>('react').useContext(mockAuthUserId) },
+  }),
 }));
 
 jest.mock('~/data-provider', () => ({
@@ -89,21 +92,23 @@ const renderRow = (
   const store = createStore();
   store.set(getConversationModesAtom('user-1'), modes);
 
-  const row = () => (
+  const row = (userId: string) => (
     <Provider store={store}>
       <DndProvider backend={HTML5Backend}>
-        <Conversation
-          conversation={props.convo ?? conversation}
-          retainView={jest.fn()}
-          toggleNav={jest.fn()}
-          isGenerating={props.isGenerating}
-          showProjectBadge
-        />
+        <mockAuthUserId.Provider value={userId}>
+          <Conversation
+            conversation={props.convo ?? conversation}
+            retainView={jest.fn()}
+            toggleNav={jest.fn()}
+            isGenerating={props.isGenerating}
+            showProjectBadge
+          />
+        </mockAuthUserId.Provider>
       </DndProvider>
     </Provider>
   );
-  const view = render(row());
-  return { ...view, store, rerenderRow: () => view.rerender(row()) };
+  const view = render(row('user-1'));
+  return { ...view, store, rerenderRow: (userId: string) => view.rerender(row(userId)) };
 };
 
 const rowButton = () => screen.getByRole('button', { name: /^com_ui_conversation_label/ });
@@ -113,7 +118,6 @@ const unreadDot = (container: HTMLElement) =>
 describe('Conversation row status', () => {
   beforeEach(() => {
     mockIsUnseen = false;
-    mockUserId = 'user-1';
   });
 
   it('rings the avatar while running and keeps the row menu reachable', () => {
@@ -214,21 +218,19 @@ describe('Conversation row status', () => {
     expect(button).toHaveAccessibleDescription('com_ui_in_project');
   });
 
-  it('does not show a different account\'s saved mode after switching account', () => {
+  it("does not show a different account's saved mode after switching account", () => {
     const { store, rerenderRow } = renderRow({}, { 'convo-1': 'work' });
     expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
 
-    mockUserId = 'user-2';
     act(() => {
       store.set(getConversationModesAtom('user-2'), {});
-      rerenderRow();
+      rerenderRow('user-2');
     });
     expect(screen.queryByTestId('convo-mode-badge')).not.toBeInTheDocument();
 
     act(() => store.set(getConversationModesAtom('user-2'), { 'convo-1': 'work' }));
     expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
-    mockUserId = 'user-1';
-    act(() => rerenderRow());
+    act(() => rerenderRow('user-1'));
     expect(screen.getByTestId('convo-mode-badge')).toBeInTheDocument();
   });
 });

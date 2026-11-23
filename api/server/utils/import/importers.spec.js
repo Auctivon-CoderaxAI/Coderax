@@ -876,7 +876,7 @@ describe('importChatGptConvo', () => {
 
 describe('importCoderaxConvo', () => {
   const jsonDataNonRecursiveBranches = JSON.parse(
-    fs.readFileSync(path.join(__dirname, '__data__', 'coderax-opts-nonr-branches.json'), 'utf8'),
+    fs.readFileSync(path.join(__dirname, '__data__', 'librechat-opts-nonr-branches.json'), 'utf8'),
   );
 
   it('should import conversation correctly', async () => {
@@ -885,7 +885,7 @@ describe('importCoderaxConvo', () => {
     });
     const expectedNumberOfMessages = 6;
     const jsonData = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '__data__', 'coderax-export.json'), 'utf8'),
+      fs.readFileSync(path.join(__dirname, '__data__', 'librechat-export.json'), 'utf8'),
     );
     const requestUserId = 'user-123';
     const importBatchBuilder = new ImportBatchBuilder(requestUserId);
@@ -1106,7 +1106,7 @@ describe('importCoderaxConvo', () => {
     });
 
     const jsonData = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '__data__', 'coderax-linear.json'), 'utf8'),
+      fs.readFileSync(path.join(__dirname, '__data__', 'librechat-linear.json'), 'utf8'),
     );
     const requestUserId = 'user-123';
     const importBatchBuilder = new ImportBatchBuilder(requestUserId);
@@ -1136,7 +1136,7 @@ describe('importCoderaxConvo', () => {
 
   it('should maintain correct message hierarchy (tree parent/children relationship)', async () => {
     const jsonData = JSON.parse(
-      fs.readFileSync(path.join(__dirname, '__data__', 'coderax-tree.json'), 'utf8'),
+      fs.readFileSync(path.join(__dirname, '__data__', 'librechat-tree.json'), 'utf8'),
     );
     const requestUserId = 'user-123';
     const importBatchBuilder = new ImportBatchBuilder(requestUserId);

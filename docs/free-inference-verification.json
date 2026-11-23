@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-11-09T03:46:18.708Z",
+  "checkedAt": "2026-11-22T18:40:36.060Z",
   "primary": {
     "label": "DeepSeek-R1 671B",
     "available": false,
@@ -23,13 +23,13 @@
   "publicCatalog": {
     "ok": true,
     "status": 200,
-    "modelCount": 461,
-    "freeModelCount": 12,
+    "modelCount": 476,
+    "freeModelCount": 11,
     "fullR1Endpoints": [
       {
         "id": "deepseek/deepseek-r1-0528",
-        "prompt": "0.0000005",
-        "completion": "0.00000215"
+        "prompt": "0.000000571",
+        "completion": "0.000002286"
       }
     ],
     "freeFullR1": [],
@@ -61,9 +61,12 @@
       "modelId": "nvidia/nemotron-3-ultra-550b-a55b:free",
       "credentialEnv": "OPENROUTER_API_KEY",
       "pricingBasis": "free-model",
-      "status": "blocked",
-      "blocker": "missing_credential",
-      "errorCode": null
+      "status": "verified",
+      "blocker": null,
+      "errorCode": null,
+      "httpStatus": 200,
+      "latencyMs": 687,
+      "modelEcho": "nvidia/nemotron-3-ultra-550b-a55b:free"
     },
     {
       "id": "groq-gpt-oss-120b",
@@ -71,9 +74,12 @@
       "modelId": "openai/gpt-oss-120b",
       "credentialEnv": "GROQ_API_KEY",
       "pricingBasis": "free-tier",
-      "status": "blocked",
-      "blocker": "missing_credential",
-      "errorCode": null
+      "status": "verified",
+      "blocker": null,
+      "errorCode": null,
+      "httpStatus": 200,
+      "latencyMs": 410,
+      "modelEcho": "openai/gpt-oss-120b"
     },
     {
       "id": "openrouter-nemotron-lightning-free",
@@ -81,9 +87,12 @@
       "modelId": "nvidia/nemotron-3.5-lightning:free",
       "credentialEnv": "OPENROUTER_API_KEY",
       "pricingBasis": "free-model",
-      "status": "blocked",
-      "blocker": "missing_credential",
-      "errorCode": null
+      "status": "verified",
+      "blocker": null,
+      "errorCode": null,
+      "httpStatus": 200,
+      "latencyMs": 908,
+      "modelEcho": "nvidia/nemotron-3.5-lightning:free"
     },
     {
       "id": "cloudflare-llama-3-3-70b-free",
@@ -101,15 +110,17 @@
       "modelId": "google/gemma-4-31b-it:free",
       "credentialEnv": "OPENROUTER_API_KEY",
       "pricingBasis": "free-model",
-      "status": "blocked",
-      "blocker": "missing_credential",
-      "errorCode": null
+      "status": "failed",
+      "blocker": null,
+      "errorCode": "rate_limited",
+      "httpStatus": 429,
+      "latencyMs": 204
     }
   ],
   "summary": {
-    "verified": 0,
-    "blocked": 5,
-    "failed": 0
+    "verified": 3,
+    "blocked": 1,
+    "failed": 1
   },
   "paidRoutesEnabled": false
 }

@@ -11,8 +11,23 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, rmdirSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmdirSync,
+  writeFileSync,
+} from 'node:fs';
 
+import {
+  appendMissingConfig,
+  dumpConfig,
+  loadConfig,
+  mergeLocalConfig,
+  needsLocalConfig,
+} from './config.mjs';
 import {
   DEV_DIR,
   LOG_DIR,
@@ -81,6 +96,9 @@ JWT_REFRESH_SECRET=${secret()}
 CREDS_KEY=${crypto.randomBytes(32).toString('hex')}
 CREDS_IV=${crypto.randomBytes(16).toString('hex')}
 
+# Optional: verified OpenRouter $0 models join Chat and Work when this is set.
+# OPENROUTER_API_KEY=
+
 # The supervisor creates this user (email verified) when it does not exist yet.
 # The password is generated per install and stays in this file.
 DEV_USER_EMAIL=dev@coderax.local
@@ -89,23 +107,20 @@ DEV_USER_USERNAME=dev
 `;
 }
 
-function configTemplate(env) {
-  const modelPort = ports(env).model;
-  const modelId = env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct';
-  return `# Local llama.cpp endpoint written by \`npm run dev:up\` on first run.
-version: 1.3.17
-endpoints:
-  custom:
-    - name: 'llamacpp'
-      apiKey: 'local'
-      baseURL: 'http://127.0.0.1:${modelPort}/v1'
-      models:
-        default:
-          - '${modelId}'
-        fetch: true
-      titleConvo: false
-      modelDisplayLabel: 'llama.cpp (local)'
+function configOptions(env) {
+  return {
+    modelPort: ports(env).model,
+    modelId: env.DEV_MODEL_ID || 'qwen2.5-1.5b-instruct',
+  };
+}
+
+const CONFIG_HEADER = `# Local development configuration maintained by \`npm run dev:up\`.
+# It points Chat and Work at the supervised llama.cpp model and enables the
+# zero-cost model catalog when OPENROUTER_API_KEY is present.
 `;
+
+function configSignature(file) {
+  return crypto.createHash('sha256').update(readFileSync(file)).digest('hex');
 }
 
 function ensureEnv() {
@@ -120,11 +135,38 @@ function ensureEnv() {
 
 function ensureConfig(env) {
   const file = path.join(ROOT, 'coderax.yaml');
-  if (existsSync(file)) {
+  const options = configOptions(env);
+  if (!existsSync(file)) {
+    writeFileSync(file, `${CONFIG_HEADER}${dumpConfig(mergeLocalConfig(null, options))}`);
+    console.log('▸ wrote coderax.yaml with the local llama.cpp endpoint and free-inference opt-in');
+    env.DEV_CONFIG_HASH = configSignature(file);
     return;
   }
-  writeFileSync(file, configTemplate(env));
-  console.log(`▸ wrote coderax.yaml with the local llama.cpp endpoint`);
+
+  const text = readFileSync(file, 'utf8');
+  let existing;
+  try {
+    existing = loadConfig(text);
+  } catch (error) {
+    throw new Error(`coderax.yaml is not valid YAML: ${error.message}`);
+  }
+  if (!needsLocalConfig(existing, options)) {
+    env.DEV_CONFIG_HASH = configSignature(file);
+    return;
+  }
+
+  /* Keep an existing file's comments when the missing pieces are whole top-level
+     sections; a structural change is merged and re-serialized instead. */
+  const appended = appendMissingConfig(text, existing, options);
+  const appendedConfig = appended == null ? null : loadConfig(appended);
+  writeFileSync(
+    file,
+    appendedConfig != null && !needsLocalConfig(appendedConfig, options)
+      ? appended
+      : `${CONFIG_HEADER}${dumpConfig(mergeLocalConfig(existing, options))}`,
+  );
+  console.log('▸ updated coderax.yaml with the local llama.cpp endpoint and free-inference opt-in');
+  env.DEV_CONFIG_HASH = configSignature(file);
 }
 
 const BUILD_OUTPUTS = [
@@ -223,7 +265,13 @@ const currentBoot = bootId();
 /* Settings that change where a service listens or who may reach it. Reusing a
    process started with different values would leave the old listener running. */
 const RESTART_KEYS = {
-  api: ['HOST', 'ENABLE_GUEST_ACCESS', 'ALLOW_REGISTRATION', 'ALLOW_EMAIL_LOGIN'],
+  api: [
+    'HOST',
+    'ENABLE_GUEST_ACCESS',
+    'ALLOW_REGISTRATION',
+    'ALLOW_EMAIL_LOGIN',
+    'DEV_CONFIG_HASH',
+  ],
   vite: ['HOST', 'BACKEND_HOST', 'BACKEND_PORT', 'VITE_ALLOWED_HOSTS'],
   model: ['DEV_MODEL_HOST'],
 };

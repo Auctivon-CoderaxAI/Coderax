@@ -339,6 +339,10 @@ export function getOpenAIConfig(
     ) as unknown as Fetch;
   }
 
+  if (options.fallbacks?.length) {
+    llmConfig.fallbacks = options.fallbacks;
+  }
+
   const result: t.OpenAIConfigResult = {
     llmConfig,
     configOptions,

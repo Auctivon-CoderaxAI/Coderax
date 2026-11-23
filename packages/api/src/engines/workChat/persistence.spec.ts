@@ -89,7 +89,7 @@ describe('Work chat persistence adapter', () => {
         interfaceConfig: { interface: { customWelcome: 'hi' } },
       },
       { conversationId: 'conversation-1', isWork: true, workModel: 'opencode', title: 'Fix' },
-      { context: 'Work OpenCode chat conversation', appendMessageIds: [] },
+      { context: 'Work OpenCode chat conversation' },
     );
 
     await store.loadTranscript('conversation-1');
@@ -109,7 +109,6 @@ describe('Work chat persistence adapter', () => {
       title: 'Fix the build',
       workState: 'running',
       create: true,
-      appendMessageIds: ['message-1'],
     });
 
     expect(db.saveConvo).toHaveBeenCalledWith(
@@ -122,14 +121,42 @@ describe('Work chat persistence adapter', () => {
         workState: 'running',
         tenantId: 'tenant-1',
       },
-      {
-        context: 'Work OpenCode chat conversation',
-        appendMessageIds: ['message-1'],
-      },
+      { context: 'Work OpenCode chat conversation' },
     );
   });
 
-  it('updates without a tenant or upsert, defaulting the appended ids', async () => {
+  it('labels Freebuff conversations and messages with the Freebuff engine', async () => {
+    const db = fakeDb();
+    const store = createEngineWorkChatPersistence({
+      db,
+      userId: 'owner',
+      tenantId: null,
+      interfaceConfig: {},
+      engine: 'freebuff',
+    });
+
+    await store.saveConversation({ conversationId: 'conversation-1', workState: 'completed' });
+    expect(db.saveConvo).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner' }),
+      expect.objectContaining({ workModel: 'freebuff', workState: 'completed' }),
+      { context: 'Work Freebuff chat conversation', noUpsert: true },
+    );
+
+    await store.saveMessage({
+      messageId: 'message-1',
+      parentMessageId: 'message-0',
+      conversationId: 'conversation-1',
+      text: 'Done',
+      isCreatedByUser: false,
+    });
+    expect(db.saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner' }),
+      expect.objectContaining({ sender: 'Freebuff', model: 'freebuff', endpoint: 'freebuff' }),
+      { context: 'Work Freebuff response' },
+    );
+  });
+
+  it('updates without a tenant or upsert', async () => {
     const db = fakeDb();
     const store = storeFor(db, { tenantId: 'tenant-1' });
 
@@ -146,7 +173,6 @@ describe('Work chat persistence adapter', () => {
       {
         context: 'Work OpenCode chat conversation',
         noUpsert: true,
-        appendMessageIds: [],
       },
     );
     const fields = db.saveConvo.mock.calls[0][1] as Record<string, unknown>;

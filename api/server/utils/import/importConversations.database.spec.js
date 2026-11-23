@@ -54,7 +54,7 @@ describe('importConversations database hardening', () => {
 
   it('round-trips an existing browser export for its owner and tenant', async () => {
     const filepath = path.join(tempDir, 'browser-export.json');
-    const fixture = path.join(__dirname, '__data__', 'coderax-export.json');
+    const fixture = path.join(__dirname, '__data__', 'librechat-export.json');
     const owner = 'browser-import-user';
     const tenantId = 'browser-tenant';
     await fs.copyFile(fixture, filepath);

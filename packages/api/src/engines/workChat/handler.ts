@@ -52,7 +52,7 @@ function engineLabel(engine: EngineId): string {
   return engine === 'freebuff' ? 'Freebuff' : 'OpenCode';
 }
 
-function selectedEngine(body: Json, config: EngineWorkChatConfig): EngineId | null {
+function selectedEngine(body: Json, config: EngineWorkChatConfig): 'opencode' | 'freebuff' | null {
   const requested = readString(body.model);
   if (requested == null) {
     return config.engines?.workChat?.engine ?? 'opencode';
@@ -72,7 +72,7 @@ function isEngineEnabled(config: EngineWorkChatConfig, engine: EngineId): boolea
 
 type HandlerOptions = {
   runtimeFor: (config: EngineWorkChatConfig | null | undefined) => EngineWorkChatRunner;
-  storeFor: (req: Request) => EngineWorkChatStore;
+  storeFor: (req: Request, engine: 'opencode' | 'freebuff') => EngineWorkChatStore;
   /** Shared with the native runner so neither can start beside the other. */
   reserveRun?: (input: RunScope) => boolean;
   releaseRun?: (input: RunScope) => boolean;
@@ -160,7 +160,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
 
     let store: EngineWorkChatStore;
     try {
-      store = options.storeFor(req);
+      store = options.storeFor(req, engine);
     } catch {
       res.status(503).json({
         code: 'WORK_ENGINE_STORE_UNAVAILABLE',
@@ -237,6 +237,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       const promptText = body.text as string;
+      const modeInstructions = readString(body.promptPrefix);
       const title =
         existing?.title && existing.title !== 'New Chat' ? existing.title : workTitle(promptText);
       let history: Array<{ text: string; isCreatedByUser: boolean }> = [];
@@ -250,7 +251,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         tenantId,
         conversationId,
         engine,
-        prompt: buildEnginePrompt(history, promptText),
+        prompt: buildEnginePrompt(history, promptText, modeInstructions),
       });
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
@@ -292,9 +293,13 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
 
-      const userMessageId = UUID.test(String(body.messageId ?? ''))
-        ? String(body.messageId)
-        : randomUUID();
+      /** A new conversation must own fresh message rows: the client can retry
+       * the same optimistic id after a reload, and upserting it would move the
+       * previous conversation's messages to the new one. */
+      const userMessageId =
+        !isNewConversation && UUID.test(String(body.messageId ?? ''))
+          ? String(body.messageId)
+          : randomUUID();
       const responseMessageId = `${userMessageId}_`;
       const parentMessageId = readString(body.parentMessageId) ?? '0';
       try {
@@ -305,10 +310,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           text: promptText,
           isCreatedByUser: true,
         });
-        await store.saveConversation({
-          conversationId,
-          appendMessageIds: [userMessageId],
-        });
+        await store.saveConversation({ conversationId });
       } catch {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'failed' });
@@ -424,7 +426,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({
           conversationId,
           workState: terminalState,
-          appendMessageIds: [responseMessageId],
         });
       } catch {
         persisted = false;

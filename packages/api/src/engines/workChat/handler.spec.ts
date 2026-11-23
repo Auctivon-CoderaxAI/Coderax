@@ -433,7 +433,7 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.body).toMatchObject({
       code: 'WORK_ENGINE_START_FAILED',
       error: 'timeout',
-      message: 'The OpenCode run timed out.',
+      message: 'The execution engine run timed out.',
     });
     expect(store.saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
@@ -554,7 +554,6 @@ describe('createEngineWorkChatHandler', () => {
       expect.objectContaining({
         conversationId: CONVERSATION_ID,
         workState: 'completed',
-        appendMessageIds: [`${USER_MESSAGE_ID}_`],
       }),
     );
     expect(release).toHaveBeenCalledWith(
@@ -586,6 +585,32 @@ describe('createEngineWorkChatHandler', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
     expect(saved.parentMessageId).toBe('0');
+  });
+
+  it('mints a fresh message id for a new conversation even when the client retries its own', async () => {
+    const { store, saveMessage } = fakeStore();
+    const { runner } = fakeRunner([]);
+
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: {
+        text: 'Fix it',
+        conversationId: 'new',
+        messageId: USER_MESSAGE_ID,
+        parentMessageId: 'parent-1',
+      },
+    });
+
+    const saved = saveMessage.mock.calls[0][0] as { messageId: string };
+    expect(saved.messageId).not.toBe(USER_MESSAGE_ID);
+    expect(saved.messageId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(sseEvents(response)[0]).toMatchObject({
+      created: true,
+      message: { messageId: saved.messageId, parentMessageId: 'parent-1' },
+    });
   });
 
   it('cancels the run and records failure when the user message cannot be saved', async () => {
@@ -831,8 +856,8 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.statusCode).toBe(200);
     expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
       terminalStatus: 'error',
-      responseMessage: { unfinished: true, error: 'The OpenCode run failed.' },
-      error: { message: 'The OpenCode run failed.' },
+      responseMessage: { unfinished: true, error: 'The execution engine run failed.' },
+      error: { message: 'The execution engine run failed.' },
     });
     expect(saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'failed' }),

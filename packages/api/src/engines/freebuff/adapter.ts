@@ -1,6 +1,7 @@
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   EngineAdapter,
   EngineAvailability,
@@ -10,12 +11,12 @@ import type {
   EngineRunHandle,
   EngineRunRequest,
 } from '../types';
-import type { WorkspaceRoots } from '../workspace';
 import type { EngineModelRef } from '../opencode/models';
-import { engineFailure } from '../types';
-import { createEngineRunHandle } from '../run';
-import { resolveEngineWorkspace } from '../workspace';
+import type { WorkspaceRoots } from '../workspace';
 import { isModelAllowedForMode } from '../opencode/models';
+import { resolveEngineWorkspace } from '../workspace';
+import { createEngineRunHandle } from '../run';
+import { engineFailure } from '../types';
 
 type Json = Record<string, unknown>;
 
@@ -90,16 +91,37 @@ export function loadFreebuffSdk(
   return { ok: true, value: { module: loaded as FreebuffSdkModule } };
 }
 
-function localBaseUrl(value: string | undefined): string | null {
+function normalizedHost(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+}
+
+/**
+ * Private endpoints are loopback by default. A non-loopback host is accepted
+ * only when the owner explicitly allowlists its bare hostname, e.g.
+ * host.docker.internal or a Compose service name.
+ */
+function privateBaseUrl(
+  value: string | undefined,
+  allowedHosts: readonly string[] = [],
+): string | null {
   if (!value) {
     return null;
   }
   try {
     const url = new URL(value);
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const host = normalizedHost(url.hostname);
+    const loopback = ['localhost', '127.0.0.1', '::1'].includes(host);
+    const explicitlyAllowed = allowedHosts.some((entry) => {
+      const allowed = normalizedHost(entry);
+      return allowed.length > 0 && allowed === host;
+    });
     if (
       url.protocol !== 'http:' ||
-      !['localhost', '127.0.0.1', '::1'].includes(host) ||
+      (!loopback && !explicitlyAllowed) ||
       url.username ||
       url.password ||
       url.search ||
@@ -116,6 +138,8 @@ function localBaseUrl(value: string | undefined): string | null {
 export type FreebuffAdapterOptions = {
   enabled: boolean;
   baseURL?: string | null;
+  /** Explicitly trusted non-loopback endpoint hostnames. */
+  allowedHosts?: readonly string[];
   model?: EngineModelRef | null;
   sdk?: LoadedFreebuffSdk | null;
   unavailableDetail?: string;
@@ -141,12 +165,15 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
         'engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.privateRoot must be configured.',
     };
   }
-  if (!localBaseUrl(options.baseURL) || !isModelAllowedForMode(options.model, 'private')) {
+  if (
+    !privateBaseUrl(options.baseURL, options.allowedHosts) ||
+    !isModelAllowedForMode(options.model, 'private')
+  ) {
     return {
       available: false,
       reason: 'not_configured',
       detail:
-        'Freebuff Work requires an OpenAI-compatible loopback endpoint and a local ollama or lmstudio model.',
+        'Freebuff Work requires an OpenAI-compatible loopback endpoint or a host listed in engines.freebuff.allowedHosts, plus a local ollama or lmstudio model.',
     };
   }
   if (!options.sdk) {
@@ -172,7 +199,7 @@ function pathFromArgument(value: unknown): string {
     return value;
   }
   if (value instanceof URL && value.protocol === 'file:') {
-    return require('node:url').fileURLToPath(value) as string;
+    return fileURLToPath(value);
   }
   throw new TypeError('Freebuff workspace tools require a file path.');
 }
@@ -408,9 +435,12 @@ export async function startFreebuffRun(
   }
 
   const workspaceRoot = resolved.value.root;
-  const baseURL = localBaseUrl(options.baseURL ?? undefined);
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
   if (!baseURL) {
-    return engineFailure('not_configured', 'Freebuff requires a loopback model endpoint.');
+    return engineFailure(
+      'not_configured',
+      'Freebuff requires a loopback model endpoint or a host listed in engines.freebuff.allowedHosts.',
+    );
   }
 
   const sessionId = randomUUID();

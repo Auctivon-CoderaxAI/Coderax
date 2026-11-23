@@ -69,7 +69,15 @@ changed.
   `DEV_CLIENT_MODE=dev`, and `DEV_USER_EMAIL` / `DEV_USER_USERNAME` /
   `DEV_USER_PASSWORD` (the password is generated per install and stays here).
 - `coderax.yaml` - one `endpoints.custom` entry named `llamacpp` pointing at the
-  local model (`http://127.0.0.1:8080/v1`).
+  local model (`http://127.0.0.1:8080/v1`), plus `freeInference.enabled: true` so
+  the verified OpenRouter `:free` models join the local endpoint when
+  `OPENROUTER_API_KEY` is set.
+
+If `coderax.yaml` already exists, `dev:up` adds the `llamacpp` endpoint and the
+free-inference opt-in without removing your other endpoints or engines. It
+appends missing top-level sections to preserve existing comments when possible,
+and otherwise merges and rewrites the file. The API restarts on the next
+`dev:up` when that config changes.
 
 It enables passwordless guest access (`ENABLE_GUEST_ACCESS=true`), because the
 client's entry screen at `/connect` has no other way in by default, and it
