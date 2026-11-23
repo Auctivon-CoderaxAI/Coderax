@@ -28,15 +28,15 @@ test('an override added to package.json without regenerating the lockfile is cau
   ]);
 });
 
-test('an override changed in package.json is caught', () => {
-  assert.deepEqual(overridesProblems({ hono: '^9.9.9' }, { hono: '^4.13.16' }), [
-    'package.json declares the override hono = "^9.9.9" but bun.lock records "^4.13.16"',
+test('an override changed in package.json is caught with fixed fixture values', () => {
+  assert.deepEqual(overridesProblems({ hono: '^2.0.0' }, { hono: '^1.0.0' }), [
+    'package.json declares the override hono = "^2.0.0" but bun.lock records "^1.0.0"',
   ]);
 });
 
-test('an override dropped from package.json but still in the lockfile is caught', () => {
-  assert.deepEqual(overridesProblems({}, { fflate: '^0.8.3' }), [
-    'bun.lock records the override fflate = "^0.8.3", which package.json no longer declares',
+test('an override dropped from package.json but still in the lockfile is caught with a fixed fixture', () => {
+  assert.deepEqual(overridesProblems({}, { fflate: '^1.0.0' }), [
+    'bun.lock records the override fflate = "^1.0.0", which package.json no longer declares',
   ]);
 });
 
