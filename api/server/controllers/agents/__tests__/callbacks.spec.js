@@ -35,6 +35,7 @@ jest.mock('@coderax/api', () => ({
   collectToolCallIds: jest.requireActual('@coderax/api').collectToolCallIds,
   captureSubagentIdentity: jest.requireActual('@coderax/api').captureSubagentIdentity,
   createToolTimingAdapter: jest.requireActual('@coderax/api').createToolTimingAdapter,
+  createModelTimingTracker: jest.requireActual('@coderax/api').createModelTimingTracker,
   stampCommandExecutor: jest.requireActual('@coderax/api').stampCommandExecutor,
 }));
 
