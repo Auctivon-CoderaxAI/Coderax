@@ -30,7 +30,9 @@ services:
     command:
       - sh
       - -c
-      - mkdir -p /app/data/freebuff-workspace && exec node api/server/index.js
+      - |
+        mkdir -p /app/data/freebuff-workspace &&
+        exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
@@ -81,7 +83,7 @@ services:
         - >-
           ollama show qwen3.5:4b-16k >/tmp/freebuff-show 2>/dev/null ||
           { echo freebuff_model_missing >&2; exit 1; };
-          grep -Eq '^[[:space:]]*num_ctx[[:space:]]+16384[[:space:]]*$' /tmp/freebuff-show ||
+          awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show ||
           { echo freebuff_context_too_small >&2; exit 1; }
       interval: 10s
       timeout: 5s
@@ -107,7 +109,11 @@ services:
     command:
       - |
         set -eu
-        if ollama show qwen3.5:4b-16k >/dev/null 2>&1; then
+        model_ready() {
+          ollama show qwen3.5:4b-16k > /tmp/freebuff-show 2>/dev/null &&
+            awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show
+        }
+        if model_ready; then
           exit 0
         fi
         if ! ollama show qwen3.5:4b >/dev/null 2>&1; then
@@ -123,6 +129,7 @@ services:
         fi
         printf 'FROM qwen3.5:4b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
         ollama create qwen3.5:4b-16k -f /tmp/Modelfile
+        model_ready || { echo freebuff_context_too_small >&2; exit 1; }
     # Retry the container itself after an exhausted pull; `api` keeps waiting.
     restart: "on-failure:3"
   admin-panel:

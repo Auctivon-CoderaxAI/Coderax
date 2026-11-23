@@ -149,6 +149,8 @@ export type EngineAdapter = {
   id: EngineId;
   capabilities: EngineCapabilities;
   describe: () => EngineAvailability;
+  /** Checks admission prerequisites when start itself verifies runtime readiness. */
+  describeForStart?: () => EngineAvailability;
   /** Refreshes runtime readiness; safe adapters return before a bounded timeout. */
   probe?: () => Promise<void>;
   /** Starts one run. A failure here means no session and no side effect. */
