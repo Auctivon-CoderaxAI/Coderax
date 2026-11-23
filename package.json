@@ -113,6 +113,7 @@
     "test:packages:api": "cd packages/api && npm run test:ci",
     "test:packages:data-provider": "cd packages/data-provider && npm run test:ci",
     "test:packages:data-schemas": "cd packages/data-schemas && npm run test:ci",
+    "test:dev": "node --test scripts/dev/pid-record.test.mjs scripts/dev/stack.test.mjs scripts/dev/model.test.mjs",
     "test:config": "jest --config config/jest.config.js",
     "test:all": "npm run build:packages && npm run test:client && npm run test:api && npm run test:packages:api && npm run test:packages:data-provider && npm run test:packages:data-schemas",
     "test:turbo": "turbo run test:ci --concurrency=2 --filter=@coderax/frontend --filter=@coderax/client --filter=@coderax/backend --filter=@coderax/api --filter=coderax-data-provider --filter=@coderax/data-schemas",

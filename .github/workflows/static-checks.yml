@@ -149,6 +149,12 @@ jobs:
         continue-on-error: true
         run: node --test scripts/verify-workspace-lockfile.test.mjs
 
+      - name: Test local development tools
+        id: dev_tools
+        if: always()
+        continue-on-error: true
+        run: npm run test:dev
+
       # The @shadcn/lint design rules read each primitive's `cva` variants through
       # the @coderax/client entry point, which resolves to packages/client/dist.
       # Without it they classify nothing and report strictly fewer violations than
@@ -658,6 +664,7 @@ jobs:
         if: always()
         env:
           INSTALL_DEPENDENCIES_OUTCOME: ${{ steps.install_dependencies.outcome }}
+          DEV_TOOLS_OUTCOME: ${{ steps.dev_tools.outcome }}
           WORKSPACE_LOCKFILE_OUTCOME: ${{ steps.workspace_lockfile.outcome }}
           ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
           ESLINT_CONFIG_OUTCOME: ${{ steps.eslint_config.outcome }}
@@ -698,6 +705,7 @@ jobs:
           }
 
           record_failure "Dependency installation" "$INSTALL_DEPENDENCIES_OUTCOME"
+          record_failure "Local development tools" "$DEV_TOOLS_OUTCOME"
           record_failure "Workspace lockfile regression" "$WORKSPACE_LOCKFILE_OUTCOME"
           record_failure "ESLint" "$ESLINT_OUTCOME"
           record_failure "ESLint config validation" "$ESLINT_CONFIG_OUTCOME"

@@ -16,6 +16,7 @@
  */
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -169,10 +170,11 @@ async function startService(service) {
     stdio: ['ignore', fd, fd],
   });
   fs.closeSync(fd);
-  await new Promise((resolve, reject) => {
-    child.once('spawn', resolve);
-    child.once('error', reject);
-  });
+  // A failed spawn has no PID and emits 'error'. For a successful spawn,
+  // publish the record before yielding to the lifecycle signal handlers.
+  if (child.pid == null) {
+    await once(child, 'spawn');
+  }
   child.unref();
   const record = { pid: child.pid, token };
   const file = pidFile(service.name);
@@ -389,9 +391,25 @@ try {
       }
       throw error;
     }
+    const signals = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
+    const handlers = Object.entries(signals).map(([signal, exitCode]) => {
+      const handler = () => {
+        try {
+          fs.rmdirSync(lockDir);
+        } catch (error) {
+          console.error(`[dev] could not release .dev/stack.lock: ${error.message}`);
+        }
+        process.exit(exitCode);
+      };
+      process.once(signal, handler);
+      return [signal, handler];
+    });
     try {
       await (action === 'up' ? up() : down());
     } finally {
+      for (const [signal, handler] of handlers) {
+        process.removeListener(signal, handler);
+      }
       fs.rmdirSync(lockDir);
     }
   } else if (action === 'status') {

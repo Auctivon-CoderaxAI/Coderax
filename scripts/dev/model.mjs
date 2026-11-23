@@ -20,6 +20,8 @@ import { alias, binPath, ggufPath, host, modelDir, port, serverArgs } from './mo
 
 const release = 'b12597';
 const binaryUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${release}/llama-${release}-bin-ubuntu-x64.tar.gz`;
+// SHA-256 from the GitHub release metadata for this exact asset.
+const binarySha256 = '34d3514902e08ceb05ca3f3e3ac2a928e4f4a8b5b40cd98838d0aeae4fd9dc42';
 
 /** Commit, not `main`, so an upstream change cannot silently alter the model. */
 const ggufRevision = '91cad51170dc346986eccefdc2dd33a9da36ead9';
@@ -65,25 +67,35 @@ async function installBinary() {
     );
   }
   console.log(`[model] downloading llama.cpp ${release}`);
-  const archive = path.join(modelDir, 'llama.tar.gz');
-  await download(binaryUrl, archive);
-  fs.mkdirSync(path.dirname(binPath), { recursive: true });
-  // The archive has one top-level directory; keep only the server and its libraries.
-  execFileSync(
-    'tar',
-    [
-      '-xzf',
-      archive,
-      '-C',
-      path.dirname(binPath),
-      '--strip-components=1',
-      '--wildcards',
-      '*/llama-server',
-      '*/lib*.so*',
-    ],
-    { stdio: 'inherit' },
-  );
-  fs.rmSync(archive, { force: true });
+  const staging = fs.mkdtempSync(path.join(modelDir, 'llama-'));
+  const archive = path.join(staging, 'llama.tar.gz');
+  try {
+    await download(binaryUrl, archive);
+    const digest = await sha256(archive);
+    if (digest !== binarySha256) {
+      throw new Error(
+        `llama.cpp archive checksum mismatch (got ${digest}); re-run to download it again`,
+      );
+    }
+    fs.mkdirSync(path.dirname(binPath), { recursive: true });
+    // The archive has one top-level directory; keep only the server and its libraries.
+    execFileSync(
+      'tar',
+      [
+        '-xzf',
+        archive,
+        '-C',
+        path.dirname(binPath),
+        '--strip-components=1',
+        '--wildcards',
+        '*/llama-server',
+        '*/lib*.so*',
+      ],
+      { stdio: 'inherit' },
+    );
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
   if (!fs.existsSync(binPath)) {
     throw new Error('llama-server missing from the downloaded archive');
   }
