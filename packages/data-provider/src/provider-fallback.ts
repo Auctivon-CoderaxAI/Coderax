@@ -21,13 +21,6 @@ export const PROVIDER_FALLBACK_IDS = [
 
 export type ProviderFallbackId = (typeof PROVIDER_FALLBACK_IDS)[number];
 
-/**
- * No generic provider fallback is currently eligible for strict $0 routing.
- * These integrations can use account-tier billing, trial balances, or paid
- * model IDs. OpenRouter's exact `:free` models use the separate guarded adapter.
- */
-export const VERIFIED_ZERO_COST_PROVIDER_FALLBACKS: readonly ProviderFallbackId[] = [];
-
 export type ProviderFallbackProvider = {
   id: ProviderFallbackId;
   /** Reserved custom-endpoint name. */
@@ -261,17 +254,16 @@ export function buildProviderFallbackCustomEndpoints(
   if (!isProviderFallbackEnabled(config)) {
     return [];
   }
-  return PROVIDER_FALLBACK_PROVIDERS.filter(
-    (provider) =>
-      VERIFIED_ZERO_COST_PROVIDER_FALLBACKS.includes(provider.id) && hasCredential(env, provider),
-  ).map((provider) => ({
-    name: provider.name,
-    baseURL: providerFallbackBaseURL(config, provider),
-    apiKey: '${' + provider.apiKeyEnv + '}',
-    modelDisplayLabel: provider.label,
-    models: { default: [providerFallbackModel(config, provider)] },
-    titleConvo: false,
-  }));
+  return PROVIDER_FALLBACK_PROVIDERS.filter((provider) => hasCredential(env, provider)).map(
+    (provider) => ({
+      name: provider.name,
+      baseURL: providerFallbackBaseURL(config, provider),
+      apiKey: '${' + provider.apiKeyEnv + '}',
+      modelDisplayLabel: provider.label,
+      models: { default: [providerFallbackModel(config, provider)] },
+      titleConvo: false,
+    }),
+  );
 }
 
 /**

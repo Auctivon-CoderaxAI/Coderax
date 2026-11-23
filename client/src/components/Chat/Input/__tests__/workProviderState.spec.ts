@@ -13,7 +13,11 @@ function endpoint(overrides: Partial<TWorkRoutingEndpoint> = {}): TWorkRoutingEn
     modelId: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     label: 'NVIDIA Nemotron 3 Ultra (free)',
     kind: 'fallback',
+    freeEligible: true,
+    credentialPresent: true,
+    healthy: true,
     available: true,
+    rejectionReason: null,
     cooldownUntil: null,
     tools: true,
     quota: {

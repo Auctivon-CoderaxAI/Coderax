@@ -61,7 +61,11 @@ function endpoint() {
     modelId: 'openai/gpt-oss-120b',
     label: 'OpenAI GPT-OSS 120B on Groq',
     kind: 'fallback' as const,
+    freeEligible: true,
+    credentialPresent: true,
+    healthy: true,
     available: true,
+    rejectionReason: null,
     cooldownUntil: null,
     tools: false,
     quota: {

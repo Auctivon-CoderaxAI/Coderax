@@ -6,7 +6,6 @@ import {
   providerFallbackForEndpoint,
   providerFallbackModel,
   providerFallbackOrder,
-  VERIFIED_ZERO_COST_PROVIDER_FALLBACKS,
 } from 'coderax-data-provider';
 import type { ProviderFallbackConfigLike, TEndpoint } from 'coderax-data-provider';
 import type { FallbackConfig, OpenAIClientOptions } from '@librechat/agents';
@@ -81,11 +80,7 @@ export function buildProviderFallbackOptions({
   modelParameters,
 }: FallbackParams): FallbackConfig[] | undefined {
   const primary = providerFallbackForEndpoint(endpoint);
-  if (
-    !primary ||
-    !isProviderFallbackEnabled(config) ||
-    !VERIFIED_ZERO_COST_PROVIDER_FALLBACKS.includes(primary.id)
-  ) {
+  if (!primary || !isProviderFallbackEnabled(config)) {
     return undefined;
   }
   if (!providerFallbackEndpointMatches(endpointConfig, primary, config)) {
@@ -94,10 +89,7 @@ export function buildProviderFallbackOptions({
 
   const fallbacks: FallbackConfig[] = [];
   for (const provider of providerFallbackOrder(config, primary.id)) {
-    if (
-      provider.id === primary.id ||
-      !VERIFIED_ZERO_COST_PROVIDER_FALLBACKS.includes(provider.id)
-    ) {
+    if (provider.id === primary.id) {
       continue;
     }
     const apiKey = env?.[provider.apiKeyEnv];
