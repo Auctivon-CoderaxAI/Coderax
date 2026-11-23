@@ -77,6 +77,7 @@ async function request(
       throw new Error(`Request failed for ${path}`);
     });
     if (!allow.includes(response.status)) {
+      controller.abort();
       throw new Error(`HTTP ${response.status} from ${path}`);
     }
     const text = await response.text();
