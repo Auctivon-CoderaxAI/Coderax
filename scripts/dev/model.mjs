@@ -21,6 +21,9 @@ import { alias, binPath, ggufPath, host, modelDir, port, serverArgs } from './mo
 const release = 'b12597';
 const binaryUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${release}/llama-${release}-bin-ubuntu-x64.tar.gz`;
 
+// SHA-256 from the GitHub release asset metadata for this archive.
+const binarySha256 = '34d3514902e08ceb05ca3f3e3ac2a928e4f4a8b5b40cd98838d0aeae4fd9dc42';
+
 /** Commit, not `main`, so an upstream change cannot silently alter the model. */
 const ggufRevision = '91cad51170dc346986eccefdc2dd33a9da36ead9';
 const ggufUrl = `https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/${ggufRevision}/qwen2.5-1.5b-instruct-q4_k_m.gguf`;
@@ -70,6 +73,10 @@ async function installBinary() {
   const stagedBinDir = path.join(staging, 'bin');
   try {
     await download(binaryUrl, archive);
+    const digest = await sha256(archive);
+    if (digest !== binarySha256) {
+      throw new Error(`llama.cpp checksum mismatch (got ${digest}); re-run to download it again`);
+    }
     fs.mkdirSync(stagedBinDir);
     // The archive has one top-level directory; keep the server and its libraries together.
     execFileSync(
