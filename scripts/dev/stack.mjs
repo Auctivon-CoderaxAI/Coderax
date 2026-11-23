@@ -78,6 +78,7 @@ const services = [
   },
   {
     name: 'ui',
+    previewHost,
     port: 3000,
     timeoutMs: 90_000,
     probe: () => httpOk('http://127.0.0.1:3000/'),
@@ -125,11 +126,11 @@ function readRecord(name) {
   } catch {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  const { pid, token } = record;
+  const { pid, token, previewHost: recordedPreviewHost } = record;
   if (!Number.isSafeInteger(pid) || pid <= 1 || (token != null && !/^[a-f0-9-]{36}$/.test(token))) {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  return { pid, token };
+  return { pid, token, previewHost: recordedPreviewHost };
 }
 
 function clearPid(name) {
@@ -171,13 +172,21 @@ async function startService(service) {
   const logPath = path.join(logDir, `${service.name}.log`);
   const fd = fs.openSync(logPath, 'w');
   const token = randomUUID();
-  const child = spawn(spec.file, spec.args, {
-    cwd: spec.cwd ?? repoRoot,
-    env: { ...process.env, ...service.env, [ownerKey]: token },
-    detached: true,
-    stdio: ['ignore', fd, fd],
-  });
-  fs.closeSync(fd);
+  let child;
+  try {
+    child = spawn(
+      nodeBin,
+      [path.join(repoRoot, 'scripts/dev/launch.mjs'), spec.file, ...spec.args],
+      {
+        cwd: spec.cwd ?? repoRoot,
+        env: { ...process.env, ...service.env, [ownerKey]: token },
+        detached: true,
+        stdio: ['ignore', fd, fd, 'ipc'],
+      },
+    );
+  } finally {
+    fs.closeSync(fd);
+  }
   const spawned = new Promise((resolve, reject) => {
     child.once('spawn', resolve);
     child.once('error', reject);
@@ -186,22 +195,26 @@ async function startService(service) {
     await spawned;
     fail(`${service.name}: spawned without a PID`);
   }
-  // Publish the record before yielding to a queued SIGINT or SIGTERM handler.
-  child.unref();
-  const record = { pid: child.pid, token };
+  // The launcher cannot start the service until the ownership record is published.
+  const record = { pid: child.pid, token, previewHost: service.previewHost };
   const file = pidFile(service.name);
   const temporary = `${file}.${token}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
     fs.renameSync(temporary, file);
+    await spawned;
+    await new Promise((resolve, reject) => {
+      child.send('start', (error) => (error ? reject(error) : resolve()));
+    });
   } catch (error) {
-    if (groupState(record) === 'owned') {
-      signalGroup(record.pid, 'SIGTERM');
-    }
     fs.rmSync(temporary, { force: true });
     throw error;
+  } finally {
+    if (child.connected) {
+      child.disconnect();
+    }
+    child.unref();
   }
-  await spawned;
   return record;
 }
 
@@ -222,8 +235,9 @@ async function waitReady(service, { pid, token }) {
 async function up() {
   fs.mkdirSync(pidDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
-  if (!previewHost) {
-    log('UI will listen on loopback; set CODERAX_PREVIEW_HOST to enable a network preview');
+  const uiRecord = readRecord('ui');
+  if (uiRecord && groupState(uiRecord) === 'owned' && uiRecord.previewHost !== previewHost) {
+    fail('ui: running preview settings differ or are unknown; run npm run dev:down, then retry');
   }
 
   for (const service of services) {
@@ -296,21 +310,21 @@ async function waitExit(record, timeoutMs) {
 async function down() {
   let stopped = true;
   for (const service of [...services].reverse()) {
-    const record = readRecord(service.name);
-    if (record == null) {
-      log(`${service.name}: not started by dev:up`);
-      continue;
-    }
-    const { pid } = record;
-    const state = groupState(record);
-    if (state === 'gone') {
-      clearPid(service.name);
-      log(`${service.name}: already stopped (stale pid file removed)`);
-      continue;
-    }
     try {
+      const record = readRecord(service.name);
+      if (record == null) {
+        log(`${service.name}: not started by dev:up`);
+        continue;
+      }
+      const { pid } = record;
+      const state = groupState(record);
+      if (state === 'gone') {
+        clearPid(service.name);
+        log(`${service.name}: already stopped (stale pid file removed)`);
+        continue;
+      }
       if (state !== 'owned') {
-        throw new Error('ownership could not be verified');
+        throw new Error(`ownership of process group ${pid} could not be verified`);
       }
       signalGroup(pid, 'SIGTERM');
       if (!(await waitExit(record, 10_000))) {
@@ -318,18 +332,17 @@ async function down() {
           signalGroup(pid, 'SIGKILL');
         }
         if (!(await waitExit(record, 2_000))) {
-          throw new Error('could not confirm process group exit');
+          throw new Error(`could not confirm exit of process group ${pid}`);
         }
       }
+      clearPid(service.name);
+      log(`${service.name}: stopped`);
     } catch (error) {
       console.error(
-        `[dev] ${service.name}: could not stop process group ${pid}: ${error.message}; PID record kept`,
+        `[dev] ${service.name}: shutdown incomplete: ${error.message}; inspect ${pidFile(service.name)}`,
       );
       stopped = false;
-      continue;
     }
-    clearPid(service.name);
-    log(`${service.name}: stopped`);
   }
   if (stopped) {
     log('stack is down');

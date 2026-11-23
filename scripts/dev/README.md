@@ -30,10 +30,22 @@ npm run dev:status
 each answers before moving on; `dev:down` stops them in reverse order. Each
 service runs in its own process group and writes a log to `.dev/logs/`. The
 record in `.dev/pids/` has a marker that the service and its children inherit.
-Shutdown checks for that marker before signaling a group, even if its original
-leader has exited. If a group cannot be verified or stopped, its record is kept
-and `dev:down` exits nonzero. Running `dev:up` again reuses services that are
-already healthy.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:38068ead6e96172e13dedd8858f59124addee68c4ab4304e4f305f12ce780b64 -->
+
+The supervisor records each launcher before allowing it to start its service.
+Shutdown checks the ownership marker before signaling a group, even if its
+original leader has exited. If a record cannot be read or a group cannot be
+verified or stopped, `dev:down` leaves that record in place, tries the remaining
+services, and exits nonzero.
+
+Running `dev:up` again reuses services that are already healthy. To switch
+between loopback and a network preview, or to change the preview hostname,
+run `npm run dev:down` first. Do the same if the running UI predates preview
+settings in its PID record.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Only one `dev:up` or `dev:down` can run at a time. If an interrupted command
 leaves `.dev/stack.lock`, confirm that neither command is running before using
