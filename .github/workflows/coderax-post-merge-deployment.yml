@@ -33,8 +33,38 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      # Nothing is deployed without the Vercel credentials, so waiting ten
+      # minutes for production to serve this commit can only fail. Report the
+      # gap and skip this check instead.
+      - name: Check deployment secrets
+        id: secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::notice title=Post-merge verification skipped::Missing repository secret(s): ${missing[*]}. See deploy/vercel/README.md; nothing was deployed to verify."
+            {
+              echo "### Post-merge verification skipped"
+              echo ""
+              echo "Missing repository secret(s): \`${missing[*]}\`."
+              echo ""
+              echo "See \`deploy/vercel/README.md\`. Nothing was deployed to verify."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
       - name: Wait for pushed revision and verify deployment
-        if: github.event_name == 'push'
+        if: steps.secrets.outputs.present == 'true' && github.event_name == 'push'
         env:
           # The production alias is the default; set the CODERAX_DEPLOYMENT_URL
           # repository variable to check a different Coderax Vercel origin.
