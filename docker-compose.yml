@@ -93,17 +93,20 @@ services:
     command:
       - |
         set -eu
-        # `api` waits for this service to complete successfully, so a transient
-        # registry failure must not leave the stack without a model.
-        attempt=1
-        until ollama pull qwen3.5:4b; do
-          if [ "$attempt" -ge 3 ]; then
-            echo "pulling qwen3.5:4b failed after $attempt attempts" >&2
-            exit 1
-          fi
-          attempt=$((attempt + 1))
-          sleep 10
-        done
+        if ollama show qwen3.5:4b-16k >/dev/null 2>&1; then
+          exit 0
+        fi
+        if ! ollama show qwen3.5:4b >/dev/null 2>&1; then
+          attempt=1
+          until ollama pull qwen3.5:4b; do
+            if [ "$$attempt" -ge 3 ]; then
+              echo "pulling qwen3.5:4b failed after $$attempt attempts" >&2
+              exit 1
+            fi
+            attempt=$$((attempt + 1))
+            sleep 10
+          done
+        fi
         printf 'FROM qwen3.5:4b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
         ollama create qwen3.5:4b-16k -f /tmp/Modelfile
     # Retry the container itself after an exhausted pull; `api` keeps waiting.

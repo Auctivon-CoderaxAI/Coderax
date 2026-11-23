@@ -121,9 +121,12 @@ names in `engines.freebuff.allowedHosts` — and the same run lifecycle, stream,
 cancellation, and workspace-root checks as the other adapters. Allowlisting a
 host does not relax the rest of the endpoint contract: it must still be `http`,
 with no credentials, query, or fragment, and the entry matches the bare
-hostname exactly. It does not call
-hosted Freebuff inference, load repository or home agents, or enable shell
-execution. File operations are wrapped to stay inside the selected workspace.
+hostname exactly. Plain HTTP does not encrypt prompts or the inference API key
+(`FREEBUFF_LOCAL_API_KEY`); anyone who can observe the traffic can read them.
+Allowlist only hosts on a network path you trust.
+Freebuff does not call hosted Freebuff inference, load repository or home
+agents, or enable shell execution. File operations are wrapped to stay inside
+the selected workspace.
 
 The published `@codebuff/sdk` package may not contain Freebuff's current local
 BYOK runtime and agent-registry trust gate. Coderax checks for both exports and
