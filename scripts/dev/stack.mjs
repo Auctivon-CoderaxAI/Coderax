@@ -37,6 +37,7 @@ const previewHost = (
   process.env.VITE_ALLOWED_HOSTS ??
   ''
 ).trim();
+const previewEnabled = Boolean(previewHost);
 
 // Express loads this file with dotenv, giving the inherited environment precedence.
 function apiEnvironment() {
@@ -114,6 +115,7 @@ const services = [
         HOST: host,
         PORT: String(port),
         MONGO_URI: managedMongoUri(),
+        ...(previewEnabled ? { TRUST_TENANT_HEADER: 'false' } : {}),
       };
     },
     command: () => ({
@@ -139,7 +141,7 @@ const services = [
       const { connectHost, port } = getApiBinding();
       return {
         NODE_ENV: 'development',
-        HOST: '0.0.0.0',
+        HOST: previewEnabled ? '0.0.0.0' : '127.0.0.1',
         PORT: '3000',
         BACKEND_HOST: connectHost,
         BACKEND_PORT: String(port),
@@ -182,11 +184,11 @@ function readRecord(name) {
   } catch {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  const { pid, token } = record;
+  const { pid, token, preview } = record;
   if (!Number.isSafeInteger(pid) || pid <= 1 || (token != null && !/^[a-f0-9-]{36}$/.test(token))) {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  return { pid, token };
+  return { pid, token, preview };
 }
 
 const ownerKey = 'CODERAX_DEV_GROUP_OWNER';
@@ -309,25 +311,43 @@ async function startService(service) {
   const logPath = path.join(logDir, `${service.name}.log`);
   const fd = fs.openSync(logPath, 'w');
   const token = randomUUID();
-  const child = spawn(spec.file, spec.args, {
-    cwd: spec.cwd ?? repoRoot,
-    env: { ...process.env, ...service.env, [ownerKey]: token },
-    detached: true,
-    stdio: ['ignore', fd, fd],
-  });
+  // The detached process waits for the ownership record before it can serve.
+  // If the supervisor dies first, the pipe closes and the shell exits on EOF.
+  // exec preserves the recorded group leader and the service receives no stdin.
+  const child = spawn(
+    '/bin/sh',
+    ['-c', 'read -r start && exec "$@" </dev/null', 'dev-stack', spec.file, ...spec.args],
+    {
+      cwd: spec.cwd ?? repoRoot,
+      env: { ...process.env, ...service.env, [ownerKey]: token },
+      detached: true,
+      stdio: ['pipe', fd, fd],
+    },
+  );
   fs.closeSync(fd);
+  const gate = child.stdin;
+  // The write callback handles failure; the stream can also emit an error.
+  gate.on('error', () => {});
   await new Promise((resolve, reject) => {
     child.once('spawn', resolve);
     child.once('error', reject);
   });
   child.unref();
-  const record = { pid: child.pid, token };
+  const record = {
+    pid: child.pid,
+    token,
+    ...(['api', 'ui'].includes(service.name) ? { preview: previewEnabled } : {}),
+  };
   const file = pidFile(service.name);
   const temporary = `${file}.${token}.tmp`;
   try {
     fs.writeFileSync(temporary, JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
     fs.renameSync(temporary, file);
+    await new Promise((resolve, reject) => {
+      gate.end('start\n', (error) => (error ? reject(error) : resolve()));
+    });
   } catch (error) {
+    gate.destroy();
     if (groupState(record) === 'owned') {
       signalGroup(record.pid, 'SIGTERM');
     }
@@ -354,14 +374,22 @@ async function waitReady(service, { pid, token }, signal) {
 }
 
 async function up(signal) {
+  if (previewEnabled && getApiEnvironment().TRUST_TENANT_HEADER?.trim().toLowerCase() === 'true') {
+    fail('dev:up network preview requires TRUST_TENANT_HEADER to be disabled');
+  }
   managedMongoUri();
   getApiBinding();
   fs.mkdirSync(pidDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
-  if (!previewHost) {
-    log(
-      'VITE_ALLOWED_HOSTS is empty — set CODERAX_PREVIEW_HOST to the preview hostname or the panel will 403',
-    );
+  if (!previewEnabled) {
+    log('UI is local only; set CODERAX_PREVIEW_HOST to opt in to network preview');
+  }
+
+  for (const name of ['api', 'ui']) {
+    const record = readRecord(name);
+    if (record && groupState(record) === 'owned' && record.preview !== previewEnabled) {
+      fail(`${name}: run npm run dev:down before upgrading or changing preview mode`);
+    }
   }
 
   for (const service of services) {
