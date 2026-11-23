@@ -1,47 +1,94 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { canonicalOverrides, overridesProblems, parseBunLock } from './bun-lock.mts';
+import {
+  bunLockProblems,
+  canonicalOverrides,
+  overridesProblems,
+  parseBunLock,
+} from './bun-lock.mts';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const readJson = (file: string): { overrides?: unknown } =>
-  JSON.parse(readFileSync(join(root, file), 'utf8')) as { overrides?: unknown };
-
-const manifest = readJson('package.json');
-const lock = parseBunLock(readFileSync(join(root, 'bun.lock'), 'utf8'));
-const declared = manifest.overrides as Record<string, unknown>;
-const recorded = lock.overrides as Record<string, unknown>;
-
 test('the committed bun.lock records the overrides package.json declares', () => {
-  assert.deepEqual(overridesProblems(manifest.overrides, lock.overrides), []);
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  const lock = parseBunLock(readFileSync(join(root, 'bun.lock'), 'utf8'));
+  assert.deepEqual(bunLockProblems(manifest, lock, root), []);
 });
 
 test('an override added to package.json without regenerating the lockfile is caught', () => {
-  const problems = overridesProblems({ ...declared, 'left-pad': '1.0.0' }, recorded);
-  assert.match(
-    problems.join('\n'),
-    /package\.json declares the override left-pad = "1\.0\.0", which bun\.lock does not record/,
-  );
+  assert.deepEqual(overridesProblems({ 'left-pad': '1.0.0' }, {}), [
+    'package.json declares the override left-pad = "1.0.0", which bun.lock does not record',
+  ]);
 });
 
 test('an override changed in package.json is caught', () => {
-  const problems = overridesProblems({ ...declared, hono: '^9.9.9' }, recorded);
-  assert.match(
-    problems.join('\n'),
-    /package\.json declares the override hono = "\^9\.9\.9" but bun\.lock records "\^4\.13\.16"/,
-  );
+  assert.deepEqual(overridesProblems({ hono: '^9.9.9' }, { hono: '^4.13.16' }), [
+    'package.json declares the override hono = "^9.9.9" but bun.lock records "^4.13.16"',
+  ]);
 });
 
 test('an override dropped from package.json but still in the lockfile is caught', () => {
-  const withoutFflate = { ...declared };
-  delete withoutFflate.fflate;
-  const problems = overridesProblems(withoutFflate, recorded);
-  assert.match(
-    problems.join('\n'),
-    /bun\.lock records the override fflate = "\^0\.8\.3", which package\.json no longer declares/,
+  assert.deepEqual(overridesProblems({}, { fflate: '^0.8.3' }), [
+    'bun.lock records the override fflate = "^0.8.3", which package.json no longer declares',
+  ]);
+});
+
+test('root references compare against the declared range, including nested overrides', () => {
+  const manifest = {
+    dependencies: { lodash: '^4.17.23' },
+    devDependencies: { '@scope/tool': '^2.1.0' },
+    overrides: {
+      lodash: '$lodash',
+      '@scope/tool@2': '$@scope/tool',
+      parent: { '.': '1.0.0', child: '$lodash' },
+      unresolved: '$not-declared',
+    },
+  };
+  const lock = {
+    overrides: {
+      lodash: '^4.17.23',
+      '@scope/tool@2': { '.': '^2.1.0' },
+      parent: { '.': '1.0.0', child: '^4.17.23' },
+    },
+  };
+  assert.deepEqual(bunLockProblems(manifest, lock, root), []);
+  lock.overrides.lodash = '^4.17.22';
+  assert.deepEqual(bunLockProblems(manifest, lock, root), [
+    'package.json declares the override lodash = "^4.17.23" but bun.lock records "^4.17.22"',
+  ]);
+});
+
+test('workspace fallback reads current declarations, requires agreement and gives root priority', (t) => {
+  const fixture = mkdtempSync(join(tmpdir(), 'bun-lock-test-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const writeWorkspace = (name: string, range: string) => {
+    const dir = join(fixture, 'packages', name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ name, dependencies: { tool: range } }),
+    );
+  };
+  writeWorkspace('one', '^1.0.0');
+  writeWorkspace('two', '^1.0.0');
+  const manifest = { workspaces: ['packages/*'], overrides: { tool: '$tool' } };
+  const lock = { overrides: { tool: '^1.0.0' } };
+  assert.deepEqual(bunLockProblems(manifest, lock, fixture), []);
+  writeWorkspace('two', '^2.0.0');
+  assert.deepEqual(bunLockProblems(manifest, {}, fixture), []);
+  assert.deepEqual(bunLockProblems(manifest, lock, fixture), [
+    'bun.lock records the override tool = "^1.0.0", which package.json no longer declares',
+  ]);
+  assert.deepEqual(
+    bunLockProblems({ ...manifest, peerDependencies: { tool: '^1.0.0' } }, lock, fixture),
+    [],
   );
 });
 
@@ -82,6 +129,7 @@ test('an override nested twice is dropped, as bun drops it', () => {
 });
 
 test('the lockfile side canonicalizes to itself', () => {
+  const recorded = { 'pkg@2': { '.': '2.0.1' }, parent: { child: '3.0.0' } };
   assert.deepEqual(canonicalOverrides(recorded), recorded);
 });
 
@@ -90,5 +138,4 @@ test('trailing commas are read and a comma inside a string survives', () => {
     '{\n  "overrides": {\n    "a": "^1.0.0",\n  },\n  "note": "keep, this",\n  "packages": {},\n}',
   );
   assert.deepEqual(parsed, { overrides: { a: '^1.0.0' }, note: 'keep, this', packages: {} });
-  assert.ok(Object.keys(recorded).length > 0);
 });

@@ -58,7 +58,7 @@ import {
 } from 'node:fs';
 
 import type { Dirent } from 'node:fs';
-import { overridesProblems, parseBunLock } from './bun-lock.mts';
+import { bunLockProblems, parseBunLock } from './bun-lock.mts';
 import { isTranslationReferenced } from './i18n.mts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -164,6 +164,9 @@ const FILTERS = {
   // bun.lock, and no install in the npm-based lanes would notice it drifting.
   bun_lock: [
     'package.json',
+    'api/package.json',
+    'client/package.json',
+    'packages/*/package.json',
     'bun.lock',
     'scripts/bun-lock.mts',
     'scripts/bun-lock.test.mts',
@@ -841,17 +844,17 @@ async function validateBunLockOverrides(): Promise<CheckOutcome> {
       hints: ['Regenerate it with: bun install'],
     };
   }
-  let manifest: { overrides?: unknown };
-  let lock: Record<string, unknown>;
+  let problems: string[];
   try {
-    manifest = JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8')) as {
-      overrides?: unknown;
-    };
-    lock = parseBunLock(await readFile(lockPath, 'utf8'));
+    const manifest = JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    const lock = parseBunLock(await readFile(lockPath, 'utf8'));
+    problems = bunLockProblems(manifest, lock, ROOT);
   } catch (error) {
     return { ok: false, output: `the overrides could not be read: ${(error as Error).message}` };
   }
-  const problems = overridesProblems(manifest.overrides, lock.overrides);
   return {
     ok: problems.length === 0,
     output: problems.join('\n'),

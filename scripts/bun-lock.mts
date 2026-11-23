@@ -10,17 +10,22 @@
  * absent, and a frozen install also needs a registry. Reading both files
  * answers the same question offline and deterministically.
  *
- * Two of bun's rewrites decide what "agree" means, and both are exercised by
+ * Bun's rewrites decide what "agree" means, and both are exercised by
  * `bun-lock.test.mts`:
  *
  *   - a version-qualified key holding a string is recorded as `{ ".": value }`
  *     (`"postcss-selector-parser@6": "^6.1.3"` arrives as
  *     `"postcss-selector-parser@6": { ".": "^6.1.3" }`), because the version
  *     picks the copy and the string names its replacement;
+ *   - a `$name` value uses a declared dependency range; unresolved references
+ *     are omitted from the lockfile;
  *   - only one level of nested overrides is supported, so anything deeper is
  *     dropped from the lock — `remark-math → micromark-extension-math → katex`
  *     is absent from the lock and reported only as an install warning.
  */
+
+import { join } from 'node:path';
+import { globSync, readFileSync } from 'node:fs';
 
 type Json = Record<string, unknown>;
 
@@ -71,18 +76,25 @@ export function parseBunLock(text: string): Json {
  * reported: the lockfile never holds them, and `bun install` already warns
  * about the nesting on every run.
  */
-export function canonicalOverrides(overrides: unknown): Json {
+export function canonicalOverrides(
+  overrides: unknown,
+  resolveValue: (value: string) => string | undefined = (value) => value,
+): Json {
   if (!isPlainObject(overrides)) return {};
   const canonical: Json = {};
   for (const [key, value] of Object.entries(overrides)) {
     if (typeof value === 'string') {
-      canonical[key] = isVersionQualified(key) ? { '.': value } : value;
+      const resolved = resolveValue(value);
+      if (resolved !== undefined)
+        canonical[key] = isVersionQualified(key) ? { '.': resolved } : resolved;
       continue;
     }
     if (!isPlainObject(value)) continue;
     const children: Json = {};
     for (const [child, nested] of Object.entries(value)) {
-      if (typeof nested === 'string') children[child] = nested;
+      if (typeof nested !== 'string') continue;
+      const resolved = resolveValue(nested);
+      if (resolved !== undefined) children[child] = resolved;
     }
     if (Object.keys(children).length > 0) canonical[key] = children;
   }
@@ -125,8 +137,12 @@ function nestedProblems(parent: string, wanted: Json, recorded: Json): string[] 
  * bun.lock, as messages a contributor can act on. Empty means the lockfile can
  * be installed with `--frozen-lockfile` without bun rejecting the overrides.
  */
-export function overridesProblems(manifestOverrides: unknown, lockOverrides: unknown): string[] {
-  const wanted = canonicalOverrides(manifestOverrides);
+export function overridesProblems(
+  manifestOverrides: unknown,
+  lockOverrides: unknown,
+  resolveValue?: (value: string) => string | undefined,
+): string[] {
+  const wanted = canonicalOverrides(manifestOverrides, resolveValue);
   const recorded = canonicalOverrides(lockOverrides);
   const problems: string[] = [];
   const keys = [...new Set([...Object.keys(wanted), ...Object.keys(recorded)])].sort();
@@ -156,4 +172,63 @@ export function overridesProblems(manifestOverrides: unknown, lockOverrides: unk
     }
   }
   return problems;
+}
+
+function declaredRange(manifest: Json, name: string, workspace = false): string | undefined {
+  const ranges = [
+    'optionalDependencies',
+    'devDependencies',
+    'dependencies',
+    'peerDependencies',
+  ].map((section) => {
+    const entries = manifest[section];
+    return isPlainObject(entries) &&
+      Object.hasOwn(entries, name) &&
+      typeof entries[name] === 'string'
+      ? entries[name]
+      : undefined;
+  });
+  const [optional, dev, prod, peer] = ranges;
+  if (workspace) return prod ?? dev ?? optional ?? peer;
+  // Bun retains the dev entry when a package is present in all four groups.
+  return optional && dev && prod && peer ? dev : (optional ?? dev ?? prod ?? peer);
+}
+
+/** Compare the live manifest declarations, including Bun's workspace fallback. */
+export function bunLockProblems(manifest: Json, lock: Json, root: string): string[] {
+  let workspaces: Json[] | undefined;
+  const resolveValue = (value: string): string | undefined => {
+    if (!value.startsWith('$')) return value;
+    const name = value.slice(1);
+    const rootRange = declaredRange(manifest, name);
+    if (rootRange !== undefined) return rootRange;
+    if (workspaces === undefined) {
+      const field = manifest.workspaces;
+      const patterns = isPlainObject(field) ? field.packages : field;
+      const paths = Array.isArray(patterns)
+        ? patterns.filter((pattern): pattern is string => typeof pattern === 'string')
+        : [];
+      workspaces = globSync(
+        paths.filter((path) => !path.startsWith('!')).map((path) => join(path, 'package.json')),
+        {
+          cwd: root,
+          exclude: [
+            '**/node_modules/**',
+            ...paths
+              .filter((path) => path.startsWith('!'))
+              .map((path) => join(path.slice(1), 'package.json')),
+          ],
+        },
+      ).map((path) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Json);
+    }
+    let match: string | undefined;
+    for (const workspace of workspaces) {
+      const range = declaredRange(workspace, name, true);
+      if (range === undefined) continue;
+      if (match !== undefined && match !== range) return undefined;
+      match = range;
+    }
+    return match;
+  };
+  return overridesProblems(manifest.overrides, lock.overrides, resolveValue);
 }
