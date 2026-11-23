@@ -219,7 +219,9 @@ export function bunLockProblems(manifest: Json, lock: Json, root: string): strin
               .map((path) => join(path.slice(1), 'package.json')),
           ],
         },
-      ).map((path) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Json);
+      )
+        .map((path) => JSON.parse(readFileSync(join(root, path), 'utf8')) as Json)
+        .filter((workspace) => typeof workspace.name === 'string' && workspace.name.trim() !== '');
     }
     let match: string | undefined;
     for (const workspace of workspaces) {
