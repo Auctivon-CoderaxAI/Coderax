@@ -57,6 +57,7 @@ const {
   registerShutdownTask,
   getRemainingShutdownMs,
   registerBackgroundTaskShutdown,
+  resolveListenerHost,
   configureServerTimeouts,
   setupGracefulShutdown,
   updateInterfacePermissions,
@@ -108,16 +109,11 @@ configureFileConfigRegexEngine();
 /** Reject messageFilter PII patterns the RE2 runtime engine cannot compile, at config load. */
 configureMessageFilterRegexValidator();
 
-const { PORT, HOST, ALLOW_SOCIAL_LOGIN, DISABLE_COMPRESSION, TRUST_PROXY } = process.env ?? {};
+const { PORT, ALLOW_SOCIAL_LOGIN, DISABLE_COMPRESSION, TRUST_PROXY } = process.env ?? {};
 
 // Allow PORT=0 to be used for automatic free port assignment
 const port = isNaN(Number(PORT)) ? 3080 : Number(PORT);
-// Vercel routes traffic to the service port, which must bind to its network interface.
-// The local development commands use VERCEL for shell handling but still default to loopback.
-const localDev = process.env.CODERAX_LOCAL_DEV === '1';
-const hostedOnVercel = process.env.VERCEL === '1' && !localDev;
-const defaultHost = localDev ? '127.0.0.1' : 'localhost';
-const host = HOST || (hostedOnVercel ? '0.0.0.0' : defaultHost);
+const host = resolveListenerHost(process.env);
 const trusted_proxy = Number(TRUST_PROXY) || 1; /* trust first proxy by default */
 
 const app = express();

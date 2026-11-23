@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const { runInNewContext } = require('node:vm');
 const express = require('express');
 const request = require('supertest');
 const { MongoMemoryServer } = require('mongodb-memory-server');
@@ -158,25 +157,6 @@ describe('Startup readiness wiring', () => {
     expect(
       source.match(/startCodeEnvironmentLifecycleReconciler\(\{ mongoose \}\);/g),
     ).toHaveLength(1);
-  });
-
-  it.each([
-    [{}, 'localhost'],
-    [{ VERCEL: '1' }, '0.0.0.0'],
-    [{ VERCEL: '1', CODERAX_LOCAL_DEV: '1' }, '127.0.0.1'],
-    [{ VERCEL: '1', CODERAX_LOCAL_DEV: '1', HOST: '127.0.0.2' }, '127.0.0.2'],
-  ])('selects the expected listener host for %j', (env, expected) => {
-    const binding = source.slice(
-      source.indexOf('const { PORT, HOST'),
-      source.indexOf('const app ='),
-    );
-    expect(
-      runInNewContext(
-        `${binding}
-host;`,
-        { process: { env } },
-      ),
-    ).toBe(expected);
   });
 
   it('configures social logins with the app config loaded at startup in both server entries', () => {

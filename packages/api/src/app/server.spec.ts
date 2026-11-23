@@ -1,6 +1,19 @@
 import { createServer } from 'node:http';
 import { logger } from '@coderax/data-schemas';
-import { createInitializationGate, configureServerTimeouts } from './server';
+import { resolveListenerHost, createInitializationGate, configureServerTimeouts } from './server';
+
+describe('resolveListenerHost', () => {
+  it.each([
+    [{}, 'localhost'],
+    [{ VERCEL: '1' }, '0.0.0.0'],
+    [{ CODERAX_LOCAL_DEV: '1' }, '127.0.0.1'],
+    [{ VERCEL: '1', CODERAX_LOCAL_DEV: '1' }, '127.0.0.1'],
+    [{ VERCEL: '1', CODERAX_LOCAL_DEV: '1', HOST: '127.0.0.2' }, '127.0.0.2'],
+    [{ VERCEL: '1', HOST: '' }, '0.0.0.0'],
+  ])('selects the listener host for %j', (environment, expected) => {
+    expect(resolveListenerHost(environment)).toBe(expected);
+  });
+});
 
 describe('createInitializationGate', () => {
   it('holds requests until asynchronous route registration completes', async () => {

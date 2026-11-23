@@ -118,13 +118,16 @@ JWT_REFRESH_SECRET=<32+ chars>
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:5f604591f694071bb110f4865a1e2e4fd952c48f2a58f36cdf1bd80e46135369 -->
+<!-- coderabbit-ai-generated-section:v1:26f8bd337b780d6b1a09dea55a4cb52fcf27c6fc9bee060e98ac42aaae07c866 -->
 
 `npm run dev:api` sets `VERCEL=1`, selecting the server's supported no-client-shell
 branch: only `/api` and `/oauth` are served and no `client/dist` is needed, because
 Vite is the UI. Both development launch commands default the API to `127.0.0.1`;
 set `HOST` explicitly to bind it to another interface. A production run
 (`npm run backend`) still serves the compiled client from `npm run build:client`.
+
+`npm run dev:up` pins the API and Vite proxy target to port 3080. Use
+`npm run dev:api` to run the API separately on a custom `PORT`.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

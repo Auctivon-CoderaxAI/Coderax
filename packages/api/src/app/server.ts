@@ -2,6 +2,21 @@ import { logger } from '@coderax/data-schemas';
 import type { NextFunction, Request, Response } from 'express';
 import type { Server } from 'node:http';
 
+/** Vercel needs a network bind; local development uses Vercel shell mode but binds to loopback. */
+export const resolveListenerHost = ({
+  HOST,
+  CODERAX_LOCAL_DEV,
+  VERCEL,
+}: NodeJS.ProcessEnv): string => {
+  if (HOST) {
+    return HOST;
+  }
+  if (CODERAX_LOCAL_DEV === '1') {
+    return '127.0.0.1';
+  }
+  return VERCEL === '1' ? '0.0.0.0' : 'localhost';
+};
+
 export type InitializationGate = {
   middleware: (req: Request, res: Response, next: NextFunction) => void;
   markReady: () => void;

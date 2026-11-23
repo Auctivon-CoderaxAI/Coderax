@@ -32,6 +32,7 @@ const lockDir = path.join(devDir, 'stack.lock');
 const logDir = path.join(devDir, 'logs');
 
 const nodeBin = process.execPath;
+const apiPort = 3080;
 const previewHost = (
   process.env.CODERAX_PREVIEW_HOST ??
   process.env.VITE_ALLOWED_HOSTS ??
@@ -49,10 +50,10 @@ const services = [
   },
   {
     name: 'api',
-    port: 3080,
+    port: apiPort,
     timeoutMs: 90_000,
-    probe: () => httpOk('http://127.0.0.1:3080/api/config'),
-    env: { NODE_ENV: 'development', VERCEL: '1', CODERAX_LOCAL_DEV: '1' },
+    probe: () => httpOk(`http://127.0.0.1:${apiPort}/api/config`),
+    env: { NODE_ENV: 'development', VERCEL: '1', CODERAX_LOCAL_DEV: '1', PORT: String(apiPort) },
     command: () => ({
       file: nodeBin,
       args: [path.join(repoRoot, 'node_modules/nodemon/bin/nodemon.js'), 'api/server/index.js'],
@@ -76,6 +77,7 @@ const services = [
       NODE_ENV: 'development',
       HOST: '0.0.0.0',
       PORT: '3000',
+      BACKEND_PORT: String(apiPort),
       VITE_ALLOWED_HOSTS: previewHost,
     },
     command: () => ({
