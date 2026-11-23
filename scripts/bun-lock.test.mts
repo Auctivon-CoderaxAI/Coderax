@@ -78,6 +78,9 @@ test('workspace fallback reads current declarations, requires agreement and give
   };
   writeWorkspace('one', '^1.0.0');
   writeWorkspace('two', '^1.0.0');
+  const unnamedDir = join(fixture, 'packages', 'unnamed');
+  mkdirSync(unnamedDir, { recursive: true });
+  writeFileSync(join(unnamedDir, 'package.json'), JSON.stringify({ dependencies: { tool: '^2.0.0' } }));
   const manifest = { workspaces: ['packages/*'], overrides: { tool: '$tool' } };
   const lock = { overrides: { tool: '^1.0.0' } };
   assert.deepEqual(bunLockProblems(manifest, lock, fixture), []);
