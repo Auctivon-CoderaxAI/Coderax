@@ -18,7 +18,7 @@ Power Mode are disabled by default.
 | Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
 | OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
 | OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
-| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
+| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint or hosts named in `allowedHosts`, and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
 | Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
 | Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
 | Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
@@ -116,8 +116,12 @@ must not silently start a Python agent on a 24 GB ARM instance.
 
 The adapter integrates Freebuff as an owner-only Work engine once a compatible
 source-built SDK is supplied. It uses Freebuff's direct BYOK runtime with a
-loopback Ollama or LM Studio endpoint and the same run lifecycle, stream,
-cancellation, and workspace-root checks as the other adapters. It does not call
+local Ollama or LM Studio endpoint — loopback by default, or a host the owner
+names in `engines.freebuff.allowedHosts` — and the same run lifecycle, stream,
+cancellation, and workspace-root checks as the other adapters. Allowlisting a
+host does not relax the rest of the endpoint contract: it must still be `http`,
+with no credentials, query, or fragment, and the entry matches the bare
+hostname exactly. It does not call
 hosted Freebuff inference, load repository or home agents, or enable shell
 execution. File operations are wrapped to stay inside the selected workspace.
 
@@ -166,6 +170,9 @@ engines:
     enabled: true
     sdkPath: /srv/freebuff/sdk/dist/index.cjs
     baseURL: http://127.0.0.1:11434/v1
+    # Only needed for a non-loopback endpoint, e.g. a Compose service name or
+    # host.docker.internal. Bare hostnames, up to 16.
+    # allowedHosts: [ollama]
     model: ollama/qwen2.5-coder:7b
     timeoutMs: 900000
     maxAgentSteps: 24

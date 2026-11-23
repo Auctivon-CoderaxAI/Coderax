@@ -7,8 +7,12 @@ services:
     ports:
       - "${PORT}:${PORT}"
     depends_on:
-      - mongodb
-      - rag_api
+      mongodb:
+        condition: service_started
+      rag_api:
+        condition: service_started
+      ollama-init:
+        condition: service_completed_successfully
     build:
       context: .
       dockerfile: Dockerfile
@@ -41,10 +45,10 @@ services:
       - PROXY=${PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
-      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1},${no_proxy:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1,::1},${no_proxy:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,ollama,host.docker.internal
       - http_proxy=${http_proxy:-}
       - https_proxy=${https_proxy:-}
-      - no_proxy=${no_proxy:-localhost,127.0.0.1,::1},${NO_PROXY:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,host.docker.internal
+      - no_proxy=${no_proxy:-localhost,127.0.0.1,::1},${NO_PROXY:-},mongodb,chat-mongodb,meilisearch,chat-meilisearch,rag_api,vectordb,ollama,host.docker.internal
     volumes:
       - type: bind
         source: ./.env
@@ -59,6 +63,51 @@ services:
       - ./logs:/app/logs
       - ./skill:/app/skill
       - coderax-data:/app/data
+  ollama:
+    container_name: coderax-ollama
+    image: ollama/ollama:0.40.17
+    restart: always
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+  ollama-init:
+    # Creates the durable 16k-context variant once the model store is ready.
+    # The source model is pulled on first start and reused from ollama-data.
+    container_name: coderax-ollama-init
+    image: ollama/ollama:0.40.17
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # The CLI takes host:port; a scheme makes some versions dial the literal
+      # value. The service is reachable by name on the Compose network.
+      - OLLAMA_HOST=ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        # `api` waits for this service to complete successfully, so a transient
+        # registry failure must not leave the stack without a model.
+        attempt=1
+        until ollama pull qwen3.5:4b; do
+          if [ "$attempt" -ge 3 ]; then
+            echo "pulling qwen3.5:4b failed after $attempt attempts" >&2
+            exit 1
+          fi
+          attempt=$((attempt + 1))
+          sleep 10
+        done
+        printf 'FROM qwen3.5:4b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
+        ollama create qwen3.5:4b-16k -f /tmp/Modelfile
+    # Retry the container itself after an exhausted pull; `api` keeps waiting.
+    restart: "on-failure:3"
   admin-panel:
     container_name: admin-panel
     image: registry.librechat.ai/clickhouse/librechat-admin-panel:latest
@@ -119,3 +168,4 @@ services:
 volumes:
   pgdata2:
   coderax-data:
+  ollama-data:

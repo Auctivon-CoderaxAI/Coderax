@@ -3951,8 +3951,16 @@ export const enginesConfigSchema = z
          * FREEBUFF_SDK_PATH, then the published package.
          */
         sdkPath: z.string().trim().optional(),
-        /** OpenAI-compatible loopback endpoint; Coderax never calls a hosted Freebuff API. */
+        /**
+         * OpenAI-compatible endpoint. Loopback is implicit; any other host must
+         * be listed in allowedHosts. Coderax never calls a hosted Freebuff API.
+         */
         baseURL: z.string().trim().url().optional(),
+        /**
+         * Explicitly trusted non-loopback endpoint hostnames, e.g.
+         * host.docker.internal or a Compose service name. Bare hostnames only.
+         */
+        allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
         /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
         model: z.string().trim().optional(),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
