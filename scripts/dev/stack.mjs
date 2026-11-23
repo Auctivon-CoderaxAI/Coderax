@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-import { resolveApiListener } from '../../packages/api/src/app/listener.ts';
+import { resolveApiListener } from '../../packages/api/src/app/listener/index.ts';
 
 import { binPath, ggufPath, port as modelPort, serverArgs } from './model-paths.mjs';
 import { mongoPort } from './mongo-port.mjs';
