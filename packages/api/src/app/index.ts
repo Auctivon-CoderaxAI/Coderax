@@ -8,6 +8,7 @@ export * from './checks';
 export * from './resolve';
 export * from './shutdown';
 export * from './server';
+export * from './listener';
 export * from './meiliLogger';
 export * from './origin';
 export * from './agents';

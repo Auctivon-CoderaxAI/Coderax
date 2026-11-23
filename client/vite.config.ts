@@ -34,7 +34,8 @@ const NODE_POLYFILL_SHIMS: Record<string, string> = {
 const backendPort = (process.env.BACKEND_PORT && Number(process.env.BACKEND_PORT)) || 3080;
 /** IPv6 hosts arrive unbracketed (valid for the listen address) but must be
  *  bracketed inside a URL, or the proxy target parses as host `:` port soup. */
-const backendHost = process.env.HOST?.includes(':') ? `[${process.env.HOST}]` : process.env.HOST;
+const backendAddress = process.env.BACKEND_HOST || process.env.HOST;
+const backendHost = backendAddress?.includes(':') ? `[${backendAddress}]` : backendAddress;
 const backendURL = backendHost
   ? `http://${backendHost}:${backendPort}`
   : `http://localhost:${backendPort}`;
@@ -171,7 +172,12 @@ export default defineConfig(({ command }) => ({
         background_color: '#000000',
         theme_color: '#009688',
         icons: [
-          { src: 'assets/coderax-mark.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+          {
+            src: 'assets/coderax-mark.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable',
+          },
         ],
       },
     }),

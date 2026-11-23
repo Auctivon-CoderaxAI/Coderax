@@ -58,7 +58,7 @@ fs.mkdirSync(dbPath, { recursive: true });
 let mongo;
 try {
   mongo = await MongoMemoryServer.create({
-    instance: { dbPath, ip: host, port, storageEngine: 'wiredTiger' },
+    instance: { dbPath, ip: host, port, portGeneration: false, storageEngine: 'wiredTiger' },
   });
 } catch (error) {
   fail(`could not start mongod: ${error instanceof Error ? error.message : String(error)}`);
