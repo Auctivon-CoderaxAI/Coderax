@@ -19,6 +19,8 @@ import { pipeline } from 'node:stream/promises';
 import { alias, binPath, ggufPath, host, modelDir, port, serverArgs } from './model-paths.mjs';
 
 const release = 'b12597';
+// SHA-256 published for this exact asset by the upstream GitHub release.
+const binarySha256 = '34d3514902e08ceb05ca3f3e3ac2a928e4f4a8b5b40cd98838d0aeae4fd9dc42';
 const binaryUrl = `https://github.com/ggml-org/llama.cpp/releases/download/${release}/llama-${release}-bin-ubuntu-x64.tar.gz`;
 
 /** Commit, not `main`, so an upstream change cannot silently alter the model. */
@@ -70,6 +72,10 @@ async function installBinary() {
     const archive = path.join(staging, 'llama.tar.gz');
     const extracted = path.join(staging, 'bin');
     await download(binaryUrl, archive);
+    const digest = await sha256(archive);
+    if (digest !== binarySha256) {
+      throw new Error(`llama.cpp archive checksum mismatch (got ${digest}); refusing to extract`);
+    }
     fs.mkdirSync(extracted);
     // The archive has one top-level directory; keep only the server and its libraries.
     execFileSync(

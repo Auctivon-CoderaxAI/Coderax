@@ -97,7 +97,7 @@ const services = [
     probe: () => httpOk('http://127.0.0.1:3000/'),
     env: {
       NODE_ENV: 'development',
-      HOST: '0.0.0.0',
+      HOST: previewHost ? '0.0.0.0' : '127.0.0.1',
       PORT: '3000',
       VITE_ALLOWED_HOSTS: previewHost,
       BACKEND_HOST: apiProbeHost,
@@ -185,13 +185,21 @@ async function startService(service) {
   const logPath = path.join(logDir, `${service.name}.log`);
   const fd = fs.openSync(logPath, 'w');
   const token = randomUUID();
-  const child = spawn(spec.file, spec.args, {
-    cwd: spec.cwd ?? repoRoot,
-    env: { ...process.env, ...service.env, [ownerKey]: token },
-    detached: true,
-    stdio: ['ignore', fd, fd],
-  });
+  // The detached group waits for a line before starting the service. If the
+  // supervisor exits before publishing ownership, EOF makes the shell exit.
+  const child = spawn(
+    '/bin/sh',
+    ['-c', 'IFS= read -r start && exec "$@"', 'dev', spec.file, ...spec.args],
+    {
+      cwd: spec.cwd ?? repoRoot,
+      env: { ...process.env, ...service.env, [ownerKey]: token },
+      detached: true,
+      stdio: ['pipe', fd, fd],
+    },
+  );
   fs.closeSync(fd);
+  // Pipe errors are reported by the launch write below, or by spawn itself.
+  child.stdin.on('error', () => {});
   await new Promise((resolve, reject) => {
     child.once('spawn', resolve);
     child.once('error', reject);
@@ -201,25 +209,36 @@ async function startService(service) {
   const file = pidFile(service.name);
   const temporary = `${file}.${token}.tmp`;
   try {
+    checkInterrupted();
     fs.writeFileSync(temporary, JSON.stringify(record) + '\n', { flag: 'wx', mode: 0o600 });
     fs.renameSync(temporary, file);
   } catch (error) {
-    if (groupState(record) === 'owned') {
-      signalGroup(record.pid, 'SIGTERM');
-    }
+    child.stdin.destroy();
     fs.rmSync(temporary, { force: true });
     throw error;
   }
+  await new Promise((resolve, reject) => {
+    child.stdin.end('start\n', (error) => (error ? reject(error) : resolve()));
+  });
   return record;
+}
+
+let interrupted = false;
+function checkInterrupted() {
+  if (interrupted) {
+    fail('lifecycle command interrupted; run npm run dev:down to stop recorded services');
+  }
 }
 
 async function waitReady(service, { pid, token }) {
   const deadline = Date.now() + service.timeoutMs;
   while (Date.now() < deadline) {
+    checkInterrupted();
     if (!hasToken(pid, token)) {
       return false;
     }
     if (service.probe ? await service.probe() : await portOpen(service.port, service.probeHost)) {
+      checkInterrupted();
       return hasToken(pid, token);
     }
     await sleep(500);
@@ -233,13 +252,8 @@ async function up() {
   }
   fs.mkdirSync(pidDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
-  if (!previewHost) {
-    log(
-      'VITE_ALLOWED_HOSTS is empty — set CODERAX_PREVIEW_HOST to the preview hostname or the panel will 403',
-    );
-  }
-
   for (const service of services) {
+    checkInterrupted();
     const recorded = readRecord(service.name);
     const state = recorded && groupState(recorded);
     if (state === 'unverified') {
@@ -272,6 +286,7 @@ async function up() {
       );
     }
 
+    checkInterrupted();
     const record = await startService(service);
     log(`starting ${service.name} (pid ${record.pid})`);
     if (!(await waitReady(service, record))) {
@@ -309,6 +324,7 @@ async function waitExit(record, timeoutMs) {
 async function down() {
   let stopped = true;
   for (const service of [...services].reverse()) {
+    checkInterrupted();
     try {
       const record = readRecord(service.name);
       if (record == null) {
@@ -345,6 +361,7 @@ async function down() {
       continue;
     }
   }
+  checkInterrupted();
   if (stopped) {
     log('stack is down');
   } else {
@@ -406,19 +423,29 @@ async function status() {
 const action = process.argv[2];
 try {
   if (action === 'up' || action === 'down') {
-    fs.mkdirSync(devDir, { recursive: true });
+    const interrupt = () => {
+      interrupted = true;
+    };
+    process.on('SIGINT', interrupt);
+    process.on('SIGTERM', interrupt);
     try {
-      fs.mkdirSync(lockDir);
-    } catch (error) {
-      if (error.code === 'EEXIST') {
-        fail('another lifecycle command owns .dev/stack.lock; see scripts/dev/README.md');
+      fs.mkdirSync(devDir, { recursive: true });
+      try {
+        fs.mkdirSync(lockDir);
+      } catch (error) {
+        if (error.code === 'EEXIST') {
+          fail('another lifecycle command owns .dev/stack.lock; see scripts/dev/README.md');
+        }
+        throw error;
       }
-      throw error;
-    }
-    try {
-      await (action === 'up' ? up() : down());
+      try {
+        await (action === 'up' ? up() : down());
+      } finally {
+        fs.rmdirSync(lockDir);
+      }
     } finally {
-      fs.rmdirSync(lockDir);
+      process.off('SIGINT', interrupt);
+      process.off('SIGTERM', interrupt);
     }
   } else if (action === 'status') {
     await status();

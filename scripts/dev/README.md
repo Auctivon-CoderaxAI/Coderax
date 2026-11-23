@@ -35,12 +35,20 @@ leader has exited. If a group cannot be verified or stopped, its record is kept
 and `dev:down` exits nonzero. Running `dev:up` again reuses services that are
 already healthy.
 
-Only one `dev:up` or `dev:down` can run at a time. If an interrupted command
-leaves `.dev/stack.lock`, confirm that neither command is running before using
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2db13630fe244081fee60e3c43236864bee32ab471816dc7327ce91c2026eb7c -->
+
+Only one `dev:up` or `dev:down` can run at a time. The supervisor records each
+service before letting it start. Ctrl+C and SIGTERM release the lifecycle lock
+when the command exits; use `dev:down` to stop any recorded services. If a forced
+exit leaves `.dev/stack.lock`, confirm that neither command is running before using
 `rmdir .dev/stack.lock`. To upgrade a running stack, stop it with your old
 checkout first. The new supervisor cannot verify a running group from an old
 PID or start time record alone. If you already upgraded, identify and stop any
 old stack processes manually before removing their records.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 
@@ -49,9 +57,16 @@ readiness without starting or stopping anything; it flags stale PID files and
 ports held by other processes, and exits non-zero when a service is missing or
 unready.
 
-`CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) supplies the hostname Vite must
-accept; without it the API and UI still start but the preview panel returns 403.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:1d1c9345c1f973c2c33a514f2449e2667f640478f8c8b643ed2a7a55d000651e -->
+
+By default the UI listens on `127.0.0.1:3000`. Setting
+`CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) opens the Vite listener on all
+IPv4 interfaces and supplies the hostname Vite must accept for remote preview.
 The model is skipped with a warning when its binary or weights are missing.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## MongoDB
 
@@ -75,14 +90,20 @@ npm run dev:model                 # install if needed, then serve 127.0.0.1:8080
 npm run dev:model -- --install    # install only
 ```
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:f8de4b70bb9c774a6ddfa3737f6b38df2959483ca5da70d086c55817bf76a2d6 -->
+
 - Downloads a pinned llama.cpp CPU release (Linux x64) and a pinned revision of
-  the Qwen2.5-1.5B Instruct Q4_K_M GGUF (~1 GB) into `.dev/model/`, verifying the
-  GGUF against its SHA-256, so the model survives restarts and archives instead
-  of living under `/tmp`.
+  the Qwen2.5-1.5B Instruct Q4_K_M GGUF (~1 GB) into `.dev/model/`. The installer
+  checks both downloads against pinned SHA-256 digests before extraction or
+  publication. Existing local installations are reused.
 - Ctrl+C stops it; inside the stack `npm run dev:down` does. `dev:up` skips it
   with a warning until `--install` has run, so the rest of the stack still works.
 - On other platforms, install llama.cpp yourself and put `llama-server` and its
   libraries in `.dev/model/bin/`; the script only downloads the Linux build.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Point a repository-root `coderax.yaml` (gitignored) at the server:
 
