@@ -433,7 +433,7 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.body).toMatchObject({
       code: 'WORK_ENGINE_START_FAILED',
       error: 'timeout',
-      message: 'The OpenCode run timed out.',
+      message: 'The execution engine run timed out.',
     });
     expect(store.saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
@@ -856,8 +856,8 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.statusCode).toBe(200);
     expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
       terminalStatus: 'error',
-      responseMessage: { unfinished: true, error: 'The OpenCode run failed.' },
-      error: { message: 'The OpenCode run failed.' },
+      responseMessage: { unfinished: true, error: 'The execution engine run failed.' },
+      error: { message: 'The execution engine run failed.' },
     });
     expect(saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'failed' }),
