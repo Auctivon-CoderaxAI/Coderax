@@ -1762,6 +1762,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         userMessage: preliminaryUserMessage,
       },
     });
+    releaseWorkReservation?.markStarted?.();
     startupTelemetry?.mark('job_created');
     generationProtocolVersion = negotiateExistingGenerationProtocol(req, job);
     jobCreatedAt = job.createdAt; // Capture creation time to detect job replacement

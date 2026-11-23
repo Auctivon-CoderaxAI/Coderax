@@ -1088,13 +1088,14 @@ test('the shared reservation blocks a native Work run while another runner owns 
     secondNextCalls++;
   });
   const settled = req.claimWorkRun();
+  settled.markStarted();
   events.emit('finish');
   events.emit('close');
   assert.equal(secondNextCalls, 1);
   assert.equal(reserveWorkRun(scope), false);
   let finishWrite;
   const terminalWrite = require('@coderax/api').trackWorkTerminalWrite(
-    scope,
+    { ...scope, streamId: conversationId },
     new Promise((resolve) => {
       finishWrite = resolve;
     }),
@@ -1110,6 +1111,72 @@ test('the shared reservation blocks a native Work run while another runner owns 
   workChatRunReservationMiddleware(req, second, () => {});
   events.emit('close');
   assert.throws(() => req.claimWorkRun());
+  assert.equal(reserveWorkRun(scope), true);
+  assert.equal(releaseWorkRun(scope), true);
+});
+
+test('same-key retries reach idempotency while a native lease waits for late terminal writes', async () => {
+  const conversationId = '55555555-5555-4555-8555-555555555555';
+  const scope = { userId: 'retry-user', tenantId: 'tenant-r', conversationId };
+  const events = new (require('node:events').EventEmitter)();
+  const firstResponse = response();
+  firstResponse.once = events.once.bind(events);
+  const firstRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'same-turn-1' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  workChatRunReservationMiddleware(firstRequest, firstResponse, () => {});
+  const release = firstRequest.claimWorkRun();
+  release.markStarted();
+  events.emit('finish');
+  events.emit('close');
+
+  const retryResponse = response();
+  const retryRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'same-turn-1' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  let retryNextCalls = 0;
+  workChatRunReservationMiddleware(retryRequest, retryResponse, () => retryNextCalls++);
+  assert.equal(retryNextCalls, 1);
+  assert.equal(retryResponse.statusCode, 0);
+
+  const competingResponse = response();
+  const competingRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'different-turn' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  let competingNextCalls = 0;
+  workChatRunReservationMiddleware(competingRequest, competingResponse, () => competingNextCalls++);
+  assert.equal(competingResponse.statusCode, 409);
+  assert.equal(competingNextCalls, 0);
+
+  const drained = release();
+  let released = false;
+  void drained.then(() => {
+    released = true;
+  });
+  await Promise.resolve();
+  assert.equal(released, false);
+  assert.equal(reserveWorkRun(scope), false);
+
+  let finishWrite;
+  const terminalWrite = require('@coderax/api').trackWorkTerminalWrite(
+    { ...scope, streamId: conversationId },
+    new Promise((resolve) => {
+      finishWrite = resolve;
+    }),
+  );
+  assert.equal(reserveWorkRun(scope), false);
+  finishWrite();
+  await Promise.all([terminalWrite, drained]);
+  assert.equal(released, true);
   assert.equal(reserveWorkRun(scope), true);
   assert.equal(releaseWorkRun(scope), true);
 });
