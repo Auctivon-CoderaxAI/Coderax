@@ -80,7 +80,10 @@ test('workspace fallback reads current declarations, requires agreement and give
   writeWorkspace('two', '^1.0.0');
   const unnamedDir = join(fixture, 'packages', 'unnamed');
   mkdirSync(unnamedDir, { recursive: true });
-  writeFileSync(join(unnamedDir, 'package.json'), JSON.stringify({ dependencies: { tool: '^2.0.0' } }));
+  writeFileSync(
+    join(unnamedDir, 'package.json'),
+    JSON.stringify({ dependencies: { tool: '^2.0.0' } }),
+  );
   const manifest = { workspaces: ['packages/*'], overrides: { tool: '$tool' } };
   const lock = { overrides: { tool: '^1.0.0' } };
   assert.deepEqual(bunLockProblems(manifest, lock, fixture), []);
@@ -142,3 +145,4 @@ test('trailing commas are read and a comma inside a string survives', () => {
   );
   assert.deepEqual(parsed, { overrides: { a: '^1.0.0' }, note: 'keep, this', packages: {} });
 });
+
