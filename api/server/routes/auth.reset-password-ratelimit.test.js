@@ -54,6 +54,8 @@ jest.mock('~/server/controllers/auth/LogoutController', () => ({
   logoutController: jest.fn((req, res) => res.status(204).end()),
 }));
 
+jest.mock('~/server/controllers/auth/GuestController', () => ({ guestController: jest.fn() }));
+
 jest.mock('~/server/controllers/auth/LoginController', () => ({
   loginController: jest.fn((req, res) => res.status(204).end()),
 }));

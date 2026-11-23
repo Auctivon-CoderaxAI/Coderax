@@ -1,21 +1,21 @@
-import type { EngineLimits } from './types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
-import type { WorkspaceRoots } from './workspace';
-import type { LoadedOpenCodeSdk } from './opencode/sdk';
-import type { OpenCodeTransport } from './opencode/adapter';
 import type { OpenHandsTransport } from './openhands/adapter';
+import type { OpenCodeTransport } from './opencode/adapter';
 import type { LoadedFreebuffSdk } from './freebuff/adapter';
-import { createEngineRegistry } from './registry';
-import { createOpenCodeAdapter } from './opencode/adapter';
-import { createOpenHandsAdapter } from './openhands/adapter';
-import { createFreebuffAdapter, loadFreebuffSdk } from './freebuff/adapter';
-import { loadOpenCodeSdk } from './opencode/sdk';
+import type { LoadedOpenCodeSdk } from './opencode/sdk';
+import type { WorkspaceRoots } from './workspace';
+import type { EngineLimits } from './types';
 import {
   isModelAllowedForMode,
   parseEngineModel,
   PRIVATE_MODEL_DETAIL,
   ZERO_COST_MODEL_DETAIL,
 } from './opencode/models';
+import { createFreebuffAdapter, loadFreebuffSdk } from './freebuff/adapter';
+import { createOpenHandsAdapter } from './openhands/adapter';
+import { createOpenCodeAdapter } from './opencode/adapter';
+import { createEngineRegistry } from './registry';
+import { loadOpenCodeSdk } from './opencode/sdk';
 
 /**
  * Config-driven construction of the execution engines.
@@ -55,6 +55,8 @@ export type ExecutionEnginesConfig =
           /** Absolute path to a source-built Freebuff SDK CommonJS entrypoint. */
           sdkPath?: string;
           baseURL?: string;
+          /** Explicitly trusted non-loopback endpoint hostnames. */
+          allowedHosts?: string[];
           model?: string;
           timeoutMs?: number;
           maxAgentSteps?: number;
@@ -66,6 +68,10 @@ export type ExecutionEnginesConfig =
 
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_SUMMARY_CHARS = 4_000;
+
+function defaultEngineFor(value: 'opencode' | 'openhands' | 'freebuff' | undefined) {
+  return value === 'openhands' || value === 'freebuff' ? value : 'opencode';
+}
 
 function limitsFor(timeoutMs?: number): EngineLimits {
   return {
@@ -143,6 +149,7 @@ export function createExecutionEngines(
           freebuff: createFreebuffAdapter({
             enabled: true,
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
+            ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
             model: parseEngineModel(freebuff.model),
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
@@ -156,12 +163,7 @@ export function createExecutionEngines(
   };
 
   return createEngineRegistry({
-    defaultEngine:
-      engines?.defaultEngine === 'openhands'
-        ? 'openhands'
-        : engines?.defaultEngine === 'freebuff'
-          ? 'freebuff'
-          : 'opencode',
+    defaultEngine: defaultEngineFor(engines?.defaultEngine),
     adapters,
   });
 }

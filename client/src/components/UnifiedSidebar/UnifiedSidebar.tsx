@@ -220,8 +220,9 @@ function UnifiedSidebar({
   }, [isSmallScreen, expanded, handleCollapse]);
 
   const sidebarContent = isSmallScreen ? (
-    <div
+    <aside
       id={MOBILE_DRAWER_ID}
+      aria-label={localize('com_nav_control_panel')}
       className={cn(
         /** The close swipe reads horizontal touches here (the drawer holds no
          * horizontal scrollers), while pinch-zoom stays with the browser:
@@ -279,7 +280,7 @@ function UnifiedSidebar({
           <MobileBottomBar links={links} />
         </ActivePanelProvider>
       </SidebarChatProvider>
-    </div>
+    </aside>
   ) : (
     <SidebarChatProvider>
       <ActivePanelProvider>

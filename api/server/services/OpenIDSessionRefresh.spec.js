@@ -1,5 +1,5 @@
-jest.mock('openid-client', () => ({
-  refreshTokenGrant: jest.fn(),
+jest.mock('~/server/utils/openIdClient', () => ({
+  openIdClient: { refreshTokenGrant: jest.fn() },
 }));
 jest.mock('~/strategies/openidStrategy', () => ({
   getOpenIdConfig: jest.fn(),
@@ -145,7 +145,7 @@ jest.mock('./OpenIDRefreshFlight', () => ({
 
 const jwt = require('jsonwebtoken');
 const crypto = require('node:crypto');
-const openIdClient = require('openid-client');
+const { openIdClient } = require('~/server/utils/openIdClient');
 const {
   isEnabled,
   buildOpenIDRefreshParams,

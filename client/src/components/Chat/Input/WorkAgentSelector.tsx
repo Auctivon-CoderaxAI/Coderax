@@ -173,6 +173,7 @@ function WorkSelect({
 }) {
   const menuStore = Ariakit.useMenuStore({ focusLoop: true, placement: 'top-start' });
   const isOpen = menuStore.useState('open');
+  const workMenuClasses = cn(chipMenuClasses, 'w-[min(21rem,calc(100vw-2rem))]');
   const selected = options.find((option) => option.value === value) ?? options[0];
 
   return (
@@ -200,12 +201,7 @@ function WorkSelect({
           aria-hidden="true"
         />
       </Ariakit.MenuButton>
-      <Ariakit.Menu
-        portal
-        gutter={8}
-        unmountOnHide
-        className={cn(chipMenuClasses, 'w-[min(21rem,calc(100vw-2rem))]')}
-      >
+      <Ariakit.Menu portal gutter={8} unmountOnHide className={workMenuClasses}>
         <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
           {label}
         </Ariakit.MenuHeading>

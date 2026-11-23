@@ -2,11 +2,12 @@ import React from 'react';
 import '@testing-library/jest-dom';
 import { getDefaultStore } from 'jotai';
 import { Constants } from 'coderax-data-provider';
-import { render, screen } from 'test/layout-test-utils';
 import { maximizeChatSpaceAtom } from '~/store/chatLayout';
+import { render, screen } from 'test/layout-test-utils';
 import ChatView from '../ChatView';
 
 const mockParams = jest.fn();
+const mockRouteConversationId = React.createContext<string | undefined>(undefined);
 const mockConversation = jest.fn();
 const mockChatFormProps = jest.fn();
 /** Lets a test control the transcript query; unset falls back to "no messages, settled". */
@@ -17,7 +18,12 @@ const ROOT_PARENT_ID = '00000000-0000-0000-0000-000000000000';
 
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
-  useParams: () => mockParams(),
+  useParams: () => {
+    const conversationId = jest
+      .requireActual<typeof import('react')>('react')
+      .useContext(mockRouteConversationId);
+    return conversationId == null ? mockParams() : { conversationId };
+  },
 }));
 
 /** Auth is out of scope for heading selection; keep the shared harness wrappers. */
@@ -67,7 +73,7 @@ jest.mock('../Messages/MessagesView', () => ({
 }));
 jest.mock('../Input/ChatForm', () => ({
   __esModule: true,
-  default: (props: Record<string, unknown>) => {
+  default: function MockChatForm(props: Record<string, unknown>) {
     const { useComposerPreferences } = jest.requireActual('../Input/preferences');
     mockChatFormProps({ ...useComposerPreferences(), ...props });
     return <div />;
@@ -141,32 +147,34 @@ describe('ChatView page heading', () => {
 });
 
 describe('ChatView route focus', () => {
+  const route = (conversationId: string) => (
+    <mockRouteConversationId.Provider value={conversationId}>
+      <ChatView />
+    </mockRouteConversationId.Provider>
+  );
+
   beforeEach(() => {
     mockConversation.mockReturnValue(null);
   });
 
   test('moves focus to the page heading when a route change leaves it on the body', () => {
-    mockParams.mockReturnValue({ conversationId: 'convo-1' });
-    const { rerender } = render(<ChatView />);
+    const { rerender } = render(route('convo-1'));
     (document.activeElement as HTMLElement | null)?.blur();
 
-    mockParams.mockReturnValue({ conversationId: 'convo-2' });
-    rerender(<ChatView />);
+    rerender(route('convo-2'));
 
     expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }));
   });
 
   test('leaves focus alone on first render and when something else holds it', () => {
-    mockParams.mockReturnValue({ conversationId: 'convo-1' });
-    const { rerender } = render(<ChatView />);
+    const { rerender } = render(route('convo-1'));
     expect(document.activeElement).not.toBe(screen.getByRole('heading', { level: 1 }));
 
     const outside = document.createElement('button');
     document.body.appendChild(outside);
     outside.focus();
 
-    mockParams.mockReturnValue({ conversationId: 'convo-2' });
-    rerender(<ChatView />);
+    rerender(route('convo-2'));
 
     expect(document.activeElement).toBe(outside);
     outside.remove();
@@ -474,7 +482,10 @@ describe('ChatView project badge offset', () => {
       rerender(<ChatView routePending={false} />);
 
       expect(screen.queryByTestId('landing')).not.toBeInTheDocument();
-      expect(screen.getByTestId('transcript-skeleton')).toHaveAttribute('data-project-badge', 'true');
+      expect(screen.getByTestId('transcript-skeleton')).toHaveAttribute(
+        'data-project-badge',
+        'true',
+      );
       expect(screen.getByTestId('project-badge')).toHaveAttribute('data-project-id', 'project-1');
       expect(container.querySelector('[data-chat-pane]')).toHaveClass('pt-9');
     });
@@ -596,6 +607,7 @@ describe('ChatView project badge offset', () => {
     test('removes the badge and offset when the route drops its ID while Recoil lags', () => {
       openLoadedProjectConversation();
       const { container, rerender } = render(<ChatView routePending />);
+      expect(screen.getByTestId('project-badge')).toHaveAttribute('data-project-id', 'project-1');
 
       mockParams.mockReturnValue({});
       mockMessagesQuery.mockReturnValue({ data: null, isLoading: false, isFetching: false });
@@ -654,7 +666,10 @@ describe('ChatView project badge offset', () => {
       rerender(<ChatView routePending={false} />);
       offsetHistory.push(pane()?.classList.contains('pt-9') ?? false);
 
-      expect(screen.getByTestId('transcript-skeleton')).toHaveAttribute('data-project-badge', 'true');
+      expect(screen.getByTestId('transcript-skeleton')).toHaveAttribute(
+        'data-project-badge',
+        'true',
+      );
       const loadingBadges = screen.getAllByTestId('project-badge');
       expect(loadingBadges).toHaveLength(1);
       expect(loadingBadges[0]).toHaveAttribute('data-project-id', 'project-2');
@@ -1081,7 +1096,9 @@ describe('ChatView rendering paths', () => {
       expect(screen.getByTestId('messages-view')).toBeInTheDocument();
       expect(screen.queryByTestId('transcript-skeleton')).not.toBeInTheDocument();
       expect(screen.queryByTestId('landing')).not.toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 1, name: 'Deploy checklist' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Deploy checklist' }),
+      ).toBeInTheDocument();
     });
 
     test('tells ChatForm it is not on the landing page and omits the landing placeholder', () => {
@@ -1255,7 +1272,9 @@ describe('ChatView rendering paths', () => {
       expect(screen.queryByTestId('transcript-skeleton')).not.toBeInTheDocument();
       expect(screen.queryByRole('status')).not.toBeInTheDocument();
       expect(screen.queryByTestId('landing')).not.toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 1, name: 'Deploy checklist' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Deploy checklist' }),
+      ).toBeInTheDocument();
     });
 
     test('keeps the skeleton while a resolved-but-empty query is refetching', () => {
@@ -1298,7 +1317,9 @@ describe('ChatView rendering paths', () => {
       const { rerender } = render(<ChatView routePending />);
 
       expect(screen.getByTestId('messages-view')).toBeInTheDocument();
-      expect(screen.getByRole('heading', { level: 1, name: 'Deploy checklist' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Deploy checklist' }),
+      ).toBeInTheDocument();
 
       mockParams.mockReturnValue({ conversationId: Constants.NEW_CONVO });
       mockConversation.mockReturnValue({ conversationId: Constants.NEW_CONVO, title: 'New Chat' });
@@ -1415,7 +1436,9 @@ describe('ChatView rendering paths', () => {
       openFirstConversation();
       const { rerender } = render(<ChatView />);
 
-      expect(screen.getByRole('heading', { level: 1, name: 'Deploy checklist' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Deploy checklist' }),
+      ).toBeInTheDocument();
 
       mockParams.mockReturnValue({ conversationId: 'convo-2' });
       mockMessagesQuery.mockReturnValue({ data: null, isLoading: true, isFetching: true });
@@ -1539,7 +1562,9 @@ describe('ChatView rendering paths', () => {
       mockConversation.mockReturnValue({ conversationId: 'convo-1', title: 'Deploy checklist' });
       rerender(<ChatView routePending />);
 
-      expect(screen.getByRole('heading', { level: 1, name: 'Deploy checklist' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Deploy checklist' }),
+      ).toBeInTheDocument();
       expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     });
 

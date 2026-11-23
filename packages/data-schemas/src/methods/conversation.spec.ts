@@ -5036,12 +5036,11 @@ describe('Conversation Operations', () => {
       // Force a database error by disconnecting
       await mongoose.disconnect();
 
-      const result = await saveConvo(mockCtx, mockConversationData);
-
-      expect(result).toEqual({ message: 'Error saving conversation' });
-
-      // Reconnect for other tests
-      await mongoose.connect(mongoServer.getUri());
+      try {
+        await expect(saveConvo(mockCtx, mockConversationData)).resolves.toBeNull();
+      } finally {
+        await mongoose.connect(mongoServer.getUri());
+      }
     });
   });
 

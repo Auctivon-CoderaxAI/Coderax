@@ -1,7 +1,8 @@
 # Container configuration for the image built from Dockerfile target
 # `node-freebuff`. Local development keeps using coderax.yaml, which points at
 # the host checkout of the SDK; this file only ever runs inside Docker, where
-# the SDK is baked into the image and Ollama is reached over the host gateway.
+# the SDK is baked into the image and the Compose `ollama` service provides the
+# model.
 version: 1.3.17
 freeInference:
   enabled: true
@@ -21,16 +22,17 @@ engines:
     enabled: true
     # Installed by the `freebuff-sdk` stage; never a host path.
     sdkPath: /opt/freebuff-sdk/dist/index.cjs
-    # Work's tool schema needs 16k of context. The host's main Ollama serves
-    # the durable qwen3.5:4b-16k variant, created once with:
+    # Work's tool schema needs 16k of context. The Compose `ollama-init`
+    # service creates the durable qwen3.5:4b-16k variant on first start with:
     #   FROM qwen3.5:4b
     #   PARAMETER num_ctx 16384
     #   ollama create qwen3.5:4b-16k -f Modelfile
-    # The context lives in the model, so no OLLAMA_CONTEXT_LENGTH override or
-    # second Ollama instance is needed.
-    # The adapter still accepts loopback hosts only, so this needs a
-    # loopback-capable route to the host before Freebuff reports ready here.
-    baseURL: http://host.docker.internal:11434/v1
+    # The context lives in the model, so no OLLAMA_CONTEXT_LENGTH override is
+    # needed. Loopback is implicit; Compose service names are not, so the
+    # `ollama` host is allowlisted explicitly.
+    baseURL: http://ollama:11434/v1
+    allowedHosts:
+      - ollama
     model: ollama/qwen3.5:4b-16k
     timeoutMs: 900000
     maxAgentSteps: 24
