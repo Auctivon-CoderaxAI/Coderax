@@ -99,29 +99,23 @@ function normalizedHost(value: string): string {
     .replace(/\.$/, '');
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
 /**
- * Private endpoints are loopback by default. A non-loopback host is accepted
- * only when the owner explicitly allowlists its bare hostname, e.g.
- * host.docker.internal or a Compose service name.
+ * The pinned SDK accepts plain HTTP only on loopback. Non-loopback hosts are
+ * rejected even when listed in `engines.freebuff.allowedHosts`, so the adapter
+ * must not report them as ready.
  */
-function privateBaseUrl(
-  value: string | undefined,
-  allowedHosts: readonly string[] = [],
-): string | null {
+function privateBaseUrl(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
   try {
     const url = new URL(value);
     const host = normalizedHost(url.hostname);
-    const loopback = ['localhost', '127.0.0.1', '::1'].includes(host);
-    const explicitlyAllowed = allowedHosts.some((entry) => {
-      const allowed = normalizedHost(entry);
-      return allowed.length > 0 && allowed === host;
-    });
     if (
       url.protocol !== 'http:' ||
-      (!loopback && !explicitlyAllowed) ||
+      !LOOPBACK_HOSTS.has(host) ||
       url.username ||
       url.password ||
       url.search ||
@@ -135,10 +129,29 @@ function privateBaseUrl(
   }
 }
 
+function nonLoopbackEndpointDetail(
+  value: string | undefined,
+  allowedHosts: readonly string[] = [],
+): string {
+  try {
+    const url = new URL(value ?? '');
+    const host = normalizedHost(url.hostname);
+    if (host && !LOOPBACK_HOSTS.has(host)) {
+      const allowlisted = allowedHosts.some((entry) => normalizedHost(entry) === host);
+      return allowlisted
+        ? `The pinned Freebuff SDK accepts plain HTTP only on loopback; non-loopback endpoints are rejected even when listed in engines.freebuff.allowedHosts. Use a loopback forwarder.`
+        : `The pinned Freebuff SDK accepts plain HTTP only on loopback; the configured host is not on loopback. Use a loopback forwarder.`;
+    }
+  } catch {
+    // Fall through to the generic configuration message.
+  }
+  return 'Freebuff Work requires an OpenAI-compatible loopback endpoint (the pinned SDK rejects plain HTTP for any other host), plus a local ollama or lmstudio model.';
+}
+
 export type FreebuffAdapterOptions = {
   enabled: boolean;
   baseURL?: string | null;
-  /** Explicitly trusted non-loopback endpoint hostnames. */
+  /** Retained for diagnostics; the pinned SDK rejects non-loopback HTTP. */
   allowedHosts?: readonly string[];
   model?: EngineModelRef | null;
   sdk?: LoadedFreebuffSdk | null;
@@ -165,15 +178,18 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
         'engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.privateRoot must be configured.',
     };
   }
-  if (
-    !privateBaseUrl(options.baseURL, options.allowedHosts) ||
-    !isModelAllowedForMode(options.model, 'private')
-  ) {
+  if (!privateBaseUrl(options.baseURL)) {
     return {
       available: false,
       reason: 'not_configured',
-      detail:
-        'Freebuff Work requires an OpenAI-compatible loopback endpoint or a host listed in engines.freebuff.allowedHosts, plus a local ollama or lmstudio model.',
+      detail: nonLoopbackEndpointDetail(options.baseURL, options.allowedHosts),
+    };
+  }
+  if (!isModelAllowedForMode(options.model, 'private')) {
+    return {
+      available: false,
+      reason: 'not_configured',
+      detail: 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
     };
   }
   if (!options.sdk) {
@@ -435,11 +451,11 @@ export async function startFreebuffRun(
   }
 
   const workspaceRoot = resolved.value.root;
-  const baseURL = privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined);
   if (!baseURL) {
     return engineFailure(
       'not_configured',
-      'Freebuff requires a loopback model endpoint or a host listed in engines.freebuff.allowedHosts.',
+      nonLoopbackEndpointDetail(options.baseURL ?? undefined, options.allowedHosts),
     );
   }
 

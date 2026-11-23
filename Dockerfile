@@ -96,9 +96,13 @@ COPY docker/freebuff-sdk/package-lock.json /opt/freebuff-sdk/package-lock.json
 # The bundle externalizes its dependencies, so they are installed here rather
 # than shipped inside dist. The Linux production install is pinned by the
 # lockfile in docker/freebuff-sdk/; no lifecycle scripts are needed here.
+# Keep zod at 4.2.1: the bundled AI SDK's JSON-schema context has no `deferred`,
+# and newer zod 4.x record processors call `ctx.deferred.push`, which crashes on
+# set_output's z.record schema before the model request starts.
 RUN set -eu; \
     test "$(node -p 'require("/opt/freebuff-sdk/package.json").version')" = "$FREEBUFF_SDK_VERSION"; \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts; \
+    test "$(node -p 'require("/opt/freebuff-sdk/node_modules/zod/package.json").version')" = "4.2.1"; \
     node -e "const sdk = require('/opt/freebuff-sdk/dist/index.cjs'); for (const name of ['CodebuffClient', 'normalizeByokBaseUrl', 'isUntrustedAgentPublisherError']) { if (typeof sdk[name] !== 'function') throw new Error('Freebuff SDK is missing ' + name); }"
 # The bundled ripgrep is architecture-specific and is staged into a temp file
 # by the SDK; verify the copy that matches this image can actually execute.
