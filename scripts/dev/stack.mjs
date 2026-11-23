@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 import { binPath, ggufPath, port as modelPort, serverArgs } from './model-paths.mjs';
 import { mongoPort } from './mongo-port.mjs';
-import { groupState, hasToken, ownerKey } from './pid-record.mjs';
+import { groupState, hasToken, ownerKey, waitForGroupExit } from './pid-record.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const devDir = path.join(repoRoot, '.dev');
@@ -76,7 +76,8 @@ const services = [
     probe: () => httpOk('http://127.0.0.1:3000/'),
     env: {
       NODE_ENV: 'development',
-      HOST: '0.0.0.0',
+      HOST: previewHost ? '0.0.0.0' : '127.0.0.1',
+      BACKEND_HOST: '127.0.0.1',
       PORT: '3000',
       BACKEND_PORT: String(apiPort),
       VITE_ALLOWED_HOSTS: previewHost,
@@ -271,17 +272,6 @@ function signalGroup(pid, signal) {
   }
 }
 
-async function waitExit(record, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (groupState(record) !== 'owned') {
-      return true;
-    }
-    await sleep(250);
-  }
-  return groupState(record) !== 'owned';
-}
-
 async function down() {
   let stopped = true;
   for (const service of [...services].reverse()) {
@@ -302,16 +292,18 @@ async function down() {
         throw new Error('ownership could not be verified');
       }
       signalGroup(pid, 'SIGTERM');
-      if (!(await waitExit(record, 10_000))) {
-        if (groupState(record) === 'owned') {
+      const readState = () => groupState(record);
+      if (!(await waitForGroupExit(readState, 10_000))) {
+        const current = readState();
+        if (current === 'unverified') {
+          throw new Error('ownership could no longer be verified');
+        }
+        if (current === 'owned') {
           signalGroup(pid, 'SIGKILL');
+          if (!(await waitForGroupExit(readState, 2_000))) {
+            throw new Error('exit could not be confirmed after SIGKILL');
+          }
         }
-        if (!(await waitExit(record, 2_000))) {
-          throw new Error('still exists after SIGKILL');
-        }
-      }
-      if (groupState(record) === 'unverified') {
-        throw new Error('ownership could no longer be verified');
       }
     } catch (error) {
       console.error(

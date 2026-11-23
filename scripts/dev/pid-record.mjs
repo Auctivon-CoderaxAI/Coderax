@@ -7,6 +7,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 export const ownerKey = 'CODERAX_DEV_GROUP_OWNER';
 
@@ -95,4 +96,18 @@ export function groupState({ pid, token }) {
     return 'gone';
   }
   return groupAlive(pid) ? 'unverified' : 'gone';
+}
+
+export async function waitForGroupExit(readState, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    if (readState() === 'gone') {
+      return true;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return false;
+    }
+    await sleep(Math.min(250, remaining));
+  }
 }

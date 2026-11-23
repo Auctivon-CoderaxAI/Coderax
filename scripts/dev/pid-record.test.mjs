@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import test from 'node:test';
 
-import { groupState, ownerKey } from './pid-record.mjs';
+import { groupState, ownerKey, waitForGroupExit } from './pid-record.mjs';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -86,4 +86,13 @@ test('a legacy record whose process is gone is stale', async () => {
   const pid = child.pid;
   await stopGroup(child);
   assert.equal(await waitForState({ pid }, 'gone'), 'gone');
+});
+
+test('shutdown polling waits for gone through a temporary ownership gap', async () => {
+  const states = ['unverified', 'owned', 'gone'].values();
+  assert.equal(await waitForGroupExit(() => states.next().value, 5_000), true);
+});
+
+test('shutdown polling fails when the group is still unverified at the deadline', async () => {
+  assert.equal(await waitForGroupExit(() => 'unverified', 0), false);
 });

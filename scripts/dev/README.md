@@ -49,8 +49,17 @@ readiness without starting or stopping anything; it flags stale PID files and
 ports held by other processes, and exits non-zero when a service is missing or
 unready.
 
-`CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) supplies the hostname Vite must
-accept; without it the API and UI still start but the preview panel returns 403.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:14de061df89a929af801b9592a417e194d81bd2df2ca5de6968bab0770811507 -->
+
+Without a preview hostname, `dev:up` binds Vite to loopback. Set
+`CODERAX_PREVIEW_HOST` (or `VITE_ALLOWED_HOSTS`) to allow that hostname and bind
+Vite to all IPv4 interfaces for preview access. This hostname setting does not
+authenticate clients. In either mode, Vite proxies the API and OAuth routes to
+`127.0.0.1:3080`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 The model is skipped with a warning when its binary or weights are missing.
 
 ## MongoDB
