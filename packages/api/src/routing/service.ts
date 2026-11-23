@@ -38,6 +38,7 @@ export function resolveFreeRoutingLimits(config: FreeInferenceConfigLike): FreeR
 
 export type FreeRouterDeps = {
   endpoints?: Parameters<typeof createFreeRouter>[0]['endpoints'];
+  credentialEnvNames?: readonly string[];
   now?: () => number;
   health?: EndpointHealth;
   quota?: QuotaLedger;
@@ -65,7 +66,8 @@ export function getFreeRouterForConfig(
   deps: FreeRouterDeps = {},
 ): FreeRouter {
   const limits = resolveFreeRoutingLimits(config);
-  const key = JSON.stringify(limits);
+  const credentialEnvNames = [...(deps.credentialEnvNames ?? [])].sort();
+  const key = JSON.stringify({ limits, credentialEnvNames });
   const existing = routers.get(key);
   if (existing) {
     return existing;

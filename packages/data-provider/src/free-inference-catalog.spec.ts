@@ -65,7 +65,7 @@ describe('zero-cost catalog to Work projection', () => {
 
   it('does not route a free-tier provider when its account plan cannot be verified', () => {
     const state = describeFreeInferenceCatalog(enabled, {
-      CLOUDFLARE_API_TOKEN: 'k',
+      CLOUDFLARE_TOKEN: 'k',
       CLOUDFLARE_ACCOUNT_ID: 'acct',
     });
     const cloudflare = state.endpoints.find((endpoint) => endpoint.provider === 'cloudflare');

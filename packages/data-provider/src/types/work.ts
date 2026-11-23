@@ -119,7 +119,25 @@ export type TWorkRoutingEndpoint = {
   modelId: string;
   label: string;
   kind: 'primary' | 'fallback';
+  freeEligible: boolean;
+  credentialPresent: boolean;
+  healthy: boolean;
   available: boolean;
+  rejectionReason:
+    | 'unknown_provider'
+    | 'unverified_pricing'
+    | 'billing_plan_unverified'
+    | 'endpoint_name_conflict'
+    | 'trial_credits'
+    | 'nonzero_price'
+    | 'distilled_model_as_primary'
+    | 'cooldown'
+    | 'quota'
+    | 'fallback_disabled'
+    | 'disabled'
+    | 'missing_credential'
+    | 'tools_unavailable'
+    | null;
   cooldownUntil: number | null;
   tools: boolean;
   quota: {

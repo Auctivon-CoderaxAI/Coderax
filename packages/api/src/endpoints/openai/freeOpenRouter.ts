@@ -1,4 +1,5 @@
 import {
+  FREE_ENDPOINTS,
   FREE_OPENROUTER_URL,
   isFreeOpenRouterModel,
   DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS,
@@ -6,6 +7,9 @@ import {
 import type { fetch as undiciFetch } from 'undici';
 
 const completionURL = `${FREE_OPENROUTER_URL}/chat/completions`;
+const FREE_OPENROUTER_MODEL_IDS = FREE_ENDPOINTS.filter(
+  (endpoint) => endpoint.provider === 'openrouter' && isFreeOpenRouterModel(endpoint.modelId),
+).map((endpoint) => endpoint.modelId);
 // Forward only native chat fields. OpenRouter-specific plugins, alternate models
 // and provider preferences must never come from agent or request parameters.
 const chatFields = [
@@ -74,8 +78,15 @@ export function createFreeOpenRouterFetch(
       Number.isSafeInteger(requestedLimit) && requestedLimit > 0
         ? Math.min(requestedLimit, maxOutputTokens)
         : maxOutputTokens;
+    // Model-level fallback remains within the exact, verified free allowlist.
+    // Provider-level fallback is disabled below; the data policy is applied to
+    // every model attempt, including alternatives.
+    payload.models = FREE_OPENROUTER_MODEL_IDS.filter((id) => id !== body.model);
     payload.provider = {
       require_parameters: true,
+      allow_fallbacks: false,
+      data_collection: 'deny',
+      zdr: true,
       max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
     };
 

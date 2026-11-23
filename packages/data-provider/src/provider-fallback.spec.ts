@@ -2,8 +2,10 @@ import type { ProviderFallbackConfigLike } from './provider-fallback';
 import {
   buildProviderFallbackCustomEndpoints,
   mergeProviderFallbackCustomEndpoints,
+  providerFallbackBaseURL,
   providerFallbackEndpointMatches,
   providerFallbackForEndpoint,
+  providerFallbackModel,
   providerFallbackOrder,
 } from './provider-fallback';
 import { configSchema } from './config';
@@ -65,33 +67,9 @@ describe('provider fallback config', () => {
 });
 
 describe('provider fallback catalog', () => {
-  it('maps every credentialed provider to an OpenAI-compatible endpoint', () => {
+  it('keeps all automatic endpoints disabled until a recurring free-only route is verified', () => {
     const endpoints = buildProviderFallbackCustomEndpoints(enabled(), env);
-
-    expect(endpoints.map((endpoint) => endpoint.name)).toEqual([
-      'Gemini',
-      'Cerebras',
-      'Groq',
-      'OpenCode',
-      'APInex',
-      'Cloudflare',
-      'Vercel',
-      'FreeAI',
-      '100MillionSeek',
-    ]);
-    expect(endpoints[0]).toEqual({
-      name: 'Gemini',
-      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-      apiKey: '${GEMINI_API_KEY}',
-      modelDisplayLabel: 'Google Gemini',
-      models: { default: ['gemini-3.5-flash-lite'] },
-      titleConvo: false,
-    });
-    expect(endpoints.find((endpoint) => endpoint.name === 'Cloudflare')).toMatchObject({
-      baseURL: 'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1',
-      apiKey: '${CLOUDFLARE_TOKEN}',
-      models: { default: ['@cf/openai/gpt-oss-120b'] },
-    });
+    expect(endpoints).toEqual([]);
   });
 
   it('honors configured models and gateway roots', () => {
@@ -106,16 +84,7 @@ describe('provider fallback catalog', () => {
       { OPENCODEAI_API_KEY: 'secret' },
     );
 
-    expect(endpoints).toEqual([
-      {
-        name: 'OpenCode',
-        baseURL: 'https://gateway.example.test/v1',
-        apiKey: '${OPENCODEAI_API_KEY}',
-        modelDisplayLabel: 'OpenCode Zen',
-        models: { default: ['custom-zen-model'] },
-        titleConvo: false,
-      },
-    ]);
+    expect(endpoints).toEqual([]);
   });
 
   it('does nothing while disabled or without credentials', () => {
@@ -157,8 +126,14 @@ describe('provider fallback catalog', () => {
   });
 
   it('matches the reserved endpoint name, URL, key reference and model', () => {
-    const endpoint = buildProviderFallbackCustomEndpoints(enabled(), env)[0];
+    const config = enabled();
     const provider = providerFallbackForEndpoint('gemini');
+    const endpoint = {
+      name: provider!.name,
+      baseURL: providerFallbackBaseURL(config, provider!),
+      apiKey: '${' + provider!.apiKeyEnv + '}',
+      models: { default: [providerFallbackModel(config, provider!)] },
+    };
 
     expect(provider).not.toBeNull();
     expect(providerFallbackEndpointMatches(endpoint, provider!, enabled())).toBe(true);
@@ -176,7 +151,7 @@ describe('provider fallback catalog', () => {
 });
 
 describe('provider fallback configuration merge', () => {
-  it('appends providers without replacing existing custom endpoints', () => {
+  it('preserves custom endpoints and never adds unverified automatic providers', () => {
     const config = {
       ...enabled(),
       endpoints: {
@@ -194,18 +169,9 @@ describe('provider fallback configuration merge', () => {
     const merged = mergeProviderFallbackCustomEndpoints(config, env);
     const custom = merged.endpoints.custom as Array<{ name: string; baseURL?: string }>;
 
-    expect(custom.map((endpoint) => endpoint.name)).toEqual([
-      'Groq',
-      'Gemini',
-      'Cerebras',
-      'OpenCode',
-      'APInex',
-      'Cloudflare',
-      'Vercel',
-      'FreeAI',
-      '100MillionSeek',
-    ]);
+    expect(custom.map((endpoint) => endpoint.name)).toEqual(['Groq']);
     expect(custom[0].baseURL).toBe('https://operator.example.test/v1');
+    expect(merged).toBe(config);
   });
 
   it('returns the original object when nothing is added', () => {

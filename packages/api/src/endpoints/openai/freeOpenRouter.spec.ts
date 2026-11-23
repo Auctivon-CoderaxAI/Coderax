@@ -18,7 +18,7 @@ describe('free OpenRouter transport', () => {
 
   beforeEach(() => send.mockClear());
 
-  it('keeps native streaming and function tools while stripping alternate routes and add-ons', async () => {
+  it('keeps streaming and tools while pinning free-only fallbacks and privacy policy', async () => {
     const tools = [{ type: 'function', function: { name: 'example' } }];
     await fetch(
       url,
@@ -44,8 +44,12 @@ describe('free OpenRouter transport', () => {
       stream: true,
       tools,
       max_tokens: 4096,
+      models: ['nvidia/nemotron-3.5-lightning:free', 'google/gemma-4-31b-it:free'],
       provider: {
         require_parameters: true,
+        allow_fallbacks: false,
+        data_collection: 'deny',
+        zdr: true,
         max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
       },
     });
@@ -106,9 +110,13 @@ it('sends the native agent SDK completion through the guarded transport', async 
           return (
             body.model === model &&
             body.max_tokens === 8192 &&
+            body.provider?.allow_fallbacks === false &&
+            body.provider?.data_collection === 'deny' &&
+            body.provider?.zdr === true &&
             body.provider?.max_price?.prompt === 0 &&
             body.provider?.max_price?.completion === 0 &&
-            !body.models &&
+            body.models?.join(',') ===
+              'nvidia/nemotron-3.5-lightning:free,google/gemma-4-31b-it:free' &&
             !body.plugins
           );
         },

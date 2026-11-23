@@ -52,6 +52,8 @@ export type FreeEndpoint = {
   routingPriority: number;
   /** Optional provider-documented ceilings; absent means the app budget governs. */
   dailyRequestLimit?: number;
+  /** Share one provider-account quota across model aliases when required. */
+  quotaGroup?: string;
   /** A non-zero rate here would make the endpoint chargeable and is rejected. */
   promptCostPerMillion?: number;
   completionCostPerMillion?: number;
@@ -165,13 +167,15 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 10,
+    dailyRequestLimit: 50,
+    quotaGroup: 'openrouter-free-account',
   },
   {
     id: 'groq-gpt-oss-120b',
@@ -202,13 +206,15 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     apiKeyEnv: 'OPENROUTER_API_KEY',
     pricing: {
       basis: 'free-model',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://openrouter.ai/api/v1/models',
       note: 'The :free variant is listed with prompt and completion price 0.',
     },
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 30,
+    dailyRequestLimit: 50,
+    quotaGroup: 'openrouter-free-account',
   },
   {
     id: 'cloudflare-llama-3-3-70b-free',
@@ -217,10 +223,10 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     label: 'Llama 3.3 70B on Workers AI',
     kind: 'fallback',
     baseURL: 'https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run',
-    apiKeyEnv: 'CLOUDFLARE_API_TOKEN',
+    apiKeyEnv: 'CLOUDFLARE_TOKEN',
     pricing: {
       basis: 'free-daily-allocation',
-      verifiedAt: '2026-11-08',
+      verifiedAt: '2026-11-22',
       evidenceUrl: 'https://developers.cloudflare.com/workers-ai/platform/pricing/',
       note: 'The daily allocation is free on the Workers Free plan, but the API does not expose the account plan to this router; paid-plan overage cannot be ruled out.',
     },
@@ -245,6 +251,8 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 262_144,
     routingPriority: 50,
+    dailyRequestLimit: 50,
+    quotaGroup: 'openrouter-free-account',
   },
 ];
 

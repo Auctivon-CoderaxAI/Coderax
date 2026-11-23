@@ -146,7 +146,12 @@ module.exports = createWorkApiRouter({
       // instead of being rebuilt for each request.
       const deps = {
         ...depsFor(req),
-        routing: () => getFreeRouterForConfig(req.config?.config).snapshot(),
+        // Pass environment variable names only; status reports presence without
+        // receiving or returning any credential values.
+        routing: () =>
+          getFreeRouterForConfig(req.config?.config, {
+            credentialEnvNames: Object.keys(process.env),
+          }).snapshot(),
         engines: () => engineRuntimeFor(req).snapshot(),
       };
       createWorkRouter(deps)(req, res, next);
