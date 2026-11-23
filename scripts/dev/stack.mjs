@@ -184,12 +184,29 @@ function readRecord(name) {
   } catch {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  const { pid, token, preview } = record;
+  const { pid, token, network } = record;
   if (!Number.isSafeInteger(pid) || pid <= 1 || (token != null && !/^[a-f0-9-]{36}$/.test(token))) {
     fail(`${name}: invalid process record; inspect ${pidFile(name)}`);
   }
-  return { pid, token, preview };
+  return { pid, token, network };
 }
+
+// Record only the settings needed to detect network drift, never the full environment.
+function networkSettings(name) {
+  if (name === 'api' || name === 'ui') {
+    const { host, port } = getApiBinding();
+    return { apiHost: host, apiPort: port, previewHost };
+  }
+}
+
+function hasNetworkDrift(name, record) {
+  const expected = networkSettings(name);
+  return (
+    expected && Object.entries(expected).some(([key, value]) => record.network?.[key] !== value)
+  );
+}
+
+const networkDriftMessage = 'network settings changed; run npm run dev:down before restarting';
 
 const ownerKey = 'CODERAX_DEV_GROUP_OWNER';
 
@@ -336,7 +353,7 @@ async function startService(service) {
   const record = {
     pid: child.pid,
     token,
-    ...(['api', 'ui'].includes(service.name) ? { preview: previewEnabled } : {}),
+    network: networkSettings(service.name),
   };
   const file = pidFile(service.name);
   const temporary = `${file}.${token}.tmp`;
@@ -361,13 +378,19 @@ async function waitReady(service, { pid, token }, signal) {
   const deadline = Date.now() + service.timeoutMs;
   while (Date.now() < deadline) {
     signal.throwIfAborted();
-    if (!hasToken(pid, token)) {
+    if (hasToken(pid, token)) {
+      const responding = service.probe
+        ? await service.probe()
+        : await portOpen(service.port, service.probeHost);
+      signal.throwIfAborted();
+      if (responding && hasToken(pid, token)) {
+        return true;
+      }
+    } else if (groupState({ pid, token }) === 'gone') {
       return false;
     }
-    if (service.probe ? await service.probe() : await portOpen(service.port, service.probeHost)) {
-      signal.throwIfAborted();
-      return hasToken(pid, token);
-    }
+    // The launcher's exec can briefly make the leader's environment unreadable.
+    // Wait for the marker to become visible again before probing.
     await sleep(500);
   }
   return false;
@@ -387,8 +410,8 @@ async function up(signal) {
 
   for (const name of ['api', 'ui']) {
     const record = readRecord(name);
-    if (record && groupState(record) === 'owned' && record.preview !== previewEnabled) {
-      fail(`${name}: run npm run dev:down before upgrading or changing preview mode`);
+    if (record && groupState(record) === 'owned' && hasNetworkDrift(name, record)) {
+      fail(`${name}: ${networkDriftMessage}`);
     }
   }
 
@@ -537,6 +560,9 @@ async function status() {
       }
       if (!hasToken(pid, record.token)) {
         return { service, pid, state: 'process group is running without its leader', ok: false };
+      }
+      if (hasNetworkDrift(service.name, record)) {
+        return { service, pid, state: networkDriftMessage, ok: false };
       }
       if (service.available && !service.available()) {
         return { service, pid, state: 'not installed', ok: false };
