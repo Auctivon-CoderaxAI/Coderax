@@ -7,6 +7,23 @@ cache: true
 # the local Ollama models below.
 freeInference:
   enabled: true
+# Every new chat starts on the hosted $0 model pinned below. FreeOpenRouter is
+# declared explicitly so the spec resolves even before a credential is present:
+# a missing key then fails the turn visibly instead of letting the deployment
+# fall back to the CPU-bound local Qwen models.
+interface:
+  # Keep the endpoint picker available so the Ollama fallback stays a deliberate
+  # choice rather than the default.
+  modelSelect: true
+modelSpecs:
+  list:
+    - name: free-openrouter
+      label: OpenRouter (free)
+      description: Hosted $0 inference; no local GPU.
+      default: true
+      preset:
+        endpoint: FreeOpenRouter
+        model: nvidia/nemotron-3-ultra-550b-a55b:free
 endpoints:
   custom:
     - name: Ollama
@@ -21,3 +38,17 @@ endpoints:
       titleModel: current_model
       summarize: false
       modelDisplayLabel: Ollama
+    # Keep this entry identical to what the free-inference catalog injects
+    # (name, baseURL, credential reference, and only verified :free models), or
+    # the catalog treats the reserved name as a conflict and blocks the models.
+    - name: FreeOpenRouter
+      apiKey: '${OPENROUTER_API_KEY}'
+      baseURL: https://openrouter.ai/api/v1
+      models:
+        default:
+          - nvidia/nemotron-3-ultra-550b-a55b:free
+          - nvidia/nemotron-3.5-lightning:free
+          - google/gemma-4-31b-it:free
+        fetch: false
+      titleConvo: false
+      modelDisplayLabel: OpenRouter (free)

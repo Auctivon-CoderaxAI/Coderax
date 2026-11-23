@@ -60,28 +60,14 @@ jest.mock('~/server/services/Files/Citations', () => ({
 
 jest.mock('~/server/services/Files/Code/process', () => ({
   processCodeOutput: jest.fn(),
-  /* `runPreviewFinalize` is the runtime pairing for `finalize` (defined
-   * alongside processCodeOutput in process.js). The callback wires
-   * the deferred render through it; reproduce the basic happy-path here so the
-   * SSE-emit assertions still work. The catch/defensive-updateFile
-   * branch is unit-tested directly against the real helper in
-   * process.spec.js — exercising it here would add test coupling
-   * without coverage benefit. */
-  runPreviewFinalize: ({ finalize, onResolved }) => {
-    if (typeof finalize !== 'function') {
-      return;
-    }
-    finalize()
-      .then((updated) => {
-        if (!updated || !onResolved) {
-          return;
-        }
-        onResolved(updated);
-      })
-      .catch(() => {
-        /* swallowed in the mock — see process.spec.js for catch coverage */
-      });
-  },
+  /* Exercise the shipped deferred-preview helper rather than a copy, so the
+   * callbacks wiring is tested against the implementation it actually calls. */
+  runPreviewFinalize: jest.requireActual('~/server/services/Files/Code/finalize')
+    .runPreviewFinalize,
+}));
+
+jest.mock('~/models', () => ({
+  updateFile: jest.fn(),
 }));
 
 jest.mock('~/server/services/Files/Code/preflight', () => ({
@@ -1514,6 +1500,103 @@ describe('createToolEndCallback', () => {
       expect(artifactPromises).toHaveLength(0);
       expect(res.write).not.toHaveBeenCalled();
     });
+    describe('code execution deferred-preview emit and downgrade guard', () => {
+      /* updateFile is the real helper's only DB write, so the no-downgrade
+       * assertion below fails if the implementation ever starts marking a
+       * resolved record failed. */
+      const { updateFile } = require('~/models');
+
+      beforeEach(() => {
+        updateFile.mockReset();
+        updateFile.mockResolvedValue({});
+      });
+
+      it('uses the current run messageId on the resolved emit, not the persisted DB messageId', async () => {
+        res.headersSent = true;
+        const finalize = jest.fn().mockResolvedValue({
+          file_id: 'fid-shared',
+          filename: 'output.csv',
+          messageId: 'turn-1-original-msg', // stale, persisted id
+          status: 'ready',
+        });
+        processCodeOutput.mockResolvedValue({
+          file: {
+            file_id: 'fid-shared',
+            filename: 'output.csv',
+            messageId: 'turn-2-msg',
+            status: 'pending',
+          },
+          finalize,
+        });
+
+        const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
+        const event = makeCodeExecutionEvent({
+          runId: 'turn-2-msg',
+          fileId: 'fid-shared',
+          name: 'output.csv',
+        });
+        await toolEndCallback({ output: event.output }, event.metadata);
+        await Promise.all(artifactPromises);
+        await new Promise((resolve) => setImmediate(resolve));
+
+        const phase2 = parseSseAttachment(res.write.mock.calls[1]);
+        expect(phase2.messageId).toBe('turn-2-msg');
+        expect(phase2.messageId).not.toBe('turn-1-original-msg');
+      });
+
+      it('does not downgrade the record to failed when the resolved emit throws', async () => {
+        res.headersSent = true;
+        const finalize = jest.fn().mockResolvedValue({
+          file_id: 'fid-x',
+          filename: 'output.csv',
+          messageId: 'turn-2-msg',
+          status: 'ready',
+        });
+        processCodeOutput.mockResolvedValue({
+          file: {
+            file_id: 'fid-x',
+            filename: 'output.csv',
+            filepath: '/uploads/output.csv',
+            type: 'text/csv',
+            conversationId: 'thread789',
+            messageId: 'turn-2-msg',
+            toolCallId: 'tool-2',
+            status: 'pending',
+          },
+          finalize,
+          previewRevision: 'rev-1',
+        });
+        /* The pending emit reaches the stream; the deferred ready emit throws
+         * the way a losing SSE write race does. */
+        res.write
+          .mockImplementationOnce(() => true)
+          .mockImplementation(() => {
+            throw new Error('SSE write after close');
+          });
+
+        const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
+        const event = makeCodeExecutionEvent({
+          runId: 'turn-2-msg',
+          threadId: 'thread789',
+          toolCallId: 'tool-2',
+          fileId: 'fid-x',
+          name: 'output.csv',
+        });
+        await toolEndCallback({ output: event.output }, event.metadata);
+        await Promise.all(artifactPromises);
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(finalize).toHaveBeenCalledTimes(1);
+        // Initial pending emit, then the deferred emit that threw.
+        expect(res.write).toHaveBeenCalledTimes(2);
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('[runPreviewFinalize] onResolved threw'),
+          expect.any(Error),
+        );
+        expect(updateFile).not.toHaveBeenCalled(); // no defensive-failed downgrade
+      });
+    });
   });
 });
 
@@ -1793,52 +1876,5 @@ describe('isStreamWritable', () => {
 
   it('returns true on the happy path: headers sent, not ended, no streamId', () => {
     expect(isStreamWritable({ headersSent: true, writableEnded: false }, null)).toBe(true);
-  });
-});
-
-describe('code execution deferred-preview messageId regression (PR #12957)', () => {
-  it('uses the current run messageId on the resolved emit, not the persisted DB messageId', async () => {
-    res.headersSent = true;
-    const finalize = jest.fn().mockResolvedValue({
-      file_id: 'fid-shared',
-      filename: 'output.csv',
-      messageId: 'turn-1-original-msg', // stale, persisted id
-      status: 'ready',
-    });
-    processCodeOutput.mockResolvedValue({
-      file: { file_id: 'fid-shared', filename: 'output.csv', messageId: 'turn-2-msg', status: 'pending' },
-      finalize,
-    });
-
-    const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
-    const event = makeCodeExecutionEvent({ runId: 'turn-2-msg', fileId: 'fid-shared', name: 'output.csv' });
-    await toolEndCallback({ output: event.output }, event.metadata);
-    await Promise.all(artifactPromises);
-    await new Promise((resolve) => setImmediate(resolve));
-
-    const phase2 = parseSseAttachment(res.write.mock.calls[1]);
-    expect(phase2.messageId).toBe('turn-2-msg');
-    expect(phase2.messageId).not.toBe('turn-1-original-msg');
-  });
-
-  it('does not downgrade the record to failed when onResolved throws', async () => {
-    const finalize = jest.fn().mockResolvedValue({ file_id: 'fid-x', status: 'ready' });
-    const onResolved = jest.fn(() => { throw new Error('SSE write after close'); });
-
-    runPreviewFinalize({ finalize, fileId: 'fid-x', onResolved });
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(onResolved).toHaveBeenCalledTimes(1);
-    expect(updateFile).not.toHaveBeenCalled(); // no defensive-failed downgrade
-  });
-
-  it('skips the preview update emit when finalize resolves null', async () => {
-    const finalize = jest.fn().mockResolvedValue(null);
-    const onResolved = jest.fn();
-
-    runPreviewFinalize({ finalize, fileId: 'fid-null', onResolved });
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(onResolved).not.toHaveBeenCalled();
   });
 });
