@@ -49,7 +49,7 @@ jest.mock('~/data-provider', () => ({
 }));
 
 jest.mock('coderax-data-provider', () => ({
-  dataService: { getWorkTasks: jest.fn(), cancelWorkTask: mockCancelWorkTask },
+  dataService: { getWorkTasks: jest.fn(), cancelWorkTask: (id: string) => mockCancelWorkTask(id) },
   MutationKeys: { cancelWorkTask: 'cancelWorkTask' },
   QueryKeys: { workTasks: 'workTasks' },
 }));
@@ -107,11 +107,10 @@ describe('WorkTasksSection', () => {
     expect(screen.queryByText('Update documentation')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'com_ui_pin Prepare release notes' }));
 
-    expect(mockMutatePinnedOrder).toHaveBeenCalledWith([
-      'work:work-2',
-      'convo:chat-1',
-      'work:work-1',
-    ], expect.anything());
+    expect(mockMutatePinnedOrder).toHaveBeenCalledWith(
+      ['work:work-2', 'convo:chat-1', 'work:work-1'],
+      expect.anything(),
+    );
   });
 
   it('opens a Work task through the native Work route', () => {
