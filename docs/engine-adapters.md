@@ -127,12 +127,19 @@ and future SDK compatibility, but it cannot make a non-loopback host usable;
 Coderax reports such an endpoint as `not_configured` instead of ready, and the
 SDK would reject it before a request is sent. This adapter rejects `https`
 outright, so an operator cannot use a TLS endpoint either. Reach a model server
-in another container through a loopback forwarder: the shipped compose stack
-runs `docker/ollama-loopback.cjs` inside the API container, forwarding
-`127.0.0.1:11434` to the `ollama` service, and `coderax.docker.yaml` points
-`engines.freebuff.baseURL` at that loopback URL. The API starts after the
-listener binds and shares its process so a fatal listener failure restarts
-the container under the Compose restart policy.
+in another container through a loopback forwarder. The shipped Compose stack
+sets `ollamaLoopback.enabled: true` in `coderax.docker.yaml` and points
+`engines.freebuff.baseURL` at `http://127.0.0.1:11434/v1`. The API binds the
+listener before serving requests and forwards TCP to `ollama:11434`.
+A fatal listener failure exits the process so Compose can restart the container.
+
+The listener is disabled by default outside the shipped Compose configuration.
+Set `listenHost`, `listenPort`, `upstreamHost`, `upstreamPort` or
+`connectTimeoutMs` under `ollamaLoopback` to override the defaults at restart.
+The 10-second default covers DNS and TCP connection setup; established streams
+have no forwarder idle timeout. When the corresponding YAML settings are
+omitted, the legacy `OLLAMA_LOOPBACK_HOST`, `OLLAMA_LOOPBACK_PORT`,
+`OLLAMA_UPSTREAM_HOST` and `OLLAMA_UPSTREAM_PORT` variables still work.
 Freebuff does not call hosted Freebuff inference, load repository or home
 agents, or enable shell execution. File operations are wrapped to stay inside
 the selected workspace.

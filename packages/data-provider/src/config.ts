@@ -4116,7 +4116,29 @@ export const providerFallbackConfigSchema = z
 
 export type TProviderFallbackConfig = z.infer<typeof providerFallbackConfigSchema>;
 
+/** Deployment-local TCP forwarder. Disabled unless the deployment opts in. */
+export const ollamaLoopbackConfigSchema = z.strictObject({
+  enabled: z.boolean().default(false),
+  listenHost: z
+    .string()
+    .trim()
+    .refine(
+      (host) =>
+        host.toLowerCase() === 'localhost' ||
+        host === '::1' ||
+        /^127(?:\.(?:0|[1-9]\d?|1\d{2}|2[0-4]\d|25[0-5])){3}$/.test(host),
+      'The listener host must be a loopback address',
+    )
+    .transform((host) => (host.toLowerCase() === 'localhost' ? '127.0.0.1' : host))
+    .default('127.0.0.1'),
+  listenPort: z.number().int().min(1).max(65_535).default(11_434),
+  upstreamHost: z.string().trim().min(1).default('ollama'),
+  upstreamPort: z.number().int().min(1).max(65_535).default(11_434),
+  connectTimeoutMs: z.number().int().min(1).max(2_147_483_647).default(10_000),
+});
+
 export const configSchema = z.object({
+  ollamaLoopback: ollamaLoopbackConfigSchema.optional(),
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,

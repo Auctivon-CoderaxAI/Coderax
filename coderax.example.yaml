@@ -1764,3 +1764,13 @@ endpoints:
 #     model: ollama/qwen2.5-coder:7b
 #     timeoutMs: 900000
 #     maxAgentSteps: 24
+
+# Optional API startup listener for an Ollama server in another container.
+# Keep engines.freebuff.baseURL on the same loopback address and port.
+# ollamaLoopback:
+#   enabled: false
+#   listenHost: 127.0.0.1
+#   listenPort: 11434
+#   upstreamHost: ollama
+#   upstreamPort: 11434
+#   connectTimeoutMs: 10000

@@ -30,15 +30,12 @@ services:
       - model
     # The image creates this on a fresh data volume; repeat it so an existing
     # volume also has the private Work workspace root.
-    # The pinned Freebuff SDK accepts plain HTTP only on loopback, so the
-    # forwarder maps 127.0.0.1:11434 onto the `ollama` service before the API
-    # process starts. See docker/ollama-loopback.cjs.
     command:
       - sh
       - -c
       - |
         mkdir -p /app/data/freebuff-workspace &&
-        exec node /app/docker/ollama-loopback.cjs --with-api
+        exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
@@ -50,8 +47,6 @@ services:
       - CODERAX_TEMP_CREDENTIALS_PATH=/app/data/.env.temp
       - RAG_PORT=${RAG_PORT:-8000}
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
-      - OLLAMA_UPSTREAM_HOST=ollama
-      - OLLAMA_UPSTREAM_PORT=11434
       - PROXY=${PROXY:-}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
