@@ -48,6 +48,7 @@ import {
 import { TAuthConfig, TUserContext, TAuthContext, TResError, TPasswordLogin } from '~/common';
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { resetFacetsAtom } from '~/components/Conversations/facets';
+import { getOAuthErrorKey } from '~/components/Auth/oauthError';
 import useTimeout from './useTimeout';
 import store from '~/store';
 
@@ -78,11 +79,6 @@ const getLoginErrorText = (error: TResError): string | undefined => {
     ? code
     : error?.message;
 };
-
-/** Explicit password sign-in must survive a missing refresh session. */
-const isManualLoginRoute = () =>
-  window.location.pathname === `${apiBaseUrl()}/login` &&
-  new URLSearchParams(window.location.search).get('manual') === '1';
 
 const AuthContextProvider = ({
   authConfig,
@@ -378,6 +374,12 @@ const AuthContextProvider = ({
     if (isExternalRedirectRef.current) {
       return;
     }
+    if (
+      isGuestEntryRoute() &&
+      getOAuthErrorKey(new URLSearchParams(window.location.search).get('error'))
+    ) {
+      clearPostLoginRedirect();
+    }
     const onGuestAttempt = (status: Awaited<ReturnType<typeof tryGuestSession>>) => {
       if (status !== 'failed' || isExternalRedirectRef.current) {
         return;
@@ -440,7 +442,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
-          isManualLoginRoute() ||
+          isManualLoginEntry() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -457,7 +459,7 @@ const AuthContextProvider = ({
         if (
           authConfig?.test === true ||
           isRequiredTwoFactorSetupRoute() ||
-          isManualLoginRoute() ||
+          isManualLoginEntry() ||
           authConfig?.optional === true
         ) {
           setIsAuthReady(true);
@@ -479,7 +481,7 @@ const AuthContextProvider = ({
       endSessionClientState();
       doSetError((userQuery.error as Error).message);
       setIsAuthReady(true);
-      if (authConfig?.optional !== true && !isManualLoginRoute()) {
+      if (authConfig?.optional !== true && !isManualLoginEntry()) {
         navigate(buildLoginRedirectUrl(), { replace: true });
       }
     }

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
@@ -84,12 +85,15 @@ export async function auditPage({
     '--throttling-method=provided',
     '--only-categories=performance',
     `--chrome-flags=${chromeFlags}`,
-    `--extra-headers=${JSON.stringify({ Cookie: cookie })}`,
     '--output=json',
     '--output=html',
   ];
 
+  const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'coderax-lighthouse-'));
+  const headersFile = path.join(tempDirectory, 'headers.json');
   try {
+    // execFile includes its arguments in thrown errors, which CI publishes in its log.
+    fs.writeFileSync(headersFile, JSON.stringify({ Cookie: cookie }), { mode: 0o600 });
     for (let run = 1; run <= runs; run++) {
       const output = path.join(directory, `lhr-${run}`);
       for (let attempt = 1; ; attempt++) {
@@ -97,6 +101,7 @@ export async function auditPage({
           const { stdout } = await exec(process.execPath, [
             cli,
             ...flags,
+            `--extra-headers=${headersFile}`,
             `--output-path=${output}`,
           ]);
           console.log(`Lighthouse run ${run}/${runs} wrote ${output}.report.json`);
@@ -122,6 +127,7 @@ export async function auditPage({
       }
     }
   } finally {
+    fs.rmSync(tempDirectory, { recursive: true, force: true });
     // Lighthouse embeds extraHeaders in reports; keep disposable session cookies out of artifacts.
     for (const file of fs.existsSync(directory) ? fs.readdirSync(directory) : []) {
       if (!/\.report\.(json|html)$/.test(file)) continue;

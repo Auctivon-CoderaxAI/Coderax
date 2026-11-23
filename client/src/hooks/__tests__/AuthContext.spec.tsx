@@ -571,6 +571,36 @@ describe('AuthContextProvider — silentRefresh post-login redirect', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  it('retires the stored destination before attempting refresh after an OAuth rejection', () => {
+    window.history.replaceState({}, '', '/login?redirect=false&error=auth_failed');
+    sessionStorage.setItem(SESSION_KEY, '/work/new');
+
+    renderProviderLive();
+
+    expect(mockRefreshMutate).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(window.location.search).toBe('?redirect=false&error=auth_failed');
+  });
+
+  it.each(['/login', '/login/', '/app/login/'])(
+    'preserves the manual sign-in form at %s when the user query fails',
+    (pathname) => {
+      const useUserQuery = jest.requireMock('~/data-provider').useGetUserQuery;
+      mockApiBaseUrl.mockReturnValue(pathname.startsWith('/app') ? '/app' : '');
+      window.history.replaceState({}, '', `${pathname}?manual=1`);
+      useUserQuery.mockReturnValueOnce({ isError: true, error: new Error('User query failed') });
+
+      try {
+        renderProviderLive();
+
+        expect(capturedAuthContext?.isAuthReady).toBe(true);
+        expect(mockNavigate).not.toHaveBeenCalled();
+      } finally {
+        mockApiBaseUrl.mockReturnValue('');
+      }
+    },
+  );
+
   it('navigates to stored sessionStorage redirect after successful token refresh', () => {
     jest.useFakeTimers();
     sessionStorage.setItem(SESSION_KEY, '/c/new?endpoint=bedrock&model=claude-sonnet-4-6');
