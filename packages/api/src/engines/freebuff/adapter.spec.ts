@@ -53,17 +53,23 @@ describe('Freebuff engine adapter', () => {
   });
 
   it('never reports an allowlisted non-loopback endpoint as ready', () => {
-    expect(
-      describeFreebuff({
-        ...base,
-        baseURL: 'http://host.docker.internal:11434/v1',
-        allowedHosts: ['host.docker.internal'],
-      }),
-    ).toEqual(
+    const result = describeFreebuff({
+      ...base,
+      baseURL: 'http://host.docker.internal:11434/v1',
+      allowedHosts: ['host.docker.internal'],
+    });
+    expect(result).toEqual(
       expect.objectContaining({
         available: false,
         reason: 'not_configured',
-        detail: expect.stringContaining('allowedHosts'),
+        detail: expect.stringContaining(
+          'rejected even when listed in engines.freebuff.allowedHosts',
+        ),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        detail: expect.not.stringContaining('host.docker.internal'),
       }),
     );
     expect(

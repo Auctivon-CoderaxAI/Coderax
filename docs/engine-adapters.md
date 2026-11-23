@@ -130,7 +130,9 @@ outright, so an operator cannot use a TLS endpoint either. Reach a model server
 in another container through a loopback forwarder: the shipped compose stack
 runs `docker/ollama-loopback.cjs` inside the API container, forwarding
 `127.0.0.1:11434` to the `ollama` service, and `coderax.docker.yaml` points
-`engines.freebuff.baseURL` at that loopback URL.
+`engines.freebuff.baseURL` at that loopback URL. The API starts after the
+listener binds and shares its process so a fatal listener failure restarts
+the container under the Compose restart policy.
 Freebuff does not call hosted Freebuff inference, load repository or home
 agents, or enable shell execution. File operations are wrapped to stay inside
 the selected workspace.

@@ -37,9 +37,8 @@ services:
       - sh
       - -c
       - |
-        mkdir -p /app/data/freebuff-workspace
-        node /app/docker/ollama-loopback.cjs &
-        exec node api/server/index.js
+        mkdir -p /app/data/freebuff-workspace &&
+        exec node /app/docker/ollama-loopback.cjs --with-api
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:

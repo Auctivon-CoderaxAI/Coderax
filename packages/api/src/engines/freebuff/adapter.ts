@@ -139,8 +139,8 @@ function nonLoopbackEndpointDetail(
     if (host && !LOOPBACK_HOSTS.has(host)) {
       const allowlisted = allowedHosts.some((entry) => normalizedHost(entry) === host);
       return allowlisted
-        ? `The pinned Freebuff SDK accepts plain HTTP only on loopback; the non-loopback host "${host}" is rejected even when listed in engines.freebuff.allowedHosts. Use a loopback forwarder.`
-        : `The pinned Freebuff SDK accepts plain HTTP only on loopback; "${host}" is not a loopback host. Use a loopback forwarder.`;
+        ? `The pinned Freebuff SDK accepts plain HTTP only on loopback; non-loopback endpoints are rejected even when listed in engines.freebuff.allowedHosts. Use a loopback forwarder.`
+        : `The pinned Freebuff SDK accepts plain HTTP only on loopback; the configured host is not on loopback. Use a loopback forwarder.`;
     }
   } catch {
     // Fall through to the generic configuration message.
@@ -189,8 +189,7 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
     return {
       available: false,
       reason: 'not_configured',
-      detail:
-        'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
+      detail: 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
     };
   }
   if (!options.sdk) {
