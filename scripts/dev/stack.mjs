@@ -39,7 +39,7 @@ const previewHost = (
 ).trim();
 
 // Express loads this file with dotenv, giving the inherited environment precedence.
-function apiBinding() {
+function apiEnvironment() {
   const envPath = path.join(repoRoot, '.env');
   const { parse } = createRequire(path.join(repoRoot, 'api/package.json'))('dotenv');
   let fileEnv = {};
@@ -50,7 +50,14 @@ function apiBinding() {
       throw error;
     }
   }
-  const env = { ...fileEnv, ...process.env };
+  return { ...fileEnv, ...process.env };
+}
+
+let environment;
+const getApiEnvironment = () => (environment ??= apiEnvironment());
+
+function apiBinding() {
+  const env = getApiEnvironment();
   const host = env.HOST || '127.0.0.1';
   const port = Number(env.PORT ?? 3080);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -68,6 +75,16 @@ function apiBinding() {
 
 let binding;
 const getApiBinding = () => (binding ??= apiBinding());
+
+function managedMongoUri() {
+  const port = mongoPort();
+  const uri = getApiEnvironment().MONGO_URI ?? `mongodb://127.0.0.1:${port}/Coderax`;
+  const target = /^mongodb:\/\/127\.0\.0\.1(?::(\d+))?(?=\/|$)/.exec(uri);
+  if (!target || Number(target[1] ?? 27017) !== port) {
+    fail(`dev:up requires MONGO_URI to target only the managed MongoDB at 127.0.0.1:${port}`);
+  }
+  return uri;
+}
 
 const services = [
   {
@@ -96,6 +113,7 @@ const services = [
         CODERAX_LOCAL_DEV: '1',
         HOST: host,
         PORT: String(port),
+        MONGO_URI: managedMongoUri(),
       };
     },
     command: () => ({
@@ -319,13 +337,15 @@ async function startService(service) {
   return record;
 }
 
-async function waitReady(service, { pid, token }) {
+async function waitReady(service, { pid, token }, signal) {
   const deadline = Date.now() + service.timeoutMs;
   while (Date.now() < deadline) {
+    signal.throwIfAborted();
     if (!hasToken(pid, token)) {
       return false;
     }
     if (service.probe ? await service.probe() : await portOpen(service.port, service.probeHost)) {
+      signal.throwIfAborted();
       return hasToken(pid, token);
     }
     await sleep(500);
@@ -333,7 +353,9 @@ async function waitReady(service, { pid, token }) {
   return false;
 }
 
-async function up() {
+async function up(signal) {
+  managedMongoUri();
+  getApiBinding();
   fs.mkdirSync(pidDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
   if (!previewHost) {
@@ -343,6 +365,7 @@ async function up() {
   }
 
   for (const service of services) {
+    signal.throwIfAborted();
     const recorded = readRecord(service.name);
     const state = recorded && groupState(recorded);
     if (state === 'unverified') {
@@ -355,7 +378,7 @@ async function up() {
         fail(`${service.name}: process group ${recorded.pid} has no leader; run npm run dev:down`);
       }
       log(`${service.name} already running (pid ${recorded.pid})`);
-      if (!(await waitReady(service, recorded))) {
+      if (!(await waitReady(service, recorded, signal))) {
         fail(
           `${service.name} (pid ${recorded.pid}) is running but never became ready; see .dev/logs/${service.name}.log`,
         );
@@ -375,9 +398,10 @@ async function up() {
       );
     }
 
+    signal.throwIfAborted();
     const record = await startService(service);
     log(`starting ${service.name} (pid ${record.pid})`);
-    if (!(await waitReady(service, record))) {
+    if (!(await waitReady(service, record, signal))) {
       console.error(
         `\n--- .dev/logs/${service.name}.log ---\n${tail(path.join(logDir, `${service.name}.log`))}\n`,
       );
@@ -412,19 +436,19 @@ async function waitExit(record, timeoutMs) {
 async function down() {
   let stopped = true;
   for (const service of [...services].reverse()) {
-    const record = readRecord(service.name);
-    if (record == null) {
-      log(`${service.name}: not started by dev:up`);
-      continue;
-    }
-    const { pid } = record;
-    const state = groupState(record);
-    if (state === 'gone') {
-      clearPid(service.name);
-      log(`${service.name}: already stopped (stale pid file removed)`);
-      continue;
-    }
     try {
+      const record = readRecord(service.name);
+      if (record == null) {
+        log(`${service.name}: not started by dev:up`);
+        continue;
+      }
+      const { pid } = record;
+      const state = groupState(record);
+      if (state === 'gone') {
+        clearPid(service.name);
+        log(`${service.name}: already stopped (stale pid file removed)`);
+        continue;
+      }
       if (state !== 'owned') {
         throw new Error('ownership could not be verified');
       }
@@ -440,15 +464,12 @@ async function down() {
       if (groupState(record) === 'unverified') {
         throw new Error('ownership could no longer be verified');
       }
+      clearPid(service.name);
+      log(`${service.name}: stopped`);
     } catch (error) {
-      console.error(
-        `[dev] ${service.name}: could not stop process group ${pid}: ${error.message}; PID record kept`,
-      );
+      console.error(`[dev] ${service.name}: could not stop: ${error.message}; PID record kept`);
       stopped = false;
-      continue;
     }
-    clearPid(service.name);
-    log(`${service.name}: stopped`);
   }
   if (stopped) {
     log('stack is down');
@@ -520,10 +541,25 @@ try {
       }
       throw error;
     }
+    const interruption = new AbortController();
+    let interruptExitCode;
+    const interrupt = (signal) => {
+      interruptExitCode ??= signal === 'SIGINT' ? 130 : 143;
+      interruption.abort(
+        new Error(`received ${signal}; run npm run dev:down to stop recorded services`),
+      );
+    };
+    process.on('SIGINT', interrupt);
+    process.on('SIGTERM', interrupt);
     try {
-      await (action === 'up' ? up() : down());
+      await (action === 'up' ? up(interruption.signal) : down());
     } finally {
       fs.rmdirSync(lockDir);
+      process.off('SIGINT', interrupt);
+      process.off('SIGTERM', interrupt);
+      if (interruptExitCode != null) {
+        process.exitCode = interruptExitCode;
+      }
     }
   } else if (action === 'status') {
     await status();
@@ -532,5 +568,5 @@ try {
   }
 } catch (error) {
   console.error(`[dev] ${error.message}`);
-  process.exitCode = 1;
+  process.exitCode ||= 1;
 }

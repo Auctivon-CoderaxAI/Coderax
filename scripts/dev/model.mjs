@@ -65,41 +65,58 @@ async function installBinary() {
     );
   }
   console.log(`[model] downloading llama.cpp ${release}`);
-  const archive = path.join(modelDir, 'llama.tar.gz');
-  await download(binaryUrl, archive);
-  fs.mkdirSync(path.dirname(binPath), { recursive: true });
-  // The archive has one top-level directory; keep only the server and its libraries.
-  execFileSync(
-    'tar',
-    [
-      '-xzf',
-      archive,
-      '-C',
-      path.dirname(binPath),
-      '--strip-components=1',
-      '--wildcards',
-      '*/llama-server',
-      '*/lib*.so*',
-    ],
-    { stdio: 'inherit' },
-  );
-  fs.rmSync(archive, { force: true });
-  if (!fs.existsSync(binPath)) {
-    throw new Error('llama-server missing from the downloaded archive');
+  const staging = fs.mkdtempSync(path.join(modelDir, '.llama-'));
+  const archive = path.join(staging, 'llama.tar.gz');
+  const stagedBinDir = path.join(staging, 'bin');
+  try {
+    await download(binaryUrl, archive);
+    fs.mkdirSync(stagedBinDir);
+    // The archive has one top-level directory; keep the server and its libraries together.
+    execFileSync(
+      'tar',
+      [
+        '-xzf',
+        archive,
+        '-C',
+        stagedBinDir,
+        '--strip-components=1',
+        '--wildcards',
+        '*/llama-server',
+        '*/lib*.so*',
+      ],
+      { stdio: 'inherit' },
+    );
+    const stagedServer = path.join(stagedBinDir, path.basename(binPath));
+    execFileSync(stagedServer, ['--version'], { timeout: 10_000 });
+
+    try {
+      fs.renameSync(stagedBinDir, path.dirname(binPath));
+    } catch (error) {
+      if (!['EEXIST', 'ENOTEMPTY'].includes(error.code) || !fs.existsSync(binPath)) {
+        throw error;
+      }
+      // A concurrent installer may have published its complete directory first.
+    }
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
   }
   console.log(`[model] installed ${binPath}`);
 }
 
 async function installModel() {
   console.log('[model] downloading Qwen2.5-1.5B-Instruct Q4_K_M');
-  const partial = `${ggufPath}.part`;
-  await download(ggufUrl, partial);
-  const digest = await sha256(partial);
-  if (digest !== ggufSha256) {
-    fs.rmSync(partial, { force: true });
-    throw new Error(`GGUF checksum mismatch (got ${digest}); re-run to download it again`);
+  const staging = fs.mkdtempSync(path.join(modelDir, '.gguf-'));
+  const partial = path.join(staging, 'weights.part');
+  try {
+    await download(ggufUrl, partial);
+    const digest = await sha256(partial);
+    if (digest !== ggufSha256) {
+      throw new Error(`GGUF checksum mismatch (got ${digest}); re-run to download it again`);
+    }
+    fs.renameSync(partial, ggufPath);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
   }
-  fs.renameSync(partial, ggufPath);
   console.log(`[model] installed ${ggufPath}`);
 }
 

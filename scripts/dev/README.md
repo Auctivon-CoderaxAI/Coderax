@@ -14,13 +14,20 @@ npm ci
 npm run build:packages
 ```
 
-Configure the [API environment](#api), then start the stack:
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:5a4b42942830c23951e16cb10a76dabe90c502a1104493133fe3d109c538198a -->
+
+Configure the [API environment](#api), then start the stack. Replace
+`preview.example.com` with your preview hostname:
 
 ```bash
-CODERAX_PREVIEW_HOST=<preview hostname> npm run dev:up
+CODERAX_PREVIEW_HOST=preview.example.com npm run dev:up
 npm run dev:down
 npm run dev:status
 ```
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated:v1 -->
 
@@ -35,12 +42,19 @@ leader has exited. If a group cannot be verified or stopped, its record is kept
 and `dev:down` exits nonzero. Running `dev:up` again reuses services that are
 already healthy.
 
-Only one `dev:up` or `dev:down` can run at a time. If an interrupted command
-leaves `.dev/stack.lock`, confirm that neither command is running before using
-`rmdir .dev/stack.lock`. To upgrade a running stack, stop it with your old
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:263869b15449cad8b3e54f523de5f07d704234c62190c043689311dd1721fa34 -->
+
+Only one `dev:up` or `dev:down` can run at a time. After Ctrl+C interrupts
+startup, run `npm run dev:down` to stop any services already started. If an
+abrupt termination leaves `.dev/stack.lock`, confirm that neither command is
+running before using `rmdir .dev/stack.lock`. To upgrade a running stack, stop it with your old
 checkout first. The new supervisor cannot verify a running group from an old
 PID or start time record alone. If you already upgraded, identify and stop any
 old stack processes manually before removing their records.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 
@@ -59,12 +73,21 @@ The model is skipped with a warning when its binary or weights are missing.
 npm run dev:mongo   # 127.0.0.1:27017, database Coderax; Ctrl+C stops it
 ```
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:96130fd59afb230eec0383cb772bf81cac5b525e78a1871caa403b1116f363e2 -->
+
 - Data lives in `.dev/mongo/data` (gitignored) and survives restarts.
 - The first run downloads a `mongod` binary through `mongodb-memory-server`, so
   `npm ci` must have run first.
-- `CODERAX_MONGO_PORT` overrides the port. The script refuses to start when the
-  port is already taken, instead of printing a mongod stack trace. If you change
-  the port, update `MONGO_URI` in the API environment to match.
+- `CODERAX_MONGO_PORT` overrides the managed port. MongoDB refuses to start if
+  that port is already in use. In `dev:up`, omit `MONGO_URI` to use the managed
+  port and the `Coderax` database. If you set `MONGO_URI`, it must name only
+  `127.0.0.1` on the managed port. Stop the stack before changing its MongoDB
+  settings. For standalone `dev:api`, set `MONGO_URI` to the database you want
+  to use.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 
