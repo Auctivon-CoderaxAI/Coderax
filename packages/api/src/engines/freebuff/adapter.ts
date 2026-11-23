@@ -2,6 +2,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS,
+  DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS,
+} from 'coderax-data-provider';
 import type {
   EngineAdapter,
   EngineAvailability,
@@ -147,8 +151,15 @@ export type FreebuffAdapterOptions = {
   mode?: 'private' | 'cloud';
   limits: EngineLimits;
   maxAgentSteps?: number;
+  /** Minimum Ollama num_ctx accepted by readiness and run start. */
+  minContextTokens?: number;
+  /** Bound on the endpoint probe; no request may hold readiness longer. */
+  probeTimeoutMs?: number;
+  /** Injectable for focused tests; production uses the global fetch. */
+  fetchImpl?: ProbeFetch;
 };
 
+/** Configuration/SDK readiness; runtime endpoint state is added by probeFreebuff. */
 export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailability {
   if (!options.enabled) {
     return {
@@ -184,6 +195,166 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
     };
   }
   return { available: true, reason: 'ready' };
+}
+
+type ProbeResponse = {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+};
+
+type ProbeFetch = (
+  input: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
+) => Promise<ProbeResponse>;
+
+function unavailable(
+  reason: Extract<EngineAvailability, { available: false }>['reason'],
+  detail: string,
+): EngineAvailability {
+  return { available: false, reason, detail };
+}
+
+function hasOllamaModel(names: readonly string[], modelId: string): boolean {
+  if (names.includes(modelId)) {
+    return true;
+  }
+  return !modelId.includes(':') && names.includes(`${modelId}:latest`);
+}
+
+/** The active Ollama context is the explicit num_ctx parameter, not the model's native maximum. */
+function declaredContextTokens(value: unknown): number | null {
+  if (!isRecord(value) || typeof value.parameters !== 'string') {
+    return null;
+  }
+  const match = /(?:^|\n)\s*num_ctx\s+(\d+)\b/i.exec(value.parameters);
+  if (!match) {
+    return null;
+  }
+  const tokens = Number(match[1]);
+  return Number.isSafeInteger(tokens) && tokens > 0 ? tokens : null;
+}
+
+async function probeOllama(
+  fetcher: ProbeFetch,
+  baseURL: string,
+  modelId: string,
+  minContextTokens: number,
+  signal: AbortSignal,
+): Promise<EngineAvailability> {
+  const origin = new URL(baseURL).origin;
+  const tags = await fetcher(`${origin}/api/tags`, { signal });
+  if (!tags.ok) {
+    return unavailable(
+      'server_unavailable',
+      'The local model endpoint did not return its model list.',
+    );
+  }
+  const tagsBody = await tags.json();
+  const entries = isRecord(tagsBody) && Array.isArray(tagsBody.models) ? tagsBody.models : [];
+  const names = entries.flatMap((entry): string[] => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+    return [entry.name, entry.model].filter(
+      (name): name is string => typeof name === 'string' && name.length > 0,
+    );
+  });
+  if (!hasOllamaModel(names, modelId)) {
+    return unavailable(
+      'model_missing',
+      'The configured local model is not installed on the endpoint.',
+    );
+  }
+
+  const shown = await fetcher(`${origin}/api/show`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: modelId }),
+    signal,
+  });
+  if (!shown.ok) {
+    return shown.status === 404
+      ? unavailable('model_missing', 'The configured local model is not installed on the endpoint.')
+      : unavailable('server_unavailable', 'The local model endpoint did not return model details.');
+  }
+  const tokens = declaredContextTokens(await shown.json());
+  if (tokens == null) {
+    return unavailable(
+      'context_unavailable',
+      `The configured local model does not declare a num_ctx context of at least ${minContextTokens} tokens.`,
+    );
+  }
+  if (tokens < minContextTokens) {
+    return unavailable(
+      'context_too_small',
+      `The configured local model declares a ${tokens}-token context; at least ${minContextTokens} tokens are required.`,
+    );
+  }
+  return { available: true, reason: 'ready' };
+}
+
+async function probeLmStudio(
+  fetcher: ProbeFetch,
+  baseURL: string,
+  modelId: string,
+  signal: AbortSignal,
+): Promise<EngineAvailability> {
+  const response = await fetcher(`${baseURL}/models`, { signal });
+  if (!response.ok) {
+    return unavailable(
+      'server_unavailable',
+      'The local model endpoint did not return its model list.',
+    );
+  }
+  const body = await response.json();
+  const data = isRecord(body) && Array.isArray(body.data) ? body.data : [];
+  const ids = data.flatMap((entry): string[] =>
+    isRecord(entry) && typeof entry.id === 'string' ? [entry.id] : [],
+  );
+  return ids.includes(modelId)
+    ? { available: true, reason: 'ready' }
+    : unavailable('model_missing', 'The configured local model is not installed on the endpoint.');
+}
+
+/**
+ * Probe the configured local runtime within a fixed deadline. Ollama reports
+ * both the installed model and its active num_ctx; LM Studio exposes model
+ * presence only, so its context requirement is not asserted here.
+ */
+export async function probeFreebuff(options: FreebuffAdapterOptions): Promise<EngineAvailability> {
+  const configured = describeFreebuff(options);
+  if (!configured.available) {
+    return configured;
+  }
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
+  const model = options.model;
+  if (!baseURL || !model) {
+    return configured;
+  }
+  const timeoutMs = options.probeTimeoutMs ?? DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS;
+  const minContextTokens = options.minContextTokens ?? DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS;
+  const fetcher: ProbeFetch = options.fetchImpl ?? fetch;
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    if (model.providerId === 'ollama') {
+      return await probeOllama(fetcher, baseURL, model.modelId, minContextTokens, signal);
+    }
+    if (model.providerId === 'lmstudio') {
+      return await probeLmStudio(fetcher, baseURL, model.modelId, signal);
+    }
+    return configured;
+  } catch {
+    return unavailable(
+      'server_unavailable',
+      `The local model endpoint could not be reached within ${timeoutMs} ms.`,
+    );
+  }
 }
 
 function isInside(root: string, target: string): boolean {
@@ -393,7 +564,16 @@ function failureReason(
   if (availability.available) {
     return 'server_unavailable';
   }
-  return availability.reason;
+  switch (availability.reason) {
+    case 'disabled':
+      return 'disabled';
+    case 'sdk_unavailable':
+      return 'sdk_unavailable';
+    case 'not_configured':
+      return 'not_configured';
+    default:
+      return 'server_unavailable';
+  }
 }
 
 async function waitForRunCleanup(run: Promise<void>): Promise<void> {
@@ -411,15 +591,15 @@ export async function startFreebuffRun(
   options: FreebuffAdapterOptions,
   request: EngineRunRequest,
 ): Promise<EngineResult<EngineRunHandle>> {
-  const availability = describeFreebuff(options);
+  if (!request.prompt.trim()) {
+    return engineFailure('protocol_error', 'A task prompt is required.');
+  }
+  const availability = await probeFreebuff(options);
   if (!availability.available) {
     return engineFailure(failureReason(availability), availability.detail);
   }
   if (!options.sdk || !options.model) {
     return engineFailure('sdk_unavailable', 'The Freebuff SDK is unavailable.');
-  }
-  if (!request.prompt.trim()) {
-    return engineFailure('protocol_error', 'A task prompt is required.');
   }
 
   const resolved = await resolveEngineWorkspace({
@@ -623,10 +803,14 @@ export const freebuffCapabilities = {
 } as const;
 
 export function createFreebuffAdapter(options: FreebuffAdapterOptions): EngineAdapter {
+  let runtimeAvailability: EngineAvailability | null = null;
   return {
     id: 'freebuff',
     capabilities: freebuffCapabilities,
-    describe: () => describeFreebuff(options),
+    describe: () => runtimeAvailability ?? describeFreebuff(options),
+    probe: async () => {
+      runtimeAvailability = await probeFreebuff(options);
+    },
     start: (request) => startFreebuffRun(options, request),
   };
 }

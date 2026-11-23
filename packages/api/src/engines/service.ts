@@ -58,6 +58,8 @@ export type ExecutionEnginesConfig =
           /** Explicitly trusted non-loopback endpoint hostnames. */
           allowedHosts?: string[];
           model?: string;
+          minContextTokens?: number;
+          probeTimeoutMs?: number;
           timeoutMs?: number;
           maxAgentSteps?: number;
         } | null;
@@ -151,6 +153,10 @@ export function createExecutionEngines(
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
             ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
             model: parseEngineModel(freebuff.model),
+            ...(freebuff.minContextTokens != null
+              ? { minContextTokens: freebuff.minContextTokens }
+              : {}),
+            ...(freebuff.probeTimeoutMs != null ? { probeTimeoutMs: freebuff.probeTimeoutMs } : {}),
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
             roots,

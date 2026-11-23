@@ -133,7 +133,14 @@ export type EngineAvailability =
   | { available: true; reason: 'ready' }
   | {
       available: false;
-      reason: 'disabled' | 'sdk_unavailable' | 'not_configured' | 'server_unavailable';
+      reason:
+        | 'disabled'
+        | 'sdk_unavailable'
+        | 'not_configured'
+        | 'server_unavailable'
+        | 'model_missing'
+        | 'context_too_small'
+        | 'context_unavailable';
       /** User-safe explanation; never contains a key, token or absolute path. */
       detail: string;
     };
@@ -142,6 +149,8 @@ export type EngineAdapter = {
   id: EngineId;
   capabilities: EngineCapabilities;
   describe: () => EngineAvailability;
+  /** Refreshes runtime readiness; safe adapters return before a bounded timeout. */
+  probe?: () => Promise<void>;
   /** Starts one run. A failure here means no session and no side effect. */
   start: (request: EngineRunRequest) => Promise<EngineResult<EngineRunHandle>>;
 };

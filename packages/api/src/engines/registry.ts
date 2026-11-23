@@ -7,8 +7,8 @@ import type {
   EngineRunHandle,
   EngineRunRequest,
 } from './types';
-import { engineFailure } from './types';
 import { EngineRunArbiter } from './arbiter';
+import { engineFailure } from './types';
 
 /**
  * The single entry point for starting a coding-agent run.
@@ -75,6 +75,8 @@ export type EngineRegistryApi = {
   start: (input: EngineRunInput) => Promise<EngineResult<EngineRunHandle>>;
   select: (engine?: EngineId | null) => EngineResult<{ id: EngineId; adapter: EngineAdapter }>;
   snapshot: () => EngineStatusSnapshot;
+  /** Refreshes adapters that have a bounded runtime readiness probe. */
+  probe: () => Promise<void>;
   arbiter: EngineRunArbiter;
 };
 
@@ -177,7 +179,11 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     };
   }
 
-  return { start, select, snapshot, arbiter };
+  async function probe(): Promise<void> {
+    await Promise.all(Object.values(options.adapters).map((adapter) => adapter?.probe?.()));
+  }
+
+  return { start, select, snapshot, probe, arbiter };
 }
 
 export type EngineRegistry = EngineRegistryApi;

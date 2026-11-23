@@ -3890,6 +3890,8 @@ export const workConfigSchema = z
 
 export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
+export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
+export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Coding-agent execution engines. Both are disabled by default, which keeps the
@@ -3963,6 +3965,20 @@ export const enginesConfigSchema = z
         allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
         /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
         model: z.string().trim().optional(),
+        /** Minimum declared Ollama num_ctx accepted for a Work run. */
+        minContextTokens: z
+          .number()
+          .int()
+          .min(1_024)
+          .max(2_000_000)
+          .default(DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS),
+        /** Bound on the runtime model-presence/context probe. */
+        probeTimeoutMs: z
+          .number()
+          .int()
+          .min(100)
+          .max(30_000)
+          .default(DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
         maxAgentSteps: z.number().int().min(1).max(100).default(24),
       })

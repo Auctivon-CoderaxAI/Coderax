@@ -158,6 +158,39 @@ describe('native Work router', () => {
     });
   });
 
+  it('surfaces a stable Freebuff readiness reason', async () => {
+    const res = await request(
+      app({
+        engines: async () => ({
+          defaultEngine: 'freebuff',
+          engines: [
+            {
+              id: 'freebuff',
+              capabilities: {
+                streaming: true,
+                tools: true,
+                cancellation: true,
+                modelSelection: false,
+              },
+              availability: {
+                available: false,
+                reason: 'context_too_small',
+                detail: 'The configured local model declares an 8192-token context.',
+              },
+            },
+          ],
+        }),
+      }),
+    ).get('/api/work/engines');
+
+    expect(res.status).toBe(200);
+    expect(res.body.engines[0].availability).toEqual({
+      available: false,
+      reason: 'context_too_small',
+      detail: 'The configured local model declares an 8192-token context.',
+    });
+  });
+
   it('does not offer an unverified paid configured default', async () => {
     const res = await request(app({ configuredDefaultModel: async () => 'openai:gpt-4o' })).get(
       '/api/work/models',

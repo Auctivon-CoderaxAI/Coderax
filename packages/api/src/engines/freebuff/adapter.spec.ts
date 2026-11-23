@@ -3,7 +3,7 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { LoadedFreebuffSdk } from './adapter';
 import type { EngineLimits } from '../types';
-import { describeFreebuff, freebuffCapabilities, startFreebuffRun } from './adapter';
+import { describeFreebuff, freebuffCapabilities, probeFreebuff, startFreebuffRun } from './adapter';
 
 const limits: EngineLimits = { timeoutMs: 1_000, maxSummaryChars: 100 };
 const roots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
@@ -20,6 +20,22 @@ const sdk: LoadedFreebuffSdk = {
   },
 };
 
+const response = (body: unknown, status = 200) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => body,
+});
+
+const probeFetch = jest.fn(async (input: string) => {
+  if (input.endsWith('/api/tags')) {
+    return response({ models: [{ name: 'qwen2.5-coder:7b' }] });
+  }
+  if (input.endsWith('/api/show')) {
+    return response({ parameters: 'num_ctx 16384' });
+  }
+  return response({}, 404);
+});
+
 const base = {
   enabled: true,
   baseURL: 'http://127.0.0.1:11434/v1',
@@ -28,6 +44,7 @@ const base = {
   roots,
   mode: 'private' as const,
   limits,
+  fetchImpl: probeFetch,
 };
 
 describe('Freebuff engine adapter', () => {
@@ -119,6 +136,60 @@ describe('Freebuff engine adapter', () => {
     expect(freebuffCapabilities).toEqual(
       expect.objectContaining({ streaming: true, tools: true, cancellation: true }),
     );
+  });
+
+  it('probes the Ollama model and its declared 16k context', async () => {
+    await expect(probeFreebuff(base)).resolves.toEqual({ available: true, reason: 'ready' });
+  });
+
+  it('reports a model that is not installed', async () => {
+    const fetchImpl = jest.fn(async (input: string) => {
+      expect(input).toContain('/api/tags');
+      return response({ models: [{ name: 'other:latest' }] });
+    });
+
+    await expect(probeFreebuff({ ...base, fetchImpl })).resolves.toMatchObject({
+      available: false,
+      reason: 'model_missing',
+    });
+  });
+
+  it('reports a model whose declared context is below 16k', async () => {
+    const fetchImpl = jest.fn(async (input: string) => {
+      if (input.endsWith('/api/tags')) {
+        return response({ models: [{ name: 'qwen2.5-coder:7b' }] });
+      }
+      return response({ parameters: 'num_ctx 8192' });
+    });
+
+    await expect(probeFreebuff({ ...base, fetchImpl })).resolves.toMatchObject({
+      available: false,
+      reason: 'context_too_small',
+    });
+  });
+
+  it('fails closed when Ollama does not declare num_ctx', async () => {
+    const fetchImpl = jest.fn(async (input: string) => {
+      if (input.endsWith('/api/tags')) {
+        return response({ models: [{ name: 'qwen2.5-coder:7b' }] });
+      }
+      return response({ parameters: 'stop <|im_end|>' });
+    });
+
+    await expect(probeFreebuff({ ...base, fetchImpl })).resolves.toMatchObject({
+      available: false,
+      reason: 'context_unavailable',
+    });
+  });
+
+  it('reports an unreachable model endpoint as server_unavailable', async () => {
+    const fetchImpl = jest.fn(async () => {
+      throw new Error('ECONNREFUSED with a secret-looking detail');
+    });
+
+    const probed = await probeFreebuff({ ...base, fetchImpl });
+    expect(probed).toMatchObject({ available: false, reason: 'server_unavailable' });
+    expect(JSON.stringify(probed)).not.toContain('ECONNREFUSED');
   });
 
   it('fails closed before starting a run without the SDK', async () => {

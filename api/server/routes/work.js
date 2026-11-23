@@ -152,7 +152,11 @@ module.exports = createWorkApiRouter({
           getFreeRouterForConfig(req.config?.config, {
             credentialEnvNames: Object.keys(process.env),
           }).snapshot(),
-        engines: () => engineRuntimeFor(req).snapshot(),
+        engines: async () => {
+          const runtime = engineRuntimeFor(req);
+          await runtime.probe();
+          return runtime.snapshot();
+        },
       };
       createWorkRouter(deps)(req, res, next);
     });
