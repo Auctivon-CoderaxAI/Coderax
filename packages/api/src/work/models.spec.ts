@@ -154,6 +154,23 @@ describe('native work model discovery', () => {
     }
   });
 
+  it('uses capability for the advertised and submitted Auto target without a default', () => {
+    const options = buildWorkModelOptions([
+      { id: 'alpha:free', provider: 'FreeOpenRouter', free: true, capability: 0.4 },
+      { id: 'zeta:free', provider: 'FreeOpenRouter', free: true, capability: 0.9 },
+    ]);
+
+    expect(options[0]).toMatchObject({ id: 'auto', target: { id: 'zeta:free' } });
+    expect(buildWorkRoutingOptions(options)[0]).toMatchObject({
+      routingMode: 'auto',
+      target: { id: 'zeta:free' },
+    });
+    expect(resolveWorkSelection(options, WORK_AUTO_MODEL_ID)).toMatchObject({
+      ok: true,
+      model: { id: 'zeta:free' },
+    });
+  });
+
   it('prefers the configured default when it is offered', () => {
     const models = buildWorkModelOptions([
       { id: 'alpha:7b', provider: 'ollama', local: true },

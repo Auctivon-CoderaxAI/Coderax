@@ -285,14 +285,7 @@ export function resolveWorkAutoModel(
   if (configured) {
     return configured;
   }
-  const [best] = rankFreeOrLocalModels(
-    concrete.map((model) => ({
-      id: model.id,
-      label: model.label,
-      provider: model.provider,
-      free: true,
-    })),
-  );
+  const [best] = rankFreeOrLocalModels(concrete.map(toRoutingSource));
   if (!best) {
     return null;
   }
