@@ -3,7 +3,13 @@ import path from 'node:path';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { LoadedFreebuffSdk } from './adapter';
 import type { EngineLimits } from '../types';
-import { describeFreebuff, freebuffCapabilities, probeFreebuff, startFreebuffRun } from './adapter';
+import {
+  describeFreebuff,
+  freebuffCapabilities,
+  probeFreebuff,
+  probeFreebuffTools,
+  startFreebuffRun,
+} from './adapter';
 
 const limits: EngineLimits = { timeoutMs: 1_000, maxSummaryChars: 100 };
 const roots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
@@ -315,6 +321,204 @@ describe('Freebuff engine adapter', () => {
     expect(started.ok).toBe(false);
     if (!started.ok) {
       expect(started.error.code).toBe('protocol_error');
+    }
+  });
+});
+
+describe('Freebuff cloud execution', () => {
+  const cloudModelId = 'nvidia/nemotron-3.5-lightning:free';
+  const cloudKey = 'cloud-key-value-never-logged';
+  const cloudBase = {
+    enabled: true,
+    cloud: {
+      baseURL: 'https://openrouter.ai/api/v1',
+      model: { providerId: 'openrouter', modelId: cloudModelId },
+      apiKeyEnv: 'OPENROUTER_API_KEY',
+    },
+    env: { OPENROUTER_API_KEY: cloudKey },
+    sdk,
+    roots,
+    mode: 'cloud' as const,
+    limits,
+  };
+  const cloudFetch = (body: unknown = { data: [{ id: cloudModelId }] }) =>
+    jest.fn(async (input: string) => {
+      if (input.endsWith('/models')) {
+        return response(body);
+      }
+      return response({}, 404);
+    });
+
+  it('is ready only for a catalogued $0 model with tool calling', () => {
+    expect(describeFreebuff(cloudBase)).toEqual({ available: true, reason: 'ready' });
+    expect(
+      describeFreebuff({
+        ...cloudBase,
+        cloud: {
+          ...cloudBase.cloud,
+          model: { providerId: 'openrouter', modelId: 'deepseek/deepseek-r1' },
+        },
+      }),
+    ).toMatchObject({ available: false, reason: 'not_configured' });
+    expect(
+      describeFreebuff({
+        ...cloudBase,
+        cloud: { ...cloudBase.cloud, baseURL: 'http://openrouter.ai/api/v1' },
+      }),
+    ).toMatchObject({ available: false, reason: 'not_configured' });
+  });
+
+  it('reports a missing credential without exposing a value', () => {
+    const availability = describeFreebuff({ ...cloudBase, env: {} });
+    expect(availability).toMatchObject({ available: false, reason: 'not_configured' });
+    expect(JSON.stringify(availability)).toContain('OPENROUTER_API_KEY');
+    expect(JSON.stringify(availability)).not.toContain(cloudKey);
+  });
+
+  it('probes the authenticated free model list', async () => {
+    await expect(probeFreebuff({ ...cloudBase, fetchImpl: cloudFetch() })).resolves.toEqual({
+      available: true,
+      reason: 'ready',
+    });
+    await expect(
+      probeFreebuff({ ...cloudBase, fetchImpl: cloudFetch({ data: [{ id: 'other:free' }] }) }),
+    ).resolves.toMatchObject({ available: false, reason: 'model_missing' });
+  });
+
+  it('proves native tool calling with a real tool-call probe', async () => {
+    const fetchImpl = jest.fn(async (input: string, init?: { body?: string }) => {
+      expect(input).toBe('https://openrouter.ai/api/v1/chat/completions');
+      expect(init?.body).toContain('coderax_probe');
+      return response({
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                {
+                  id: 'call-1',
+                  type: 'function',
+                  function: { name: 'coderax_probe', arguments: '{}' },
+                },
+              ],
+            },
+          },
+        ],
+      });
+    });
+    await expect(probeFreebuffTools(cloudBase, { fetchImpl })).resolves.toEqual({
+      available: true,
+      reason: 'ready',
+    });
+
+    const textOnly = jest.fn(async () =>
+      response({ choices: [{ message: { content: 'no tool call' } }] }),
+    );
+    await expect(probeFreebuffTools(cloudBase, { fetchImpl: textOnly })).resolves.toMatchObject({
+      available: false,
+      reason: 'not_configured',
+    });
+  });
+
+  it('starts a cloud run with the server credential and no key in its events', async () => {
+    const privateRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-cloud-private-'));
+    const cloudRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-cloud-run-'));
+    let byok: Record<string, unknown> | null = null;
+    class CloudClient {
+      constructor(options: { byok: Record<string, unknown> }) {
+        byok = options.byok;
+      }
+
+      run = jest.fn(async (options: { handleStreamChunk: (chunk: string) => void }) => {
+        options.handleStreamChunk('CLOUD_AGENT_OK');
+        return { output: { type: 'last_message', value: 'CLOUD_AGENT_OK' } };
+      });
+    }
+    const cloudSdk: LoadedFreebuffSdk = {
+      module: {
+        ...sdk.module,
+        CodebuffClient: CloudClient as unknown as LoadedFreebuffSdk['module']['CodebuffClient'],
+      },
+    };
+    try {
+      const started = await startFreebuffRun(
+        {
+          ...cloudBase,
+          sdk: cloudSdk,
+          roots: { private: privateRoot, cloud: cloudRoot },
+          fetchImpl: cloudFetch(),
+        },
+        {
+          taskKey: 'task',
+          conversationId: 'conversation',
+          prompt: 'Reply with CLOUD_AGENT_OK.',
+          mode: 'cloud',
+          workspaceRoot: cloudRoot,
+        },
+      );
+      expect(started.ok).toBe(true);
+      if (!started.ok) {
+        return;
+      }
+      const events = [];
+      for await (const event of started.value.events) {
+        events.push(event);
+      }
+      await started.value.result;
+      expect(JSON.stringify(events)).toContain('CLOUD_AGENT_OK');
+      expect(JSON.stringify(events)).not.toContain(cloudKey);
+      expect(byok).toMatchObject({
+        provider: 'openrouter',
+        model: cloudModelId,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: cloudKey,
+      });
+    } finally {
+      await rm(privateRoot, { recursive: true, force: true });
+      await rm(cloudRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a run whose data mode does not match the engine mode', async () => {
+    const started = await startFreebuffRun(cloudBase, {
+      taskKey: 'task',
+      conversationId: 'conversation',
+      prompt: 'Do work.',
+      mode: 'private',
+      workspaceRoot: '/srv/coderax/private',
+    });
+    expect(started.ok).toBe(false);
+    if (!started.ok) {
+      expect(started.error.code).toBe('not_configured');
+    }
+  });
+
+  it('confines a cloud run to the cloud workspace root', async () => {
+    const privateRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-confine-private-'));
+    const cloudRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-confine-cloud-'));
+    const outside = await mkdtemp(path.join(os.tmpdir(), 'coderax-confine-outside-'));
+    try {
+      const started = await startFreebuffRun(
+        {
+          ...cloudBase,
+          roots: { private: privateRoot, cloud: cloudRoot },
+          fetchImpl: cloudFetch(),
+        },
+        {
+          taskKey: 'task',
+          conversationId: 'conversation',
+          prompt: 'Do work.',
+          mode: 'cloud',
+          workspaceRoot: outside,
+        },
+      );
+      expect(started.ok).toBe(false);
+      if (!started.ok) {
+        expect(started.error.code).toBe('workspace_denied');
+      }
+    } finally {
+      await rm(privateRoot, { recursive: true, force: true });
+      await rm(cloudRoot, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 });

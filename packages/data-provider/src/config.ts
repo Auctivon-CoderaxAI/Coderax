@@ -3954,16 +3954,30 @@ export const enginesConfigSchema = z
          */
         sdkPath: z.string().trim().optional(),
         /**
-         * OpenAI-compatible endpoint. Loopback is implicit; any other host must
-         * be listed in allowedHosts. Coderax never calls a hosted Freebuff API.
+         * OpenAI-compatible endpoint. In private mode loopback is implicit and
+         * any other host must be listed in allowedHosts. In cloud mode the URL
+         * must be HTTPS and match a verified $0 catalog endpoint.
          */
         baseURL: z.string().trim().url().optional(),
+        /**
+         * Server environment variable holding the cloud endpoint credential.
+         * Never a credential value, and never sent to a browser bundle.
+         */
+        apiKeyEnv: z
+          .string()
+          .trim()
+          .regex(/^[A-Z][A-Z0-9_]*$/)
+          .default('OPENROUTER_API_KEY'),
         /**
          * Explicitly trusted non-loopback endpoint hostnames, e.g.
          * host.docker.internal or a Compose service name. Bare hostnames only.
          */
         allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
-        /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
+        /**
+         * Pinned model in provider/model form. Cloud mode accepts only catalogued
+         * $0 models that advertise native tool calling, e.g.
+         * openrouter/nvidia/nemotron-3.5-lightning:free.
+         */
         model: z.string().trim().optional(),
         /** Minimum declared Ollama num_ctx accepted for a Work run. */
         minContextTokens: z
@@ -4108,7 +4122,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
         apinex: z.string().trim().min(1).default('free/deepseek-v4.1-flash'),
         cloudflare: z.string().trim().min(1).default('@cf/openai/gpt-oss-120b'),
-        vercel: z.string().trim().min(1).default('nvidia/nemotron-3.5-lightning-free'),
         freeai: z.string().trim().min(1).default('qwen7b'),
         '100millionseek': z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
       })
@@ -4122,7 +4135,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().url().optional(),
         apinex: z.string().trim().url().optional(),
         cloudflare: z.string().trim().url().optional(),
-        vercel: z.string().trim().url().optional(),
         freeai: z.string().trim().url().optional(),
         '100millionseek': z.string().trim().url().optional(),
       })

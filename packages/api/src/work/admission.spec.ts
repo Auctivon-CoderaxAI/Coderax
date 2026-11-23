@@ -32,6 +32,34 @@ describe('Work admission', () => {
     });
   });
 
+  it('resolves a FAST sentinel through admission instead of rejecting it as a model', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources: [
+          { id: 'quick', provider: 'ollama', local: true, latencyMs: 100 },
+          { id: 'slow', provider: 'ollama', local: true, latencyMs: 900 },
+        ],
+        requestedModel: 'fast',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      context: { workModel: 'quick', workProvider: 'ollama' },
+    });
+  });
+
+  it('rejects an AGENT sentinel when no offered model proves tool calling', async () => {
+    await expect(
+      resolveWorkAdmission({
+        sources,
+        requestedModel: 'agent',
+        findAgent: async () => null,
+        canViewAgent: async () => true,
+      }),
+    ).resolves.toEqual({ ok: false, error: 'WORK_AUTO_UNRESOLVED' });
+  });
+
   it('falls back to a free model when the configured default is not marked free', async () => {
     await expect(
       resolveWorkAdmission({

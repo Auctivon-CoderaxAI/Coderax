@@ -119,6 +119,47 @@ describe('createWorkChatTransport', () => {
     expect(chatRequest.payload.model).toBe('paid-model');
   });
 
+  it('sends a FAST sentinel and the target provider so the server routes it', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const routed = toWorkOptions(
+      [
+        options.auto!,
+        ...options.models,
+        { id: 'quick:free', label: 'Quick', provider: 'openrouter' },
+      ],
+      [],
+      [
+        {
+          id: 'auto',
+          label: 'Automatic',
+          auto: true,
+          routingMode: 'auto',
+          target: { id: 'local-free', label: 'Local free', provider: 'ollama' },
+        },
+        {
+          id: 'fast',
+          label: 'Fast',
+          auto: true,
+          routingMode: 'fast',
+          target: { id: 'quick:free', label: 'Quick', provider: 'openrouter' },
+        },
+      ],
+    );
+    const transport = createWorkChatTransport({ start } as never, routed, {
+      agentId: 'auto',
+      modelKey: 'fast',
+    });
+
+    await transport.start(chatRequest);
+
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      endpoint: 'openrouter',
+      endpointType: 'openrouter',
+      model: 'fast',
+      agent_id: undefined,
+    });
+  });
+
   it('uses automatic local inference even when no saved agents are accessible', async () => {
     const start = jest.fn().mockResolvedValue({});
     const catalog = toWorkOptions([options.auto!, ...options.models], []);

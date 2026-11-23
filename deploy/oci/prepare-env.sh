@@ -48,9 +48,9 @@ done
 [ "${#CREDS_KEY}" -eq 64 ] || { echo 'CREDS_KEY must be a 32-byte hexadecimal AES-256 key.' >&2; exit 1; }
 [ "${#CREDS_IV}" -eq 32 ] || { echo 'CREDS_IV must be a 16-byte hexadecimal value.' >&2; exit 1; }
 
-read_secret OPENROUTER_API_KEY 'Enter an OpenRouter API key for the free hosted Work models (optional, press Enter to skip): '
+read_secret OPENROUTER_API_KEY 'Enter the required OpenRouter API key for the free hosted Work models: '
 case "$OPENROUTER_API_KEY" in
-  '' ) ;;
+  '' ) echo 'An OpenRouter API key is required: free hosted models are the only Work inference path.' >&2; exit 1 ;;
   *[!A-Za-z0-9._-]*) echo 'The OpenRouter API key must be a single token without spaces.' >&2; exit 1 ;;
 esac
 
@@ -85,9 +85,7 @@ JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 CREDS_KEY=$CREDS_KEY
 CREDS_IV=$CREDS_IV
 EOF
-if [ -n "$OPENROUTER_API_KEY" ]; then
-  printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
-fi
+printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
 cat > origin.env <<EOF
 CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET

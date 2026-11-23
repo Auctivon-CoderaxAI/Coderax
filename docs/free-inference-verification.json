@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-11-22T18:40:36.060Z",
+  "checkedAt": "2026-11-23T16:34:40.475Z",
   "primary": {
     "label": "DeepSeek-R1 671B",
     "available": false,
@@ -23,8 +23,8 @@
   "publicCatalog": {
     "ok": true,
     "status": 200,
-    "modelCount": 476,
-    "freeModelCount": 11,
+    "modelCount": 477,
+    "freeModelCount": 12,
     "fullR1Endpoints": [
       {
         "id": "deepseek/deepseek-r1-0528",
@@ -65,7 +65,7 @@
       "blocker": null,
       "errorCode": null,
       "httpStatus": 200,
-      "latencyMs": 687,
+      "latencyMs": 1473,
       "modelEcho": "nvidia/nemotron-3-ultra-550b-a55b:free"
     },
     {
@@ -78,7 +78,7 @@
       "blocker": null,
       "errorCode": null,
       "httpStatus": 200,
-      "latencyMs": 410,
+      "latencyMs": 338,
       "modelEcho": "openai/gpt-oss-120b"
     },
     {
@@ -91,17 +91,17 @@
       "blocker": null,
       "errorCode": null,
       "httpStatus": 200,
-      "latencyMs": 908,
+      "latencyMs": 3040,
       "modelEcho": "nvidia/nemotron-3.5-lightning:free"
     },
     {
       "id": "cloudflare-llama-3-3-70b-free",
       "provider": "cloudflare",
       "modelId": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      "credentialEnv": "CLOUDFLARE_API_TOKEN",
+      "credentialEnv": "CLOUDFLARE_TOKEN",
       "pricingBasis": "free-daily-allocation",
       "status": "blocked",
-      "blocker": "missing_credential",
+      "blocker": "missing_account",
       "errorCode": null
     },
     {
@@ -110,17 +110,18 @@
       "modelId": "google/gemma-4-31b-it:free",
       "credentialEnv": "OPENROUTER_API_KEY",
       "pricingBasis": "free-model",
-      "status": "failed",
+      "status": "verified",
       "blocker": null,
-      "errorCode": "rate_limited",
-      "httpStatus": 429,
-      "latencyMs": 204
+      "errorCode": null,
+      "httpStatus": 200,
+      "latencyMs": 801,
+      "modelEcho": "google/gemma-4-31b-it:free"
     }
   ],
   "summary": {
-    "verified": 3,
+    "verified": 4,
     "blocked": 1,
-    "failed": 1
+    "failed": 0
   },
   "paidRoutesEnabled": false
 }

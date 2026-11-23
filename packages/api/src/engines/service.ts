@@ -57,6 +57,8 @@ export type ExecutionEnginesConfig =
           baseURL?: string;
           /** Explicitly trusted non-loopback endpoint hostnames. */
           allowedHosts?: string[];
+          /** Server env var holding the cloud endpoint credential. */
+          apiKeyEnv?: string;
           model?: string;
           minContextTokens?: number;
           probeTimeoutMs?: number;
@@ -96,11 +98,11 @@ export function createExecutionEngines(
   const openCode = engines?.opencode ?? null;
   const openHands = engines?.openhands ?? null;
   const freebuff = engines?.freebuff ?? null;
+  const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
 
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
     const requiredRoot = workMode === 'cloud' ? roots.cloud : roots.private;
     const model = parseEngineModel(openCode.model);
     if (!openCode.baseURL || !requiredRoot) {
@@ -119,6 +121,16 @@ export function createExecutionEngines(
       }
     }
   }
+
+  const freebuffModel = parseEngineModel(freebuff?.model);
+  const freebuffCloud =
+    workMode === 'cloud' && freebuff?.baseURL && freebuffModel
+      ? {
+          baseURL: freebuff.baseURL,
+          model: freebuffModel,
+          apiKeyEnv: freebuff.apiKeyEnv ?? 'OPENROUTER_API_KEY',
+        }
+      : null;
 
   let loadedFreebuff: LoadedFreebuffSdk | null = null;
   let freebuffUnavailableDetail: string | undefined;
@@ -152,7 +164,8 @@ export function createExecutionEngines(
             enabled: true,
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
             ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
-            model: parseEngineModel(freebuff.model),
+            ...(freebuffCloud ? { cloud: freebuffCloud } : {}),
+            model: freebuffModel,
             ...(freebuff.minContextTokens != null
               ? { minContextTokens: freebuff.minContextTokens }
               : {}),
@@ -160,7 +173,7 @@ export function createExecutionEngines(
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
             roots,
-            mode: engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private',
+            mode: workMode,
             limits: limitsFor(freebuff.timeoutMs),
             maxAgentSteps: freebuff.maxAgentSteps,
           }),

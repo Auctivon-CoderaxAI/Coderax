@@ -30,6 +30,10 @@ jest.mock('~/hooks', () => ({
       com_work_agent: 'Work agent',
       com_work_automatic_model: 'Auto',
       com_work_automatic_model_description: 'Chooses the best model for each task.',
+      com_work_routing_fast: 'Fast',
+      com_work_routing_complex: 'Complex',
+      com_work_routing_agent: 'Agent',
+      com_work_routing_target: `Runs on ${values?.[0]} now.`,
       com_work_automatic_agent: 'Automatic agent',
       com_work_mode_build: 'Build',
       com_work_mode_build_description: 'Implement the request end to end.',
@@ -127,6 +131,61 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+it('offers Fast, Complex, and Agent routes and selects the chosen intent', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [
+      {
+        id: 'auto',
+        label: 'Automatic',
+        auto: true,
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      { id: 'free', label: 'Free model', provider: 'Ollama' },
+    ],
+    routingModes: [
+      {
+        id: 'auto',
+        label: 'Automatic',
+        auto: true,
+        routingMode: 'auto',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'fast',
+        label: 'Fast',
+        auto: true,
+        routingMode: 'fast',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'complex',
+        label: 'Complex',
+        auto: true,
+        routingMode: 'complex',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'agent',
+        label: 'Agent',
+        auto: true,
+        routingMode: 'agent',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+    ],
+  });
+  setup();
+  const { user } = await openSelect('Model');
+
+  await user.click(await screen.findByRole('menuitemradio', { name: /^Fast/ }));
+
+  expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Fast');
+  await user.click(screen.getByRole('button', { name: 'Model' }));
+  expect(await screen.findByRole('menuitemradio', { name: /^Fast/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+});
 
 it('keeps Auto in the model menu and selects the automatic route', async () => {
   setup();

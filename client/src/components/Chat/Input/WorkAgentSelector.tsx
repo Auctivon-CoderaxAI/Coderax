@@ -5,7 +5,12 @@ import * as Ariakit from '@ariakit/react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown } from 'lucide-react';
 import { QueryKeys, SystemRoles, dataService } from 'coderax-data-provider';
-import type { TWorkAgent, TWorkModel, TWorkReadinessAction } from 'coderax-data-provider';
+import type {
+  TWorkAgent,
+  TWorkModel,
+  TWorkReadinessAction,
+  TWorkRoutingMode,
+} from 'coderax-data-provider';
 import type { ReactNode } from 'react';
 import type { WorkOptions, WorkSelection } from './workSelection';
 import type { WorkMode } from './workSelection';
@@ -71,7 +76,11 @@ export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
     enabled,
   });
   const options = useMemo(() => {
-    const base = toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents);
+    const base = toWorkOptions(
+      modelsQuery.data?.models,
+      agentsQuery.data?.agents,
+      modelsQuery.data?.routingModes,
+    );
     if (!canUseOpenCode || base.models.some((model) => model.engine != null)) {
       return base;
     }
@@ -147,6 +156,22 @@ function localizeWorkReadinessAction(
 }
 
 type WorkSelectOption = { value: string; label: string; description?: string };
+
+function routingModeLabel(
+  mode: TWorkRoutingMode,
+  localize: ReturnType<typeof useLocalize>,
+): string {
+  switch (mode) {
+    case 'fast':
+      return localize('com_work_routing_fast');
+    case 'complex':
+      return localize('com_work_routing_complex');
+    case 'agent':
+      return localize('com_work_routing_agent');
+    default:
+      return localize('com_work_automatic_model');
+  }
+}
 
 /** A composer-sized select with a themed popup; the native select popup ignores the app theme. */
 function WorkSelect({
@@ -266,15 +291,31 @@ export function WorkModelSelect({
       )
     : options.models;
   const showAutomatic = !agent && options.auto?.target != null;
+  const routing = !agent
+    ? (options.routing ?? []).filter((route) => route.routingMode != null && route.target != null)
+    : [];
   const selectOptions: WorkSelectOption[] = [];
-  if (showAutomatic) {
+  for (const route of routing) {
+    if (route.routingMode == null || route.target == null) {
+      continue;
+    }
+    selectOptions.push({
+      value: route.routingMode,
+      label: routingModeLabel(route.routingMode, localize),
+      description:
+        route.routingMode === 'auto'
+          ? localize('com_work_automatic_model_description')
+          : localize('com_work_routing_target', { 0: route.target.label }),
+    });
+  }
+  if (routing.length === 0 && showAutomatic) {
     selectOptions.push({
       value: WORK_AUTOMATIC,
       label: localize('com_work_automatic_model'),
       description: localize('com_work_automatic_model_description'),
     });
   }
-  if (!showAutomatic && models.length === 0) {
+  if (selectOptions.length === 0 && models.length === 0) {
     selectOptions.push({ value: WORK_AUTOMATIC, label: localize('com_ui_model') });
   }
   for (const model of models) {
@@ -293,7 +334,7 @@ export function WorkModelSelect({
       value={selection.modelKey}
       options={selectOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}
-      disabled={disabled || agent != null || (models.length === 0 && !showAutomatic)}
+      disabled={disabled || agent != null || (models.length === 0 && selectOptions.length === 0)}
       className={className}
     />
   );

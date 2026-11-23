@@ -1,6 +1,6 @@
-import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY } from 'coderax-data-provider';
-import type { WorkAgentGraph, WorkGraphAgent } from './graph';
+import { DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY, isWorkRoutingMode } from 'coderax-data-provider';
 import type { WorkConfiguredDefaultInput, WorkModelSource } from './models';
+import type { WorkAgentGraph, WorkGraphAgent } from './graph';
 import type { WorkModel } from './models';
 import {
   buildWorkModelOptions,
@@ -69,7 +69,7 @@ function resolveWorkContextFromOptions(
   if (requested != null && typeof requested !== 'string') {
     return { error: 'WORK_MODEL_NOT_ALLOWED' };
   }
-  const explicit = requested != null && requested !== WORK_AUTO_MODEL_ID;
+  const explicit = requested != null && !isWorkRoutingMode(requested);
   const selection = resolveWorkSelection(
     options,
     typeof requested === 'string' ? requested : WORK_AUTO_MODEL_ID,
@@ -168,7 +168,7 @@ export async function resolveWorkAdmission(input: {
   if (
     requestedModel != null &&
     requestedModel !== '' &&
-    requestedModel !== WORK_AUTO_MODEL_ID &&
+    !isWorkRoutingMode(requestedModel) &&
     requestedModel !== selectedModel.id
   ) {
     return { ok: false, error: 'WORK_MODEL_NOT_ALLOWED' };

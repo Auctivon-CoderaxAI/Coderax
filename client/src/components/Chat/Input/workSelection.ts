@@ -1,4 +1,4 @@
-import { EModelEndpoint, WORK_AUTO_MODEL_ID } from 'coderax-data-provider';
+import { EModelEndpoint, WORK_AUTO_MODEL_ID, isWorkRoutingMode } from 'coderax-data-provider';
 import type { TEphemeralAgent, TWorkAgent, TWorkModel } from 'coderax-data-provider';
 
 /** Shared sentinel for "let Coderax choose": no saved agent, and the server's model route. */
@@ -52,6 +52,8 @@ export const automaticWorkSelection: WorkSelection = {
 export type WorkOptions = {
   /** The automatic option, present only when the server named a model it resolves to. */
   auto: TWorkModel | null;
+  /** Routing intents the server resolved, each with its current concrete target. */
+  routing?: TWorkModel[];
   models: TWorkModel[];
   agents: TWorkAgent[];
 };
@@ -98,6 +100,7 @@ function soleEngineSelection(
 export function toWorkOptions(
   models: TWorkModel[] | undefined,
   agents: TWorkAgent[] | undefined,
+  routingModes?: TWorkModel[] | null,
 ): WorkOptions {
   const concrete = (models ?? []).filter(
     (model) => model.auto !== true && typeof model.provider === 'string' && model.provider !== '',
@@ -107,8 +110,17 @@ export function toWorkOptions(
   const autoOffered =
     auto?.target != null &&
     offered.has(getWorkModelKey({ id: auto.target.id, provider: auto.target.provider }));
+  const routing = (routingModes ?? []).filter(
+    (model) =>
+      model.routingMode != null &&
+      model.target != null &&
+      offered.has(getWorkModelKey({ id: model.target.id, provider: model.target.provider })),
+  );
+  const automaticRouting = autoOffered ? [{ ...auto, routingMode: WORK_AUTOMATIC }] : [];
+  const selectedRouting = routing.length > 0 ? routing : automaticRouting;
   return {
     auto: autoOffered ? auto : null,
+    ...(selectedRouting.length > 0 ? { routing: selectedRouting } : {}),
     models: concrete,
     agents: (agents ?? []).filter((agent) =>
       offered.has(getWorkModelKey({ id: agent.model, provider: agent.provider })),
@@ -141,31 +153,45 @@ export function resolveWorkSelection(
   }
 
   const mode = isWorkMode(selection.mode) ? selection.mode : DEFAULT_WORK_MODE;
-  const target = options.auto?.target;
-  const model =
-    selection.modelKey === WORK_AUTOMATIC
-      ? (options.models.find(
-          (option) => option.id === target?.id && option.provider === target?.provider,
-        ) ?? soleEngineModel(options))
-      : options.models.find((option) => getWorkModelKey(option) === selection.modelKey);
+  const routingMode = isWorkRoutingMode(selection.modelKey) ? selection.modelKey : null;
+  if (routingMode != null) {
+    const route =
+      (options.routing ?? []).find((option) => option.routingMode === routingMode) ??
+      (routingMode === WORK_AUTOMATIC ? options.auto : null);
+    const target = route?.target;
+    const model =
+      options.models.find(
+        (option) => option.id === target?.id && option.provider === target?.provider,
+      ) ?? (routingMode === WORK_AUTOMATIC ? soleEngineModel(options) : null);
+    if (!model?.provider) {
+      return null;
+    }
+    const promptPrefix = workModeInstruction(mode);
+    return {
+      agent: null,
+      model,
+      automatic: true,
+      mode,
+      ...(promptPrefix != null ? { promptPrefix } : {}),
+      ...(mode === 'skills' ? { ephemeralAgent: { skills: true } } : {}),
+      /** Keep the routing sentinel on the wire so the server resolves the
+       *  concrete model for each turn; the target is display metadata only. */
+      preset: { endpoint: model.provider as EModelEndpoint, model: routingMode },
+    };
+  }
+  const model = options.models.find((option) => getWorkModelKey(option) === selection.modelKey);
   if (!model?.provider) {
     return null;
   }
   const promptPrefix = workModeInstruction(mode);
-  const automatic = selection.modelKey === WORK_AUTOMATIC;
   return {
     agent: null,
     model,
-    automatic,
+    automatic: false,
     mode,
     ...(promptPrefix != null ? { promptPrefix } : {}),
     ...(mode === 'skills' ? { ephemeralAgent: { skills: true } } : {}),
-    /** Keep the sentinel on the wire so the server routes each turn; the
-     *  concrete model is only the endpoint choice for the automatic target. */
-    preset: {
-      endpoint: model.provider as EModelEndpoint,
-      model: automatic ? WORK_AUTOMATIC : model.id,
-    },
+    preset: { endpoint: model.provider as EModelEndpoint, model: model.id },
   };
 }
 
@@ -189,9 +215,13 @@ export function sanitizeWorkSelection(stored: unknown, options: WorkOptions): Wo
       mode,
     };
   }
+  const routingOffered =
+    typeof value.modelKey === 'string' &&
+    (value.modelKey === WORK_AUTOMATIC ||
+      (options.routing ?? []).some((option) => option.routingMode === value.modelKey));
   const modelOffered =
     typeof value.modelKey === 'string' &&
-    options.models.some((option) => getWorkModelKey(option) === value.modelKey);
+    (routingOffered || options.models.some((option) => getWorkModelKey(option) === value.modelKey));
   return (
     soleEngineSelection(options, mode) ?? {
       agentId: WORK_AUTOMATIC,

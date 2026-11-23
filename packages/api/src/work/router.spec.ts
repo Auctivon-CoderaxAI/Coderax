@@ -191,6 +191,22 @@ describe('native Work router', () => {
     });
   });
 
+  it('names the routing intents and their concrete target on the model response', async () => {
+    const res = await request(app()).get('/api/work/models');
+    expect(res.status).toBe(200);
+    expect(res.body.routingModes.map((mode: { id: string }) => mode.id)).toEqual([
+      'auto',
+      'fast',
+      'complex',
+    ]);
+    expect(res.body.routingModes[0]).toMatchObject({
+      id: 'auto',
+      auto: true,
+      routingMode: 'auto',
+      target: { id: 'llama3:latest' },
+    });
+  });
+
   it('does not offer an unverified paid configured default', async () => {
     const res = await request(app({ configuredDefaultModel: async () => 'openai:gpt-4o' })).get(
       '/api/work/models',

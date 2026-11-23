@@ -5,6 +5,10 @@
  * variables and describes the endpoints; it never reads a credential value.
  * The API attaches the other credentialed providers as ordered fallbacks when
  * a turn starts on one of these endpoints.
+ *
+ * VERCEL_KEY is deliberately absent: it authenticates deployments and must not
+ * be sent to an inference gateway. Only the variables named in this catalog may
+ * be forwarded as model credentials.
  */
 
 export const PROVIDER_FALLBACK_IDS = [
@@ -14,7 +18,6 @@ export const PROVIDER_FALLBACK_IDS = [
   'opencode',
   'apinex',
   'cloudflare',
-  'vercel',
   'freeai',
   '100millionseek',
 ] as const;
@@ -89,15 +92,6 @@ export const PROVIDER_FALLBACK_PROVIDERS: readonly ProviderFallbackProvider[] = 
     requiredEnv: ['CLOUDFLARE_ACCOUNT_ID'],
     defaultModel: '@cf/openai/gpt-oss-120b',
     contextTokens: 128_000,
-  },
-  {
-    id: 'vercel',
-    name: 'Vercel',
-    label: 'Vercel AI Gateway',
-    baseURL: 'https://ai-gateway.vercel.sh/v1',
-    apiKeyEnv: 'VERCEL_KEY',
-    defaultModel: 'nvidia/nemotron-3.5-lightning-free',
-    contextTokens: 1_000_000,
   },
   {
     id: 'freeai',

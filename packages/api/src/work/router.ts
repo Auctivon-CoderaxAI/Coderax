@@ -12,10 +12,10 @@ import type { FreeRoutingSnapshot } from '../routing/router';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { buildWorkModelOptions, buildWorkRoutingOptions } from './models';
 import { createDisabledRoutingSnapshot } from '../routing/router';
 import { describeWorkReadiness } from './readiness';
 import { listEligibleWorkAgents } from './agents';
-import { buildWorkModelOptions } from './models';
 import { isValidWorkId } from './ids';
 
 /**
@@ -190,6 +190,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
         readConfiguredDefault(deps),
       ]);
       const models = buildWorkModelOptions(sources, configuredDefault);
+      const routingModes = buildWorkRoutingOptions(models, configuredDefault);
       let engineModels: Array<{
         id: string;
         label: string;
@@ -223,7 +224,10 @@ export function createWorkRouter(deps: WorkDeps): Router {
         }
       }
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ models: [...models, ...engineModels] });
+      res.json({
+        models: [...models, ...engineModels],
+        ...(routingModes.length > 0 ? { routingModes } : {}),
+      });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
     }

@@ -1,5 +1,13 @@
 export const WORK_AUTO_MODEL_ID = 'auto';
 
+/** Routing intents resolved by the server from the offered free/local models. */
+export const WORK_ROUTING_MODES = ['auto', 'fast', 'complex', 'agent'] as const;
+export type TWorkRoutingMode = (typeof WORK_ROUTING_MODES)[number];
+
+export function isWorkRoutingMode(value: unknown): value is TWorkRoutingMode {
+  return typeof value === 'string' && (WORK_ROUTING_MODES as readonly string[]).includes(value);
+}
+
 /** The owner-only OpenCode engine, selected by model id rather than a provider model. */
 export const WORK_OPENCODE_ENGINE_ID = 'opencode' as const;
 /** The owner-only Freebuff engine, selected by model id rather than a provider model. */
@@ -38,12 +46,18 @@ export type TWorkModel = {
   label: string;
   provider?: string;
   auto?: true;
+  /** Set on a routing option; `id` is the sentinel the client sends back. */
+  routingMode?: TWorkRoutingMode;
   /** Marks a Coderax-managed execution engine rather than a provider-hosted model. */
   engine?: TWorkEngineId;
   target?: TWorkModelTarget;
 };
 
-export type TWorkModelsResponse = { models: TWorkModel[] };
+export type TWorkModelsResponse = {
+  models: TWorkModel[];
+  /** Routing intents, each naming the concrete model it currently resolves to. */
+  routingModes?: TWorkModel[];
+};
 
 /** An agent a handoff, chain or subagent graph can hand work to during one run. */
 export type TWorkAgentMember = {
