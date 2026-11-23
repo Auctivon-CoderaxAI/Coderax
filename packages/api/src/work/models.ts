@@ -1,7 +1,4 @@
 import {
-  assertZeroCostEndpoint,
-  FREE_ENDPOINTS,
-  isFreeOpenRouterEndpoint,
   isWorkRoutingMode,
   rankFreeOrLocalModels,
   selectModelForMode,
@@ -9,7 +6,6 @@ import {
   WORK_ROUTING_MODES,
 } from 'coderax-data-provider';
 import type { ModelRouteSource, TWorkRoutingMode } from 'coderax-data-provider';
-import type { FreeEndpoint } from 'coderax-data-provider';
 
 export { WORK_AUTO_MODEL_ID, WORK_ROUTING_MODES };
 
@@ -131,50 +127,16 @@ export function isLocalModelId(id: string): boolean {
 }
 
 /**
- * The reserved FreeOpenRouter endpoint is created by Coderax itself, but a
- * projection can lose per-model flags. Matching its exact catalogued id restores
- * the verified $0 metadata without trusting a provider name alone.
- */
-function freeCatalogEndpoint(source: WorkModelSource): FreeEndpoint | null {
-  const id = (source.id ?? source.name ?? '').trim();
-  if (!id || !isFreeOpenRouterEndpoint(source.provider)) {
-    return null;
-  }
-  return (
-    FREE_ENDPOINTS.find(
-      (endpoint) =>
-        endpoint.provider === 'openrouter' &&
-        endpoint.modelId === id &&
-        endpoint.capabilities.tools &&
-        assertZeroCostEndpoint(endpoint).ok,
-    ) ?? null
-  );
-}
-
-function freeCatalogMetadata(source: WorkModelSource): Partial<WorkModel> {
-  const endpoint = freeCatalogEndpoint(source);
-  if (!endpoint) {
-    return {};
-  }
-  return {
-    tools: endpoint.capabilities.tools,
-    reasoning: endpoint.capabilities.reasoning,
-    contextTokens: endpoint.contextTokens,
-    ...(endpoint.observedLatencyMs != null ? { latencyMs: endpoint.observedLatencyMs } : {}),
-  };
-}
-
-/**
  * A model identifier alone cannot establish where inference runs. Work accepts
- * only sources explicitly marked free or local, plus the exact free catalog
- * models behind Coderax's reserved endpoint.
+ * only sources explicitly marked free or local. The managed catalog marks its
+ * sources free after validating the endpoint and credential configuration.
  */
 export function isWorkSupportedModel(source: WorkModelSource): boolean {
   const id = (source.id ?? source.name ?? '').trim();
   if (!id || isWorkRoutingMode(id)) {
     return false;
   }
-  return source.free === true || source.local === true || freeCatalogEndpoint(source) !== null;
+  return source.free === true || source.local === true;
 }
 
 function routingMetadata(source: WorkModelSource): Partial<WorkModel> {
@@ -218,7 +180,6 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
         id,
         label: (source.label ?? id).trim() || id,
         ...(provider ? { provider } : {}),
-        ...freeCatalogMetadata(source),
         ...routingMetadata(source),
       });
     }

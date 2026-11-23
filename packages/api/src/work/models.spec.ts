@@ -1,3 +1,4 @@
+import { buildFreeInferenceWorkSources } from 'coderax-data-provider';
 import {
   WORK_AUTO_MODEL_ID,
   buildWorkModelOptions,
@@ -297,14 +298,32 @@ describe('native work model discovery', () => {
     });
   });
 
-  it('offers a verified free catalog model when the projection carries no flags', () => {
-    const options = buildWorkModelOptions([
-      { id: 'nvidia/nemotron-3.5-lightning:free', provider: 'FreeOpenRouter' },
-    ]);
-    expect(options.map((option) => option.id)).toContain('nvidia/nemotron-3.5-lightning:free');
+  it('offers managed free models only after the catalog validates their configuration', () => {
+    const id = 'nvidia/nemotron-3.5-lightning:free';
+    const projected = [{ id, provider: 'FreeOpenRouter' }];
+    const enabled = { enabled: true };
+    const env = { OPENROUTER_API_KEY: 'test-key' };
+    const conflict = {
+      freeInference: enabled,
+      endpoints: {
+        custom: [{ name: 'FreeOpenRouter', baseURL: 'https://custom.example/v1' }],
+      },
+    };
+    expect(buildWorkModelOptions(projected)).toEqual([]);
     expect(
-      options.find((option) => option.id === 'nvidia/nemotron-3.5-lightning:free'),
-    ).toMatchObject({
+      buildWorkModelOptions([...projected, ...buildFreeInferenceWorkSources(conflict, env)]),
+    ).toEqual([]);
+    expect(
+      buildWorkModelOptions([
+        ...projected,
+        ...buildFreeInferenceWorkSources({ freeInference: enabled }, {}),
+      ]),
+    ).toEqual([]);
+    const options = buildWorkModelOptions([
+      ...projected,
+      ...buildFreeInferenceWorkSources({ freeInference: enabled }, env),
+    ]);
+    expect(options.find((option) => option.id === id)).toMatchObject({
       provider: 'FreeOpenRouter',
       tools: true,
       contextTokens: 1_000_000,

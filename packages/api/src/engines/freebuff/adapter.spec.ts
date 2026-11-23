@@ -343,6 +343,9 @@ describe('Freebuff cloud execution', () => {
   };
   const cloudFetch = (body: unknown = { data: [{ id: cloudModelId }] }) =>
     jest.fn(async (input: string) => {
+      if (input.endsWith('/key')) {
+        return response({ data: {} });
+      }
       if (input.endsWith('/models')) {
         return response(body);
       }
@@ -375,7 +378,7 @@ describe('Freebuff cloud execution', () => {
     expect(JSON.stringify(availability)).not.toContain(cloudKey);
   });
 
-  it('probes the authenticated free model list', async () => {
+  it('verifies the key and checks free model availability', async () => {
     await expect(probeFreebuff({ ...cloudBase, fetchImpl: cloudFetch() })).resolves.toEqual({
       available: true,
       reason: 'ready',
@@ -384,6 +387,28 @@ describe('Freebuff cloud execution', () => {
       probeFreebuff({ ...cloudBase, fetchImpl: cloudFetch({ data: [{ id: 'other:free' }] }) }),
     ).resolves.toMatchObject({ available: false, reason: 'model_missing' });
   });
+
+  it.each([401, 403])(
+    'rejects a key with status %s even when the model is listed',
+    async (status) => {
+      const fetchImpl = jest.fn(async (input: string) =>
+        input.endsWith('/key')
+          ? response({ error: cloudKey }, status)
+          : response({
+              data: [{ id: cloudModelId }],
+            }),
+      );
+      await expect(probeFreebuff({ ...cloudBase, fetchImpl })).resolves.toEqual({
+        available: false,
+        reason: 'not_configured',
+        detail: 'The cloud model credential was rejected.',
+      });
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'https://openrouter.ai/api/v1/key',
+        expect.objectContaining({ headers: { Authorization: `Bearer ${cloudKey}` } }),
+      );
+    },
+  );
 
   it('proves native tool calling with a real tool-call probe', async () => {
     const fetchImpl = jest.fn(async (input: string, init?: { body?: string }) => {

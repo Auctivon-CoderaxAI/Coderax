@@ -13,9 +13,10 @@ cache: true
 # The credentials are read from the server environment; never put them
 # in this file. The selected endpoint is tried first, then `order`.
 # Cloudflare is account-scoped, so it also needs CLOUDFLARE_ACCOUNT_ID (not a secret).
+# Legacy orders listing vercel skip it; a Vercel-only order disables fallback.
 # providerFallback:
 #   enabled: true
-#   order: [gemini, cerebras, groq, opencode, apinex, cloudflare, vercel, freeai, 100millionseek]
+#   order: [gemini, cerebras, groq, opencode, apinex, cloudflare, freeai, 100millionseek]
 #   models:
 #     gemini: gemini-3.5-flash-lite
 #     cerebras: gpt-oss-120b
@@ -23,7 +24,6 @@ cache: true
 #     opencode: deepseek-v4.1-flash-free
 #     apinex: free/deepseek-v4.1-flash
 #     cloudflare: '@cf/openai/gpt-oss-120b'
-#     vercel: nvidia/nemotron-3.5-lightning-free
 #     freeai: qwen7b
 #     100millionseek: deepseek-v4.1-flash-free
 #   # Optional OpenAI-compatible gateway roots; defaults are the provider APIs.
@@ -31,7 +31,6 @@ cache: true
 #   #   opencode: https://opencode.ai/zen/v1
 #   #   apinex: https://api.apinex.bond/v1
 #   #   cloudflare: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1
-#   #   vercel: https://ai-gateway.vercel.sh/v1
 #   #   freeai: https://api.free.ai/v1
 #   #   100millionseek: https://100milionseek.top/v1
 

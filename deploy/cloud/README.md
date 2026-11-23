@@ -49,9 +49,12 @@ public signups until registration abuse controls are tested.
 1. From another device, open `https://<CODERAX_DOMAIN>`, log in as the created
    user, select a verified free model, send a prompt, and verify real streamed
    output. Refresh and verify the conversation persists in MongoDB.
-2. Confirm the model picker shows only free models, and that removing
-   `OPENROUTER_API_KEY` makes Work unavailable rather than falling back to a
-   paid or local model.
+2. On the verification stack, confirm the model picker shows only free models.
+   Remove `OPENROUTER_API_KEY` from the server `.env` and recreate the API with
+   `docker compose --env-file .env -f deploy/cloud/compose.yaml up -d --force-recreate api`.
+   Confirm Work is unavailable and does not fall back to a paid or local model.
+   Restore the key in `.env`, run the same command again, and confirm a Work
+   request streams a successful response before continuing.
 3. Restart the stack and confirm stored chats survive a restart.
 4. Verify auth rejection for anonymous API access and verify remote access from
    mobile data, not the host's LAN.

@@ -429,10 +429,15 @@ async function probeCloudModel(
   timeoutMs: number,
 ): Promise<EngineAvailability> {
   try {
-    const response = await fetcher(`${cloud.baseURL}/models`, {
-      headers: { Authorization: `Bearer ${cloud.apiKey}` },
-      signal,
-    });
+    const request = { headers: { Authorization: `Bearer ${cloud.apiKey}` }, signal };
+    const keyStatus = await fetcher(`${cloud.baseURL}/key`, request);
+    if (keyStatus.status === 401 || keyStatus.status === 403) {
+      return unavailable('not_configured', 'The cloud model credential was rejected.');
+    }
+    if (!keyStatus.ok) {
+      return unavailable('server_unavailable', 'The cloud model credential could not be verified.');
+    }
+    const response = await fetcher(`${cloud.baseURL}/models`, request);
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         return unavailable('not_configured', 'The cloud model credential was rejected.');
@@ -463,7 +468,7 @@ async function probeCloudModel(
 
 /**
  * Probe the configured runtime within a fixed deadline. Cloud mode checks the
- * free endpoint's authenticated model list. Local Ollama also reports its
+ * credential and model availability. Local Ollama also reports its
  * active num_ctx; LM Studio exposes model presence only, so its context
  * requirement is not asserted here.
  */

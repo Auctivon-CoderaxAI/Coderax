@@ -71,7 +71,7 @@ async function main() {
   const eventTypes = [];
   let text = '';
   try {
-    await client.run({
+    const result = await client.run({
       agent: {
         id: 'coderax-freebuff-smoke',
         displayName: 'Freebuff cloud smoke agent',
@@ -101,6 +101,10 @@ async function main() {
       },
       onUsage: () => {},
     });
+
+    if (result?.output?.type === 'error') {
+      throw new Error('The Freebuff SDK reported a failed run');
+    }
 
     const entries = await fs.readdir(workspace);
     process.stdout.write(`event_types ${[...new Set(eventTypes)].join(',') || 'none'}\n`);

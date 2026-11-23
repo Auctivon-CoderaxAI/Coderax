@@ -22,6 +22,7 @@ services:
     image: coderax:local
     networks:
       - default
+      - model
     # The image creates these on a fresh data volume; repeat it so an existing
     # volume also has both Work workspace roots. Cloud Work uses free hosted
     # models, so the API no longer waits for a local model download.
