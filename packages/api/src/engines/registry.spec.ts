@@ -1,5 +1,5 @@
-import { createEngineRegistry } from './registry';
 import type { EngineAdapter, EngineRunHandle, EngineRunRequest } from './types';
+import { createEngineRegistry } from './registry';
 import { engineFailure } from './types';
 
 function handleFor(task: string): EngineRunHandle {
@@ -51,6 +51,21 @@ const request: EngineRunRequest = {
 };
 
 describe('engine registry', () => {
+  it('does not dispatch or leak its lease if durable admission fails', async () => {
+    const start = jest.fn(async () => ({ ok: true as const, value: handleFor('retry') }));
+    const registry = createEngineRegistry({
+      defaultEngine: 'opencode',
+      adapters: { opencode: adapter('opencode', start) },
+    });
+    const beforeDispatch = async () => {
+      expect(registry.arbiter.owner(request.taskKey)).toBe('opencode');
+      throw new Error('store unavailable');
+    };
+    await expect(registry.start({ request, beforeDispatch })).rejects.toThrow('store unavailable');
+    expect(start).not.toHaveBeenCalled();
+    expect((await registry.start({ request })).ok).toBe(true);
+  });
+
   it('runs the default engine exactly once and releases the task', async () => {
     const openCodeStart = jest.fn(async () => ({ ok: true as const, value: handleFor('a') }));
     const registry = createEngineRegistry({

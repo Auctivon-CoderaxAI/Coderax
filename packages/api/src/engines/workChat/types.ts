@@ -40,7 +40,7 @@ export type RunScope = {
 
 export type EngineWorkChatRunner = {
   start: (
-    input: RunScope & { prompt: string; engine?: EngineId },
+    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
   ) => Promise<EngineResult<EngineRunHandle>>;
   state: (input: RunScope) => string | null;
   cancel: (input: RunScope) => Promise<boolean>;

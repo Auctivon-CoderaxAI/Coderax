@@ -96,6 +96,7 @@ export * from './conversations';
 export * from './routing';
 /* Work */
 export * from './work/admission';
+export * from './work/reservation';
 export * from './work/configuredDefault';
 export * from './work/deps';
 export * from './work/agents';

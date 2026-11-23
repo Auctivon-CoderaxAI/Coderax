@@ -64,7 +64,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   async start(
-    input: RunScope & { prompt: string; engine?: EngineId },
+    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
   ): Promise<EngineResult<EngineRunHandle>> {
     const key = activeRunKey(input);
     if (activeRuns.has(key)) {
@@ -72,6 +72,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     }
     const started = await this.registry.start({
       engine: input.engine ?? this.defaultEngine,
+      beforeDispatch: input.beforeDispatch,
       request: {
         taskKey: input.conversationId,
         conversationId: input.conversationId,

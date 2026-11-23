@@ -1601,6 +1601,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
 
   let client = null;
   let verifiedInitialAgentId = null;
+  let releaseWorkReservation;
   let jobCreatedAt;
   let providerExecutionId;
   let releaseEventChildLease;
@@ -1689,6 +1690,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
             req._agentEventTriggerProjection,
           ),
         );
+    releaseWorkReservation = req.claimWorkRun?.(conversationId);
     const job = await GenerationJobManager.createJob(streamId, userId, conversationId, {
       startupTelemetry,
       ...(recoveredSteerId && { recoveredSteerId }),
@@ -3531,7 +3533,9 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
           '[ResumableAgentController] Failed to record completed provider drain',
           drainError,
         );
-      });
+      })
+      .finally(releaseWorkReservation);
+    releaseWorkReservation = undefined;
   } catch (error) {
     logGenerationStartFailure(error, {
       streamId,
@@ -3687,6 +3691,8 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
       });
     }
     await releaseEventChildLease?.();
+  } finally {
+    await releaseWorkReservation?.();
   }
 };
 
