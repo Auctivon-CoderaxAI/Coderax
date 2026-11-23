@@ -76,24 +76,42 @@ describe('Freebuff engine adapter', () => {
     );
   });
 
-  it('allows an explicitly configured private host', () => {
-    expect(
-      describeFreebuff({
-        ...base,
-        baseURL: 'http://host.docker.internal:11434/v1',
-        allowedHosts: ['host.docker.internal'],
+  it('never reports an allowlisted non-loopback endpoint as ready', () => {
+    const result = describeFreebuff({
+      ...base,
+      baseURL: 'http://host.docker.internal:11434/v1',
+      allowedHosts: ['host.docker.internal'],
+    });
+    expect(result).toEqual(
+      expect.objectContaining({
+        available: false,
+        reason: 'not_configured',
+        detail: expect.stringContaining(
+          'rejected even when listed in engines.freebuff.allowedHosts',
+        ),
       }),
-    ).toEqual({ available: true, reason: 'ready' });
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        detail: expect.not.stringContaining('host.docker.internal'),
+      }),
+    );
     expect(
       describeFreebuff({
         ...base,
         baseURL: 'http://ollama:11434/v1',
         allowedHosts: ['OLLAMA'],
       }),
-    ).toEqual({ available: true, reason: 'ready' });
+    ).toEqual(
+      expect.objectContaining({
+        available: false,
+        reason: 'not_configured',
+        detail: expect.stringContaining('loopback'),
+      }),
+    );
   });
 
-  it('refuses a private host that is not explicitly allowed', () => {
+  it('refuses every non-loopback host, allowlisted or not', () => {
     expect(describeFreebuff({ ...base, baseURL: 'http://host.docker.internal:11434/v1' })).toEqual(
       expect.objectContaining({ available: false, reason: 'not_configured' }),
     );
@@ -106,17 +124,17 @@ describe('Freebuff engine adapter', () => {
     ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
   });
 
-  it('keeps the endpoint restrictions for an allowed host', () => {
+  it('keeps the endpoint restrictions', () => {
     for (const baseURL of [
-      'https://host.docker.internal:11434/v1',
-      'http://user:pass@host.docker.internal:11434/v1',
-      'http://host.docker.internal:11434/v1?x=1',
-      'http://host.docker.internal:11434/v1#x',
-      'http://host.docker.internal.evil.example:11434/v1',
+      'https://127.0.0.1:11434/v1',
+      'http://user:pass@127.0.0.1:11434/v1',
+      'http://127.0.0.1:11434/v1?x=1',
+      'http://127.0.0.1:11434/v1#x',
+      'http://127.0.0.1.evil.example:11434/v1',
     ]) {
-      expect(
-        describeFreebuff({ ...base, baseURL, allowedHosts: ['host.docker.internal'] }),
-      ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
+      expect(describeFreebuff({ ...base, baseURL })).toEqual(
+        expect.objectContaining({ available: false, reason: 'not_configured' }),
+      );
     }
   });
 
@@ -371,44 +389,25 @@ describe('Freebuff engine adapter', () => {
     }
   });
 
-  it('starts against an explicitly allowed private endpoint', async () => {
-    const privateRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-freebuff-allowed-'));
-    const cloudRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-freebuff-allowed-cloud-'));
-    class AllowedHostClient {
-      run = jest.fn(async () => ({ output: { type: 'last_message', value: 'OK' } }));
-    }
-    const allowedSdk: LoadedFreebuffSdk = {
-      module: {
-        ...sdk.module,
-        CodebuffClient:
-          AllowedHostClient as unknown as LoadedFreebuffSdk['module']['CodebuffClient'],
+  it('fails closed for an allowlisted non-loopback endpoint', async () => {
+    const started = await startFreebuffRun(
+      {
+        ...base,
+        baseURL: 'http://host.docker.internal:11434/v1',
+        allowedHosts: ['host.docker.internal'],
       },
-    };
-
-    try {
-      const started = await startFreebuffRun(
-        {
-          ...base,
-          baseURL: 'http://host.docker.internal:11434/v1',
-          allowedHosts: ['host.docker.internal'],
-          sdk: allowedSdk,
-          roots: { private: privateRoot, cloud: cloudRoot },
-        },
-        {
-          taskKey: 'task',
-          conversationId: 'conversation',
-          prompt: 'Reply with OK.',
-          mode: 'private',
-          workspaceRoot: privateRoot,
-        },
-      );
-      expect(started.ok).toBe(true);
-      if (started.ok) {
-        await started.value.result;
-      }
-    } finally {
-      await rm(privateRoot, { recursive: true, force: true });
-      await rm(cloudRoot, { recursive: true, force: true });
+      {
+        taskKey: 'task',
+        conversationId: 'conversation',
+        prompt: 'Reply with OK.',
+        mode: 'private',
+        workspaceRoot: '/srv/coderax/private',
+      },
+    );
+    expect(started.ok).toBe(false);
+    if (!started.ok) {
+      expect(started.error.code).toBe('not_configured');
+      expect(started.error.message).toContain('allowedHosts');
     }
   });
 

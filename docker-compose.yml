@@ -30,7 +30,9 @@ services:
     command:
       - sh
       - -c
-      - mkdir -p /app/data/freebuff-workspace && exec node api/server/index.js
+      - |
+        mkdir -p /app/data/freebuff-workspace &&
+        exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
