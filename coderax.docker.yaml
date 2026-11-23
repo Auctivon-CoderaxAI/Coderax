@@ -21,10 +21,16 @@ engines:
     enabled: true
     # Installed by the `freebuff-sdk` stage; never a host path.
     sdkPath: /opt/freebuff-sdk/dist/index.cjs
-    # The tool schema needs a 16k context, so this points at the Ollama
-    # instance started with OLLAMA_CONTEXT_LENGTH=16384. The default 11434
-    # instance loads qwen3.5 at 4096 and rejects the request.
-    baseURL: http://host.docker.internal:11435/v1
-    model: ollama/qwen3.5:4b
+    # Work's tool schema needs 16k of context. The host's main Ollama serves
+    # the durable qwen3.5:4b-16k variant, created once with:
+    #   FROM qwen3.5:4b
+    #   PARAMETER num_ctx 16384
+    #   ollama create qwen3.5:4b-16k -f Modelfile
+    # The context lives in the model, so no OLLAMA_CONTEXT_LENGTH override or
+    # second Ollama instance is needed.
+    # The adapter still accepts loopback hosts only, so this needs a
+    # loopback-capable route to the host before Freebuff reports ready here.
+    baseURL: http://host.docker.internal:11434/v1
+    model: ollama/qwen3.5:4b-16k
     timeoutMs: 900000
     maxAgentSteps: 24
