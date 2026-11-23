@@ -61,6 +61,29 @@ async function sha256(file) {
   return hash.digest('hex');
 }
 
+async function withStaging(prefix, install) {
+  const staging = fs.mkdtempSync(path.join(modelDir, prefix));
+  const cleanup = () => fs.rmSync(staging, { recursive: true, force: true });
+  // The default signal action exits without running finally during a download.
+  const onInterrupt = () => {
+    cleanup();
+    process.exit(130);
+  };
+  const onTerminate = () => {
+    cleanup();
+    process.exit(143);
+  };
+  process.once('SIGINT', onInterrupt);
+  process.once('SIGTERM', onTerminate);
+  try {
+    await install(staging);
+  } finally {
+    process.removeListener('SIGINT', onInterrupt);
+    process.removeListener('SIGTERM', onTerminate);
+    cleanup();
+  }
+}
+
 async function installBinary() {
   if (process.platform !== 'linux' || process.arch !== 'x64') {
     fail(
@@ -68,10 +91,9 @@ async function installBinary() {
     );
   }
   console.log(`[model] downloading llama.cpp ${release}`);
-  const staging = fs.mkdtempSync(path.join(modelDir, '.llama-'));
-  const archive = path.join(staging, 'llama.tar.gz');
-  const stagedBinDir = path.join(staging, 'bin');
-  try {
+  await withStaging('.llama-', async (staging) => {
+    const archive = path.join(staging, 'llama.tar.gz');
+    const stagedBinDir = path.join(staging, 'bin');
     await download(binaryUrl, archive);
     const digest = await sha256(archive);
     if (digest !== binarySha256) {
@@ -104,26 +126,21 @@ async function installBinary() {
       }
       // A concurrent installer may have published its complete directory first.
     }
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
-  }
+  });
   console.log(`[model] installed ${binPath}`);
 }
 
 async function installModel() {
   console.log('[model] downloading Qwen2.5-1.5B-Instruct Q4_K_M');
-  const staging = fs.mkdtempSync(path.join(modelDir, '.gguf-'));
-  const partial = path.join(staging, 'weights.part');
-  try {
+  await withStaging('.gguf-', async (staging) => {
+    const partial = path.join(staging, 'weights.part');
     await download(ggufUrl, partial);
     const digest = await sha256(partial);
     if (digest !== ggufSha256) {
       throw new Error(`GGUF checksum mismatch (got ${digest}); re-run to download it again`);
     }
     fs.renameSync(partial, ggufPath);
-  } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
-  }
+  });
   console.log(`[model] installed ${ggufPath}`);
 }
 
