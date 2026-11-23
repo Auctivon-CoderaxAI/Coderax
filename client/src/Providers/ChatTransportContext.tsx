@@ -11,7 +11,6 @@ import {
   configuredWorkEngineOrigin,
   toWorkChatServer,
   toWorkEngineChatServer,
-  toWorkEngineStreamUrl,
 } from './workTransport';
 import { createSSETransport } from '~/hooks/SSE/transport';
 import * as requests from '~/data-provider';
@@ -24,7 +23,7 @@ export { toWorkChatServer } from './workTransport';
  * hooks in `~/data-provider` read this context and so import this module back.
  */
 export const defaultChatTransport: Transport = {
-  stream: ({ token }) => createSSETransport({ token }),
+  stream: (options) => createSSETransport(options),
   start: ({ server, payload }, options) =>
     requests.postGenerationRequest<unknown>(server, payload, options),
   abort: (params) => requests.abortStream(params),
@@ -53,72 +52,59 @@ export function createWorkChatTransport(
   engineOrigin?: string,
 ): Transport {
   const directEngineOrigin = engineOrigin ?? configuredWorkEngineOrigin();
-  let engineStream = false;
+  const resolveSelection = (payload: Parameters<Transport['start']>[0]['payload']) =>
+    options
+      ? resolveWorkSelection(
+          selection
+            ? sanitizeWorkSelection(selection, options)
+            : workSelectionFromConversation(payload, options),
+          options,
+        )
+      : undefined;
 
   return {
     ...transport,
-    stream: (auth) => {
-      const stream = transport.stream(auth);
-      return {
-        ...stream,
-        reconnectToStream: (request, requestOptions) => {
-          if (!engineStream || !directEngineOrigin) {
-            return stream.reconnectToStream(request, requestOptions);
-          }
-          return stream.reconnectToStream(
-            { ...request, url: toWorkEngineStreamUrl(request.url, directEngineOrigin) },
-            requestOptions,
-          );
+    prepareStreamingStart: (payload) => {
+      const selected = resolveSelection(payload);
+      if (!selected?.model.engine) return undefined;
+      return () => ({
+        server: toWorkEngineChatServer(directEngineOrigin),
+        payload: {
+          ...payload,
+          model: selected.model.id,
+          agent_id: undefined,
+          assistant_id: undefined,
+          endpoint: undefined,
+          endpointType: undefined,
+          spec: null,
         },
-      };
+      });
     },
     start: ({ server, payload }, requestOptions) => {
-      const selected = options
-        ? resolveWorkSelection(
-            selection
-              ? sanitizeWorkSelection(selection, options)
-              : workSelectionFromConversation(payload, options),
-            options,
-          )
-        : undefined;
+      const selected = resolveSelection(payload);
       if (options && !selected) {
         throw new Error('WORK_NO_FREE_MODEL');
       }
-      const engineSelected = selected?.model.engine != null;
-      engineStream = engineSelected;
-      const workPayload = (() => {
-        if (!selected) {
-          return payload;
-        }
-        if (engineSelected) {
-          return {
+      if (selected?.model.engine) {
+        throw new Error('OpenCode requires a streaming POST.');
+      }
+      const workPayload = selected
+        ? {
             ...payload,
-            model: selected.model.id,
-            agent_id: undefined,
+            ...selected.preset,
+            agent_id: selected.preset.agent_id,
             assistant_id: undefined,
-            endpoint: undefined,
-            endpointType: undefined,
+            endpointType: selected.preset.endpoint,
             spec: null,
-          };
-        }
-        return {
-          ...payload,
-          ...selected.preset,
-          agent_id: selected.preset.agent_id,
-          assistant_id: undefined,
-          endpointType: selected.preset.endpoint,
-          spec: null,
-        };
-      })();
+          }
+        : payload;
       return transport.start(
         {
-          server: engineSelected
-            ? toWorkEngineChatServer(directEngineOrigin)
-            : toWorkChatServer(
-                isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
-                  ? EndpointURLs[EModelEndpoint.agents]
-                  : server,
-              ),
+          server: toWorkChatServer(
+            isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
+              ? EndpointURLs[EModelEndpoint.agents]
+              : server,
+          ),
           payload: workPayload,
         },
         requestOptions,

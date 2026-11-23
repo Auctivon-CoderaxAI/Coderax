@@ -1,7 +1,7 @@
 import { EModelEndpoint } from 'coderax-data-provider';
 import type { ChatTransportRequest } from 'coderax-data-provider';
 import type { WorkOptions } from '~/components/Chat/Input/workSelection';
-import { toWorkChatServer, toWorkEngineChatServer, toWorkEngineStreamUrl } from '../workTransport';
+import { toWorkChatServer, toWorkEngineChatServer } from '../workTransport';
 import { toWorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
 
@@ -43,15 +43,6 @@ describe('toWorkChatServer', () => {
       'https://work.example/api/work/chat',
     );
     expect(toWorkEngineChatServer()).toMatch(/\/api\/work\/chat$/);
-  });
-
-  it('routes a resumable engine attachment directly while preserving its path and query', () => {
-    expect(
-      toWorkEngineStreamUrl(
-        'https://coderax.example/api/agents/chat/stream/generation-1?resume=true',
-        'https://work.example',
-      ),
-    ).toBe('https://work.example/api/agents/chat/stream/generation-1?resume=true');
   });
 });
 
@@ -128,8 +119,8 @@ describe('createWorkChatTransport', () => {
     });
   });
 
-  it('routes the OpenCode engine without a provider endpoint or agent', async () => {
-    const start = jest.fn().mockResolvedValue({});
+  it('prepares a streaming POST to the direct OpenCode origin without using the JSON start', () => {
+    const start = jest.fn();
     const transport = createWorkChatTransport(
       { start } as never,
       {
@@ -142,44 +133,17 @@ describe('createWorkChatTransport', () => {
       { agentId: 'auto', modelKey: '["opencode","opencode"]' },
       'https://work.example',
     );
-    await transport.start(chatRequest);
-    const request = start.mock.calls[0][0];
-    expect(request.server).toBe('https://work.example/api/work/chat');
-    expect(request.payload.model).toBe('opencode');
-    expect(request.payload.endpoint).toBeUndefined();
-    expect(request.payload.endpointType).toBeUndefined();
-    expect(request.payload.agent_id).toBeUndefined();
-  });
-
-  it('keeps a resumable engine attachment on the direct origin after an engine start', async () => {
-    const reconnectToStream = jest.fn().mockReturnValue({ closed: false });
-    const stream = jest.fn().mockReturnValue({ send: jest.fn(), reconnectToStream });
-    const start = jest.fn().mockResolvedValue({});
-    const transport = createWorkChatTransport(
-      { start, stream } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
-      'https://work.example',
-    );
-
-    await transport.start(chatRequest);
-    transport
-      .stream({ token: 'token' })
-      .reconnectToStream(
-        { url: 'https://coderax.example/api/agents/chat/stream/generation-1?resume=true' },
-        {} as never,
-      );
-
-    expect(reconnectToStream).toHaveBeenCalledWith(
-      { url: 'https://work.example/api/agents/chat/stream/generation-1?resume=true' },
-      {},
-    );
+    const request = transport.prepareStreamingStart?.(chatRequest.payload)?.();
+    expect(request?.server).toBe('https://work.example/api/work/chat');
+    expect(request?.payload).toMatchObject({
+      conversationId: 'same-conversation',
+      model: 'opencode',
+      endpoint: undefined,
+      endpointType: undefined,
+      agent_id: undefined,
+    });
+    expect(() => transport.start(chatRequest)).toThrow('requires a streaming POST');
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('routes an Assistants conversation to the native Work agent endpoint', async () => {

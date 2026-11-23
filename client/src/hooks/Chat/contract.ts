@@ -211,12 +211,16 @@ export interface Transport {
    * The stream side for one bearer token: `send` streams a turn that carries its own response
    * (Assistants), `reconnectToStream` attaches to a generation running on the server.
    */
-  stream: (auth: { token?: string }) => ChatTransport;
+  stream: (options: { token?: string; requireFinal?: boolean }) => ChatTransport;
   /**
    * POSTs a turn to a resumable generation route. Resolves to the start response, which names
    * the stream to attach to; rejects with the HTTP failure, its body on `response.data`.
    */
   start: (request: ChatTransportRequest, options?: { signal?: AbortSignal }) => Promise<unknown>;
+  /** Select and pin a direct streaming POST for this turn, if supported. */
+  prepareStreamingStart?: (
+    payload: ChatTransportRequest['payload'],
+  ) => (() => ChatTransportRequest) | undefined;
   /** Stops a resumable generation; the stream then reports the abort. AI SDK: `stop`. */
   abort: (params: AbortStreamParams) => Promise<AbortStreamResponse>;
   /** Stops an Assistants run, which has no resumable generation to address. */

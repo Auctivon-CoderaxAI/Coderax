@@ -85,7 +85,13 @@ function parseErrorBody(body: unknown, status?: number): ChatErrorData | undefin
  * retry on a 401. A frame that is not JSON is logged and skipped, so the
  * frames behind it in the same chunk still dispatch.
  */
-export function createSSETransport({ token }: { token?: string }): ChatTransport {
+export function createSSETransport({
+  token,
+  requireFinal = false,
+}: {
+  token?: string;
+  requireFinal?: boolean;
+}): ChatTransport {
   return {
     send({ server, payload }, { signal, onEvent }) {
       if (signal.aborted) {
@@ -97,7 +103,9 @@ export function createSSETransport({ token }: { token?: string }): ChatTransport
         headers: jsonHeaders(token),
       });
 
+      let terminal = false;
       sse.addEventListener('open', () => {
+        terminal = false;
         onEvent({ type: 'open' });
       });
 
@@ -109,13 +117,28 @@ export function createSSETransport({ token }: { token?: string }): ChatTransport
         }
       });
 
-      sse.addEventListener('message', emitFrame(onEvent));
+      sse.addEventListener(
+        'message',
+        emitFrame((event) => {
+          terminal ||= event.type === 'final';
+          onEvent(event);
+        }),
+      );
+      if (requireFinal) {
+        sse.addEventListener('readystatechange', (event: ReadyStateChangeEvent) => {
+          if (event.readyState === SSE.CLOSED && !terminal && !signal.aborted) {
+            terminal = true;
+            onEvent({ type: 'error', status: 0 });
+          }
+        });
+      }
 
       let refreshed = false;
       /** sse.js marks the connection closed on a 401, but the turn is still
        * live until the retry settles, so an abort meanwhile must still cancel. */
       let refreshing = false;
       sse.addEventListener('error', async (e: StreamErrorEvent) => {
+        terminal = true;
         if (isTwoFactorSetupRefusal(e)) {
           return;
         }

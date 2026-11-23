@@ -505,6 +505,8 @@ export async function runBuildVerification(
       .join('\n');
     results.push({
       ...result,
+      stdout: redactSecrets(result.stdout, secrets),
+      stderr: redactSecrets(result.stderr, secrets),
       gate: command.gate,
       label: command.label,
       display: command.display,
@@ -518,7 +520,8 @@ export async function runBuildVerification(
 
   const gates: BuildGateEvidence[] = VERIFICATION_GATES.map((gate) => {
     const entries = results.filter((entry) => entry.gate === gate);
-    if (entries.length === 0) {
+    const configured = normalized.filter((command) => command.gate === gate).length;
+    if (configured === 0) {
       return {
         gate,
         status: 'not_run' as BuildGateStatus,
@@ -526,12 +529,16 @@ export async function runBuildVerification(
       };
     }
     const failed = entries.filter((entry) => entry.status === 'failed');
-    const status: BuildGateStatus = failed.length === 0 ? 'passed' : 'failed';
+    const status: BuildGateStatus =
+      failed.length === 0 && entries.length === configured ? 'passed' : 'failed';
     return {
       gate,
       status,
-      command: entries.map((entry) => entry.display).join('; '),
-      summary: `${entries.length - failed.length}/${entries.length} command(s) passed${
+      command: normalized
+        .filter((command) => command.gate === gate)
+        .map((command) => command.display)
+        .join('; '),
+      summary: `${entries.length - failed.length}/${configured} command(s) passed${
         cancelled ? ' before cancellation' : ''
       }`,
     };
@@ -545,7 +552,10 @@ export async function runBuildVerification(
       startedAt,
       finishedAt: now().toISOString(),
       executed: results.length,
-      passed: results.length > 0 && results.every((entry) => entry.status === 'passed'),
+      passed:
+        !cancelled &&
+        results.length === normalized.length &&
+        results.every((entry) => entry.status === 'passed'),
       cancelled,
     },
   };

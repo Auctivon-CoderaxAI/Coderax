@@ -1414,13 +1414,18 @@ export default function useEventHandlers({
   );
 
   const abortConversation = useCallback(
-    async (conversationId = '', submission: EventSubmission, messages?: TMessage[]) => {
+    async (
+      conversationId = '',
+      submission: EventSubmission,
+      messages?: TMessage[],
+      localOnly = false,
+    ) => {
       const runAbortKey = `${conversationId}:${messages?.[messages.length - 1]?.messageId ?? ''}`;
       const { endpoint: _endpoint, endpointType } =
         (submission.conversation as TConversation | null) ?? {};
       const endpoint = endpointType ?? _endpoint;
       if (
-        !isAssistantsEndpoint(endpoint) &&
+        (localOnly || !isAssistantsEndpoint(endpoint)) &&
         messages?.[messages.length - 1] != null &&
         messages[messages.length - 2] != null
       ) {
@@ -1458,7 +1463,7 @@ export default function useEventHandlers({
           setSubmissionStart(null);
         }
         return;
-      } else if (!isAssistantsEndpoint(endpoint)) {
+      } else if (localOnly || !isAssistantsEndpoint(endpoint)) {
         const convoId = conversationId || `_${v4()}`;
         logger.log('conversation', 'Aborted conversation with minimal messages, ID: ' + convoId);
         recoverConversation(convoId, submission);

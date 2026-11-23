@@ -12,6 +12,7 @@ import type {
   TSubmission,
   ChatErrorData,
   ChatFinalFrame,
+  ChatTransportRequest,
   EventSubmission,
 } from 'coderax-data-provider';
 import type { EventHandlerParams } from './useEventHandlers';
@@ -21,6 +22,7 @@ import { startedAsNewConversation, buildCreatedInitialResponse } from './useEven
 import { pendingApprovalActionFamily } from '~/components/Chat/approval/state';
 import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
 import { useChatTransport } from '~/Providers/ChatTransportContext';
+import { directStreamStopByIndex } from './directStop';
 import { useAuthContext } from '~/hooks/AuthContext';
 import useEventHandlers from './useEventHandlers';
 import useUsageHandler from './useUsageHandler';
@@ -42,6 +44,7 @@ export default function useSSE(
   chatHelpers: ChatHelpers,
   isAddedRequest = false,
   runIndex = 0,
+  streamingStart?: () => ChatTransportRequest,
 ) {
   const jotaiStore = useStore();
   const setActiveRunId = useSetRecoilState(store.activeRunFamily(runIndex));
@@ -101,7 +104,11 @@ export default function useSSE(
       return;
     }
 
-    let currentSubmission = submission as EventSubmission;
+    let currentSubmission = (
+      streamingStart
+        ? { ...submission, initialResponse: { ...submission.initialResponse, content: undefined } }
+        : submission
+    ) as EventSubmission;
     /** Provider identity updates cross one boundary. Message rendering, usage,
      * content, and terminal handlers all consume the same resolved response. */
     const adoptResponse = (userMessage: Partial<TMessage>, responseMessage: Partial<TMessage>) => {
@@ -124,7 +131,18 @@ export default function useSSE(
     clearStepMaps();
     bindResponse(currentSubmission);
 
+    const controller = new AbortController();
+    const directStop = directStreamStopByIndex(runIndex);
+    const stopStream = () => controller.abort();
+    const clearDirectStop = () => {
+      if (streamingStart && jotaiStore.get(directStop) === stopStream) {
+        jotaiStore.set(directStop, null);
+      }
+    };
+    let retired = false;
+
     const handleFinal = (data: ChatFinalFrame) => {
+      clearDirectStop();
       /** A queued delta flush reading the older streaming copy must never
        * land on top of the server-final write. */
       cancelPendingDeltaFlush();
@@ -165,6 +183,7 @@ export default function useSSE(
     };
 
     const handleAbort = async () => {
+      clearDirectStop();
       /** FLUSH (not cancel): the abort below synthesizes the partial response
        * from the cache, so the last queued tokens must land first. */
       flushPendingDeltas();
@@ -196,6 +215,7 @@ export default function useSSE(
             '',
           currentSubmission,
           latestMessages,
+          streamingStart != null,
         );
       } catch (error) {
         console.error('Error during abort:', error);
@@ -205,6 +225,8 @@ export default function useSSE(
     };
 
     const handleError = (data: ChatErrorData | null | undefined) => {
+      clearDirectStop();
+      if (streamingStart) setShowStopButton(false);
       console.log('error in server stream.');
       (startupConfig?.balance?.enabled ?? false) && balanceQuery.refetch();
       resetLive(currentSubmission);
@@ -222,6 +244,7 @@ export default function useSSE(
     };
 
     const onEvent = (event: ChatEvent) => {
+      if (retired) return;
       switch (event.type) {
         case 'open':
           setAbortScroll(false);
@@ -241,6 +264,7 @@ export default function useSSE(
               userMessage,
             }),
           );
+          if (streamingStart) jotaiStore.set(directStop, () => stopStream);
           createdHandler(event.data, currentSubmission);
           return;
         }
@@ -307,13 +331,27 @@ export default function useSSE(
       }
     };
 
-    const controller = new AbortController();
     setIsSubmitting(true);
-    transport
-      .stream({ token })
-      .send({ server: payloadData.server, payload }, { signal: controller.signal, onEvent });
+    if (streamingStart) setShowStopButton(false);
+    try {
+      transport
+        .stream(streamingStart ? { token, requireFinal: true } : { token })
+        .send(streamingStart?.() ?? { server: payloadData.server, payload }, {
+          signal: controller.signal,
+          onEvent,
+        });
+    } catch (error) {
+      if (!streamingStart) throw error;
+      handleError(undefined);
+    }
 
-    return () => controller.abort();
+    return () => {
+      if (streamingStart) {
+        retired = true;
+        clearDirectStop();
+      }
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submission]);
 }

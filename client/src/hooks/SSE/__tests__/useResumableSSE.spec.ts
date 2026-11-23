@@ -22,6 +22,7 @@ import {
 } from '~/store/usage';
 import { recoveryDispositionsFamily } from '~/components/Chat/Steering/recovery';
 import { pendingApprovalActionFamily } from '~/components/Chat/approval/state';
+import { directStreamStopByIndex } from '../directStop';
 
 type SSEEventListener = (e: Partial<MessageEvent> & { responseCode?: number }) => void;
 
@@ -255,6 +256,7 @@ jest.mock('~/hooks/Chat/useSteerConvert', () => ({
 const mockErrorHandler = jest.fn();
 const mockFinalHandler = jest.fn();
 const mockCreatedHandler = jest.fn();
+const mockMessageHandler = jest.fn();
 const mockStepHandler = jest.fn();
 const mockTitleHandler = jest.fn();
 const mockContentHandler = jest.fn();
@@ -289,7 +291,7 @@ jest.mock('~/hooks/SSE/useEventHandlers', () => {
       flushPendingDeltas: jest.fn(),
       cancelPendingDeltaFlush: jest.fn(),
       abortConversation: jest.fn(),
-      messageHandler: jest.fn(),
+      messageHandler: mockMessageHandler,
       setIsSubmitting: mockSetIsSubmitting,
       setShowStopButton: jest.fn(),
     })),
@@ -420,6 +422,7 @@ describe('useResumableSSE', () => {
     mockErrorHandler.mockClear();
     mockFinalHandler.mockClear();
     mockCreatedHandler.mockClear();
+    mockMessageHandler.mockClear();
     mockStepHandler.mockClear();
     mockTitleHandler.mockClear();
     mockClearStepMaps.mockClear();
@@ -531,6 +534,54 @@ describe('useResumableSSE', () => {
       unmount();
     },
   );
+
+  it('uses the OpenCode POST to publish renderable text and releases its stop control on exit', async () => {
+    const submission = buildSubmission({
+      initialResponse: {
+        messageId: 'resp-1',
+        conversationId: CONV_ID,
+        parentMessageId: 'msg-1',
+        isCreatedByUser: false,
+        text: '',
+        sender: 'Assistant',
+        content: [],
+      },
+    });
+    const helpers = buildChatHelpers();
+    const server = 'https://work.example/api/work/chat';
+    const { unmount } = renderHook(() =>
+      useSSE(submission, helpers, false, 0, () => ({
+        server,
+        payload: { conversationId: CONV_ID, text: 'Hello', isContinued: false, isTemporary: false },
+      })),
+    );
+    const sse = getLastSSE();
+    expect(sse._url).toBe(server);
+    expect(request.post).not.toHaveBeenCalled();
+    await act(async () => {
+      sse._emit('message', {
+        data: JSON.stringify({ created: true, message: submission.userMessage }),
+      });
+      sse._emit('message', {
+        data: JSON.stringify({
+          message: true,
+          messageId: 'msg-1_',
+          parentMessageId: 'msg-1',
+          text: 'Live engine response',
+        }),
+      });
+    });
+    expect(mockMessageHandler).toHaveBeenCalledWith(
+      'Live engine response',
+      expect.objectContaining({
+        initialResponse: expect.objectContaining({ content: undefined, messageId: 'msg-1_' }),
+      }),
+    );
+    expect(getDefaultStore().get(directStreamStopByIndex(0))).toEqual(expect.any(Function));
+    unmount();
+    expect(sse.close).toHaveBeenCalledTimes(1);
+    expect(getDefaultStore().get(directStreamStopByIndex(0))).toBeNull();
+  });
 
   it.each(['final', 'cancel', 'error'])(
     'keeps Assistants sync identity consistent through content, usage, and %s',

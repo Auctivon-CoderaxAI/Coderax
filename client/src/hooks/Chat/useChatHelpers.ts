@@ -13,6 +13,7 @@ import {
 import { useLatestMessage, useLatestMessageId } from '~/hooks/Messages/useLatestMessage';
 import { siblingIdxFamily, siblingKey } from '~/components/Chat/Messages/Thread/state';
 import { drainAfterAbortByIndex, runEndByIndex } from '~/hooks/Chat/queue';
+import { directStreamStopByIndex } from '~/hooks/SSE/directStop';
 import useChatFunctions from '~/hooks/Chat/useChatFunctions';
 import useSteerConvert from '~/hooks/Chat/useSteerConvert';
 import { resolveAbortSteerTarget } from '~/utils';
@@ -211,6 +212,11 @@ export default function useChatHelpers(index = 0, paramId?: string): ChatContrac
    * Assistants endpoint has its own abort mechanism via useEventHandlers.abortConversation.
    */
   const stopGenerating = useCallback(async () => {
+    const stopDirectStream = queueStore.get(directStreamStopByIndex(index));
+    if (stopDirectStream) {
+      stopDirectStream();
+      return;
+    }
     const actualEndpoint = endpointType ?? endpoint;
     const isAssistants = isAssistantsEndpoint(actualEndpoint);
     console.log('[useChatHelpers] stopGenerating called', {
@@ -337,6 +343,8 @@ export default function useChatHelpers(index = 0, paramId?: string): ChatContrac
       clearAllSubmissions();
     }
   }, [
+    index,
+    queueStore,
     conversationId,
     endpoint,
     endpointType,

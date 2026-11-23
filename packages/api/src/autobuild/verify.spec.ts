@@ -2,7 +2,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { CommandRunner } from './verify';
-import { createSpawnCommandRunner, redactSecrets, runBuildVerification } from './verify';
+import {
+  createSpawnCommandRunner,
+  gateEvidence,
+  redactSecrets,
+  runBuildVerification,
+} from './verify';
 import { summarizeBuild } from './report';
 
 function makeWorkspace(): { root: string; cleanup: () => void } {
@@ -111,6 +116,62 @@ describe('runBuildVerification', () => {
     } finally {
       workspace.cleanup();
     }
+  });
+
+  it('does not pass gates with commands skipped after cancellation', async () => {
+    const controller = new AbortController();
+    const run = fakeRunner({ node: 0 });
+    const runner = jest.fn<ReturnType<CommandRunner>, Parameters<CommandRunner>>(async (input) => {
+      controller.abort();
+      return run(input);
+    });
+    const result = await runBuildVerification({
+      workspaceRoot: process.cwd(),
+      commands: [
+        { gate: 'tests', command: 'node' },
+        { gate: 'tests', command: 'node' },
+        { gate: 'build', command: 'node' },
+      ],
+      signal: controller.signal,
+      runner,
+    });
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toMatchObject({ cancelled: true, passed: false });
+    expect(gateEvidence(result.value)).toEqual([
+      expect.objectContaining({
+        gate: 'tests',
+        status: 'failed',
+        summary: '1/2 command(s) passed before cancellation',
+      }),
+      expect.objectContaining({
+        gate: 'build',
+        status: 'failed',
+        summary: '0/1 command(s) passed before cancellation',
+      }),
+    ]);
+  });
+
+  it('redacts both returned streams and combined command output', async () => {
+    const run = fakeRunner({ node: 0 });
+    const result = await runBuildVerification({
+      workspaceRoot: process.cwd(),
+      commands: [{ gate: 'tests', command: 'node' }],
+      secrets: ['example-secret'],
+      runner: async (input) => ({
+        ...(await run(input)),
+        stdout: 'out example-secret',
+        stderr: 'err example-secret',
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.commands[0]).toMatchObject({
+      stdout: 'out [redacted]',
+      stderr: 'err [redacted]',
+      output: expect.stringContaining('out [redacted]\nerr [redacted]'),
+    });
   });
 
   it('feeds executed gate evidence into the existing build report', async () => {

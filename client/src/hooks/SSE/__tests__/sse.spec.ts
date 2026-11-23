@@ -92,6 +92,23 @@ describe('createSSETransport', () => {
       onEvent: (event) => events.push(event),
     });
 
+  it('renders OpenCode POST deltas before the response closes and reports a missing final frame', () => {
+    const server = 'https://work.example/api/work/chat';
+    createSSETransport({ token: 'token-1', requireFinal: true }).send(
+      { server, payload: { ...turn.payload, model: 'opencode' } },
+      { signal: controller.signal, onEvent: (event) => events.push(event) },
+    );
+    const xhr = current();
+    expect(xhr.method).toBe('POST');
+    expect(xhr.url).toBe(server);
+    xhr.receiveHeaders();
+    xhr.write(message({ created: true, message: { messageId: 'prompt' } }));
+    xhr.write(message({ message: true, text: 'partial' }));
+    expect(events.map((event) => event.type)).toEqual(['open', 'created', 'text']);
+    xhr.emit('load');
+    expect(events.at(-1)).toEqual({ type: 'error', status: 0 });
+  });
+
   beforeEach(() => {
     xhrs = [];
     events = [];
