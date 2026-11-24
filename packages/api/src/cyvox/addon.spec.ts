@@ -719,7 +719,9 @@ describe('CyVox privileged Work and Robot boundary (fast routing)', () => {
 describe('CyVox fast routing contract', () => {
   afterEach(() => jest.restoreAllMocks());
 
-  it('sends FAST for a confirmed owner Work task', async () => {
+  // AUTO is the released contract: CyVox classifies each Work task under
+  // ZERO_EXTERNAL_SPEND instead of pinning every task to the fast alias.
+  it('delegates routing to CyVox for a confirmed owner Work task', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ id: 'task-1' }), {
         headers: { 'Content-Type': 'application/json' },
@@ -742,7 +744,7 @@ describe('CyVox fast routing contract', () => {
       task: 'Inspect tests',
       mode: 'Autonomous Run',
       max_steps: 15,
-      routing_mode: 'FAST',
+      routing_mode: 'AUTO',
     });
   });
 });
