@@ -12,6 +12,7 @@ export * from './Memories';
 export * from './Messages';
 export * from './Misc';
 export * from './Projects';
+export * from './Games';
 /* Scheduled chats */
 export * from './Schedules';
 export * from './Workflows';

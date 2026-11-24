@@ -36,6 +36,12 @@ import {
   eReasoningResponseKeySchema,
 } from './schemas';
 import {
+  DEFAULT_GAME_PROJECTS_PER_OWNER,
+  MAX_GAME_PROJECTS_PER_OWNER_CEILING,
+  MAX_GAME_PROMPT_LENGTH,
+  MAX_GAME_SUMMARY_LENGTH,
+} from './games';
+import {
   scheduledMCPResourceBindingSchema,
   scheduledMCPReadOnlyPolicySchema,
 } from './types/scheduleConsent';
@@ -3831,6 +3837,39 @@ export const chatProjectsConfigSchema = z
 
 export type TChatProjectsConfig = z.infer<typeof chatProjectsConfigSchema>;
 
+/**
+ * Native Game Studio limits. Owner-only by default, and it exposes no build,
+ * playtest or agent-session capability: those need a verified cloud executor
+ * first, so they are not configurable into existence here.
+ */
+export const gamesConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    ownerOnly: z.boolean().default(true),
+    maxProjectsPerOwner: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_PROJECTS_PER_OWNER_CEILING)
+      .default(DEFAULT_GAME_PROJECTS_PER_OWNER),
+    maxSpecPromptLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_PROMPT_LENGTH)
+      .default(MAX_GAME_PROMPT_LENGTH),
+    maxSummaryLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_SUMMARY_LENGTH)
+      .default(MAX_GAME_SUMMARY_LENGTH),
+  })
+  .strict()
+  .prefault({});
+
+export type TGamesConfig = z.infer<typeof gamesConfigSchema>;
+
 /** Maximum CAS attempts per ACL document, including the initial attempt. */
 export const permissionWriteAttemptsSchema = z.number().int().min(1).max(100).default(3);
 
@@ -4164,6 +4203,7 @@ export const configSchema = z.object({
   providerFallback: providerFallbackConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
+  games: gamesConfigSchema,
   /** Durable workflow runner limits; omitted fields keep built-in defaults. */
   workflows: z
     .object({
