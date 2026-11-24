@@ -17,6 +17,7 @@ import type {
   ProviderInitializeParams,
 } from '~/types';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
+import { buildProviderFallbackOptions } from './providerFallback';
 import { resolveModelTransportTimeouts } from '~/agents/config';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
@@ -321,6 +322,17 @@ export async function initializeCustom(
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
   }
 
+  const providerFallbacks = buildProviderFallbackOptions({
+    endpoint,
+    endpointConfig,
+    config: {
+      providerFallback: appConfig?.config?.providerFallback,
+      endpoints: appConfig?.endpoints,
+    },
+    env: process.env,
+    modelParameters: model_parameters,
+  });
+
   const customOptions = buildCustomOptions(
     endpointConfig,
     appConfig,
@@ -358,6 +370,7 @@ export async function initializeCustom(
       modelOptions,
       ...clientOptions,
       freeOpenRouterMaxOutputTokens: appConfig?.config?.freeInference?.openRouterMaxOutputTokens,
+      ...(providerFallbacks != null ? { fallbacks: providerFallbacks } : {}),
     };
     // The OpenAI-compatible client requires a nonempty identifier even though
     // local Ollama ignores authorization. This is an internal placeholder,

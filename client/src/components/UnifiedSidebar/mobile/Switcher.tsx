@@ -59,6 +59,8 @@ function Switcher({
     return null;
   }
 
+  const activeTitle = localize(activeLink.title);
+
   return (
     <DropdownPopup
       /**
@@ -80,7 +82,7 @@ function Switcher({
       trigger={
         <Ariakit.MenuButton
           data-testid="panel-switcher-button"
-          aria-label={localize('com_nav_control_panel')}
+          aria-label={`${activeTitle}, ${localize('com_nav_control_panel')}`}
           aria-expanded={isOpen}
           /**
            * The drawer's primary navigation control, so it takes the shared
@@ -95,9 +97,7 @@ function Switcher({
         >
           <activeLink.icon className="size-5 shrink-0" aria-hidden="true" />
           {/* Grows so the chevron settles on the trailing edge rather than trailing the label. */}
-          <span className="flex-1 truncate text-left text-sm font-medium">
-            {localize(activeLink.title)}
-          </span>
+          <span className="flex-1 truncate text-left text-sm font-medium">{activeTitle}</span>
           <ChevronDown className="text-text-secondary size-4 shrink-0" aria-hidden="true" />
         </Ariakit.MenuButton>
       }

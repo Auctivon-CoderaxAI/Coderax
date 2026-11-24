@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { EndpointURLs, EModelEndpoint, isAssistantsEndpoint } from 'coderax-data-provider';
+import type { ChatTransportRequest, TWorkAgentId } from 'coderax-data-provider';
 import type { WorkOptions, WorkSelection } from '~/components/Chat/Input/workSelection';
 import type { Transport } from '~/hooks/Chat/contract';
 import {
@@ -13,6 +14,7 @@ import {
   toWorkEngineChatServer,
   toWorkEngineStreamUrl,
 } from './workTransport';
+import { attachEngineStream, engineStreamIdFromUrl, startEngineWorkChat } from './engineStream';
 import { createSSETransport } from '~/hooks/SSE/transport';
 import * as requests from '~/data-provider';
 
@@ -53,7 +55,6 @@ export function createWorkChatTransport(
   engineOrigin?: string,
 ): Transport {
   const directEngineOrigin = engineOrigin ?? configuredWorkEngineOrigin();
-  let engineStream = false;
 
   return {
     ...transport,
@@ -62,7 +63,14 @@ export function createWorkChatTransport(
       return {
         ...stream,
         reconnectToStream: (request, requestOptions) => {
-          if (!engineStream || !directEngineOrigin) {
+          const engineStreamId = engineStreamIdFromUrl(request.url);
+          if (engineStreamId) {
+            const attached = attachEngineStream(engineStreamId, requestOptions);
+            if (attached) {
+              return attached;
+            }
+          }
+          if (!directEngineOrigin) {
             return stream.reconnectToStream(request, requestOptions);
           }
           return stream.reconnectToStream(
@@ -84,16 +92,36 @@ export function createWorkChatTransport(
       if (options && !selected) {
         throw new Error('WORK_NO_FREE_MODEL');
       }
-      const engineSelected = selected?.model.engine != null;
-      engineStream = engineSelected;
-      const workPayload = (() => {
+      const externalSelected = selected != null && selected.workAgent !== 'coderax';
+      /** Built-in modes guide the automatic agent; a saved agent owns its own
+       *  instructions and capabilities, so the mode payload applies only here. */
+      const modePayload =
+        selected?.agent == null
+          ? {
+              promptPrefix: selected?.promptPrefix,
+              ...(selected?.ephemeralAgent != null
+                ? {
+                    ephemeralAgent: {
+                      ...(payload.ephemeralAgent ?? {}),
+                      ...selected.ephemeralAgent,
+                    },
+                  }
+                : {}),
+            }
+          : {};
+      const workPayload: ChatTransportRequest['payload'] = (() => {
         if (!selected) {
           return payload;
         }
-        if (engineSelected) {
+        if (selected.workAgent !== 'coderax') {
+          if (payload.spec != null) {
+            throw new Error('WORK_AGENT_COMBINATION_UNSUPPORTED');
+          }
           return {
             ...payload,
-            model: selected.model.id,
+            ...modePayload,
+            workAgent: selected.workAgent as TWorkAgentId,
+            model: undefined,
             agent_id: undefined,
             assistant_id: undefined,
             endpoint: undefined,
@@ -103,22 +131,29 @@ export function createWorkChatTransport(
         }
         return {
           ...payload,
+          ...modePayload,
           ...selected.preset,
+          workAgent: 'coderax',
           agent_id: selected.preset.agent_id,
           assistant_id: undefined,
           endpointType: selected.preset.endpoint,
           spec: null,
         };
       })();
+      if (externalSelected) {
+        return startEngineWorkChat({
+          url: toWorkEngineChatServer(directEngineOrigin),
+          payload: workPayload,
+          signal: requestOptions?.signal,
+        });
+      }
       return transport.start(
         {
-          server: engineSelected
-            ? toWorkEngineChatServer(directEngineOrigin)
-            : toWorkChatServer(
-                isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
-                  ? EndpointURLs[EModelEndpoint.agents]
-                  : server,
-              ),
+          server: toWorkChatServer(
+            isAssistantsEndpoint(payload.endpointType ?? payload.endpoint)
+              ? EndpointURLs[EModelEndpoint.agents]
+              : server,
+          ),
           payload: workPayload,
         },
         requestOptions,

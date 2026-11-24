@@ -7,8 +7,8 @@ import type {
   EngineRunHandle,
   EngineRunRequest,
 } from './types';
-import { engineFailure } from './types';
 import { EngineRunArbiter } from './arbiter';
+import { engineFailure } from './types';
 
 /**
  * The single entry point for starting a coding-agent run.
@@ -36,10 +36,11 @@ export type EngineRegistryOptions = {
   arbiter?: EngineRunArbiter;
 };
 
-function statusFor(id: EngineId, adapter: EngineAdapter): EngineStatus {
+function statusFor(id: EngineId, adapter: EngineAdapter, forStart = false): EngineStatus {
   let availability: EngineAvailability;
   try {
-    availability = adapter.describe();
+    availability =
+      forStart && adapter.describeForStart ? adapter.describeForStart() : adapter.describe();
   } catch {
     availability = {
       available: false,
@@ -75,6 +76,8 @@ export type EngineRegistryApi = {
   start: (input: EngineRunInput) => Promise<EngineResult<EngineRunHandle>>;
   select: (engine?: EngineId | null) => EngineResult<{ id: EngineId; adapter: EngineAdapter }>;
   snapshot: () => EngineStatusSnapshot;
+  /** Refreshes adapters that have a bounded runtime readiness probe. */
+  probe: () => Promise<void>;
   arbiter: EngineRunArbiter;
 };
 
@@ -83,19 +86,20 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
 
   function select(
     engine?: EngineId | null,
+    forStart = false,
   ): EngineResult<{ id: EngineId; adapter: EngineAdapter }> {
     const id = engine ?? options.defaultEngine;
     const adapter = options.adapters[id];
     if (!adapter) {
       return engineFailure('disabled', `The ${id} execution engine is not registered.`);
     }
-    const status = statusFor(id, adapter);
+    const status = statusFor(id, adapter, forStart);
     const failure = failureFor(status.availability);
     return failure ?? { ok: true, value: { id, adapter } };
   }
 
   async function start(input: EngineRunInput): Promise<EngineResult<EngineRunHandle>> {
-    const selection = select(input.engine);
+    const selection = select(input.engine, true);
     if (!selection.ok) {
       return selection;
     }
@@ -165,7 +169,7 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
   }
 
   function snapshot(): EngineStatusSnapshot {
-    const ids: EngineId[] = ['opencode', 'openhands'];
+    const ids: EngineId[] = ['opencode', 'openhands', 'freebuff'];
     return {
       defaultEngine: options.defaultEngine,
       engines: ids
@@ -177,7 +181,11 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     };
   }
 
-  return { start, select, snapshot, arbiter };
+  async function probe(): Promise<void> {
+    await Promise.all(Object.values(options.adapters).map((adapter) => adapter?.probe?.()));
+  }
+
+  return { start, select: (engine) => select(engine), snapshot, probe, arbiter };
 }
 
 export type EngineRegistry = EngineRegistryApi;

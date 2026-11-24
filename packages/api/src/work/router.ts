@@ -2,6 +2,7 @@ import express from 'express';
 import {
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+  SystemRoles,
 } from 'coderax-data-provider';
 import type { FreeInferenceCatalogState } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
@@ -11,10 +12,11 @@ import type { FreeRoutingSnapshot } from '../routing/router';
 import type { WorkConversation } from './task';
 import type { WorkGraphAgent } from './graph';
 import { isTerminalWorkState, isWorkConversation, toWorkHistory, toWorkTask } from './task';
+import { buildWorkModelOptions, buildWorkRoutingOptions } from './models';
 import { createDisabledRoutingSnapshot } from '../routing/router';
+import { buildWorkAgentIdentities } from './identities';
 import { describeWorkReadiness } from './readiness';
 import { listEligibleWorkAgents } from './agents';
-import { buildWorkModelOptions } from './models';
 import { isValidWorkId } from './ids';
 
 /**
@@ -60,6 +62,8 @@ export type WorkDeps = {
   freeInference?: () => FreeInferenceCatalogState;
   /** Safe execution-engine availability; never a path or credential. */
   engines?: () => Promise<EngineStatusSnapshot> | EngineStatusSnapshot;
+  /** The deployment's external-agent gate; native is always available. */
+  workChat?: { enabled?: boolean; mode?: 'private' | 'cloud' } | null;
 };
 
 const HISTORY_LIMIT = 50;
@@ -163,9 +167,9 @@ export function createWorkRouter(deps: WorkDeps): Router {
   });
 
   /**
-   * Whether OpenCode or OpenHands can run, and why not. A disabled engine is
-   * listed as unavailable instead of disappearing, so the owner can see the
-   * prerequisite without reading server logs.
+   * Whether an optional execution engine can run, and why not. A disabled
+   * engine is listed as unavailable instead of disappearing, so the owner can
+   * see the prerequisite without reading server logs.
    */
   router.get('/engines', async (_req: Request, res: Response) => {
     if (!deps.engines) {
@@ -189,11 +193,40 @@ export function createWorkRouter(deps: WorkDeps): Router {
         readConfiguredDefault(deps),
       ]);
       const models = buildWorkModelOptions(sources, configuredDefault);
+      const routingModes = buildWorkRoutingOptions(models, configuredDefault);
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ models });
+      res.json({
+        models,
+        ...(routingModes.length > 0 ? { routingModes } : {}),
+      });
     } catch {
       res.status(503).json({ code: 'WORK_MODELS_UNAVAILABLE' });
     }
+  });
+
+  /**
+   * The three agent identities are separate from models and saved agents.
+   * Native Coderax is always first and available; external identities carry a
+   * truthful unavailable reason instead of disappearing or being faked.
+   */
+  router.get('/agent-identities', async (req: Request, res: Response) => {
+    const owner = (req.user as { role?: string } | undefined)?.role === SystemRoles.ADMIN;
+    let snapshot: EngineStatusSnapshot | null = null;
+    if (owner && deps.engines) {
+      try {
+        snapshot = await deps.engines();
+      } catch {
+        // Native remains selectable; external identities become unavailable.
+      }
+    }
+    const agents = buildWorkAgentIdentities({
+      owner,
+      snapshot,
+      workChatEnabled: deps.workChat?.enabled === true,
+      mode: deps.workChat?.mode === 'cloud' ? 'cloud' : 'private',
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ defaultAgent: 'coderax', agents });
   });
 
   /**

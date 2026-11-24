@@ -1,4 +1,17 @@
 import type { InfiniteData } from '@tanstack/react-query';
+export type {
+  TGameSpec,
+  TGameGenre,
+  TGameCamera,
+  TGameStatus,
+  TGameProject,
+  TGameProjectListResponse,
+  TCreateGameProjectRequest,
+  TUpdateGameProjectRequest,
+  TSaveGameSpecRequest,
+  TGameCapabilities,
+  TGameTemplate,
+} from './games';
 import type {
   TConversationTag,
   EModelEndpoint,

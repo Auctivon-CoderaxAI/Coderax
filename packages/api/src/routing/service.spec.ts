@@ -48,13 +48,17 @@ describe('routing from deployment config', () => {
     const config = {
       freeInference: { enabled: true, maxRequestsPerDay: 3, maxTokensPerDay: 1_000 },
     };
-    const first = getFreeRouterForConfig(config);
+    const first = getFreeRouterForConfig(config, {
+      credentialEnvNames: ['OPENROUTER_API_KEY'],
+    });
     const plan = first.plan();
     await first.run(plan, async () => ({ ok: true, value: 'ok', tokens: 5 }));
     const requestsUsed = first.snapshot().endpoints[0]?.quota.requestsUsed;
     expect(requestsUsed).toBe(1);
 
-    const second = getFreeRouterForConfig(config);
+    const second = getFreeRouterForConfig(config, {
+      credentialEnvNames: ['OPENROUTER_API_KEY'],
+    });
     expect(second).toBe(first);
     expect(second.snapshot().endpoints[0]?.quota.requestsUsed).toBe(requestsUsed);
   });
@@ -69,5 +73,27 @@ describe('routing from deployment config', () => {
     expect(small).not.toBe(large);
     expect(small.snapshot().endpoints[0]?.quota.requestsLimit).toBe(11);
     expect(large.snapshot().endpoints[0]?.quota.requestsLimit).toBe(12);
+  });
+
+  it('does not reuse a router whose server credential presence differs', () => {
+    const config = { freeInference: { enabled: true } };
+    const withoutKey = getFreeRouterForConfig(config);
+    const withKey = getFreeRouterForConfig(config, {
+      credentialEnvNames: ['OPENROUTER_API_KEY'],
+    });
+
+    expect(withKey).not.toBe(withoutKey);
+    expect(withoutKey.snapshot().endpoints[0]).toMatchObject({
+      credentialPresent: false,
+      available: false,
+      rejectionReason: 'missing_credential',
+    });
+    expect(withKey.snapshot().endpoints[0]).toMatchObject({
+      credentialPresent: true,
+      freeEligible: true,
+      healthy: true,
+      available: true,
+      rejectionReason: null,
+    });
   });
 });

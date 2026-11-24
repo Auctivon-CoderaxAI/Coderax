@@ -1,0 +1,41 @@
+# Container configuration for the image built from Dockerfile target
+# `node-freebuff`. Coderax Personal Agent is the Work default; OpenCode and
+# FreeBuff remain explicit external choices. Freebuff runs on the local Ollama
+# model through the loopback forwarder; no hosted endpoint is used.
+version: 1.3.17
+freeInference:
+  enabled: true
+
+providerFallback:
+  enabled: true
+
+engines:
+  workspaces:
+    # Under the persisted `coderax-data` volume (compose creates them on start).
+    privateRoot: /app/data/freebuff-workspace
+    cloudRoot: /app/data/freebuff-cloud-workspace
+  workChat:
+    enabled: true
+    mode: cloud
+  freebuff:
+    enabled: true
+    # Installed by the `freebuff-sdk` stage; never a host path.
+    sdkPath: /opt/freebuff-sdk/dist/index.cjs
+    # Work's tool schema needs 16k of context. The Compose `ollama-init`
+    # service creates the durable qwen3.5:4b-16k variant on first start with:
+    #   FROM qwen3.5:4b
+    #   PARAMETER num_ctx 16384
+    #   ollama create qwen3.5:4b-16k -f Modelfile
+    # The context lives in the model, so no OLLAMA_CONTEXT_LENGTH override is
+    # needed. The pinned SDK accepts plain HTTP only on loopback, and Coderax's
+    # adapter rejects HTTPS, so a Compose service name cannot be used directly.
+    # The API starts the configured ollamaLoopback listener, which forwards
+    # 127.0.0.1:11434 to the `ollama` service; keep the base URL on loopback.
+    baseURL: http://127.0.0.1:11434/v1
+    model: ollama/qwen3.5:4b-16k
+    timeoutMs: 900000
+    maxAgentSteps: 24
+
+# Forward Freebuff's loopback endpoint to the model service on the Compose network.
+ollamaLoopback:
+  enabled: true

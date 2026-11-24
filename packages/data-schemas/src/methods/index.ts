@@ -1,5 +1,9 @@
-import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
+import type {
+  ToolApprovalGrantStorage,
+  ToolStandingAuthorizationStorage,
+} from 'coderax-data-provider';
 import type { ScheduleMCPConsentStorage } from './scheduleConsent';
+import { createToolStandingAuthorizationMethods } from './toolStandingAuthorization';
 import { createToolApprovalGrantMethods } from './toolApprovalGrant';
 import { createScheduleMCPConsentStorage } from './scheduleConsent';
 export { createScheduleMCPConsentStorage } from './scheduleConsent';
@@ -104,6 +108,7 @@ import {
   type ParentSubagentThreadRecord,
 } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
+import { createGameProjectMethods, type GameProjectMethods } from './gameProject';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -114,6 +119,16 @@ export type {
   ListChatProjectsResult,
   UpdateChatProjectInput,
 } from './chatProject';
+export type {
+  CreateGameProjectInput,
+  CreateGameProjectResult,
+  GameProjectMethods,
+  GameProjectLimits,
+  ListGameProjectsOptions,
+  ListGameProjectsResult,
+  SaveGameSpecResult,
+  UpdateGameProjectInput,
+} from './gameProject';
 /* Tier 3 — Complex (heavier injection) */
 import {
   createTxMethods,
@@ -255,6 +270,7 @@ export {
 };
 
 export type AllMethods = ToolApprovalGrantStorage &
+  ToolStandingAuthorizationStorage &
   UserMethods &
   SessionMethods &
   TokenMethods &
@@ -288,6 +304,7 @@ export type AllMethods = ToolApprovalGrantStorage &
   MessageMethods &
   ConversationMethods &
   ChatProjectMethods &
+  GameProjectMethods &
   TxMethods &
   TransactionMethods &
   SpendTokensMethods &
@@ -495,6 +512,7 @@ export function createMethods(
   return {
     ...createUserMethods(mongoose, { getCache: deps.getCache }),
     ...createToolApprovalGrantMethods(mongoose),
+    ...createToolStandingAuthorizationMethods(mongoose),
     ...createSessionMethods(mongoose),
     ...createTokenMethods(mongoose),
     ...createRefreshTokenBridgeMethods(mongoose),
@@ -529,6 +547,7 @@ export function createMethods(
     ...messageMethods,
     ...conversationMethods,
     ...createChatProjectMethods(mongoose),
+    ...createGameProjectMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,

@@ -38,7 +38,6 @@ function flattenModelConfig(config) {
       label: String(entry.label ?? entry.name ?? id),
       provider: endpoint,
       ...(isLocalEndpoint(endpoint) ? { local: true } : {}),
-      ...(entry.free === true ? { free: true } : {}),
     });
   };
 
@@ -63,6 +62,11 @@ function toWorkConversation(conversation) {
     isWork: conversation.isWork === true,
     workModel: conversation.workModel,
     workState: conversation.workState,
+    ...(conversation.workAgent === 'coderax' ||
+    conversation.workAgent === 'opencode' ||
+    conversation.workAgent === 'freebuff'
+      ? { workAgent: conversation.workAgent }
+      : {}),
     ...(typeof conversation.agent_id === 'string' &&
     conversation.agent_id !== '' &&
     conversation.agent_id !== 'ephemeral'

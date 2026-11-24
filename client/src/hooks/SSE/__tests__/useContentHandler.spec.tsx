@@ -166,4 +166,53 @@ describe('useContentHandler message reconciliation', () => {
       content: [{ type: 'text', text: { value: 'streamed without thread metadata' } }],
     });
   });
+
+  it('keeps a tool call and its arguments as their own content part', () => {
+    /* The Work engine streams a tool call this way, so the message renders the
+     * native tool card instead of only the assistant text. */
+    const userMessage = {
+      messageId: 'user-1',
+      conversationId: 'conversation-1',
+      isCreatedByUser: true,
+    } as TMessage;
+    let messages = [userMessage];
+    const setMessages = jest.fn((nextMessages: TMessage[]) => {
+      messages = nextMessages;
+    });
+    const submission = {
+      initialResponse: {
+        messageId: 'response-1',
+        conversationId: 'conversation-1',
+        content: [],
+      },
+    } as unknown as EventSubmission;
+    const { result } = renderHook(
+      () => useContentHandler({ setMessages, getMessages: () => messages }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.contentHandler({
+        data: {
+          type: 'tool_call',
+          tool_call: {
+            id: 'call-1',
+            name: 'bash',
+            type: 'tool_call',
+            args: { command: 'ls' },
+          },
+          messageId: 'response-1',
+          conversationId: 'conversation-1',
+          index: 1,
+        } as never,
+        submission,
+      });
+    });
+
+    const content = setMessages.mock.calls[0][0][1].content as Array<Record<string, unknown>>;
+    expect(content[1]).toEqual({
+      type: 'tool_call',
+      tool_call: { id: 'call-1', name: 'bash', type: 'tool_call', args: { command: 'ls' } },
+    });
+  });
 });

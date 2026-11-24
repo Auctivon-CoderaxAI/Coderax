@@ -2,8 +2,23 @@ import type { EngineWorkChatStore } from './types';
 import type { Json } from './json';
 import { isRecord, readString } from './json';
 
-const OPEN_CODE_MODEL = 'opencode';
-const OPEN_CODE_ENDPOINT = 'opencode';
+type EngineWorkChatStoreEngine = 'opencode' | 'freebuff';
+
+/** Engine identity persisted on Work rows, so a reload shows the engine that ran. */
+const ENGINE_LABELS = {
+  opencode: {
+    model: 'opencode',
+    sender: 'OpenCode Agent',
+    label: 'OpenCode Agent',
+    agent: 'opencode',
+  },
+  freebuff: {
+    model: 'freebuff',
+    sender: 'FreeBuff Agent',
+    label: 'FreeBuff Agent',
+    agent: 'freebuff',
+  },
+} as const;
 
 type EngineWorkChatDb = {
   getConvo: (userId: string, conversationId: string) => Promise<unknown>;
@@ -19,31 +34,34 @@ export function createEngineWorkChatPersistence(input: {
   tenantId: string | null;
   isTemporary?: boolean;
   interfaceConfig?: unknown;
+  engine?: EngineWorkChatStoreEngine;
 }): EngineWorkChatStore {
   const { db, userId, tenantId, isTemporary, interfaceConfig } = input;
   const context = { userId, isTemporary, interfaceConfig };
+  const engine: EngineWorkChatStoreEngine = input.engine === 'freebuff' ? 'freebuff' : 'opencode';
+  const labels = ENGINE_LABELS[engine];
 
   async function saveConversation(fields: {
     conversationId: string;
     title?: string;
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
-    appendMessageIds?: string[];
   }): Promise<void> {
     const saved = await db.saveConvo(
       context,
       {
         conversationId: fields.conversationId,
         isWork: true,
-        workModel: OPEN_CODE_MODEL,
+        workModel: labels.model,
+        workAgent: fields.workAgent ?? labels.agent,
         ...(fields.title ? { title: fields.title } : {}),
         ...(fields.workState ? { workState: fields.workState } : {}),
         ...(fields.create && tenantId != null ? { tenantId } : {}),
       },
       {
-        context: 'Work OpenCode chat conversation',
+        context: `Work ${labels.label} chat conversation`,
         ...(fields.create ? {} : { noUpsert: true }),
-        appendMessageIds: fields.appendMessageIds ?? [],
       },
     );
     if (!saved) {
@@ -64,6 +82,11 @@ export function createEngineWorkChatPersistence(input: {
           ? { tenantId: row.tenantId as string | null }
           : {}),
         ...(row.isWork === true ? { isWork: true } : {}),
+        ...(row.workAgent === 'coderax' ||
+        row.workAgent === 'opencode' ||
+        row.workAgent === 'freebuff'
+          ? { workAgent: row.workAgent }
+          : {}),
       };
     },
     saveConversation,
@@ -75,17 +98,20 @@ export function createEngineWorkChatPersistence(input: {
           parentMessageId: message.parentMessageId,
           conversationId: message.conversationId,
           text: message.text,
-          sender: message.isCreatedByUser ? 'User' : 'OpenCode',
+          /** The reply's parts, so the stored row renders the same text and tool
+           *  cards the stream showed. A user message never carries them. */
+          ...(message.content ? { content: message.content } : {}),
+          sender: message.isCreatedByUser ? 'User' : labels.sender,
           isCreatedByUser: message.isCreatedByUser,
-          model: OPEN_CODE_MODEL,
-          endpoint: OPEN_CODE_ENDPOINT,
+          model: labels.model,
+          endpoint: labels.model,
           ...(message.unfinished ? { unfinished: true } : {}),
           ...(message.error !== undefined ? { error: message.error } : {}),
         },
         {
           context: message.isCreatedByUser
-            ? 'Work OpenCode user message'
-            : 'Work OpenCode response',
+            ? `Work ${labels.label} user message`
+            : `Work ${labels.label} response`,
         },
       );
       if (!saved) {

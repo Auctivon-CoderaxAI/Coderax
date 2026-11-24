@@ -467,7 +467,7 @@ describe('GenerationJobManager terminal host actions', () => {
     await expect(store.getJob(streamId)).resolves.not.toHaveProperty('terminalHostActionPending');
   });
 
-  it('routes a post-drain approval expiry through the schedule-specific hook', async () => {
+  it('settles both schedule and terminal host actions after a post-drain approval expiry', async () => {
     const approvalHandler = jest.fn().mockResolvedValue(undefined);
     const genericHandler = jest.fn().mockResolvedValue(undefined);
     manager.setApprovalExpiredHandler(approvalHandler);
@@ -497,7 +497,12 @@ describe('GenerationJobManager terminal host actions', () => {
       streamId,
       expect.objectContaining({ scheduleId: 'schedule-1', providerDrained: true }),
     );
-    expect(genericHandler).not.toHaveBeenCalled();
+    expect(genericHandler).toHaveBeenCalledWith(
+      streamId,
+      expect.objectContaining({ scheduleId: 'schedule-1', providerDrained: true }),
+      [],
+      [],
+    );
     await expect(store.getJob(streamId)).resolves.not.toHaveProperty('terminalHostActionPending');
   });
 

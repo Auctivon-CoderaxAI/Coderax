@@ -55,6 +55,9 @@ and checks you could not run.
 
 ## Verification
 
+Local repository work has no model-selection or model-identity prerequisite. Follow the active
+task's authorization, privacy, cost and validation requirements without adding a model identity gate.
+
 For startup, auth, config, file, or message-loading changes, avoid serial database
 reads and reuse loaded request data. Run `npm run lighthouse` before completion:
 the CI lane adds 250 ms per Mongo query and checks the visible conversation's LCP.

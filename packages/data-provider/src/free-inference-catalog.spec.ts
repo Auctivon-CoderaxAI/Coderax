@@ -1,4 +1,5 @@
 import {
+  FREE_ENDPOINTS,
   buildFreeInferenceCustomEndpoints,
   buildFreeInferenceWorkSources,
   describeFreeInferenceCatalog,
@@ -9,6 +10,16 @@ const enabled = { freeInference: { enabled: true } };
 const openRouterKey = { OPENROUTER_API_KEY: 'test-key' };
 
 describe('zero-cost catalog to Work projection', () => {
+  it('pins every enabled OpenRouter model to the documented free-account RPM limit', () => {
+    const openRouterEndpoints = FREE_ENDPOINTS.filter(
+      (endpoint) => endpoint.provider === 'openrouter',
+    );
+    expect(openRouterEndpoints.length).toBeGreaterThan(0);
+    expect(openRouterEndpoints.every((endpoint) => endpoint.requestsPerMinuteLimit === 20)).toBe(
+      true,
+    );
+  });
+
   it('adds nothing while free inference is disabled', () => {
     const state = describeFreeInferenceCatalog(
       { freeInference: { enabled: false } },
@@ -65,7 +76,7 @@ describe('zero-cost catalog to Work projection', () => {
 
   it('does not route a free-tier provider when its account plan cannot be verified', () => {
     const state = describeFreeInferenceCatalog(enabled, {
-      CLOUDFLARE_API_TOKEN: 'k',
+      CLOUDFLARE_TOKEN: 'k',
       CLOUDFLARE_ACCOUNT_ID: 'acct',
     });
     const cloudflare = state.endpoints.find((endpoint) => endpoint.provider === 'cloudflare');

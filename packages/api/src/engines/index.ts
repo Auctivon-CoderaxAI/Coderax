@@ -38,3 +38,12 @@ export {
   OpenHandsEventMapper,
   startOpenHandsRun,
 } from './openhands/adapter';
+export type { FreebuffAdapterOptions, LoadedFreebuffSdk } from './freebuff/adapter';
+export {
+  createFreebuffAdapter,
+  describeFreebuff,
+  freebuffCapabilities,
+  loadFreebuffSdk,
+  probeFreebuff,
+  startFreebuffRun,
+} from './freebuff/adapter';

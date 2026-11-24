@@ -1,8 +1,8 @@
 // client/src/hooks/Nav/__tests__/usePanelActive.spec.tsx
-import type { ReactNode } from 'react';
 import { RecoilRoot } from 'recoil';
 import { MemoryRouter } from 'react-router-dom';
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { ActivePanelProvider, useActivePanel } from '~/Providers/ActivePanelContext';
 import usePanelActive from '../usePanelActive';
 import store from '~/store';
@@ -22,10 +22,9 @@ const renderAt = ({
       </MemoryRouter>
     </RecoilRoot>
   );
-  return renderHook(
-    () => ({ isActive: usePanelActive('mcp-builder'), panel: useActivePanel() }),
-    { wrapper },
-  );
+  return renderHook(() => ({ isActive: usePanelActive('mcp-builder'), panel: useActivePanel() }), {
+    wrapper,
+  });
 };
 
 describe('usePanelActive', () => {
@@ -51,6 +50,11 @@ describe('usePanelActive', () => {
       expect(renderAt({ path }).result.current.isActive).toBe(false);
     },
   );
+
+  // Game Studio is route-backed but keeps the ordinary shell, so the panel stays visible.
+  it.each(['/games', '/games/lantern-run'])('stays active on %s', (path) => {
+    expect(renderAt({ path }).result.current.isActive).toBe(true);
+  });
 
   it('updates when the active panel changes', () => {
     const { result } = renderAt({ active: 'prompts' });

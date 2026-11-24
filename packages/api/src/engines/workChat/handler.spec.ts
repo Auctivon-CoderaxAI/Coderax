@@ -17,7 +17,7 @@ const enabledConfig = (
 ): EngineWorkChatConfig =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode' },
+      workChat: { enabled: true, mode: 'cloud' },
       opencode: { enabled: true },
       ...overrides,
     },
@@ -170,10 +170,17 @@ type FakeRequestOptions = {
 };
 
 function fakeRequest(options: FakeRequestOptions = {}): Request {
+  let body = options.body;
+  if (body === undefined) {
+    body = { text: 'Fix it', conversationId: 'new' };
+  }
+  if (body != null && typeof body === 'object' && !Array.isArray(body)) {
+    body = { workAgent: 'opencode', ...body };
+  }
   return {
     method: options.method ?? 'POST',
     path: options.path ?? '/chat',
-    body: options.body === undefined ? { text: 'Fix it', conversationId: 'new' } : options.body,
+    body,
     user:
       options.user === undefined
         ? { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' }
@@ -241,7 +248,10 @@ describe('createEngineWorkChatHandler', () => {
       storeFor: () => fakeStore().store,
       runtimeFor: () => runner,
     })(
-      fakeRequest({ user: { id: 'member', role: 'USER', tenantId: 'tenant-1' } }),
+      fakeRequest({
+        user: { id: 'member', role: 'USER', tenantId: 'tenant-1' },
+        body: { text: 'Fix it', conversationId: 'new', workAgent: null },
+      }),
       response as unknown as Response,
       next,
     );
@@ -433,7 +443,7 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.body).toMatchObject({
       code: 'WORK_ENGINE_START_FAILED',
       error: 'timeout',
-      message: 'The OpenCode run timed out.',
+      message: 'The execution engine run timed out.',
     });
     expect(store.saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
@@ -554,7 +564,6 @@ describe('createEngineWorkChatHandler', () => {
       expect.objectContaining({
         conversationId: CONVERSATION_ID,
         workState: 'completed',
-        appendMessageIds: [`${USER_MESSAGE_ID}_`],
       }),
     );
     expect(release).toHaveBeenCalledWith(
@@ -566,6 +575,78 @@ describe('createEngineWorkChatHandler', () => {
       conversationId: CONVERSATION_ID,
     });
     expect(response.ended).toBe(true);
+  });
+
+  it('streams each tool call with its arguments and replaces it with its result', async () => {
+    const { store, saveMessage } = fakeStore();
+    const { runner } = fakeRunner([
+      { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'a.txt' },
+      { type: 'text_delta', text: 'Listed it.' },
+    ]);
+    const content = [
+      { type: 'text', text: 'Listed it.' },
+      {
+        type: 'tool_call',
+        tool_call: {
+          id: 'call-1',
+          name: 'bash',
+          type: 'tool_call',
+          progress: 1,
+          args: { command: 'ls' },
+          runStepStatus: 'completed',
+          output: 'a.txt',
+        },
+      },
+    ];
+
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'List the files', conversationId: CONVERSATION_ID, messageId: USER_MESSAGE_ID },
+    });
+
+    const events = sseEvents(response);
+    const toolParts = events.filter((event) => event.type === 'tool_call');
+    expect(toolParts[0]).toMatchObject({
+      index: 1,
+      tool_call: {
+        id: 'call-1',
+        name: 'bash',
+        type: 'tool_call',
+        args: { command: 'ls' },
+      },
+    });
+    expect(toolParts[toolParts.length - 1]).toMatchObject({
+      index: 1,
+      tool_call: {
+        args: { command: 'ls' },
+        output: 'a.txt',
+        runStepStatus: 'completed',
+      },
+    });
+    /* The final frame carries the same parts, because the client replaces the
+     * streamed message with it. */
+    expect(events.find((event) => event.final === true)?.responseMessage).toEqual({
+      messageId: `${USER_MESSAGE_ID}_`,
+      parentMessageId: USER_MESSAGE_ID,
+      conversationId: CONVERSATION_ID,
+      text: 'Listed it.',
+      content,
+      sender: 'OpenCode',
+      isCreatedByUser: false,
+      unfinished: false,
+    });
+    /* The stored reply keeps those parts, so a reload renders the same turn. */
+    expect(saveMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        messageId: `${USER_MESSAGE_ID}_`,
+        text: 'Listed it.',
+        content,
+        isCreatedByUser: false,
+      }),
+    );
   });
 
   it('generates a message id and defaults a missing parent to 0', async () => {
@@ -586,6 +667,32 @@ describe('createEngineWorkChatHandler', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
     expect(saved.parentMessageId).toBe('0');
+  });
+
+  it('mints a fresh message id for a new conversation even when the client retries its own', async () => {
+    const { store, saveMessage } = fakeStore();
+    const { runner } = fakeRunner([]);
+
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: {
+        text: 'Fix it',
+        conversationId: 'new',
+        messageId: USER_MESSAGE_ID,
+        parentMessageId: 'parent-1',
+      },
+    });
+
+    const saved = saveMessage.mock.calls[0][0] as { messageId: string };
+    expect(saved.messageId).not.toBe(USER_MESSAGE_ID);
+    expect(saved.messageId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(sseEvents(response)[0]).toMatchObject({
+      created: true,
+      message: { messageId: saved.messageId, parentMessageId: 'parent-1' },
+    });
   });
 
   it('cancels the run and records failure when the user message cannot be saved', async () => {
@@ -831,8 +938,8 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.statusCode).toBe(200);
     expect(sseEvents(response).find((event) => event.final === true)).toMatchObject({
       terminalStatus: 'error',
-      responseMessage: { unfinished: true, error: 'The OpenCode run failed.' },
-      error: { message: 'The OpenCode run failed.' },
+      responseMessage: { unfinished: true, error: 'The execution engine run failed.' },
+      error: { message: 'The execution engine run failed.' },
     });
     expect(saveConversation).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: CONVERSATION_ID, workState: 'failed' }),

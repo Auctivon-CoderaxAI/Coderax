@@ -25,6 +25,7 @@ const {
   writeAttachmentEvent,
   createToolExecuteHandler,
   createOwnedToolEndHandler,
+  createModelTimingTracker,
   createBackgroundCodeResultHandler: createCodeHarvestHandler,
   HOST_FILE_AUTHORING_ARTIFACT_KEY,
   isCodeSessionToolName,
@@ -39,11 +40,7 @@ const {
   stampCommandExecutor,
 } = require('@coderax/api');
 const { processFileCitations } = require('~/server/services/Files/Citations');
-const {
-  processCodeOutput,
-  runPreviewFinalize,
-  buildPreviewUpdatePayload,
-} = require('~/server/services/Files/Code/process');
+const { processCodeOutput, runPreviewFinalize } = require('~/server/services/Files/Code/process');
 const { preflightCodeOutputBatch } = require('~/server/services/Files/Code/preflight');
 const { saveBase64Image } = require('~/server/services/Files/process');
 
@@ -107,14 +104,23 @@ class ModelEndHandler {
    *   a no-op for them even when the map is provided.
    * @param {(data: Record<string, unknown>) => Promise<void> | void} [emitUsage] Optional
    *   callback to stream per-call token usage to the client.
+   * @param {import('@coderax/api').ModelTimingTracker | null} [modelTiming] Optional
+   *   tracker holding this call's open latency window; closing it is what makes
+   *   first-token latency readable after the fact.
    */
-  constructor(collectedUsage, collectedThoughtSignatures = null, emitUsage = null) {
+  constructor(
+    collectedUsage,
+    collectedThoughtSignatures = null,
+    emitUsage = null,
+    modelTiming = null,
+  ) {
     if (!Array.isArray(collectedUsage)) {
       throw new Error('collectedUsage must be an array');
     }
     this.collectedUsage = collectedUsage;
     this.collectedThoughtSignatures = collectedThoughtSignatures;
     this.emitUsage = emitUsage;
+    this.modelTiming = modelTiming;
   }
 
   finalize(errorMessage) {
@@ -214,6 +220,22 @@ class ModelEndHandler {
       }
 
       /**
+       * Close this call's latency window. Logged here, at the boundary that
+       * knows the conversation, because the persisted message is only written
+       * once the whole turn (including later tool loops) finishes — a turn
+       * that never saves would otherwise leave no latency record at all.
+       */
+      if (this.modelTiming) {
+        const timing = this.modelTiming.end(modelTimingKey(metadata), taggedUsage);
+        if (timing != null) {
+          logger.info('[ModelTiming] model call completed', {
+            conversationId: metadata?.thread_id,
+            ...timing,
+          });
+        }
+      }
+
+      /**
        * `additional_kwargs.signatures` is a flat array indexed by response
        * part position (text + functionCall interleaved). `tool_calls` is
        * just the function calls in their original order. Non-empty
@@ -242,6 +264,17 @@ class ModelEndHandler {
       this.finalize(errorMessage);
     }
   }
+}
+
+/**
+ * Identity for a model call's latency window. Parallel agents share a `run_id`
+ * but not a graph node, so both are needed to keep their calls apart, and a
+ * resumed run keeps the same pair across processes.
+ * @param {GraphRunnableConfig['configurable'] | undefined} metadata
+ * @returns {string}
+ */
+function modelTimingKey(metadata) {
+  return `${metadata?.run_id ?? ''}\u0000${metadata?.langgraph_node ?? ''}`;
 }
 
 /**
@@ -392,6 +425,8 @@ function feedSubagentAggregator(aggregator, event, applyChildTiming) {
  *   which usage events and which content parts came after it.
  * @param {Array<TTokenUsageEvent>} [options.usageEmitSink] - Array collecting each emitted
  *   `on_token_usage` payload (incl. cost) so the response's usage rollup can be persisted.
+ * @param {import('@coderax/api').ModelTimingTracker} [options.modelTimingSink] - Caller-owned
+ *   tracker for this response's model calls, persisted on `metadata.modelTiming`.
  * @param {(toolName: string, agentId?: string) => string | undefined} [options.resolveMcpServerName]
  * @returns {Record<string, t.EventHandler>} The default handlers.
  * @throws {Error} If the request is not found.
@@ -413,6 +448,7 @@ function getDefaultHandlers({
   usageCost = null,
   contextUsageSink = null,
   usageEmitSink = null,
+  modelTimingSink = null,
   eventChildActivity = null,
   resolveMcpServerName = null,
   toolTimingReplayEvents = [],
@@ -520,12 +556,17 @@ function getDefaultHandlers({
     replayEvents: toolTimingReplayEvents,
     emit: emitForJob,
   });
+  /** Windows are opened here and closed by `ModelEndHandler`; a caller-owned
+   *  tracker is the same instance the save path reads, so timings recorded for
+   *  a response end up on that response's message. */
+  const modelTiming = modelTimingSink ?? createModelTimingTracker();
   const handlers = {
     [StepEvents.ON_TOOL_CALLS_DISPATCHED]: toolTiming.dispatch,
     [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(
       collectedUsage,
       collectedThoughtSignatures,
       emitTokenUsage,
+      modelTiming,
     ),
     [GraphEvents.TOOL_END]: createOwnedToolEndHandler(toolEndCallback, logger),
     [GraphEvents.ON_RUN_STEP]: {
@@ -536,6 +577,16 @@ function getDefaultHandlers({
        * @param {GraphRunnableConfig['configurable']} [metadata] The runnable metadata.
        */
       handle: async (event, data, metadata) => {
+        /** The installed SDK dispatches this step from its streaming handler,
+         *  on the chunk carrying the call's first delta, so it opens a decode
+         *  window: first-token latency is not derivable from it (see
+         *  `modelTiming.ts`). */
+        if (data?.stepDetails?.type === StepTypes.MESSAGE_CREATION) {
+          modelTiming.start(modelTimingKey(metadata), {
+            anchor: 'run_step',
+            stepId: data.stepDetails.id,
+          });
+        }
         for (const toolCall of data?.stepDetails?.tool_calls ?? []) {
           const toolName = toolCall?.name ?? toolCall?.function?.name;
           if (toolCall?.name == null && typeof toolName === 'string') {
@@ -698,6 +749,7 @@ function getDefaultHandlers({
        */
       handle: async (event, data, metadata) => {
         aggregateContent({ event, data });
+        modelTiming.firstDelta(modelTimingKey(metadata));
         if (checkIfLastAgent(metadata?.last_agent_id, metadata?.langgraph_node)) {
           await emitForJob({ event, data });
         } else if (!metadata?.hide_sequential_outputs) {
@@ -714,6 +766,7 @@ function getDefaultHandlers({
        */
       handle: async (event, data, metadata) => {
         aggregateContent({ event, data });
+        modelTiming.firstDelta(modelTimingKey(metadata));
         if (checkIfLastAgent(metadata?.last_agent_id, metadata?.langgraph_node)) {
           await emitForJob({ event, data });
         } else if (!metadata?.hide_sequential_outputs) {
@@ -722,6 +775,19 @@ function getDefaultHandlers({
       },
     },
   };
+
+  /** @librechat/agents 4.0.4 defines this event without ever dispatching it, so
+   *  the handler is currently inert and the run step above is the only anchor.
+   *  It stays registered for the SDK version that emits `on_chat_model_start`:
+   *  the request boundary is the exact anchor for first-token latency, and it
+   *  takes precedence over the run step by opening first. */
+  if (GraphEvents.CHAT_MODEL_START) {
+    handlers[GraphEvents.CHAT_MODEL_START] = {
+      handle: async (event, data, metadata) => {
+        modelTiming.start(modelTimingKey(metadata), { anchor: 'model_start' });
+      },
+    };
+  }
 
   if (toolExecuteOptions) {
     handlers[GraphEvents.ON_TOOL_EXECUTE] = createToolExecuteHandler(toolExecuteOptions);

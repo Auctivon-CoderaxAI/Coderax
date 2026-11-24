@@ -8,6 +8,7 @@ import type {
 } from './types/traces';
 import type { TInsightsAccessResponse, TInsightsParams, TInsightsResponse } from './types/insights';
 import type { ScheduleMCPConsentView, ConfirmScheduleMCPConsent } from './types/scheduleConsent';
+import type { ToolStandingAuthorization, ToolStandingAuthorizationInput } from './standing';
 import type { TFileConfig } from './file-config';
 import type * as tl from './types/tools';
 import type * as t from './types';
@@ -594,6 +595,20 @@ export const resetToolApprovalGrants = (params: {
   toolName?: string;
 }): Promise<{ reset: true }> => request.post(endpoints.resetToolApprovalGrants(), params);
 
+export const getToolStandingAuthorizations = (): Promise<{
+  authorizations: ToolStandingAuthorization[];
+}> => request.get(endpoints.toolStandingAuthorizations());
+
+export const createToolStandingAuthorization = (
+  params: ToolStandingAuthorizationInput,
+): Promise<{ authorization: ToolStandingAuthorization }> =>
+  request.post(endpoints.toolStandingAuthorizations(), params);
+
+export const revokeToolStandingAuthorization = (
+  authorizationId: string,
+): Promise<{ revoked: true }> =>
+  request.delete(endpoints.toolStandingAuthorizationById(authorizationId));
+
 export const getToolCalls = (params: q.GetToolCallParams): Promise<q.ToolCallResults> => {
   return request.get(
     endpoints.agents({
@@ -1050,6 +1065,10 @@ export function getWorkAgents(): Promise<t.TWorkAgentsResponse> {
   return request.get(endpoints.workAgents());
 }
 
+export function getWorkAgentIdentities(): Promise<t.TWorkAgentIdentitiesResponse> {
+  return request.get(endpoints.workAgentIdentities());
+}
+
 export function getWorkReadiness(): Promise<t.TWorkReadinessResponse> {
   return request.get(endpoints.workReadiness());
 }
@@ -1108,6 +1127,38 @@ export function updateProject(payload: t.TUpdateChatProjectRequest): Promise<t.T
 
 export function deleteProject(projectId: string): Promise<t.TDeleteChatProjectResponse> {
   return request.delete(endpoints.projectById(projectId));
+}
+
+export function listGameProjects(
+  params?: q.GameProjectListParams,
+): Promise<t.TGameProjectListResponse> {
+  return request.get(endpoints.gameProjects(params ?? {}));
+}
+
+export function createGameProject(payload: t.TCreateGameProjectRequest): Promise<t.TGameProject> {
+  return request.post(endpoints.gameProjects(), payload);
+}
+
+export function getGameProjectById(gameId: string): Promise<t.TGameProject> {
+  return request.get(endpoints.gameProjectById(gameId));
+}
+
+export function updateGameProject(payload: t.TUpdateGameProjectRequest): Promise<t.TGameProject> {
+  const { gameId, ...data } = payload;
+  return request.patch(endpoints.gameProjectById(gameId), data);
+}
+
+export function deleteGameProject(gameId: string): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.gameProjectById(gameId));
+}
+
+export function saveGameSpec(payload: t.TSaveGameSpecRequest): Promise<t.TGameProject> {
+  const { gameId, ...data } = payload;
+  return request.put(endpoints.gameProjectSpec(gameId), data);
+}
+
+export function getGameCapabilities(): Promise<t.TGameCapabilities> {
+  return request.get(endpoints.gameCapabilities());
 }
 
 export function getProjectFiles(projectId: string): Promise<t.TChatProjectFile[]> {

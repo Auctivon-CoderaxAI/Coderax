@@ -88,8 +88,14 @@ describe('Work chat persistence adapter', () => {
         isTemporary: true,
         interfaceConfig: { interface: { customWelcome: 'hi' } },
       },
-      { conversationId: 'conversation-1', isWork: true, workModel: 'opencode', title: 'Fix' },
-      { context: 'Work OpenCode chat conversation', appendMessageIds: [] },
+      {
+        conversationId: 'conversation-1',
+        isWork: true,
+        workModel: 'opencode',
+        workAgent: 'opencode',
+        title: 'Fix',
+      },
+      { context: 'Work OpenCode Agent chat conversation' },
     );
 
     await store.loadTranscript('conversation-1');
@@ -109,7 +115,6 @@ describe('Work chat persistence adapter', () => {
       title: 'Fix the build',
       workState: 'running',
       create: true,
-      appendMessageIds: ['message-1'],
     });
 
     expect(db.saveConvo).toHaveBeenCalledWith(
@@ -118,18 +123,51 @@ describe('Work chat persistence adapter', () => {
         conversationId: 'conversation-1',
         isWork: true,
         workModel: 'opencode',
+        workAgent: 'opencode',
         title: 'Fix the build',
         workState: 'running',
         tenantId: 'tenant-1',
       },
-      {
-        context: 'Work OpenCode chat conversation',
-        appendMessageIds: ['message-1'],
-      },
+      { context: 'Work OpenCode Agent chat conversation' },
     );
   });
 
-  it('updates without a tenant or upsert, defaulting the appended ids', async () => {
+  it('labels Freebuff conversations and messages with the Freebuff engine', async () => {
+    const db = fakeDb();
+    const store = createEngineWorkChatPersistence({
+      db,
+      userId: 'owner',
+      tenantId: null,
+      interfaceConfig: {},
+      engine: 'freebuff',
+    });
+
+    await store.saveConversation({ conversationId: 'conversation-1', workState: 'completed' });
+    expect(db.saveConvo).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner' }),
+      expect.objectContaining({ workModel: 'freebuff', workState: 'completed' }),
+      { context: 'Work FreeBuff Agent chat conversation', noUpsert: true },
+    );
+
+    await store.saveMessage({
+      messageId: 'message-1',
+      parentMessageId: 'message-0',
+      conversationId: 'conversation-1',
+      text: 'Done',
+      isCreatedByUser: false,
+    });
+    expect(db.saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner' }),
+      expect.objectContaining({
+        sender: 'FreeBuff Agent',
+        model: 'freebuff',
+        endpoint: 'freebuff',
+      }),
+      { context: 'Work FreeBuff Agent response' },
+    );
+  });
+
+  it('updates without a tenant or upsert', async () => {
     const db = fakeDb();
     const store = storeFor(db, { tenantId: 'tenant-1' });
 
@@ -141,12 +179,12 @@ describe('Work chat persistence adapter', () => {
         conversationId: 'conversation-1',
         isWork: true,
         workModel: 'opencode',
+        workAgent: 'opencode',
         workState: 'completed',
       },
       {
-        context: 'Work OpenCode chat conversation',
+        context: 'Work OpenCode Agent chat conversation',
         noUpsert: true,
-        appendMessageIds: [],
       },
     );
     const fields = db.saveConvo.mock.calls[0][1] as Record<string, unknown>;
@@ -187,7 +225,7 @@ describe('Work chat persistence adapter', () => {
         model: 'opencode',
         endpoint: 'opencode',
       },
-      { context: 'Work OpenCode user message' },
+      { context: 'Work OpenCode Agent user message' },
     );
 
     await store.saveMessage({
@@ -207,15 +245,61 @@ describe('Work chat persistence adapter', () => {
         parentMessageId: 'message-1',
         conversationId: 'conversation-1',
         text: 'partial',
-        sender: 'OpenCode',
+        sender: 'OpenCode Agent',
         isCreatedByUser: false,
         model: 'opencode',
         endpoint: 'opencode',
         unfinished: true,
         error: 'The run was cancelled.',
       },
-      { context: 'Work OpenCode response' },
+      { context: 'Work OpenCode Agent response' },
     );
+  });
+
+  it('stores the parts a reply streamed, and omits them when it streamed none', async () => {
+    const db = fakeDb();
+    const store = storeFor(db);
+    const content = [
+      { type: 'text', text: 'Listed it.' },
+      {
+        type: 'tool_call',
+        tool_call: {
+          id: 'call-1',
+          name: 'bash',
+          type: 'tool_call',
+          progress: 1,
+          args: { command: 'ls' },
+          runStepStatus: 'completed',
+          output: 'a.txt',
+        },
+      },
+    ];
+
+    await store.saveMessage({
+      messageId: 'message-2',
+      parentMessageId: 'message-1',
+      conversationId: 'conversation-1',
+      text: 'Listed it.',
+      content,
+      isCreatedByUser: false,
+    });
+
+    expect(db.saveMessage.mock.calls[0][1]).toMatchObject({
+      messageId: 'message-2',
+      text: 'Listed it.',
+      content,
+      sender: 'OpenCode',
+    });
+
+    /* A turn that streamed no parts keeps the row it always wrote. */
+    await store.saveMessage({
+      messageId: 'message-3',
+      parentMessageId: 'message-2',
+      conversationId: 'conversation-1',
+      text: 'Plain answer',
+      isCreatedByUser: false,
+    });
+    expect(db.saveMessage.mock.calls[1][1]).not.toHaveProperty('content');
   });
 
   it('refuses to report a message the database did not save', async () => {

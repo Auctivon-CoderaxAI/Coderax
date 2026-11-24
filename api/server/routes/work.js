@@ -90,6 +90,7 @@ const depsFor = (req) => {
   const configuredListModels = deps.listModels;
   deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
   deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
+  deps.workChat = req.config?.config?.engines?.workChat ?? null;
   /** An engine run is live state too; fall back to the native job registry. */
   const nativeGetRunState = deps.getRunState;
   deps.getRunState = async (input) =>
@@ -112,13 +113,14 @@ const engineChat = createEngineWorkChatHandler({
   runtimeFor: getEngineWorkChatRuntime,
   reserveRun: reserveWorkRun,
   releaseRun: releaseWorkRun,
-  storeFor: (req) =>
+  storeFor: (req, engine) =>
     createEngineWorkChatPersistence({
       db,
       userId: req.user?.id,
       tenantId: req.user?.tenantId ?? null,
       isTemporary: req.body?.isTemporary === true,
       interfaceConfig: req.config?.interfaceConfig,
+      engine,
     }),
   logger,
 });
@@ -145,8 +147,13 @@ module.exports = createWorkApiRouter({
       // instead of being rebuilt for each request.
       const deps = {
         ...depsFor(req),
-        routing: () => getFreeRouterForConfig(req.config?.config).snapshot(),
-        engines: () => engineRuntimeFor(req).snapshot(),
+        // Pass environment variable names only; status reports presence without
+        // receiving or returning any credential values.
+        routing: () =>
+          getFreeRouterForConfig(req.config?.config, {
+            credentialEnvNames: Object.keys(process.env),
+          }).snapshot(),
+        engines: () => engineRuntimeFor(req).refreshSnapshot(),
       };
       createWorkRouter(deps)(req, res, next);
     });

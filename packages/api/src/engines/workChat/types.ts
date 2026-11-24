@@ -1,4 +1,4 @@
-import type { EngineResult, EngineRunHandle } from '../types';
+import type { EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { ExecutionEnginesConfig } from '../service';
 import type { EngineStatusSnapshot } from '../registry';
 
@@ -11,19 +11,22 @@ export type EngineWorkChatStore = {
     title?: string;
     tenantId?: string | null;
     isWork?: boolean;
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
   } | null>;
   saveConversation: (input: {
     conversationId: string;
     title?: string;
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
-    appendMessageIds?: string[];
   }) => Promise<void>;
   saveMessage: (input: {
     messageId: string;
     parentMessageId: string;
     conversationId: string;
     text: string;
+    /** Content parts the turn streamed, so a reload renders the same message. */
+    content?: Array<Record<string, unknown>>;
     isCreatedByUser: boolean;
     unfinished?: boolean;
     error?: boolean | string;
@@ -40,7 +43,9 @@ export type RunScope = {
 };
 
 export type EngineWorkChatRunner = {
-  start: (input: RunScope & { prompt: string }) => Promise<EngineResult<EngineRunHandle>>;
+  start: (
+    input: RunScope & { prompt: string; engine?: EngineId },
+  ) => Promise<EngineResult<EngineRunHandle>>;
   state: (input: RunScope) => string | null;
   cancel: (input: RunScope) => Promise<boolean>;
   /** The handler owns the lease until terminal persistence has finished. */

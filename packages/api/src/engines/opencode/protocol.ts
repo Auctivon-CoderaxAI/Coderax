@@ -42,14 +42,30 @@ function toolName(part: Json): string {
   return readString(part.tool) ?? 'tool';
 }
 
+/**
+ * A tool's arguments only exist once they are non-empty: the `pending` state
+ * reports `input: {}` before the model's arguments have been parsed, and a
+ * later state carries the real ones.
+ */
+function hasArguments(input: unknown): boolean {
+  return isRecord(input) ? Object.keys(input).length > 0 : input != null;
+}
+
 export class OpenCodeEventMapper {
   private readonly sessionId: string;
   /** Text emitted for each part, reconciled across cumulative and delta forms. */
   private readonly emittedText = new Map<string, string>();
   /** First-seen order for composing replacement snapshots across parts. */
   private readonly textOrder: string[] = [];
-  private readonly toolStatus = new Map<string, string>();
+  /** Calls already reported, and calls whose result has been: OpenCode
+   *  repeats a part's whole state, so each is emitted once. */
+  private readonly publishedCalls = new Set<string>();
+  private readonly settledCalls = new Set<string>();
   private readonly filePaths = new Set<string>();
+  /** Roles reported by message.updated: a session streams every part, including
+   *  the prompt the user sent, and only assistant text may reach the reply. */
+  private readonly messageRoles = new Map<string, string>();
+  private readonly userTextParts = new Set<string>();
   private terminal: 'completed' | 'failed' | 'cancelled' | null = null;
 
   constructor(sessionId: string) {
@@ -71,6 +87,8 @@ export class OpenCodeEventMapper {
     }
 
     switch (type) {
+      case 'message.updated':
+        return this.mapMessageUpdate(properties);
       case 'message.part.updated':
         return this.mapPartUpdate(properties);
       case 'message.part.delta':
@@ -99,6 +117,19 @@ export class OpenCodeEventMapper {
     return this.textOrder.map((id) => this.emittedText.get(id) ?? '').join('');
   }
 
+  private mapMessageUpdate(properties: Json): EngineEvent[] {
+    const info = isRecord(properties.info) ? properties.info : null;
+    if (!info || readString(info.sessionID) !== this.sessionId) {
+      return [];
+    }
+    const id = readString(info.id);
+    const role = readString(info.role);
+    if (id && role) {
+      this.messageRoles.set(id, role);
+    }
+    return [];
+  }
+
   private mapPartUpdate(properties: Json): EngineEvent[] {
     const part = isRecord(properties.part) ? properties.part : null;
     if (!part || readString(part.sessionID) !== this.sessionId) {
@@ -109,6 +140,11 @@ export class OpenCodeEventMapper {
       const id = readString(part.id);
       const text = readString(part.text);
       if (!id || text === undefined) {
+        return [];
+      }
+      const messageId = readString(part.messageID) ?? readString(properties.messageID);
+      if (messageId && this.messageRoles.get(messageId) === 'user') {
+        this.userTextParts.add(id);
         return [];
       }
       const emitted = this.emittedText.get(id) ?? '';
@@ -162,6 +198,13 @@ export class OpenCodeEventMapper {
     if (!partId || delta === undefined) {
       return [];
     }
+    const messageId = readString(properties.messageID);
+    if (
+      this.userTextParts.has(partId) ||
+      (messageId && this.messageRoles.get(messageId) === 'user')
+    ) {
+      return [];
+    }
     if (!this.emittedText.has(partId)) {
       this.textOrder.push(partId);
     }
@@ -179,47 +222,35 @@ export class OpenCodeEventMapper {
     if (!state) {
       return [];
     }
-    const status = readString(state.status) ?? 'unknown';
     const tool = toolName(part);
-    const previous = this.toolStatus.get(callId);
-    if (previous === status) {
-      return [];
-    }
-    this.toolStatus.set(callId, status);
+    const status = readString(state.status) ?? 'unknown';
+    const terminal = status === 'completed' || status === 'error';
+    const input = hasArguments(state.input) ? state.input : undefined;
 
-    if (status === 'completed') {
-      return [
-        {
-          type: 'tool_result',
-          callId,
-          tool,
-          ok: true,
-          ...(toolOutput(state) ? { output: toolOutput(state) } : {}),
-        },
-      ];
+    const events: EngineEvent[] = [];
+    /** Publish the call once its arguments are known, or when it settles
+     *  without ever reporting them, so a result never precedes its call. */
+    if (!this.publishedCalls.has(callId) && (input !== undefined || terminal)) {
+      this.publishedCalls.add(callId);
+      events.push({
+        type: 'tool_call',
+        callId,
+        tool,
+        ...(input !== undefined ? { input } : {}),
+      });
     }
-    if (status === 'error') {
-      return [
-        {
-          type: 'tool_result',
-          callId,
-          tool,
-          ok: false,
-          ...(toolOutput(state) ? { output: toolOutput(state) } : {}),
-        },
-      ];
+    if (terminal && !this.settledCalls.has(callId)) {
+      this.settledCalls.add(callId);
+      const output = toolOutput(state);
+      events.push({
+        type: 'tool_result',
+        callId,
+        tool,
+        ok: status === 'completed',
+        ...(output ? { output } : {}),
+      });
     }
-    if (previous === undefined) {
-      return [
-        {
-          type: 'tool_call',
-          callId,
-          tool,
-          ...(state.input !== undefined ? { input: state.input } : {}),
-        },
-      ];
-    }
-    return [];
+    return events;
   }
 
   private mapPermission(properties: Json): EngineEvent[] {

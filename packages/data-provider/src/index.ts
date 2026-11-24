@@ -3,6 +3,7 @@ export * from './azure';
 export * from './bedrock';
 export * from './balance';
 export * from './config';
+export * from './games';
 export * from './footer';
 export * from './theme';
 export * from './langchain';
@@ -12,6 +13,7 @@ export * from './resolve-llm-delivery-path';
 export * from './cyvox-model';
 export * from './model-routing';
 export * from './free-inference';
+export * from './provider-fallback';
 export * from './fireworks-glm';
 /* messages  */
 export * from './messages';
@@ -112,3 +114,4 @@ export * from './code/workspace';
 export * from './types/scheduleConsent';
 
 export * from './approval';
+export * from './standing';

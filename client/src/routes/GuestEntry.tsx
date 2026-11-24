@@ -1,11 +1,18 @@
 /* eslint-disable i18next/no-literal-string */
-import { useEffect } from 'react';
+import { useEffect, type MouseEventHandler } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
+import {
+  clearPostLoginRedirect,
+  getPostLoginRedirect,
+  isSafeRedirect,
+  persistRedirectToSession,
+  REDIRECT_PARAM,
+} from '~/utils';
 import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
 import SocialLoginRender from '~/components/Auth/SocialLoginRender';
+import { getOAuthErrorKey } from '~/components/Auth/oauthError';
 import { useAuthContext } from '~/hooks/AuthContext';
-import { getPostLoginRedirect } from '~/utils';
 import { useLocalize } from '~/hooks';
 
 /**
@@ -16,15 +23,36 @@ import { useLocalize } from '~/hooks';
 export default function GuestEntry() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const localize = useLocalize();
-  const { startupConfig, isFetching, refetchStartupConfig } =
+  const { startupConfig, startupConfigError, isFetching, refetchStartupConfig } =
     useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
-  const startupConfigLoaded = startupConfig !== null;
+  const localize = useLocalize();
+  const configReady = startupConfig != null && startupConfigError == null && !isFetching;
   const passwordLoginEnabled = startupConfig?.passwordLoginEnabled === true;
   const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
   const shouldEnterWorkspace =
-    startupConfigLoaded && isAuthenticated && (!passwordLoginEnabled || isOwner);
+    configReady && isAuthReady && isAuthenticated && (!passwordLoginEnabled || isOwner);
+
+  const searchParams = new URLSearchParams(search);
+  const oauthErrorKey = getOAuthErrorKey(searchParams.get('error'));
+  const prepareSocialSignIn: MouseEventHandler<HTMLAnchorElement> = (event) => {
+    // A modified click opens a separate tab and does not start a handoff in this tab.
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    const destination = searchParams.get(REDIRECT_PARAM);
+    if (destination && isSafeRedirect(destination)) {
+      persistRedirectToSession(destination);
+    } else {
+      clearPostLoginRedirect();
+    }
+  };
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
@@ -42,8 +70,12 @@ export default function GuestEntry() {
     );
   }
 
-  if (!startupConfigLoaded) {
-    // Unknown config is not evidence that passwordless guest access is enabled.
+  /**
+   * Unknown config is not evidence that passwordless guest access is enabled,
+   * so an owner password is asked for until the server answers. An OAuth error
+   * still belongs to the sign-in surface and is reported below.
+   */
+  if (startupConfig == null && startupConfigError == null && !oauthErrorKey) {
     return (
       <div className="space-y-4">
         <PasswordLoginForm />
@@ -58,18 +90,33 @@ export default function GuestEntry() {
     );
   }
 
-  if (passwordLoginEnabled) {
+  if (configReady && passwordLoginEnabled) {
     return <PasswordLoginForm />;
   }
 
   return (
     <div role="alert" className="text-text-secondary space-y-4 text-center">
-      <p className="text-text-primary text-lg font-semibold">Coderax is unavailable</p>
-      <p>
-        We could not establish a guest session with the server. Your workspace is protected; no
-        sign-in is required when guest access is available.
+      <p className="text-text-primary text-lg font-semibold">
+        {oauthErrorKey ? localize(oauthErrorKey) : 'Coderax is unavailable'}
       </p>
-      <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
+      {configReady ? (
+        <>
+          {!oauthErrorKey && (
+            <p>
+              We could not establish a guest session with the server. Your workspace is protected;
+              no sign-in is required when guest access is available.
+            </p>
+          )}
+          <SocialLoginRender
+            startupConfig={startupConfig}
+            showPasskey
+            showEmailDivider={false}
+            onSocialSignIn={prepareSocialSignIn}
+          />
+        </>
+      ) : (
+        <p>{localize('com_auth_error_login_server')}</p>
+      )}
       <button
         className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
         type="button"

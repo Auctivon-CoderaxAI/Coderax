@@ -161,7 +161,7 @@ export default function HeaderMenu({
                     size="icon"
                     variant="outline"
                     className={cn(
-                      'bg-presentation hover:bg-surface-active-alt relative size-9 shrink-0 rounded-xl',
+                      'bg-presentation hover:bg-surface-active-alt relative size-10 shrink-0 rounded-full',
                       className,
                     )}
                   />

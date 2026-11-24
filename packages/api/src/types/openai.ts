@@ -2,7 +2,7 @@
 // matching Zod 4 namespace instead of the Zod 3 copy this package resolves by default.
 import { openAISchema } from 'coderax-data-provider';
 import type { BindToolsInput } from '@librechat/agents/langchain/language_models/chat_models';
-import type { OpenAIClientOptions, Providers } from '@librechat/agents';
+import type { FallbackConfig, OpenAIClientOptions, Providers } from '@librechat/agents';
 import type { TConfig } from 'coderax-data-provider';
 import type { z } from 'zod/v4';
 import type { AzureOptions } from './azure';
@@ -33,6 +33,8 @@ export interface OpenAIConfigOptions {
   addParams?: Record<string, unknown>;
   dropParams?: string[];
   customParams?: Partial<TConfig['customParams']>;
+  /** Ordered alternate providers the SDK retries after a primary failure. */
+  fallbacks?: FallbackConfig[];
 }
 
 export type OpenAIConfiguration = OpenAIClientOptions['configuration'];
@@ -52,6 +54,7 @@ export type OAIClientOptions = Omit<OpenAIClientOptions, 'verbosity'> & {
    * layer knows whether a URL is a faithful first-party route or a gateway.
    */
   firstPartyEndpoint?: boolean;
+  fallbacks?: FallbackConfig[];
   _lc_stream_delay?: number;
   verbosity?: string | null;
 };

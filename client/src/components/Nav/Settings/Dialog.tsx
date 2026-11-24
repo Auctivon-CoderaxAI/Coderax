@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAtom } from 'jotai';
 import * as Tabs from '@radix-ui/react-tabs';
-import { X, ChevronLeft } from 'lucide-react';
+import { X, ChevronLeft, Search } from 'lucide-react';
 import { SettingsTabValues } from 'coderax-data-provider';
 import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@headlessui/react';
 import {
@@ -12,10 +12,14 @@ import {
   DIALOG_SCRIM_CLASS,
 } from '@coderax/client';
 import type { TDialogProps } from '~/common';
+import type { IosPageId } from './ios/pages';
 import type { SettingsTab } from './types';
+import { IOS_PAGES, findPage, pageVisible } from './ios/pages';
 import { useSettingsContext } from './context';
 import { settingsTabAtom } from './state';
 import { useLocalize } from '~/hooks';
+import Overview from './ios/Overview';
+import PageContent from './ios/Page';
 import Sidebar from './Sidebar';
 import Content from './Content';
 import { TABS } from './types';
@@ -30,20 +34,18 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
   const remScale = useRemScale();
   const isSmallScreen = useMediaQuery(`(max-width: ${767 * remScale}px)`);
   const [activeTab, setActiveTab] = useState<SettingsTab>(SettingsTabValues.GENERAL);
+  const [iosPage, setIosPage] = useState<IosPageId | null>(null);
   const [requestedTab, setRequestedTab] = useAtom(settingsTabAtom);
   const [query, setQuery] = useState('');
-  const [mobileDetail, setMobileDetail] = useState(!isSmallScreen);
 
   const searching = query.trim().length > 0;
-  const inDetail = isSmallScreen && mobileDetail && !searching;
-  const showSidebar = !isSmallScreen || !inDetail;
-  const showContent = !isSmallScreen || inDetail || searching;
-  const hideTabs = isSmallScreen && searching;
   const visibleTabs = TABS.filter((t) => !t.show || t.show(ctx));
   const effectiveTab = visibleTabs.some((t) => t.id === activeTab)
     ? activeTab
     : SettingsTabValues.GENERAL;
-  const activeMeta = TABS.find((t) => t.id === effectiveTab);
+  const requestedPage = iosPage != null ? findPage(iosPage) : undefined;
+  const effectiveIosPage =
+    requestedPage != null && pageVisible(requestedPage, ctx) ? requestedPage : undefined;
 
   useEffect(() => {
     if (!requestedTab) {
@@ -51,15 +53,38 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
     }
     if (visibleTabs.some((t) => t.id === requestedTab)) {
       setActiveTab(requestedTab as SettingsTab);
-      setMobileDetail(true);
+      if (isSmallScreen) {
+        const page = IOS_PAGES.filter((candidate) => pageVisible(candidate, ctx)).find(
+          (candidate) => candidate.sources.some((source) => source.tab === requestedTab),
+        );
+        if (page != null) {
+          setIosPage(page.id);
+        }
+      }
     }
     setRequestedTab(null);
-  }, [requestedTab, setRequestedTab, visibleTabs]);
+  }, [requestedTab, setRequestedTab, visibleTabs, isSmallScreen, ctx]);
 
   const selectTab = (tab: SettingsTab) => {
     setActiveTab(tab);
-    setMobileDetail(true);
   };
+
+  const mobileTitle =
+    effectiveIosPage != null ? localize(effectiveIosPage.labelKey) : localize('com_nav_settings');
+
+  let mobileBody = (
+    <Overview
+      ctx={ctx}
+      onOpen={setIosPage}
+      onClose={() => onOpenChange(false)}
+      onQueryChange={setQuery}
+    />
+  );
+  if (searching) {
+    mobileBody = <Content activeTab={effectiveTab} query={query} ctx={ctx} />;
+  } else if (effectiveIosPage != null) {
+    mobileBody = <PageContent page={effectiveIosPage} ctx={ctx} />;
+  }
 
   return (
     <Transition appear show={open}>
@@ -82,72 +107,124 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
           leaveFrom="opacity-100 scale-100"
           leaveTo="opacity-0 scale-95"
         >
-          <div className="fixed inset-0 flex w-screen items-center justify-center p-4">
+          <div
+            className={cn(
+              'fixed inset-0 flex w-screen items-center justify-center',
+              isSmallScreen ? 'p-0' : 'p-4',
+            )}
+          >
             <DialogPanel
               className={cn(
                 /** Headless UI panel, so it bypasses the shared dialog primitives
                  *  and needs the contrast edge declared here. `shadow-2xl` is a
                  *  black shadow with nothing to separate against on a black canvas. */
-                'bg-surface-dialog border-border-light high-contrast:border high-contrast:border-solid high-contrast:border-border-medium high-contrast:shadow-none rounded-theme-surface flex max-h-[85vh] w-full flex-col overflow-hidden border-(length:--theme-dialog-stroke) shadow-2xl',
-                !isSmallScreen && 'h-[85vh] w-[56.25rem] max-w-[calc(100vw-4rem)]',
+                'border-border-light high-contrast:border high-contrast:border-solid high-contrast:border-border-medium high-contrast:shadow-none flex flex-col overflow-hidden border-(length:--theme-dialog-stroke)',
+                isSmallScreen
+                  ? 'bg-surface-primary-alt h-full max-h-none w-full'
+                  : 'bg-surface-dialog rounded-theme-surface h-[85vh] w-[56.25rem] max-w-[calc(100vw-4rem)] shadow-2xl',
               )}
             >
               <DialogTitle
                 as="div"
-                className="border-border-inset flex items-center justify-between border-b p-5"
-              >
-                {inDetail ? (
-                  <button
-                    type="button"
-                    onClick={() => setMobileDetail(false)}
-                    className="text-text-primary hover:bg-surface-hover focus:ring-border-xheavy -ml-1 flex items-center gap-1 rounded-lg p-1 transition-colors focus:ring-2 focus:outline-hidden"
-                    aria-label={localize('com_ui_back')}
-                  >
-                    <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-                    <span className="text-lg font-medium">
-                      {activeMeta ? localize(activeMeta.labelKey) : localize('com_nav_settings')}
-                    </span>
-                  </button>
-                ) : (
-                  <h2 className="text-text-primary text-lg font-medium">
-                    {localize('com_nav_settings')}
-                  </h2>
+                className={cn(
+                  'border-border-inset flex items-center justify-between border-b',
+                  isSmallScreen ? 'h-14 shrink-0 px-2' : 'p-5',
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onOpenChange(false)}
-                  aria-label={localize('com_ui_close_settings')}
-                  className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus:ring-border-xheavy h-auto w-auto rounded-lg p-1 transition-colors focus:ring-2"
-                >
-                  <X className="h-5 w-5" aria-hidden="true" />
-                </Button>
+              >
+                {isSmallScreen ? (
+                  <div className="grid w-full grid-cols-[2.5rem_1fr_2.5rem] items-center">
+                    {effectiveIosPage != null ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIosPage(null);
+                          setQuery('');
+                        }}
+                        className="text-text-primary hover:bg-surface-hover focus:ring-border-xheavy flex h-10 w-10 items-center justify-center rounded-full transition-colors focus:ring-2 focus:outline-hidden"
+                        aria-label={localize('com_ui_back')}
+                      >
+                        <ChevronLeft className="h-6 w-6" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <span aria-hidden="true" />
+                    )}
+                    <h2 className="text-text-primary truncate text-center text-lg font-semibold">
+                      {mobileTitle}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => onOpenChange(false)}
+                      aria-label={localize('com_ui_close_settings')}
+                      className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus:ring-border-xheavy ml-auto flex h-10 w-10 items-center justify-center rounded-full transition-colors focus:ring-2 focus:outline-hidden"
+                    >
+                      <X className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="text-text-primary text-lg font-medium">
+                      {localize('com_nav_settings')}
+                    </h2>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onOpenChange(false)}
+                      aria-label={localize('com_ui_close_settings')}
+                      className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus:ring-border-xheavy h-auto w-auto rounded-lg p-1 transition-colors focus:ring-2"
+                    >
+                      <X className="h-5 w-5" aria-hidden="true" />
+                    </Button>
+                  </>
+                )}
               </DialogTitle>
               {/* A Headless UI panel, so it counts itself as a dialog level for the popovers its
                   settings open (Select lists, menus, tooltips) to layer above it. */}
               <DialogLayer>
-                <Tabs.Root
-                  value={effectiveTab}
-                  onValueChange={(v) => setActiveTab(v as SettingsTab)}
-                  orientation="vertical"
-                  className={cn(
-                    'flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5',
-                    !isSmallScreen && 'flex-row gap-6',
-                  )}
-                >
-                  {showSidebar && (
+                {isSmallScreen ? (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="relative shrink-0 px-4 pt-3 pb-2">
+                      <Search
+                        className="text-text-tertiary pointer-events-none absolute top-1/2 left-6 h-4 w-4 -translate-y-1/2"
+                        aria-hidden="true"
+                      />
+                      <input
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder={localize('com_ui_settings_search_placeholder')}
+                        aria-label={localize('com_ui_settings_search_placeholder')}
+                        className="bg-surface-secondary text-text-primary w-full rounded-xl py-2.5 pr-8 pl-9 text-base focus-visible:outline-hidden"
+                      />
+                      {query.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setQuery('')}
+                          aria-label={localize('com_ui_clear_search')}
+                          className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-text-primary absolute top-1/2 right-5 -translate-y-1/2 rounded-md p-1 transition-colors focus-visible:ring-2 focus-visible:outline-hidden"
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-y-auto px-4">{mobileBody}</div>
+                  </div>
+                ) : (
+                  <Tabs.Root
+                    value={effectiveTab}
+                    onValueChange={(v) => setActiveTab(v as SettingsTab)}
+                    orientation="vertical"
+                    className="flex min-h-0 flex-1 flex-row gap-6 overflow-hidden p-5"
+                  >
                     <Sidebar
                       ctx={ctx}
                       query={query}
                       onQueryChange={setQuery}
                       onSelectTab={selectTab}
-                      showChevron={isSmallScreen}
-                      hideTabs={hideTabs}
-                      stacked={isSmallScreen}
+                      showChevron={false}
+                      hideTabs={false}
+                      stacked={false}
                     />
-                  )}
-                  {showContent && (
-                    <div className={cn('flex-1 overflow-y-auto', !isSmallScreen && 'pr-1')}>
+                    <div className="flex-1 overflow-y-auto pr-1">
                       {searching ? (
                         <Content activeTab={effectiveTab} query={query} ctx={ctx} />
                       ) : (
@@ -160,8 +237,8 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
                         </Tabs.Content>
                       )}
                     </div>
-                  )}
-                </Tabs.Root>
+                  </Tabs.Root>
+                )}
               </DialogLayer>
             </DialogPanel>
           </div>

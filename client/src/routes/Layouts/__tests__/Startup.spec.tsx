@@ -21,8 +21,8 @@ jest.mock('~/utils', () => ({
   setDocumentTitle: jest.fn(),
   getPostLoginRedirect: jest.fn(() => '/work/new'),
   getPostLoginFallback: jest.fn(() => '/c/new'),
-  isRequiredTwoFactorSetupRoute: jest.fn(() => false),
   isManualLoginEntry: jest.fn(() => false),
+  isRequiredTwoFactorSetupRoute: jest.fn(() => false),
 }));
 jest.mock('~/components/Auth/AuthLayout', () => ({
   __esModule: true,

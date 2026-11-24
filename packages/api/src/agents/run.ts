@@ -48,10 +48,13 @@ import type {
   SummarizationConfig,
   TurnFileConsumers,
 } from 'coderax-data-provider';
+import type {
+  ToolApprovalGrantStorage,
+  ToolStandingAuthorizationStorage,
+} from 'coderax-data-provider';
 import type { AppConfig, IAgentFadingTier, IUser } from '@coderax/data-schemas';
 import type { CallbackHandlerMethods } from '@langchain/core/callbacks/base';
 import type { BaseMessage } from '@librechat/agents/langchain/messages';
-import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
 import type { Callbacks } from '@langchain/core/callbacks/manager';
 import type { TerminalSteerHook, SteerPreemption } from '~/agents/steering/runtime';
 import type { ModelBoundChatModelCallback } from '~/middleware/modelBoundContent';
@@ -119,6 +122,7 @@ import {
 import { resolveToolApprovalPolicy, exemptAskUserQuestionFromApproval } from '~/agents/hitl/policy';
 import { applyCustomHandoffPromptKeyCompatibility } from '~/agents/handoffPromptKeyCompatibility';
 import { stripIntentFromToolRegistry, stripIntentFromToolDefinitions } from '~/agents/intent';
+import { applyStandingToolAllows, resolveStandingAuthorizationRun } from './hitl/standing';
 import { createAgentToolApprovalSession, bindRunToolApprovalSession } from './hitl/modes';
 import { resolveConfigHeaders, resolveModelHeaders, mergeHeaders } from '~/utils/headers';
 import { interruptToolHandler, supportsRunInterruption } from '~/agents/steering/tools';
@@ -2365,7 +2369,8 @@ export async function createRun({
    * Reuse them here so a context-aware factory is evaluated exactly once for the run.
    */
   resolvedToolApprovalHooks?: readonly ResolvedToolApprovalHook[];
-  toolApprovalStorage?: ToolApprovalGrantStorage;
+  toolApprovalStorage?: ToolApprovalGrantStorage &
+    Partial<Pick<ToolStandingAuthorizationStorage, 'listToolStandingAuthorizations'>>;
   reviewedToolApprovals?: ReviewedToolApprovals;
   scheduledMCPExecution?: ScheduleMCPExecution;
   recordScheduledMCPDenial?: (error: ScheduledMCPPolicyError) => Promise<boolean>;
@@ -2865,18 +2870,35 @@ export async function createRun({
   const mcpToolAliasKeys = new Set(
     mcpToolAliases.map(({ name, aliasName }) => `${name}\u0000${aliasName}`),
   );
-  const effectiveToolApprovalPolicy = () =>
+  /** Administrator rules plus the conversation's remembered tools; the pause baseline. */
+  const baselineToolApprovalPolicy = () =>
     exemptAskUserQuestionFromApproval(
       buildEffectiveToolApprovalPolicy(toolApprovalPolicy, mcpToolAliases, toolApprovalAllows),
       ASK_USER_QUESTION_TOOL_NAME,
     );
+  /**
+   * Standing authorizations fold in last, as `allow` entries — the same seam the
+   * conversation's remembered tools use, and the only one that can stop a pause,
+   * because programmatic hooks fold `deny > ask > allow`. Administrator `deny` and
+   * `ask` still win, and the guard re-reads the grants before each covered call.
+   */
+  const standingAuthorization = await resolveStandingAuthorizationRun({
+    policy: toolApprovalPolicy,
+    storage: toolApprovalStorage,
+    scope: user?.id != null ? { userId: user.id, tenantId: tenantId ?? user.tenantId } : undefined,
+    timeoutMs: toolApprovalPolicy?.standingAuthorizationLookupTimeoutMs,
+  });
+  const effectiveToolApprovalPolicy = () =>
+    applyStandingToolAllows(baselineToolApprovalPolicy(), standingAuthorization.patterns);
   const nativeEditFileAgentIds = collectNativeEditFileAgentIds(agents);
   const agentApprovalSession = createAgentToolApprovalSession({
     agents: [...codeFileAgents.values()],
     storage: toolApprovalPolicy?.agentModes === true ? toolApprovalStorage : undefined,
     authorizationStorage: toolApprovalStorage,
     reviewed: reviewedToolApprovals,
-    policy: effectiveToolApprovalPolicy,
+    standing: standingAuthorization.guard,
+    /** Deliberately the unfolded baseline: agent approval modes keep their meaning. */
+    policy: baselineToolApprovalPolicy,
     lookupTimeoutMs: toolApprovalPolicy?.grantLookupTimeoutMs,
     scope:
       user?.id && (conversationId ?? requestBody?.conversationId)

@@ -3,9 +3,15 @@
 ## Symptom
 
 Workflow runs fail before `Set up job` with `startup_failure`, `steps=0`, and no
-runner assigned. This is **not** a YAML, dependency, or test failure. It is the
-account's GitHub Actions spending limit / billing state blocking runner startup.
-Issue #141 and the release-gate incident #52 record the same behavior.
+runner assigned. An Actions spending limit or billing problem can prevent runner
+startup, but an invalid workflow or incompatible permissions can also fail before
+a job starts.
+
+Open the failed run and inspect its annotations. For a confirmed billing or
+spending limit error, follow the paid plan or spending limit guidance below.
+If the annotations identify a workflow or configuration error, fix that error
+and rerun the check. If they do not identify a cause, investigate before
+changing billing settings.
 
 ## Why a green preview is not evidence
 
@@ -13,44 +19,13 @@ A deployment can be READY while every workflow is startup-blocked. Until a job
 actually starts and executes a step, `CI`, `staging`, `production`, and every
 multi-agent certification cell remain **UNVERIFIED**.
 
-## Option A — public repository (free standard runners)
-
-GitHub-hosted standard runners are free for public repositories. This is the
-fastest unblock for a repository that contains no secrets and no code that must
-stay private.
-
-1. Run the preflight in `scripts/ci/public-preflight.sh` and review its output.
-2. Confirm no real credential exists in the current tree or history.
-3. An organization owner performs the change:
-
-   ```bash
-   gh repo edit AUCTIVON-OWNER/REPO \
-     --visibility public \
-     --accept-visibility-change-consequences
-   ```
-
-4. Trigger the canary:
-
-   ```bash
-   gh workflow run ci-canary.yml --repo AUCTIVON-OWNER/REPO
-   gh run list --repo AUCTIVON-OWNER/REPO --workflow ci-canary.yml --limit 1
-   ```
-
-5. Confirm the run has `steps > 0` and a real runner name. Only then rerun the
-   required checks on the exact candidate SHA.
-
-**Do not** make a repository public to bypass a failure that a test would catch.
-Visibility changes expose history and forks; they are not a substitute for a fix.
-If a secret is found, rotate it first, then decide whether the repository can be
-public at all.
-
-## Option B — paid plan / spending limit
+## Paid plan / spending limit
 
 An organization owner raises or removes the Actions spending limit, or upgrades
 the plan. Then trigger `ci-canary.yml` and confirm runner startup before running
 the full matrix.
 
-## Option C — self-hosted runner
+## Self-hosted runner
 
 Register a runner with a dedicated label, then point a small canary job at
 `runs-on: [self-hosted, coderax-ci]`. Keep the hosted checks non-required until
@@ -65,6 +40,6 @@ CI is unblocked only when all of the following are true:
 - `static-checks`, the API/data-schema typechecks, and the affected tests pass.
 - The deployment smoke either passes or reports a named, owner-accepted blocker.
 
-The current repository is private. The billing/visibility decision belongs to
-the organization owner; this document and the preflight script prepare it, but
-do not perform it in a code change.
+This repository's public visibility is intentional. Do not change its visibility as a
+CI workaround. Organization owners control billing decisions; this document and the
+preflight script prepare diagnostics but do not perform billing or visibility changes.

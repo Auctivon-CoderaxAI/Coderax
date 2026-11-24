@@ -93,7 +93,7 @@ function Header({
     <div className={modeHeaderClass}>
       <div className={modeHeaderStartClass}>
         <div className={cn('flex-shrink-0 items-center', isSmallScreen ? 'flex' : 'hidden')}>
-          <OpenSidebar testId="header-open-sidebar-button" />
+          <OpenSidebar shape="round" testId="header-open-sidebar-button" />
         </div>
       </div>
 

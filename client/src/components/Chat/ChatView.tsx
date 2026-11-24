@@ -46,7 +46,6 @@ import Header from './Header';
 import { cn } from '~/utils';
 import store from '~/store';
 
-
 function ChatView({
   index = 0,
   project,
@@ -184,9 +183,13 @@ function ChatView({
   const hasProjectBadge = badgeProjectId != null;
 
   if (isLoading && conversationId !== Constants.NEW_CONVO) {
-    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
+    content = (
+      <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />
+    );
   } else if ((isLoading || isNavigating) && !isLandingPage) {
-    content = <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />;
+    content = (
+      <TranscriptSkeleton fullWidth={maximizeChatSpace} hasProjectBadge={hasProjectBadge} />
+    );
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} messages={messages} />;
   } else {
@@ -197,7 +200,9 @@ function ChatView({
   if (isProjectLandingPage && project) {
     chatFormPlaceholder = localize('com_ui_new_chat_in_project', { name: project.name });
   } else if (isLandingPage) {
-    chatFormPlaceholder = localize('com_cyvox_home_chat_placeholder');
+    chatFormPlaceholder = localize(
+      workMode ? 'com_cyvox_work_chat_placeholder' : 'com_cyvox_home_chat_placeholder',
+    );
   }
 
   // Recoil conversation can lag the route during navigation; only announce a

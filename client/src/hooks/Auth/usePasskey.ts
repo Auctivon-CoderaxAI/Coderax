@@ -129,11 +129,16 @@ export function usePasskeySignIn({ enabled }: { enabled: boolean }) {
     async (credential: TPasskeyAuthenticationResponse, sessionId: string) => {
       const result = await dataService.verifyPasskeyLogin({ credential, sessionId });
       clearTwoFactorSetupToken();
-      if (result.twoFASetupRequired === true && result.tempToken != null) {
+      if (
+        (result.twoFASetupRequired === true || result.twoFAPending === true) &&
+        result.tempToken
+      ) {
         const redirectTo = new URLSearchParams(window.location.search).get(REDIRECT_PARAM);
         if (redirectTo) {
           persistRedirectToSession(redirectTo);
         }
+      }
+      if (result.twoFASetupRequired === true && result.tempToken != null) {
         persistTwoFactorSetupToken(result.tempToken);
         navigate('/login/2fa/setup', { replace: true });
         return;

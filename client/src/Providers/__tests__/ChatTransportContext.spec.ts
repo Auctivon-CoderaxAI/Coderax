@@ -2,8 +2,19 @@ import { EModelEndpoint } from 'coderax-data-provider';
 import type { ChatTransportRequest } from 'coderax-data-provider';
 import type { WorkOptions } from '~/components/Chat/Input/workSelection';
 import { toWorkChatServer, toWorkEngineChatServer, toWorkEngineStreamUrl } from '../workTransport';
+import { attachEngineStream, engineStreamIdFromUrl, startEngineWorkChat } from '../engineStream';
 import { toWorkOptions } from '~/components/Chat/Input/workSelection';
 import { createWorkChatTransport } from '../ChatTransportContext';
+
+jest.mock('../engineStream', () => ({
+  startEngineWorkChat: jest.fn(),
+  attachEngineStream: jest.fn(),
+  engineStreamIdFromUrl: jest.fn(),
+}));
+
+const startEngine = jest.mocked(startEngineWorkChat);
+const attachEngine = jest.mocked(attachEngineStream);
+const engineIdFromUrl = jest.mocked(engineStreamIdFromUrl);
 
 describe('toWorkChatServer', () => {
   const nativeEndpoint = 'https://coderax.example/api/agents/chat';
@@ -56,7 +67,43 @@ describe('toWorkChatServer', () => {
 });
 
 describe('createWorkChatTransport', () => {
+  beforeEach(() => {
+    startEngine.mockReset().mockResolvedValue({
+      streamId: 'engine-stream',
+      conversationId: 'same-conversation',
+    });
+    attachEngine.mockReset().mockReturnValue(null);
+    engineIdFromUrl.mockReset().mockReturnValue(undefined);
+  });
+
+  const identities = [
+    {
+      id: 'coderax' as const,
+      label: 'Coderax Personal Agent',
+      kind: 'native' as const,
+      engine: null,
+      description: 'Native',
+      availability: { available: true as const },
+    },
+    {
+      id: 'opencode' as const,
+      label: 'OpenCode Agent',
+      kind: 'external' as const,
+      engine: 'opencode' as const,
+      description: 'External',
+      availability: { available: true as const },
+    },
+    {
+      id: 'freebuff' as const,
+      label: 'FreeBuff Agent',
+      kind: 'external' as const,
+      engine: 'freebuff' as const,
+      description: 'External',
+      availability: { available: true as const },
+    },
+  ];
   const options: WorkOptions = {
+    identities,
     models: [{ id: 'local-free', label: 'Local free', provider: 'ollama' }],
     auto: {
       id: 'auto',
@@ -79,7 +126,7 @@ describe('createWorkChatTransport', () => {
     },
   };
 
-  it('uses the offered free automatic model without changing the existing conversation id', async () => {
+  it('keeps the automatic route on the wire without changing the existing conversation id', async () => {
     const start = jest.fn().mockResolvedValue({ generationId: 'work-generation' });
     const transport = createWorkChatTransport({ start } as never, options);
     await transport.start(chatRequest);
@@ -90,13 +137,54 @@ describe('createWorkChatTransport', () => {
           conversationId: 'same-conversation',
           endpoint: 'ollama',
           endpointType: 'ollama',
-          model: 'local-free',
+          model: 'auto',
           agent_id: undefined,
         }),
       }),
       undefined,
     );
     expect(chatRequest.payload.model).toBe('paid-model');
+  });
+
+  it('sends a FAST sentinel and the target provider so the server routes it', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const routed = toWorkOptions(
+      [
+        options.auto!,
+        ...options.models,
+        { id: 'quick:free', label: 'Quick', provider: 'openrouter' },
+      ],
+      [],
+      [
+        {
+          id: 'auto',
+          label: 'Automatic',
+          auto: true,
+          routingMode: 'auto',
+          target: { id: 'local-free', label: 'Local free', provider: 'ollama' },
+        },
+        {
+          id: 'fast',
+          label: 'Fast',
+          auto: true,
+          routingMode: 'fast',
+          target: { id: 'quick:free', label: 'Quick', provider: 'openrouter' },
+        },
+      ],
+    );
+    const transport = createWorkChatTransport({ start } as never, routed, {
+      agentId: 'auto',
+      modelKey: 'fast',
+    });
+
+    await transport.start(chatRequest);
+
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      endpoint: 'openrouter',
+      endpointType: 'openrouter',
+      model: 'fast',
+      agent_id: undefined,
+    });
   });
 
   it('uses automatic local inference even when no saved agents are accessible', async () => {
@@ -108,8 +196,44 @@ describe('createWorkChatTransport', () => {
     expect(start.mock.calls[0][0].payload).toMatchObject({
       conversationId: 'same-conversation',
       endpoint: 'ollama',
-      model: 'local-free',
+      model: 'auto',
       agent_id: undefined,
+    });
+  });
+
+  it('sends a built-in mode to the automatic agent as its prompt prefix', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport({ start } as never, options, {
+      agentId: 'auto',
+      modelKey: 'auto',
+      mode: 'plan',
+    });
+
+    await transport.start(chatRequest);
+
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      model: 'auto',
+      promptPrefix: expect.stringContaining('Plan mode:'),
+    });
+    expect(start.mock.calls[0][0].payload.ephemeralAgent).toBeUndefined();
+  });
+
+  it('enables skills for the Skills mode while preserving staged ephemeral tools', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport({ start } as never, options, {
+      agentId: 'auto',
+      modelKey: 'auto',
+      mode: 'skills',
+    });
+
+    await transport.start({
+      ...chatRequest,
+      payload: { ...chatRequest.payload, ephemeralAgent: { web_search: true } },
+    });
+
+    expect(start.mock.calls[0][0].payload).toMatchObject({
+      promptPrefix: expect.stringContaining('Skills mode:'),
+      ephemeralAgent: { web_search: true, skills: true },
     });
   });
 
@@ -128,27 +252,59 @@ describe('createWorkChatTransport', () => {
     });
   });
 
-  it('routes the OpenCode engine without a provider endpoint or agent', async () => {
+  it('routes an explicitly selected OpenCode identity without a provider endpoint or agent', async () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport(
       { start } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'opencode' },
       'https://work.example',
     );
     await transport.start(chatRequest);
-    const request = start.mock.calls[0][0];
-    expect(request.server).toBe('https://work.example/api/work/chat');
-    expect(request.payload.model).toBe('opencode');
+    const request = startEngine.mock.calls[0][0];
+    expect(request.url).toBe('https://work.example/api/work/chat');
+    expect(request.payload.workAgent).toBe('opencode');
+    expect(request.payload.model).toBeUndefined();
     expect(request.payload.endpoint).toBeUndefined();
     expect(request.payload.endpointType).toBeUndefined();
     expect(request.payload.agent_id).toBeUndefined();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('routes an explicitly selected FreeBuff identity without a provider endpoint or agent', async () => {
+    const start = jest.fn().mockResolvedValue({});
+    const transport = createWorkChatTransport(
+      { start } as never,
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'freebuff' },
+      'https://work.example',
+    );
+    await transport.start(chatRequest);
+    const request = startEngine.mock.calls[0][0];
+    expect(request.url).toBe('https://work.example/api/work/chat');
+    expect(request.payload.workAgent).toBe('freebuff');
+    expect(request.payload.model).toBeUndefined();
+    expect(request.payload.endpoint).toBeUndefined();
+    expect(request.payload.endpointType).toBeUndefined();
+    expect(request.payload.agent_id).toBeUndefined();
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('rejects an external spec before starting either transport', () => {
+    const start = jest.fn();
+    const transport = createWorkChatTransport({ start } as never, options, {
+      agentId: 'auto',
+      modelKey: 'auto',
+      workAgent: 'opencode',
+    });
+    expect(() =>
+      transport.start({
+        ...chatRequest,
+        payload: { ...chatRequest.payload, spec: 'spec-1' },
+      }),
+    ).toThrow('WORK_AGENT_COMBINATION_UNSUPPORTED');
+    expect(startEngine).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('keeps a resumable engine attachment on the direct origin after an engine start', async () => {
@@ -157,14 +313,8 @@ describe('createWorkChatTransport', () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport(
       { start, stream } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'opencode' },
       'https://work.example',
     );
 
@@ -182,6 +332,27 @@ describe('createWorkChatTransport', () => {
     );
   });
 
+  it('attaches a direct engine stream before falling back to the native stream', async () => {
+    const reconnectToStream = jest.fn().mockReturnValue({ closed: false });
+    const stream = jest.fn().mockReturnValue({ send: jest.fn(), reconnectToStream });
+    const transport = createWorkChatTransport({ start: jest.fn(), stream } as never, options);
+    const connection = { closed: false };
+    const onEvent = jest.fn();
+    engineIdFromUrl.mockReturnValue('generation-1');
+    attachEngine.mockReturnValue(connection);
+
+    const attached = transport
+      .stream({ token: 'token' })
+      .reconnectToStream(
+        { url: 'https://coderax.example/api/agents/chat/stream/generation-1?resume=true' },
+        { onEvent } as never,
+      );
+
+    expect(attachEngine).toHaveBeenCalledWith('generation-1', { onEvent });
+    expect(attached).toBe(connection);
+    expect(reconnectToStream).not.toHaveBeenCalled();
+  });
+
   it('routes an Assistants conversation to the native Work agent endpoint', async () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport({ start } as never, options);
@@ -197,7 +368,7 @@ describe('createWorkChatTransport', () => {
         server: expect.stringMatching(/\/api\/work\/chat$/),
         payload: expect.objectContaining({
           endpoint: 'ollama',
-          model: 'local-free',
+          model: 'auto',
         }),
       }),
     );

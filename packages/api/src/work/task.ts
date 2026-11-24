@@ -1,3 +1,5 @@
+import type { TWorkAgentId } from 'coderax-data-provider';
+
 /**
  * A Work task is a Coderax conversation, not a parallel task record. These
  * helpers keep that mapping in one place so the router and the client agree on
@@ -46,11 +48,14 @@ const STATE_ALIASES: Record<string, WorkTaskState> = {
 export type WorkConversation = {
   conversationId: string;
   title?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  /** Mongo returns Dates; history normalizes them at this boundary. */
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
   isWork?: boolean;
   workModel?: string;
   workState?: string;
+  /** The engine identity bound to the conversation; absent on legacy rows. */
+  workAgent?: TWorkAgentId;
   /** The saved agent the conversation runs; absent for Coderax's default agent. */
   agentId?: string;
 };
@@ -63,6 +68,8 @@ export type WorkTask = {
   updatedAt?: string;
   /** The concrete model the server ran the latest turn on. */
   model?: string;
+  /** The engine identity bound to the task. */
+  workAgent?: TWorkAgentId;
   agentId?: string;
 };
 
@@ -119,6 +126,14 @@ export function isValidWorkTask(task: unknown): task is string {
   return typeof task === 'string' && task.trim().length > 0 && task.length <= WORK_MAX_TASK_LENGTH;
 }
 
+function toIsoDate(value: string | Date | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 /**
  * Project a persisted conversation into the shape the Work surface renders.
  * `state` wins when the caller has live run state; otherwise the stored state
@@ -132,9 +147,10 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
     id: conversation.conversationId,
     title: conversation.title?.trim() || conversation.conversationId,
     state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
+    createdAt: toIsoDate(conversation.createdAt),
+    updatedAt: toIsoDate(conversation.updatedAt),
     ...(conversation.workModel ? { model: conversation.workModel } : {}),
+    ...(conversation.workAgent ? { workAgent: conversation.workAgent } : {}),
     ...(conversation.agentId ? { agentId: conversation.agentId } : {}),
   };
 }

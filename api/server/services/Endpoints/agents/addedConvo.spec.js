@@ -37,8 +37,12 @@ jest.mock('~/server/services/Config', () => ({
   getMCPServerTools: (...args) => mockGetMCPServerTools(...args),
 }));
 
-jest.mock('~/server/services/MCP', () => ({
+jest.mock('~/server/services/PermissionService', () => ({
   getAccessibleMcpServerNames: jest.fn(async () => []),
+}));
+
+jest.mock('~/server/services/MCP', () => ({
+  getAccessibleMCPServers: jest.fn(async () => []),
 }));
 
 jest.mock('~/server/services/ToolService', () => ({

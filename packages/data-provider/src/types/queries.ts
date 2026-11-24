@@ -85,6 +85,12 @@ export type ProjectListResponse = {
 };
 
 export type ProjectData = InfiniteData<ProjectListResponse>;
+export type GameProjectListParams = {
+  cursor?: string;
+  limit?: number;
+  search?: string;
+};
+
 export type ProjectAvailableFilesParams = {
   cursor?: string;
   limit?: number;

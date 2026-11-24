@@ -29,8 +29,12 @@ not add them to the VM or to `vercel.json`.
 `gh secret set VERCEL_PROJECT_ID` from an authenticated operator avoids pasting
 values into a file. `.vercel/` is already gitignored; never commit it.
 
-The workflow fails with a named secret when one is missing, rather than
-deploying without it.
+When any of these is missing, `Vercel production deployment` and `Coderax
+post-merge deployment verification` name every absent secret in a notice and
+step summary, then skip their deploy and verify steps. An unconfigured
+repository therefore shows a successful run with an explicit "skipped"
+annotation instead of a red job on every push. Add the secrets and re-run either
+workflow; nothing deploys without them.
 
 ## Vercel project settings
 

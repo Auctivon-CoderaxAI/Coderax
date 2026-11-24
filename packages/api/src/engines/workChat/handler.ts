@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SystemRoles } from 'coderax-data-provider';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type {
   EngineWorkChatConfig,
@@ -6,10 +7,11 @@ import type {
   EngineWorkChatStore,
   RunScope,
 } from './types';
-import type { EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
+import type { EngineId, EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
 import type { Json } from './json';
-import { isEngineWorkChatPath, isOwnerEngineWorkChat } from './gating';
 import { isValidWorkTask, workTitle } from '../../work/task';
+import { readWorkAgentId } from '../../work/identities';
+import { isEngineWorkChatPath } from './gating';
 import { isRecord, readString } from './json';
 import { buildEnginePrompt } from './prompt';
 import { engineFailure } from '../types';
@@ -26,31 +28,45 @@ function writeEvent(res: Response, event: object): void {
 function failureMessage(code: string): string {
   switch (code) {
     case 'disabled':
-      return 'OpenCode execution is disabled for Work.';
+      return 'The selected execution engine is disabled for Work.';
     case 'sdk_unavailable':
-      return 'The OpenCode SDK is unavailable on this server.';
+      return 'The selected execution engine SDK is unavailable on this server.';
     case 'not_configured':
-      return 'OpenCode is not fully configured for Work.';
+      return 'The selected execution engine is not fully configured for Work.';
     case 'server_unavailable':
-      return 'The OpenCode server is unavailable.';
+      return 'The selected execution engine is unavailable.';
     case 'workspace_denied':
-      return 'The configured private workspace could not be used.';
+      return 'The configured workspace could not be used.';
     case 'busy':
       return 'Another Work task is already running.';
     case 'timeout':
-      return 'The OpenCode run timed out.';
+      return 'The execution engine run timed out.';
     case 'cancelled':
-      return 'The OpenCode run was cancelled.';
+      return 'The execution engine run was cancelled.';
     case 'protocol_error':
-      return 'The OpenCode event stream ended before the task finished.';
+      return 'The execution engine event stream ended before the task finished.';
     default:
-      return 'The OpenCode run failed.';
+      return 'The execution engine run failed.';
   }
+}
+
+function engineLabel(engine: EngineId): string {
+  return engine === 'freebuff' ? 'FreeBuff Agent' : 'OpenCode Agent';
+}
+
+function isEngineEnabled(config: EngineWorkChatConfig, engine: EngineId): boolean {
+  if (engine === 'opencode') {
+    return config.engines?.opencode?.enabled === true;
+  }
+  if (engine === 'freebuff') {
+    return config.engines?.freebuff?.enabled === true;
+  }
+  return false;
 }
 
 type HandlerOptions = {
   runtimeFor: (config: EngineWorkChatConfig | null | undefined) => EngineWorkChatRunner;
-  storeFor: (req: Request) => EngineWorkChatStore;
+  storeFor: (req: Request, engine: 'opencode' | 'freebuff') => EngineWorkChatStore;
   /** Shared with the native runner so neither can start beside the other. */
   reserveRun?: (input: RunScope) => boolean;
   releaseRun?: (input: RunScope) => boolean;
@@ -71,33 +87,81 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
     ).user;
     const body = (isRecord(req.body) ? req.body : {}) as Json;
-    if (!isOwnerEngineWorkChat({ config, user, body })) {
+    const requestedAgent = readWorkAgentId(body.workAgent ?? body.workAgentId);
+    if (
+      requestedAgent.kind === 'absent' ||
+      (requestedAgent.kind === 'id' && requestedAgent.id === 'coderax')
+    ) {
       next();
       return;
     }
-    if (config?.engines?.opencode?.enabled !== true) {
+    if (requestedAgent.kind === 'invalid') {
+      res.status(400).json({
+        code: 'WORK_AGENT_UNSUPPORTED',
+        message: 'The selected Work agent identity is not supported.',
+      });
+      return;
+    }
+    const engine =
+      requestedAgent.id === 'opencode' || requestedAgent.id === 'freebuff'
+        ? requestedAgent.id
+        : null;
+    if (!engine) {
+      next();
+      return;
+    }
+    if (!config || config.engines?.workChat?.enabled !== true) {
+      res.status(503).json({
+        code: 'WORK_AGENT_DISABLED',
+        message: 'External agents are not enabled for this deployment.',
+      });
+      return;
+    }
+    if (user?.role !== SystemRoles.ADMIN) {
+      res.status(403).json({
+        code: 'WORK_AGENT_OWNER_ONLY',
+        message: 'External agents are available to the Coderax owner only.',
+      });
+      return;
+    }
+    if (
+      body.agent_id != null ||
+      body.agentId != null ||
+      body.ephemeralAgent != null ||
+      body.spec != null ||
+      (Array.isArray(body.files) && body.files.length > 0)
+    ) {
+      res.status(400).json({
+        code: 'WORK_AGENT_COMBINATION_UNSUPPORTED',
+        message: 'External agents cannot run Coderax saved agents, specs or attachments.',
+      });
+      return;
+    }
+    if (config.engines?.workChat?.mode !== 'cloud') {
+      res.status(503).json({
+        code: 'WORK_AGENT_CLOUD_REQUIRED',
+        message: 'External agents require cloud execution.',
+      });
+      return;
+    }
+    if (!isEngineEnabled(config, engine)) {
       res.status(503).json({
         code: 'WORK_ENGINE_DISABLED',
-        message: 'OpenCode execution is not enabled for the deployment.',
+        message: 'The selected agent engine is not enabled for the deployment.',
       });
       return;
     }
     if (body.addedConvo != null) {
       res.status(400).json({
         code: 'WORK_ENGINE_ADDED_CONVERSATION_UNSUPPORTED',
-        message: 'OpenCode Work runs one task at a time.',
+        message: 'Work engines run one task at a time.',
       });
-      return;
-    }
-    if (Array.isArray(body.files) && body.files.length > 0) {
-      // Attachments stay on the native runner; the engine has no file UI yet.
-      next();
       return;
     }
     if (body.isRegenerate === true || body.compact === true || body.isEdited === true) {
       res.status(400).json({
         code: 'WORK_ENGINE_TURN_UNSUPPORTED',
-        message: 'This turn cannot run through the OpenCode engine.',
+        message: 'This turn cannot run through the selected execution engine.',
       });
       return;
     }
@@ -130,7 +194,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
 
     let store: EngineWorkChatStore;
     try {
-      store = options.storeFor(req);
+      store = options.storeFor(req, engine);
     } catch {
       res.status(503).json({
         code: 'WORK_ENGINE_STORE_UNAVAILABLE',
@@ -145,7 +209,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     } catch {
       res.status(503).json({
         code: 'WORK_ENGINE_UNAVAILABLE',
-        message: 'The OpenCode engine could not be constructed.',
+        message: 'The selected execution engine could not be constructed.',
       });
       return;
     }
@@ -207,6 +271,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       const promptText = body.text as string;
+      const modeInstructions = readString(body.promptPrefix);
       const title =
         existing?.title && existing.title !== 'New Chat' ? existing.title : workTitle(promptText);
       let history: Array<{ text: string; isCreatedByUser: boolean }> = [];
@@ -219,7 +284,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         userId,
         tenantId,
         conversationId,
-        prompt: buildEnginePrompt(history, promptText),
+        engine,
+        prompt: buildEnginePrompt(history, promptText, modeInstructions),
       });
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
@@ -247,6 +313,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({
           conversationId,
           title,
+          workAgent: engine,
           workState: 'running',
           create: existing == null,
         });
@@ -261,9 +328,13 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
 
-      const userMessageId = UUID.test(String(body.messageId ?? ''))
-        ? String(body.messageId)
-        : randomUUID();
+      /** A new conversation must own fresh message rows: the client can retry
+       * the same optimistic id after a reload, and upserting it would move the
+       * previous conversation's messages to the new one. */
+      const userMessageId =
+        !isNewConversation && UUID.test(String(body.messageId ?? ''))
+          ? String(body.messageId)
+          : randomUUID();
       const responseMessageId = `${userMessageId}_`;
       const parentMessageId = readString(body.parentMessageId) ?? '0';
       try {
@@ -274,10 +345,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           text: promptText,
           isCreatedByUser: true,
         });
-        await store.saveConversation({
-          conversationId,
-          appendMessageIds: [userMessageId],
-        });
+        await store.saveConversation({ conversationId });
       } catch {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'failed' });
@@ -326,21 +394,63 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
 
       let text = '';
+      /** The turn streams as content parts so the client renders the reply text
+       *  and every tool call in one message: the text keeps index 0 and each
+       *  call owns an index, which lets its settled result replace the call in
+       *  place. Parts are also carried by the final frame, because the client
+       *  substitutes that message for the streamed one. */
+      const parts: Array<Record<string, unknown> | undefined> = [];
+      const partIndexes = new Map<string, number>();
+      const calls = new Map<string, Record<string, unknown>>();
+      const sendPart = (index: number, part: Record<string, unknown>): void => {
+        parts[index] = part;
+        send({
+          ...part,
+          index,
+          messageId: responseMessageId,
+          conversationId,
+          stream: true,
+        });
+      };
+      const toolIndex = (callId: string): number => {
+        const known = partIndexes.get(callId);
+        if (known !== undefined) {
+          return known;
+        }
+        const index = partIndexes.size + 1;
+        partIndexes.set(callId, index);
+        return index;
+      };
       let approvalRequired = false;
       let streamError: string | undefined;
       try {
         for await (const event of started.value.events) {
           if (event.type === 'text_delta' || event.type === 'text_replace') {
-            const initial = text === '';
             text = event.type === 'text_delta' ? text + event.text : event.text;
-            send({
-              message: true,
-              initial,
-              text,
-              messageId: responseMessageId,
-              parentMessageId: userMessageId,
-              conversationId,
-            });
+            sendPart(0, { type: 'text', text });
+          } else if (event.type === 'tool_call') {
+            const call = {
+              id: event.callId,
+              name: event.tool,
+              type: 'tool_call',
+              progress: 0.1,
+              args: event.input ?? '',
+            };
+            calls.set(event.callId, call);
+            sendPart(toolIndex(event.callId), { type: 'tool_call', tool_call: call });
+          } else if (event.type === 'tool_result') {
+            const index = partIndexes.get(event.callId);
+            const call = calls.get(event.callId);
+            if (index !== undefined && call !== undefined) {
+              const settled = {
+                ...call,
+                progress: 1,
+                runStepStatus: event.ok ? 'completed' : 'failed',
+                ...(event.output ? { output: event.output } : {}),
+              };
+              calls.set(event.callId, settled);
+              sendPart(index, { type: 'tool_call', tool_call: settled });
+            }
           } else if (event.type === 'approval_required') {
             approvalRequired = true;
             await started.value.cancel();
@@ -356,18 +466,19 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
       }
 
+      const content = parts.filter((part) => part !== undefined);
       let result: EngineResult<EngineRunSummary>;
       try {
         result = await started.value.result;
       } catch {
-        result = engineFailure('provider_error', 'The OpenCode run failed.');
+        result = engineFailure('provider_error', `The ${engineLabel(engine)} run failed.`);
       }
       const cancelled =
         streamError == null && !result.ok && result.error.code === 'cancelled' && !approvalRequired;
       const failed = streamError != null || (!result.ok && !cancelled);
       let error: string | undefined;
       if (approvalRequired) {
-        error = 'OpenCode requested a tool permission that Work cannot approve yet.';
+        error = 'The engine requested a tool permission that Work cannot approve yet.';
       } else if (streamError) {
         error = streamError;
       } else if (failed && !result.ok) {
@@ -386,6 +497,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
@@ -393,11 +505,10 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({
           conversationId,
           workState: terminalState,
-          appendMessageIds: [responseMessageId],
         });
       } catch {
         persisted = false;
-        options.logger?.warn?.('[Work] Could not persist the OpenCode response.');
+        options.logger?.warn?.('[Work] Could not persist the engine response.');
         try {
           await store.saveConversation({ conversationId, workState: 'failed' });
         } catch {
@@ -427,15 +538,18 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
-          sender: 'OpenCode',
+          ...(content.length > 0 ? { content } : {}),
+          sender: engineLabel(engine),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired || !persisted,
           ...(error || !persisted
             ? { error: error ?? 'The engine reply could not be saved.' }
             : {}),
         },
-        conversation: { conversationId, title },
+        conversation: { conversationId, title, workAgent: engine },
         title,
+        /** What the engine actually ran, so a turn's tool activity is observable. */
+        ...(result.ok ? { toolCalls: result.value.toolCalls, edits: result.value.edits } : {}),
         ...(cancelled ? { aborted: true } : {}),
         ...(error || !persisted
           ? { error: { message: error ?? 'The engine reply could not be saved.' } }
@@ -443,7 +557,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
       res.end();
     } catch {
-      options.logger?.error?.('[Work] The OpenCode Work chat path failed.');
+      options.logger?.error?.(`[Work] The ${engineLabel(engine)} Work chat path failed.`);
       if (activeHandle && !finished) {
         try {
           await activeHandle.cancel();
@@ -460,7 +574,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           writeEvent(res, {
             final: true,
             terminalStatus: 'error',
-            error: { message: 'The OpenCode run failed.' },
+            error: { message: `The ${engineLabel(engine)} run failed.` },
           });
           res.end();
         }
@@ -470,7 +584,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         code: storeUnavailable ? 'WORK_ENGINE_STORE_UNAVAILABLE' : 'WORK_ENGINE_UNAVAILABLE',
         message: storeUnavailable
           ? 'Work could not reach its conversation store.'
-          : 'The OpenCode engine could not start this task.',
+          : `The ${engineLabel(engine)} engine could not start this task.`,
       });
     } finally {
       if (activeHandle) {
