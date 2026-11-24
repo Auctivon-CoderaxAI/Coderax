@@ -1,5 +1,5 @@
 import type { StoredConversationMode } from './mode';
-import { useConversationMode } from './mode';
+import { normaliseMode, useConversationMode } from './mode';
 
 type ConversationModeNavProps = {
   active?: StoredConversationMode;
@@ -34,8 +34,8 @@ export default function ConversationModeNav({ active, labels }: ConversationMode
       <button
         type="button"
         onClick={() => setMode('code')}
-        aria-pressed={selected === 'code' || selected === 'work'}
-        className={selected === 'code' || selected === 'work' ? selectedClassName : idleClassName}
+        aria-pressed={selected === 'code'}
+        className={selected === 'code' ? selectedClassName : idleClassName}
       >
         {labels.work}
       </button>

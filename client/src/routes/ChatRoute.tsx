@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
-import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -287,6 +287,10 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     !workOptions.isLoading &&
     !workOptions.modelsQuery.isError &&
     resolvedWorkSelection != null;
+  const conversationModeMismatch =
+    conversationId !== Constants.NEW_CONVO &&
+    initialConvoQuery.isSuccess &&
+    (initialConvoQuery.data?.isWork === true) !== isWorkMode;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
   const baseChatTransport = useChatTransport();

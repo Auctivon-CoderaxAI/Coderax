@@ -5,8 +5,6 @@ import type { CyvoxTarget } from './settings';
 import { resolveCyvoxTarget } from './settings';
 import { readBoundedBody } from './response';
 
-import { readBoundedBody } from './response';
-
 const resources = {
   readiness: '/api/readiness',
   deployments: '/api/deployment-platform/status',
@@ -127,7 +125,7 @@ export function createCyvoxAddonRouter(
     const target = getTarget(res);
     if (!target) {
       res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
-      return false;
+      return;
     }
     try {
       const response = await fetch(new URL(path, target.url), {

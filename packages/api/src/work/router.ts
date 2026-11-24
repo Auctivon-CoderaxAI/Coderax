@@ -103,30 +103,6 @@ async function withResolvedRunState(
     : conversation;
 }
 
-async function withResolvedRunState(
-  conversation: WorkConversation,
-  userId: string,
-  getRunState?: WorkDeps['getRunState'],
-): Promise<WorkConversation> {
-  if (!getRunState) {
-    return conversation.workState === 'running'
-      ? { ...conversation, workState: 'unknown' }
-      : conversation;
-  }
-  try {
-    const liveState = await getRunState({ userId, conversationId: conversation.conversationId });
-    if (typeof liveState === 'string' && liveState.length > 0) {
-      return { ...conversation, workState: liveState };
-    }
-  } catch {
-    // The persisted conversation still proves history exists; unknown is safer
-    // than carrying an old running marker through a lost registry lookup.
-  }
-  return conversation.workState === 'running'
-    ? { ...conversation, workState: 'unknown' }
-    : conversation;
-}
-
 /**
  * Identity comes from the authenticated request only. A body or query `userId`
  * is never read, so one tenant cannot address another tenant's Work.
