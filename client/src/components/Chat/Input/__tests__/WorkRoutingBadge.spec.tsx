@@ -1,4 +1,4 @@
-import { dataService } from 'coderax-data-provider';
+import { SystemRoles, dataService } from 'coderax-data-provider';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TWorkRoutingResponse } from 'coderax-data-provider';
@@ -9,7 +9,9 @@ jest.mock('coderax-data-provider', () => ({
   dataService: { getWorkRouting: jest.fn() },
 }));
 
+let mockRole = SystemRoles.ADMIN;
 jest.mock('~/hooks', () => ({
+  useAuthContext: () => ({ user: { role: mockRole } }),
   useLocalize: () => (key: string, values?: Record<string, string>) =>
     ({
       com_work_routing_active: `Routed to ${values?.[0]} via ${values?.[1]}`,
@@ -92,6 +94,7 @@ function setup() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRole = SystemRoles.ADMIN;
   jest.mocked(dataService.getWorkRouting).mockResolvedValue(snapshot());
 });
 afterEach(() => jest.restoreAllMocks());
@@ -101,6 +104,14 @@ it('names the provider and model a turn would use, and the missing preferred mod
   const badge = await screen.findByTestId('work-routing-badge');
   expect(badge).toHaveTextContent('Routed to OpenAI GPT-OSS 120B on Groq via groq');
   expect(badge).toHaveTextContent('DeepSeek-R1 671B is unavailable on a free endpoint');
+});
+
+it('shows only the active route to non-admins', async () => {
+  mockRole = SystemRoles.USER;
+  setup();
+  const badge = await screen.findByTestId('work-routing-badge');
+  expect(badge).toHaveTextContent('Routed to OpenAI GPT-OSS 120B on Groq via groq');
+  expect(badge).not.toHaveTextContent('DeepSeek-R1 671B');
 });
 
 it('does not claim the preferred model is missing when it is serving', async () => {
