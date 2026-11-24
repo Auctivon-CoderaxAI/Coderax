@@ -343,10 +343,7 @@ export async function verifyRepositoryContracts(root = repoRoot) {
   assert.equal(typeof rootPackage.scripts?.frontend, 'string', 'root frontend script missing');
   assert.equal(typeof clientPackage.scripts?.frontend, 'string', 'client frontend script missing');
   assert.equal(typeof clientPackage.scripts?.build, 'string', 'client build script missing');
-  assert.ok(
-    backendSource.includes('const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);'),
-    'Vercel backend must start without frontend assets supplied by its separate service',
-  );
+  verifyVercelClientShellAvailability(backendSource);
   assert.ok(
     vercel.rewrites?.some((rule) =>
       typeof rule.source === 'string' &&
