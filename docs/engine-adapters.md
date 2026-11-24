@@ -84,11 +84,12 @@ an external engine runs only when the request names it at `POST /api/work/chat`:
 - the client sends `workAgent: 'opencode' | 'freebuff'`; `workAgent: 'coderax'`
   or no `workAgent` stays on the native runner;
 - `GET /api/work/agent-identities` lists all three identities with a truthful
-  availability reason, so a disabled engine is shown as unavailable rather than
-  hidden or faked;
-- external turns require `engines.workChat.mode: cloud` and run in
-  `<engines.workspaces.cloudRoot>/agents/<id>`, which is created for the run and
-  confined to that engine's directory;
+  availability reason (owner-only, disabled, cloud required), so an unavailable
+  engine is shown as such rather than hidden or faked;
+- external turns require `engines.workChat.mode: cloud` and run in a per-run
+  directory under `engines.workspaces.cloudRoot` named
+  `work-<engine>-<sha256 of tenant, user, conversation and engine>`, created with
+  mode `0700` and refused if it is not a real directory;
 - the handler refuses a non-owner (`403`), a saved agent, spec or attachment, a
   regenerate/compact/edit turn and an added conversation (`400`), and a disabled
   engine (`503`) instead of falling back to native;

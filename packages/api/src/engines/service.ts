@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
 import type { OpenHandsTransport } from './openhands/adapter';
 import type { OpenCodeTransport } from './opencode/adapter';
@@ -71,30 +70,6 @@ export type ExecutionEnginesConfig =
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_SUMMARY_CHARS = 4_000;
 
-/**
- * External cloud agents get their own directory beneath the configured cloud
- * root. Native Coderax runs do not use these paths, so an external engine can
- * never inherit or overwrite the native agent's workspace.
- */
-export function engineWorkspaceRoot(
-  config: ExecutionEnginesConfig,
-  mode: 'private' | 'cloud',
-  engine: 'opencode' | 'freebuff' | 'openhands',
-): string {
-  const workspaces = config?.engines?.workspaces;
-  const base = mode === 'cloud' ? workspaces?.cloudRoot : workspaces?.privateRoot;
-  if (!base) {
-    return '';
-  }
-  if (mode !== 'cloud') {
-    return base;
-  }
-  if (engine === 'opencode' || engine === 'freebuff') {
-    return path.join(base, 'agents', engine);
-  }
-  return base;
-}
-
 function defaultEngineFor(value: 'opencode' | 'openhands' | 'freebuff' | undefined) {
   return value === 'openhands' || value === 'freebuff' ? value : 'opencode';
 }
@@ -125,7 +100,7 @@ export function createExecutionEngines(
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    const requiredRoot = engineWorkspaceRoot(config, workMode, 'opencode');
+    const requiredRoot = roots[workMode];
     const model = parseEngineModel(openCode.model);
     if (!openCode.baseURL || !requiredRoot) {
       unavailableDetail = `engines.opencode.baseURL and engines.workspaces.${workMode}Root must both be configured.`;
@@ -160,10 +135,7 @@ export function createExecutionEngines(
       enabled: openCode?.enabled === true,
       transport,
       ...(unavailableDetail ? { unavailableDetail } : {}),
-      roots: {
-        private: roots.private,
-        cloud: engineWorkspaceRoot(config, 'cloud', 'opencode'),
-      },
+      roots,
       limits: limitsFor(openCode?.timeoutMs),
     }),
     openhands: createOpenHandsAdapter({
@@ -186,10 +158,7 @@ export function createExecutionEngines(
             ...(freebuff.probeTimeoutMs != null ? { probeTimeoutMs: freebuff.probeTimeoutMs } : {}),
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
-            roots: {
-              private: roots.private,
-              cloud: engineWorkspaceRoot(config, 'cloud', 'freebuff'),
-            },
+            roots,
             mode: workMode,
             limits: limitsFor(freebuff.timeoutMs),
             maxAgentSteps: freebuff.maxAgentSteps,
