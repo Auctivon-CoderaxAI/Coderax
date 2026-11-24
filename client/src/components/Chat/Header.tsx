@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   getConfigDefaults,
   Constants,

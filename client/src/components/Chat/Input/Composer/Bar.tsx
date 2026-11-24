@@ -6,6 +6,7 @@ import type { TConversation, EModelEndpoint, EndpointFileConfig } from 'coderax-
 import type { PaletteEntry, PaletteMode } from '~/hooks/Input/usePaletteEntries';
 import type { Dictation } from '~/hooks/Input/useDictation';
 import type { ExtendedFile, FileSetter } from '~/common';
+import ModelSelector from '~/components/Chat/Menus/Endpoints/ModelSelector';
 import { WorkAgentConversationSelector } from '../WorkAgentSelector';
 import usePaletteEntries from '~/hooks/Input/usePaletteEntries';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
@@ -13,12 +14,11 @@ import useToolFavorites from '~/hooks/Input/useToolFavorites';
 import useElementSize from '~/hooks/Generic/useElementSize';
 import useChipPacking from '~/hooks/Input/useChipPacking';
 import { WorkRoutingBadge } from '../WorkRoutingBadge';
+import { useGetStartupConfig } from '~/data-provider';
 import { useBadgeRowContext } from '~/Providers';
 import TokenUsage from '../TokenUsage';
 import { useLocalize } from '~/hooks';
 import Thinking from './Thinking';
-import ModelSelector from '~/components/Chat/Menus/Endpoints/ModelSelector';
-import { useGetStartupConfig } from '~/data-provider';
 import Palette from './Palette';
 import { cn } from '~/utils';
 import Chip from './Chip';
@@ -434,7 +434,10 @@ function Bar({
         </span>
         {/* The provider picker belongs with the message it configures, not in the page header. */}
         {index === 0 && (
-          <div className="min-w-0 max-w-36 shrink overflow-hidden sm:max-w-52" data-testid="composer-model-selection">
+          <div
+            className="max-w-36 min-w-0 shrink overflow-hidden sm:max-w-52"
+            data-testid="composer-model-selection"
+          >
             <ModelSelector startupConfig={startupConfig} />
           </div>
         )}

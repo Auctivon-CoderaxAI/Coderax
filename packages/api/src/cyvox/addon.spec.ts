@@ -612,7 +612,7 @@ describe('CyVox upstream response bounds', () => {
   });
 });
 
-describe('CyVox privileged Work and Robot boundary', () => {
+describe('CyVox privileged Work and Robot boundary (fast routing)', () => {
   afterEach(() => jest.restoreAllMocks());
 
   const admin = () =>
@@ -747,7 +747,7 @@ describe('CyVox fast routing contract', () => {
   });
 });
 
-describe('CyVox upstream response bounds', () => {
+describe('CyVox upstream response bounds (fast routing)', () => {
   afterEach(() => jest.restoreAllMocks());
 
   const admin = () =>

@@ -1,6 +1,6 @@
-import type { PropsWithChildren } from 'react';
 import { createStore, Provider } from 'jotai';
 import { act, renderHook } from '@testing-library/react';
+import type { PropsWithChildren } from 'react';
 import { normaliseMode, useStoredConversationMode } from '../mode';
 
 let testStore = createStore();
@@ -96,7 +96,7 @@ it('copies the latest mode only to an acknowledged server identity, not to an ar
   expect(result.current.mode).toBe('chat');
 });
 
-it('can adopt an acknowledged conversation when stored mode data is null', () => {
+it('can adopt an acknowledged conversation after stored mode data is reset', () => {
   localStorage.setItem('conversationModes:owner', 'null');
 
   const { result, rerender } = renderHook(

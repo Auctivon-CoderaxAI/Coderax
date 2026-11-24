@@ -124,7 +124,7 @@ export function useStoredConversationMode({
         ? current
         : recordMode(current ?? {}, conversationId, initialMode),
     );
-  }, [conversationId, forcedModeKey, initial, setModes, shouldForceInitialMode]);
+  }, [conversationId, forcedModeKey, initial, initialMode, setModes, shouldForceInitialMode]);
 
   return useMemo(
     () => ({

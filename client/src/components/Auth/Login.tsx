@@ -26,7 +26,6 @@ function Login({ manual = false }: { manual?: boolean }) {
   const disableAutoRedirect = searchParams.get('redirect') === 'false';
 
   const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
-  const manualSignIn = searchParams.get('manual') === '1';
 
   useEffect(() => {
     const redirectTo = searchParams.get('redirect_to');

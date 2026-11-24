@@ -24,7 +24,6 @@ import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
 import Login from '~/components/Auth/Login';
 import LoginLayout from './Layouts/Login';
-import GuestEntry from './GuestEntry';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
 import GuestEntry from './GuestEntry';
@@ -35,7 +34,6 @@ import WorkRoute from './WorkRoute';
 import Search from './Search';
 import Studio from './Studio';
 import Root from './Root';
-import Studio from './Studio';
 
 /**
  * Keep the former login URL as a passwordless guest entry. `manual=1` is the
