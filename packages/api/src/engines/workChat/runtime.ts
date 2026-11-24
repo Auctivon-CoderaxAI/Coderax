@@ -23,13 +23,25 @@ function activeRunKey(input: RunScope): string {
 }
 
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
+  private readonly registry: EngineRegistryApi;
+  private readonly roots: { private: string; cloud: string };
+  private readonly mode: DataMode;
+  private readonly model: EngineModelRef | undefined;
+  private readonly defaultEngine: EngineId;
+
   constructor(
-    private readonly registry: EngineRegistryApi,
-    private readonly roots: { private: string; cloud: string },
-    private readonly mode: DataMode = 'private',
-    private readonly model?: EngineModelRef,
-    private readonly defaultEngine: EngineId = 'opencode',
-  ) {}
+    registry: EngineRegistryApi,
+    roots: { private: string; cloud: string },
+    mode: DataMode = 'private',
+    model?: EngineModelRef,
+    defaultEngine: EngineId = 'opencode',
+  ) {
+    this.registry = registry;
+    this.roots = roots;
+    this.mode = mode;
+    this.model = model;
+    this.defaultEngine = defaultEngine;
+  }
 
   snapshot(): EngineStatusSnapshot {
     return this.registry.snapshot();
