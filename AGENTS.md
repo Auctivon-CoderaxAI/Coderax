@@ -5,6 +5,17 @@
 Shared API types and services live in `packages/data-provider`, and the React app lives in
 `client` with shared primitives in `packages/client`.
 
+## Project charter
+
+[`docs/coderax-charter.md`](docs/coderax-charter.md) is the owner's product charter: Coderax is a
+private, owner-controlled personal AI operating system, not a commercial product. It binds design
+and engineering decisions — owner-only access, zero additional spending, cloud-only substantive
+compute, verified model identities and availability, no silent paid routing, no silent substitution
+between agents, and no placeholder or mocked capability presented as a working feature.
+
+The rules below remain this repository's engineering conventions. Where a convention and the
+charter appear to conflict, raise the conflict in the pull request instead of choosing silently.
+
 ## Branching and pull requests
 
 Normally branch off `dev` and target `dev`; `gh pr create` defaults to `main`, so pass `--base dev`
