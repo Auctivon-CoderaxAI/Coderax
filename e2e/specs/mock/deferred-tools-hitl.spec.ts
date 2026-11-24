@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page, Request } from '@playwright/test';
 import type { AgentDetail } from './agents.helpers';
-import { cleanupAgent, openAgentBuilder, uniqueAgentName } from './agents.helpers';
+import { cleanupAgent, uniqueAgentName } from './agents.helpers';
 import {
   MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
@@ -65,7 +65,7 @@ async function waitForDeferredTools(page: Page) {
   );
 }
 
-async function createAgent(page: Page): Promise<{ id: string; name: string }> {
+async function createAgent(page: Page): Promise<string> {
   await page.goto(NEW_CHAT_PATH, { timeout: 10000 });
   await waitForDeferredTools(page);
 
@@ -97,15 +97,7 @@ async function createAgent(page: Page): Promise<{ id: string; name: string }> {
     expect.arrayContaining([DEFERRED_TOOL_ID, DEFERRED_CONTROL_TOOL_ID, ASK_USER_QUESTION_TOOL_ID]),
   );
 
-  return { id: agent.id, name: agentName };
-}
-
-async function selectAgent(page: Page, agentName: string) {
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name: agentName }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(agentName);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
+  return agent.id;
 }
 
 test.describe('deferred tools across HITL resume', () => {
@@ -120,9 +112,8 @@ test.describe('deferred tools across HITL resume', () => {
     let agentId: string | undefined;
 
     try {
-      const agent = await createAgent(page);
-      agentId = agent.id;
-      await selectAgent(page, agent.name);
+      agentId = await createAgent(page);
+      await page.goto(`${NEW_CHAT_PATH}?agent_id=${encodeURIComponent(agentId)}`);
 
       const response = await sendMessage(page, `${PROMPT_MARKER}${label}`);
       expect(response.ok()).toBeTruthy();
