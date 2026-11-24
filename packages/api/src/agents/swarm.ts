@@ -187,6 +187,11 @@ export class SwarmCoordinator {
     if (!(await this.store.compareAndSwap(task.id, expected, lease))) {
       return { ok: false, reason: 'claim_conflict' };
     }
+    // A slow durable store may acknowledge the claim after its lease expires.
+    // Never return tool grants for a lease that is already invalid.
+    if (lease.expiresAt <= this.now()) {
+      return { ok: false, reason: 'unavailable' };
+    }
 
     return {
       ok: true,
