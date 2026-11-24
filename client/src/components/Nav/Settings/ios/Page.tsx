@@ -29,10 +29,13 @@ function groupEntries(
 ): EntryGroup[] {
   const groups: EntryGroup[] = [];
   for (const entry of pageEntries(page, ctx)) {
-    const key = `${entry.tab}:${entry.section}`;
+    const label = sectionLabel(entry.tab, entry.section, localize);
+    /* Entries from different tabs share a heading when they share a section
+     * name, so "Danger zone" is one card instead of one per tab. */
+    const key = label !== '' ? label : `${entry.tab}:${entry.section}`;
     let group = groups.find((candidate) => candidate.key === key);
     if (group == null) {
-      group = { key, label: sectionLabel(entry.tab, entry.section, localize), entries: [] };
+      group = { key, label, entries: [] };
       groups.push(group);
     }
     group.entries.push(entry);
@@ -44,8 +47,11 @@ export default function PageContent({ page, ctx }: { page: IosPage; ctx: Setting
   const localize = useLocalize();
   const groups = groupEntries(page, ctx, localize);
 
+  const Header = page.header;
+
   return (
     <div className="flex flex-col gap-5 pb-6">
+      {Header != null && <Header />}
       {groups.map((group) => (
         <section key={group.key} aria-label={group.label !== '' ? group.label : undefined}>
           {group.label !== '' && (

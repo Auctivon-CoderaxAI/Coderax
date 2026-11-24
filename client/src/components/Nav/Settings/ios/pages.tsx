@@ -16,9 +16,10 @@ import {
   UserRound,
 } from 'lucide-react';
 import { SettingsTabValues } from 'coderax-data-provider';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import type { SectionId, SettingsContextValue, SettingsTab, SettingEntry } from '../types';
 import type { TranslationKeys } from '~/hooks';
+import StorageUsage from './StorageUsage';
 import { registry } from '../registry';
 
 export type IosPageId =
@@ -49,6 +50,8 @@ export interface IosPage {
   descriptionKey?: TranslationKeys;
   icon: ReactNode;
   sources: IosSource[];
+  /** Page-level content shown above the registry rows, for summaries. */
+  header?: ComponentType;
   show?: (ctx: SettingsContextValue) => boolean;
 }
 
@@ -66,7 +69,7 @@ export const IOS_PAGES: IosPage[] = [
     id: 'account',
     labelKey: 'com_nav_setting_account',
     icon: icon(UserRound),
-    sources: [{ tab: SettingsTabValues.ACCOUNT, sections: ['profile', 'danger'] }],
+    sources: [{ tab: SettingsTabValues.ACCOUNT, sections: ['profile'] }],
   },
   {
     id: 'customize',
@@ -130,12 +133,19 @@ export const IOS_PAGES: IosPage[] = [
     labelKey: 'com_ui_settings_ios_code',
     descriptionKey: 'com_ui_settings_ios_code_desc',
     icon: icon(Terminal),
-    sources: [{ tab: SettingsTabValues.DATA, sections: ['codeExecution'] }],
+    sources: [
+      { tab: SettingsTabValues.DATA, sections: ['codeExecution'] },
+      {
+        tab: SettingsTabValues.CHAT,
+        entryIds: ['duringRunAction', 'autoExpandTools', 'showThinking'],
+      },
+    ],
   },
   {
     id: 'storage',
     labelKey: 'com_ui_settings_ios_storage',
     icon: icon(HardDrive),
+    header: StorageUsage,
     sources: [{ tab: SettingsTabValues.DATA, entryIds: ['manageFiles', 'deleteCache'] }],
   },
   {
@@ -145,7 +155,14 @@ export const IOS_PAGES: IosPage[] = [
     sources: [
       {
         tab: SettingsTabValues.DATA,
-        entryIds: ['importConversations', 'sharedLinks', 'archiveAllChats', 'clearChats'],
+        entryIds: [
+          'importConversations',
+          'sharedLinks',
+          'archivedChats',
+          'archiveAllChats',
+          'clearChats',
+          'deleteAccount',
+        ],
       },
       { tab: SettingsTabValues.DATA, sections: ['apiKeys'] },
     ],
