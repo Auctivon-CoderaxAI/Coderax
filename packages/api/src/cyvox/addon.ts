@@ -5,6 +5,8 @@ import type { CyvoxTarget } from './settings';
 import { resolveCyvoxTarget } from './settings';
 import { readBoundedBody } from './response';
 
+import { readBoundedBody } from './response';
+
 const resources = {
   readiness: '/api/readiness',
   deployments: '/api/deployment-platform/status',
