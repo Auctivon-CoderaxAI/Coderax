@@ -121,6 +121,23 @@ describe('UnifiedSidebar route override', () => {
     expect(mockSidebarProps.current.expanded).toBe(true);
   });
 
+  /**
+   * Game Studio is route-backed but not a workspace route: its link is active on
+   * /games while the panel keeps the ordinary expanded shell.
+   */
+  it('keeps the panel expanded on /games', () => {
+    renderAt('/games');
+    expect(mockSidebarProps.current.expanded).toBe(true);
+    expect(mockSidebarProps.current.width).not.toBe(COLLAPSED_WIDTH);
+  });
+
+  it('expands on /games without leaving it', () => {
+    renderAt('/games/lantern-run');
+    act(() => (mockSidebarProps.current.onExpand as () => void)());
+    expect(screen.getByTestId('location')).toHaveTextContent('/games/lantern-run');
+    expect(mockSetSidebarOpen).toHaveBeenCalledWith(true);
+  });
+
   it('leaves the workspace route before expanding', () => {
     renderAt('/insights');
     act(() => (mockSidebarProps.current.onExpand as () => void)());

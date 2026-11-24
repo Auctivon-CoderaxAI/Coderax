@@ -1114,6 +1114,38 @@ export function deleteProject(projectId: string): Promise<t.TDeleteChatProjectRe
   return request.delete(endpoints.projectById(projectId));
 }
 
+export function listGameProjects(
+  params?: q.GameProjectListParams,
+): Promise<t.TGameProjectListResponse> {
+  return request.get(endpoints.gameProjects(params ?? {}));
+}
+
+export function createGameProject(payload: t.TCreateGameProjectRequest): Promise<t.TGameProject> {
+  return request.post(endpoints.gameProjects(), payload);
+}
+
+export function getGameProjectById(gameId: string): Promise<t.TGameProject> {
+  return request.get(endpoints.gameProjectById(gameId));
+}
+
+export function updateGameProject(payload: t.TUpdateGameProjectRequest): Promise<t.TGameProject> {
+  const { gameId, ...data } = payload;
+  return request.patch(endpoints.gameProjectById(gameId), data);
+}
+
+export function deleteGameProject(gameId: string): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.gameProjectById(gameId));
+}
+
+export function saveGameSpec(payload: t.TSaveGameSpecRequest): Promise<t.TGameProject> {
+  const { gameId, ...data } = payload;
+  return request.put(endpoints.gameProjectSpec(gameId), data);
+}
+
+export function getGameCapabilities(): Promise<t.TGameCapabilities> {
+  return request.get(endpoints.gameCapabilities());
+}
+
 export function getProjectFiles(projectId: string): Promise<t.TChatProjectFile[]> {
   return request.get(endpoints.projectFiles(projectId));
 }

@@ -114,6 +114,7 @@ import {
   type ParentSubagentThreadRecord,
 } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
+import { createGameProjectMethods } from './gameProject';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -124,6 +125,16 @@ export type {
   ListChatProjectsResult,
   UpdateChatProjectInput,
 } from './chatProject';
+export type {
+  CreateGameProjectInput,
+  CreateGameProjectResult,
+  GameProjectMethods,
+  GameProjectLimits,
+  ListGameProjectsOptions,
+  ListGameProjectsResult,
+  SaveGameSpecResult,
+  UpdateGameProjectInput,
+} from './gameProject';
 /* Tier 3 — Complex (heavier injection) */
 import {
   createTxMethods,
@@ -543,6 +554,7 @@ export function createMethods(
     ...messageMethods,
     ...conversationMethods,
     ...createChatProjectMethods(mongoose),
+    ...createGameProjectMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,
