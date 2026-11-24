@@ -1,5 +1,9 @@
-import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
+import type {
+  ToolApprovalGrantStorage,
+  ToolStandingAuthorizationStorage,
+} from 'coderax-data-provider';
 import type { ScheduleMCPConsentStorage } from './scheduleConsent';
+import { createToolStandingAuthorizationMethods } from './toolStandingAuthorization';
 import { createToolApprovalGrantMethods } from './toolApprovalGrant';
 import { createScheduleMCPConsentStorage } from './scheduleConsent';
 export { createScheduleMCPConsentStorage } from './scheduleConsent';
@@ -255,6 +259,7 @@ export {
 };
 
 export type AllMethods = ToolApprovalGrantStorage &
+  ToolStandingAuthorizationStorage &
   UserMethods &
   SessionMethods &
   TokenMethods &
@@ -495,6 +500,7 @@ export function createMethods(
   return {
     ...createUserMethods(mongoose, { getCache: deps.getCache }),
     ...createToolApprovalGrantMethods(mongoose),
+    ...createToolStandingAuthorizationMethods(mongoose),
     ...createSessionMethods(mongoose),
     ...createTokenMethods(mongoose),
     ...createRefreshTokenBridgeMethods(mongoose),

@@ -1,5 +1,4 @@
 import { TooltipAnchor, Button, Sidebar } from '@coderax/client';
-import type { ButtonProps } from '@coderax/client';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import { useLocalize } from '~/hooks';
@@ -18,7 +17,7 @@ export default function OpenSidebar({
   testId = OPEN_SIDEBAR_ID,
 }: {
   className?: string;
-  shape?: ButtonProps['shape'];
+  shape?: React.ComponentProps<typeof Button>['shape'];
   testId?: string;
 }) {
   const localize = useLocalize();
@@ -46,8 +45,8 @@ export default function OpenSidebar({
         <Button
           id={OPEN_SIDEBAR_ID}
           size="icon"
-          shape={shape}
           variant="header-action"
+          shape={shape}
           data-testid={testId}
           aria-label={localize('com_nav_open_sidebar')}
           aria-expanded={false}

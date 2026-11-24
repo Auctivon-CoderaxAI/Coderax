@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { clearTwoFactorSetupToken, readTwoFactorSetupToken } from 'coderax-data-provider';
+import { clearPostLoginRedirect, peekPostLoginRedirect } from '~/utils/redirect';
 import { usePasskeySignIn } from '../usePasskey';
 
 type Deferred = {
@@ -139,6 +140,8 @@ describe('usePasskeySignIn', () => {
 
     afterEach(() => {
       clearTwoFactorSetupToken();
+      clearPostLoginRedirect();
+      window.history.replaceState({}, '', '/');
     });
 
     it('sends an account that must enroll to two-factor setup with its credential', async () => {
@@ -153,13 +156,15 @@ describe('usePasskeySignIn', () => {
       expect(readTwoFactorSetupToken()).toBe('setup-token');
     });
 
-    it('sends an enrolled account to the code challenge', async () => {
+    it('preserves the requested destination through the passkey code challenge', async () => {
+      window.history.replaceState({}, '', '/connect?redirect_to=%2Fwork%2Fnew');
       await signInWith({ twoFAPending: true, tempToken: 'challenge-token' });
 
       expect(mockNavigate).toHaveBeenCalledWith('/login/2fa?tempToken=challenge-token', {
         replace: true,
       });
       expect(readTwoFactorSetupToken()).toBeFalsy();
+      expect(peekPostLoginRedirect(new URLSearchParams())).toBe('/work/new');
     });
   });
 });
