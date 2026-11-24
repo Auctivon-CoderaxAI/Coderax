@@ -3910,16 +3910,18 @@ export const enginesConfigSchema = z
       })
       .prefault({}),
     /**
-     * Owner-only Work chat execution. When enabled, an ADMIN's Work turns run
-     * through the configured engine instead of the native agent runner; every
-     * other user, and every turn with a selected agent or attachment, still
-     * takes the native path. Disabled by default.
+     * Owner-gated external agent execution. The native Coderax agent is always
+     * the default and does not require this flag. When enabled, an ADMIN may
+     * explicitly select OpenCode Agent or FreeBuff Agent for a Work turn.
+     * `engine` is retained as a compatibility hint only; a request must name an
+     * external identity for external execution, so no engine is ever switched
+     * silently. Disabled by default.
      */
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.enum(['opencode', 'freebuff']).default('opencode'),
-        /** Private runs use local weights; cloud runs may use free hosted models. */
+        engine: z.enum(['coderax', 'opencode', 'freebuff']).default('coderax'),
+        /** External agents are cloud-only; native Work is governed separately. */
         mode: z.enum(['private', 'cloud']).default('private'),
       })
       .prefault({}),

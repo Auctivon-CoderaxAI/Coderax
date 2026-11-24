@@ -16,6 +16,8 @@ type WorkModelContext = {
   isWork: true;
   workModel: string;
   workProvider?: string;
+  /** The native runner only ever receives the Coderax identity. */
+  workAgent: 'coderax';
 };
 
 export type WorkAdmissionContext = WorkModelContext & {
@@ -80,6 +82,7 @@ function resolveWorkContextFromOptions(
       isWork: true,
       workModel: selection.model.id,
       workProvider: selection.model.provider,
+      workAgent: 'coderax',
     };
   }
   if (explicit) {
@@ -180,6 +183,7 @@ export async function resolveWorkAdmission(input: {
       isWork: true,
       workModel: selectedModel.id,
       workProvider: selectedModel.provider,
+      workAgent: 'coderax',
       allowedModels,
     },
   };

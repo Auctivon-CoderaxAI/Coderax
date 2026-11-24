@@ -5,6 +5,7 @@ import type { LoadedFreebuffSdk } from './freebuff/adapter';
 import type { LoadedOpenCodeSdk } from './opencode/sdk';
 import type { WorkspaceRoots } from './workspace';
 import type { EngineLimits } from './types';
+import path from 'node:path';
 import {
   isModelAllowedForMode,
   parseEngineModel,
@@ -32,7 +33,7 @@ export type ExecutionEnginesConfig =
         defaultEngine?: 'opencode' | 'openhands' | 'freebuff';
         workChat?: {
           enabled?: boolean;
-          engine?: 'opencode' | 'freebuff';
+          engine?: 'coderax' | 'opencode' | 'freebuff';
           mode?: 'private' | 'cloud';
         } | null;
         workspaces?: {
@@ -73,6 +74,30 @@ export type ExecutionEnginesConfig =
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MAX_SUMMARY_CHARS = 4_000;
 
+/**
+ * External cloud agents get their own directory beneath the configured cloud
+ * root. Native Coderax runs do not use these paths, so an external engine can
+ * never inherit or overwrite the native agent's workspace.
+ */
+export function engineWorkspaceRoot(
+  config: ExecutionEnginesConfig,
+  mode: 'private' | 'cloud',
+  engine: 'opencode' | 'freebuff' | 'openhands',
+): string {
+  const workspaces = config?.engines?.workspaces;
+  const base = mode === 'cloud' ? workspaces?.cloudRoot : workspaces?.privateRoot;
+  if (!base) {
+    return '';
+  }
+  if (mode !== 'cloud') {
+    return base;
+  }
+  if (engine === 'opencode' || engine === 'freebuff') {
+    return path.join(base, 'agents', engine);
+  }
+  return base;
+}
+
 function defaultEngineFor(value: 'opencode' | 'openhands' | 'freebuff' | undefined) {
   return value === 'openhands' || value === 'freebuff' ? value : 'opencode';
 }
@@ -103,7 +128,7 @@ export function createExecutionEngines(
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    const requiredRoot = workMode === 'cloud' ? roots.cloud : roots.private;
+    const requiredRoot = engineWorkspaceRoot(config, workMode, 'opencode');
     const model = parseEngineModel(openCode.model);
     if (!openCode.baseURL || !requiredRoot) {
       unavailableDetail = `engines.opencode.baseURL and engines.workspaces.${workMode}Root must both be configured.`;
@@ -113,7 +138,7 @@ export function createExecutionEngines(
           ? PRIVATE_MODEL_DETAIL
           : ZERO_COST_MODEL_DETAIL;
     } else {
-      const loaded = loadSdk({ baseURL: openCode.baseURL, directory: roots.private });
+      const loaded = loadSdk({ baseURL: openCode.baseURL, directory: requiredRoot });
       if (loaded.ok) {
         transport = loaded.value.transport;
       } else {
@@ -148,7 +173,10 @@ export function createExecutionEngines(
       enabled: openCode?.enabled === true,
       transport,
       ...(unavailableDetail ? { unavailableDetail } : {}),
-      roots,
+      roots: {
+        private: roots.private,
+        cloud: engineWorkspaceRoot(config, 'cloud', 'opencode'),
+      },
       limits: limitsFor(openCode?.timeoutMs),
     }),
     openhands: createOpenHandsAdapter({
@@ -172,7 +200,10 @@ export function createExecutionEngines(
             ...(freebuff.probeTimeoutMs != null ? { probeTimeoutMs: freebuff.probeTimeoutMs } : {}),
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
-            roots,
+            roots: {
+              private: roots.private,
+              cloud: engineWorkspaceRoot(config, 'cloud', 'freebuff'),
+            },
             mode: workMode,
             limits: limitsFor(freebuff.timeoutMs),
             maxAgentSteps: freebuff.maxAgentSteps,

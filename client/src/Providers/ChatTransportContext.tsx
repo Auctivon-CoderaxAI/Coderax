@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
 import { EndpointURLs, EModelEndpoint, isAssistantsEndpoint } from 'coderax-data-provider';
+import type { ChatTransportRequest, TWorkAgentId } from 'coderax-data-provider';
 import type { WorkOptions, WorkSelection } from '~/components/Chat/Input/workSelection';
 import type { Transport } from '~/hooks/Chat/contract';
 import {
@@ -91,7 +92,7 @@ export function createWorkChatTransport(
       if (options && !selected) {
         throw new Error('WORK_NO_FREE_MODEL');
       }
-      const engineSelected = selected?.model.engine != null;
+      const externalSelected = selected != null && selected.workAgent !== 'coderax';
       /** Built-in modes guide the automatic agent; a saved agent owns its own
        *  instructions and capabilities, so the mode payload applies only here. */
       const modePayload =
@@ -108,15 +109,16 @@ export function createWorkChatTransport(
                 : {}),
             }
           : {};
-      const workPayload = (() => {
+      const workPayload: ChatTransportRequest['payload'] = (() => {
         if (!selected) {
           return payload;
         }
-        if (engineSelected) {
+        if (selected.workAgent !== 'coderax') {
           return {
             ...payload,
             ...modePayload,
-            model: selected.model.id,
+            workAgent: selected.workAgent as TWorkAgentId,
+            model: undefined,
             agent_id: undefined,
             assistant_id: undefined,
             endpoint: undefined,
@@ -128,13 +130,14 @@ export function createWorkChatTransport(
           ...payload,
           ...modePayload,
           ...selected.preset,
+          workAgent: 'coderax',
           agent_id: selected.preset.agent_id,
           assistant_id: undefined,
           endpointType: selected.preset.endpoint,
           spec: null,
         };
       })();
-      if (engineSelected) {
+      if (externalSelected) {
         return startEngineWorkChat({
           url: toWorkEngineChatServer(directEngineOrigin),
           payload: workPayload,

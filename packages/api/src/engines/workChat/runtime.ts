@@ -2,6 +2,8 @@ import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './typ
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -28,7 +30,6 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     private readonly roots: { private: string; cloud: string },
     private readonly mode: DataMode = 'private',
     private readonly model?: EngineModelRef,
-    private readonly defaultEngine: EngineId = 'opencode',
   ) {}
 
   snapshot(): EngineStatusSnapshot {
@@ -65,21 +66,46 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   async start(
     input: RunScope & { prompt: string; engine?: EngineId },
   ): Promise<EngineResult<EngineRunHandle>> {
+    if (input.engine !== 'opencode' && input.engine !== 'freebuff') {
+      return engineFailure(
+        'not_configured',
+        'An explicit OpenCode Agent or FreeBuff Agent selection is required.',
+      );
+    }
+    const engine = input.engine;
     const key = activeRunKey(input);
     if (activeRuns.has(key)) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
+    if (this.mode === 'cloud' && !this.roots.cloud) {
+      return engineFailure('workspace_denied', 'The cloud workspace root is not configured.');
+    }
+    const workspaceRoot =
+      this.mode === 'cloud'
+        ? path.join(this.roots.cloud, 'agents', engine)
+        : this.roots.private;
+    if (!workspaceRoot) {
+      return engineFailure(
+        'workspace_denied',
+        `The ${this.mode} workspace root is not configured.`,
+      );
+    }
+    if (this.mode === 'cloud') {
+      try {
+        await mkdir(workspaceRoot, { recursive: true });
+      } catch {
+        return engineFailure('workspace_denied', 'The agent workspace could not be created.');
+      }
+    }
     const started = await this.registry.start({
-      engine: input.engine ?? this.defaultEngine,
+      engine,
       request: {
         taskKey: input.conversationId,
         conversationId: input.conversationId,
         prompt: input.prompt,
         mode: this.mode,
-        workspaceRoot: this.mode === 'cloud' ? this.roots.cloud : this.roots.private,
-        ...((input.engine ?? this.defaultEngine) === 'opencode' && this.model
-          ? { model: this.model }
-          : {}),
+        workspaceRoot,
+        ...(engine === 'opencode' && this.model ? { model: this.model } : {}),
       },
     });
     if (!started.ok) {
@@ -120,15 +146,12 @@ export function getEngineWorkChatRuntime(
   };
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
-  const workEngine = config?.engines?.workChat?.engine ?? 'opencode';
-  const modelConfig =
-    workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
+  const modelConfig = engines?.opencode?.model;
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
     parseEngineModel(modelConfig) ?? undefined,
-    workEngine,
   );
   runtimes.set(key, runtime);
   return runtime;

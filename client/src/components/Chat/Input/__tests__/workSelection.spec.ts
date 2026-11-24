@@ -8,6 +8,13 @@ const models: TWorkModel[] = [
   { id: 'quick:free', label: 'Quick', provider: 'openrouter' },
   { id: 'strong:free', label: 'Strong', provider: 'openrouter' },
 ];
+function nativePreset(resolved: ReturnType<typeof resolveWorkSelection>) {
+  if (!resolved || resolved.workAgent !== 'coderax') {
+    throw new Error('expected a native Work selection');
+  }
+  return resolved.preset;
+}
+
 const routingModes: TWorkModel[] = [
   { id: 'auto', label: 'Automatic', auto: true, routingMode: 'auto', target },
   {
@@ -42,7 +49,7 @@ describe('Work routing selection', () => {
     const resolved = resolveWorkSelection({ agentId: 'auto', modelKey: 'fast' }, options);
     expect(resolved?.model).toMatchObject({ id: 'quick:free', provider: 'openrouter' });
     expect(resolved?.automatic).toBe(true);
-    expect(resolved?.preset).toEqual({
+    expect(nativePreset(resolved)).toEqual({
       endpoint: 'openrouter' as EModelEndpoint,
       model: 'fast',
     });
@@ -51,7 +58,7 @@ describe('Work routing selection', () => {
   it('falls back to the legacy automatic option when the server sends no modes', () => {
     const options = toWorkOptions(models, []);
     expect(options.routing?.map((option) => option.routingMode)).toEqual(['auto']);
-    expect(resolveWorkSelection({ agentId: 'auto', modelKey: 'auto' }, options)?.preset).toEqual({
+    expect(nativePreset(resolveWorkSelection({ agentId: 'auto', modelKey: 'auto' }, options))).toEqual({
       endpoint: 'openrouter' as EModelEndpoint,
       model: 'auto',
     });

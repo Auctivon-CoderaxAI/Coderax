@@ -76,7 +76,34 @@ describe('createWorkChatTransport', () => {
     engineIdFromUrl.mockReset().mockReturnValue(undefined);
   });
 
+  const identities = [
+    {
+      id: 'coderax' as const,
+      label: 'Coderax Personal Agent',
+      kind: 'native' as const,
+      engine: null,
+      description: 'Native',
+      availability: { available: true as const },
+    },
+    {
+      id: 'opencode' as const,
+      label: 'OpenCode Agent',
+      kind: 'external' as const,
+      engine: 'opencode' as const,
+      description: 'External',
+      availability: { available: true as const },
+    },
+    {
+      id: 'freebuff' as const,
+      label: 'FreeBuff Agent',
+      kind: 'external' as const,
+      engine: 'freebuff' as const,
+      description: 'External',
+      availability: { available: true as const },
+    },
+  ];
   const options: WorkOptions = {
+    identities,
     models: [{ id: 'local-free', label: 'Local free', provider: 'ollama' }],
     auto: {
       id: 'auto',
@@ -225,48 +252,38 @@ describe('createWorkChatTransport', () => {
     });
   });
 
-  it('routes the OpenCode engine without a provider endpoint or agent', async () => {
+  it('routes an explicitly selected OpenCode identity without a provider endpoint or agent', async () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport(
       { start } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'opencode' },
       'https://work.example',
     );
     await transport.start(chatRequest);
     const request = startEngine.mock.calls[0][0];
     expect(request.url).toBe('https://work.example/api/work/chat');
-    expect(request.payload.model).toBe('opencode');
+    expect(request.payload.workAgent).toBe('opencode');
+    expect(request.payload.model).toBeUndefined();
     expect(request.payload.endpoint).toBeUndefined();
     expect(request.payload.endpointType).toBeUndefined();
     expect(request.payload.agent_id).toBeUndefined();
     expect(start).not.toHaveBeenCalled();
   });
 
-  it('routes the Freebuff engine without a provider endpoint or agent', async () => {
+  it('routes an explicitly selected FreeBuff identity without a provider endpoint or agent', async () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport(
       { start } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'freebuff', label: 'Freebuff', provider: 'freebuff', engine: 'freebuff' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["freebuff","freebuff"]' },
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'freebuff' },
       'https://work.example',
     );
     await transport.start(chatRequest);
     const request = startEngine.mock.calls[0][0];
     expect(request.url).toBe('https://work.example/api/work/chat');
-    expect(request.payload.model).toBe('freebuff');
+    expect(request.payload.workAgent).toBe('freebuff');
+    expect(request.payload.model).toBeUndefined();
     expect(request.payload.endpoint).toBeUndefined();
     expect(request.payload.endpointType).toBeUndefined();
     expect(request.payload.agent_id).toBeUndefined();
@@ -279,14 +296,8 @@ describe('createWorkChatTransport', () => {
     const start = jest.fn().mockResolvedValue({});
     const transport = createWorkChatTransport(
       { start, stream } as never,
-      {
-        ...options,
-        models: [
-          ...options.models,
-          { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
-        ],
-      },
-      { agentId: 'auto', modelKey: '["opencode","opencode"]' },
+      options,
+      { agentId: 'auto', modelKey: 'auto', workAgent: 'opencode' },
       'https://work.example',
     );
 

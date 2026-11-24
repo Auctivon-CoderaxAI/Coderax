@@ -1,6 +1,7 @@
 # Container configuration for the image built from Dockerfile target
-# `node-freebuff`. Cloud Work runs on a verified $0 hosted model with native
-# tool calling; no local model download or Ollama service is required.
+# `node-freebuff`. Coderax Personal Agent is the Work default; OpenCode and
+# FreeBuff remain explicit external choices. Work uses a verified $0 hosted
+# model with native tool calling; no local model or Ollama service is required.
 version: 1.3.17
 freeInference:
   enabled: true
@@ -15,7 +16,7 @@ engines:
     cloudRoot: /app/data/freebuff-cloud-workspace
   workChat:
     enabled: true
-    engine: freebuff
+    engine: coderax
     mode: cloud
   freebuff:
     enabled: true

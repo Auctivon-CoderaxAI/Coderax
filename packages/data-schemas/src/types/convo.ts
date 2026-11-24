@@ -268,6 +268,7 @@ export interface IConversation extends Document {
   isWork?: boolean;
   workModel?: string;
   workState?: string;
+  workAgent?: 'coderax' | 'opencode' | 'freebuff';
   // Fields provided by conversationPreset (adjust types as needed)
   endpoint?: string;
   endpointType?: string;
