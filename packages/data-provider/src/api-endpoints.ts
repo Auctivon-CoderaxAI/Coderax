@@ -141,6 +141,7 @@ export const conversationsRoot = `${BASE_URL}/api/convos`;
 export const workRoot = `${BASE_URL}/api/work`;
 export const workModels = () => `${workRoot}/models`;
 export const workAgents = () => `${workRoot}/agents`;
+export const workAgentIdentities = () => `${workRoot}/agent-identities`;
 export const workReadiness = () => `${workRoot}/readiness`;
 export const workRouting = () => `${workRoot}/routing`;
 export const workTasks = () => `${workRoot}/tasks`;

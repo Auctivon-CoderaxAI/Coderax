@@ -4,7 +4,7 @@ import { isEngineWorkChatPath, isOwnerEngineWorkChat } from './gating';
 const enabledConfig = (workChat: Record<string, unknown> = {}): EngineWorkChatConfig =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode', ...workChat },
+      workChat: { enabled: true, ...workChat },
       opencode: { enabled: true },
     },
   }) as unknown as EngineWorkChatConfig;

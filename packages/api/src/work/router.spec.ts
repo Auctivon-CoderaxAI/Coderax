@@ -126,35 +126,77 @@ describe('native Work router', () => {
     ]);
   });
 
-  it('offers an available Freebuff engine as a Work model', async () => {
+  it('lists exactly three identities with native first and default', async () => {
     const res = await request(
       app({
         role: 'ADMIN',
         workChatEnabled: true,
+        workChat: { enabled: true, mode: 'cloud' },
         engines: async () => ({
           defaultEngine: 'freebuff',
-          engines: [
-            {
-              id: 'freebuff',
-              capabilities: {
-                streaming: true,
-                tools: true,
-                cancellation: true,
-                modelSelection: false,
-              },
-              availability: { available: true, reason: 'ready' },
+          engines: ['opencode', 'freebuff'].map((id) => ({
+            id: id as 'opencode' | 'freebuff',
+            capabilities: {
+              streaming: true,
+              tools: true,
+              cancellation: true,
+              modelSelection: false,
             },
-          ],
+            availability: { available: true, reason: 'ready' },
+          })),
         }),
       }),
-    ).get('/api/work/models');
+    ).get('/api/work/agent-identities');
 
     expect(res.status).toBe(200);
-    expect(res.body.models).toContainEqual({
-      id: 'freebuff',
-      label: 'Freebuff',
-      provider: 'freebuff',
-      engine: 'freebuff',
+    expect(res.body.defaultAgent).toBe('coderax');
+    expect(res.body.agents.map((agent: { id: string }) => agent.id)).toEqual([
+      'coderax',
+      'opencode',
+      'freebuff',
+    ]);
+    expect(res.body.agents[0]).toMatchObject({
+      label: 'Coderax Personal Agent',
+      kind: 'native',
+      availability: { available: true },
+    });
+    expect(res.body.agents[1].availability).toMatchObject({ available: true });
+    expect(res.body.agents[2].availability).toMatchObject({ available: true });
+  });
+
+  it('does not offer external identities to a non-admin or probe their engines', async () => {
+    const engines = jest.fn();
+    const res = await request(
+      app({
+        role: 'USER',
+        workChat: { enabled: true, mode: 'cloud' },
+        engines,
+      }),
+    ).get('/api/work/agent-identities');
+
+    expect(res.status).toBe(200);
+    expect(res.body.agents.map((agent: { availability: unknown }) => agent.availability)).toEqual([
+      { available: true },
+      expect.objectContaining({ available: false, reason: 'owner_only' }),
+      expect.objectContaining({ available: false, reason: 'owner_only' }),
+    ]);
+    expect(engines).not.toHaveBeenCalled();
+  });
+
+  it('keeps native available while external identities report why they cannot run', async () => {
+    const res = await request(app({ role: 'ADMIN', workChatEnabled: true })).get(
+      '/api/work/agent-identities',
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.agents[0].availability).toMatchObject({ available: true });
+    expect(res.body.agents[1].availability).toMatchObject({
+      available: false,
+      reason: 'disabled',
+    });
+    expect(res.body.agents[2].availability).toMatchObject({
+      available: false,
+      reason: 'disabled',
     });
   });
 
@@ -188,6 +230,22 @@ describe('native Work router', () => {
       available: false,
       reason: 'context_too_small',
       detail: 'The configured local model declares an 8192-token context.',
+    });
+  });
+
+  it('names the routing intents and their concrete target on the model response', async () => {
+    const res = await request(app()).get('/api/work/models');
+    expect(res.status).toBe(200);
+    expect(res.body.routingModes.map((mode: { id: string }) => mode.id)).toEqual([
+      'auto',
+      'fast',
+      'complex',
+    ]);
+    expect(res.body.routingModes[0]).toMatchObject({
+      id: 'auto',
+      auto: true,
+      routingMode: 'auto',
+      target: { id: 'llama3:latest' },
     });
   });
 
