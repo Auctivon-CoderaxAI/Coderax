@@ -44,9 +44,16 @@ describe('captured OpenCode event stream', () => {
   });
 
   it('reports the tool call, its result and the edited file from the same stream', () => {
+    /* The `pending` state in this capture carries `input: {}`; the arguments
+     * only arrive with the `running` state, and that is what the call reports. */
     const calls = events.filter((event) => event.type === 'tool_call');
     expect(calls).toEqual([
-      { type: 'tool_call', callId: 'call_capture', tool: 'write', input: {} },
+      {
+        type: 'tool_call',
+        callId: 'call_capture',
+        tool: 'write',
+        input: { filePath: EDITED, content: 'captured by stub\n' },
+      },
     ]);
     expect(events.filter((event) => event.type === 'tool_result')).toEqual([
       {

@@ -78,32 +78,51 @@ describe('OpenCode event mapping', () => {
     expect(mapper.map(textPart('p1', 'Hello!'))).toEqual([]);
   });
 
-  it('maps a tool call and its result once', () => {
-    const mapper = new OpenCodeEventMapper(sessionId);
-    const part = (status: string, extra: Record<string, unknown>) => ({
-      type: 'message.part.updated',
-      properties: {
+  const toolPart = (input: unknown, status: string, extra: Record<string, unknown> = {}) => ({
+    type: 'message.part.updated',
+    properties: {
+      sessionID: sessionId,
+      part: {
+        id: 'part-1',
         sessionID: sessionId,
-        part: {
-          id: 'part-1',
-          sessionID: sessionId,
-          messageID: 'm',
-          type: 'tool',
-          callID: 'call-1',
-          tool: 'bash',
-          state: { status, input: { command: 'npm test' }, ...extra },
-        },
+        messageID: 'm',
+        type: 'tool',
+        callID: 'call-1',
+        tool: 'bash',
+        state: { status, input, ...extra },
       },
-    });
+    },
+  });
 
-    expect(mapper.map(part('pending', {}))).toEqual([
+  it('publishes a tool call once its real arguments arrive', () => {
+    /* The `pending` state reports `input: {}`, so publishing there produced a
+     * tool call with no arguments that later states never corrected. */
+    const mapper = new OpenCodeEventMapper(sessionId);
+    expect(mapper.map(toolPart({}, 'pending'))).toEqual([]);
+    expect(mapper.map(toolPart({ command: 'npm test' }, 'running'))).toEqual([
       { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'npm test' } },
     ]);
-    expect(mapper.map(part('running', {}))).toEqual([]);
-    expect(mapper.map(part('completed', { output: 'ok' }))).toEqual([
+    expect(mapper.map(toolPart({ command: 'npm test' }, 'completed', { output: 'ok' }))).toEqual([
       { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'ok' },
     ]);
-    expect(mapper.map(part('completed', { output: 'ok' }))).toEqual([]);
+    expect(mapper.map(toolPart({ command: 'npm test' }, 'completed', { output: 'ok' }))).toEqual(
+      [],
+    );
+  });
+
+  it('carries arguments a call reports before it starts running', () => {
+    const mapper = new OpenCodeEventMapper(sessionId);
+    expect(mapper.map(toolPart({ command: 'ls' }, 'pending'))).toEqual([
+      { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'ls' } },
+    ]);
+  });
+
+  it('reports a tool that settles before publishing any arguments', () => {
+    const mapper = new OpenCodeEventMapper(sessionId);
+    expect(mapper.map(toolPart({}, 'completed', { output: 'ok' }))).toEqual([
+      { type: 'tool_call', callId: 'call-1', tool: 'bash' },
+      { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'ok' },
+    ]);
   });
 
   it('maps a failed tool result without leaking an exception', () => {
@@ -123,7 +142,10 @@ describe('OpenCode event mapping', () => {
         },
       },
     });
+    /* The first state this call reports is already terminal, so its call is
+     * published without arguments rather than letting a result stand alone. */
     expect(events).toEqual([
+      { type: 'tool_call', callId: 'call-2', tool: 'bash' },
       { type: 'tool_result', callId: 'call-2', tool: 'bash', ok: false, output: 'exit 1' },
     ]);
   });

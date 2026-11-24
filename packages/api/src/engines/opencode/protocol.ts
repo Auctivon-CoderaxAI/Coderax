@@ -42,6 +42,18 @@ function toolName(part: Json): string {
   return readString(part.tool) ?? 'tool';
 }
 
+/**
+ * A tool's arguments only exist once they are non-empty. The `pending` state
+ * reports `input: {}` before the model's arguments have been parsed, and a
+ * later state carries the real ones.
+ */
+function hasToolInput(value: unknown): boolean {
+  if (value == null) {
+    return false;
+  }
+  return isRecord(value) ? Object.keys(value).length > 0 : true;
+}
+
 export class OpenCodeEventMapper {
   private readonly sessionId: string;
   /** Text emitted for each part, reconciled across cumulative and delta forms. */
@@ -49,6 +61,9 @@ export class OpenCodeEventMapper {
   /** First-seen order for composing replacement snapshots across parts. */
   private readonly textOrder: string[] = [];
   private readonly toolStatus = new Map<string, string>();
+  /** The arguments reported for each call, kept until the call is published. */
+  private readonly toolInput = new Map<string, unknown>();
+  private readonly publishedCalls = new Set<string>();
   private readonly filePaths = new Set<string>();
   /** Roles reported by message.updated: a session streams every part, including
    *  the prompt the user sent, and only assistant text may reach the reply. */
@@ -210,47 +225,43 @@ export class OpenCodeEventMapper {
     if (!state) {
       return [];
     }
+    if (hasToolInput(state.input)) {
+      this.toolInput.set(callId, state.input);
+    }
     const status = readString(state.status) ?? 'unknown';
     const tool = toolName(part);
     const previous = this.toolStatus.get(callId);
-    if (previous === status) {
+    const published = this.publishedCalls.has(callId);
+    if (previous === status && published) {
       return [];
     }
     this.toolStatus.set(callId, status);
+    const terminal = status === 'completed' || status === 'error';
 
-    if (status === 'completed') {
-      return [
-        {
-          type: 'tool_result',
-          callId,
-          tool,
-          ok: true,
-          ...(toolOutput(state) ? { output: toolOutput(state) } : {}),
-        },
-      ];
+    const events: EngineEvent[] = [];
+    const input = this.toolInput.get(callId);
+    /** Publish the call once its arguments are known, or when the tool settles
+     *  without ever reporting them, so a result never precedes its call. */
+    if (!published && (input !== undefined || terminal)) {
+      this.publishedCalls.add(callId);
+      events.push({
+        type: 'tool_call',
+        callId,
+        tool,
+        ...(input !== undefined ? { input } : {}),
+      });
     }
-    if (status === 'error') {
-      return [
-        {
-          type: 'tool_result',
-          callId,
-          tool,
-          ok: false,
-          ...(toolOutput(state) ? { output: toolOutput(state) } : {}),
-        },
-      ];
+    if (terminal) {
+      const output = toolOutput(state);
+      events.push({
+        type: 'tool_result',
+        callId,
+        tool,
+        ok: status === 'completed',
+        ...(output ? { output } : {}),
+      });
     }
-    if (previous === undefined) {
-      return [
-        {
-          type: 'tool_call',
-          callId,
-          tool,
-          ...(state.input !== undefined ? { input: state.input } : {}),
-        },
-      ];
-    }
-    return [];
+    return events;
   }
 
   private mapPermission(properties: Json): EngineEvent[] {
