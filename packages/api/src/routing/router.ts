@@ -21,10 +21,14 @@ import { createQuotaLedger } from './quota';
  * stays where it already lives and this module stays testable without network.
  */
 
+/**
+ * A tool-required turn never runs on a text-only endpoint, and no limit here
+ * relaxes that: dropping a Work turn's tools is a correctness failure, not a
+ * cost trade-off an operator can opt into.
+ */
 export type FreeRoutingLimits = {
   enabled: boolean;
   allowFallback: boolean;
-  allowToolsInFallback: boolean;
   maxRequestsPerDay: number;
   maxTokensPerDay: number;
   maxRetries: number;

@@ -89,7 +89,6 @@ describe('config schema defaults', () => {
     expect(configSchema.parse({ version: '1.0' }).freeInference).toEqual({
       enabled: false,
       allowFallback: true,
-      allowToolsInFallback: false,
       maxRequestsPerDay: DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
       maxTokensPerDay: DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
       openRouterMaxOutputTokens: 4096,

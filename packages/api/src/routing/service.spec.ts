@@ -10,7 +10,6 @@ describe('routing from deployment config', () => {
     expect(resolveFreeRoutingLimits({})).toMatchObject({
       enabled: false,
       allowFallback: true,
-      allowToolsInFallback: false,
       maxRetries: 2,
     });
     expect(createFreeRouterFromConfig(undefined).plan()).toMatchObject({

@@ -4076,12 +4076,6 @@ export const freeInferenceConfigSchema = z
     enabled: z.boolean().default(false),
     /** A turn may continue on another verified free endpoint after a failure. */
     allowFallback: z.boolean().default(true),
-    /**
-     * A Work turn prefers an endpoint with native tool calling; when true a
-     * text-only endpoint may still serve it as a last resort. The run is told
-     * the tools are unavailable rather than silently dropping them.
-     */
-    allowToolsInFallback: z.boolean().default(false),
     maxRequestsPerDay: z
       .number()
       .int()

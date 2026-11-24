@@ -59,7 +59,7 @@ The Mongo suites added by #150 and the Work regressions added by #149 had been m
 
 **Boundary correction.** The Mongo collection contract and queries moved from `packages/api` to `packages/data-schemas/src/methods/swarmLease.ts`; `packages/api` then only derived the scoped key and mapped the coordinator's CAS contract. That code was removed on 2026-11-20.
 
-**Still unverified.** The unreachable `SwarmCoordinator` was removed on 2026-11-20; capability 6 now has no implementation in this tree. No two-process peer race, restart recovery, staging run or production readback exists. `npx tsc --noEmit` is not clean: `packages/data-schemas` passes, and `packages/api` reports three unrelated errors (two in `src/engines/opencode/adapter.spec.ts` and an ambiguous `ModeDecision` re-export in `src/index.ts`); none are in the files changed here. GitHub Actions still fails before `Set up job` (#141). Keep every CI/staging/production cell **UNVERIFIED**.
+**Still unverified.** The unreachable `SwarmCoordinator` was removed on 2026-11-20; capability 6 now has no implementation in this tree. No two-process peer race, restart recovery, staging run or production readback exists. `npx tsc --noEmit` in `packages/api` is clean at `e4ccd932` (2026-11-24, after building `data-provider` and `data-schemas`); the three errors recorded earlier in `src/engines/opencode/adapter.spec.ts` and the `ModeDecision` re-export no longer reproduce. GitHub Actions still fails before `Set up job` (#141). Keep every CI/staging/production cell **UNVERIFIED**.
 
 ## Required acceptance scenarios
 
