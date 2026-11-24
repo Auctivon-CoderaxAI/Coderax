@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Button } from '@coderax/client';
 import {
   GAME_CAMERAS,
@@ -48,9 +48,13 @@ export default function GameSpecForm({ project }: { project: TGameProject }) {
   const artDirectionId = useId();
   const saveSpec = useSaveGameSpecMutation();
   const [draft, setDraft] = useState<TGameSpec>(project.spec ?? DEFAULT_SPEC);
+  const [baseRevision, setBaseRevision] = useState(project.revision);
   const [status, setStatus] = useState<SaveStatus>('idle');
+  // A save in flight must not claim edits the user made after submitting it.
+  const draftVersion = useRef(0);
 
   const update = <Key extends keyof TGameSpec>(key: Key, value: TGameSpec[Key]) => {
+    draftVersion.current += 1;
     setDraft((current) => ({ ...current, [key]: value }));
     if (status !== 'idle') {
       setStatus('idle');
@@ -78,14 +82,22 @@ export default function GameSpecForm({ project }: { project: TGameProject }) {
       setStatus('invalid');
       return;
     }
+    const submittedVersion = draftVersion.current;
     saveSpec.mutate(
       {
         gameId: project._id,
         spec: { ...draft, prompt: draft.prompt.trim() },
-        expectedRevision: project.revision,
+        // The revision this draft was built from. Refreshing the project after
+        // another session's save must not let this draft overwrite it.
+        expectedRevision: baseRevision,
       },
       {
-        onSuccess: () => setStatus('saved'),
+        onSuccess: (saved) => {
+          setBaseRevision(saved.revision);
+          if (draftVersion.current === submittedVersion) {
+            setStatus('saved');
+          }
+        },
         onError: (error) => setStatus(responseStatus(error) === 409 ? 'conflict' : 'error'),
       },
     );
