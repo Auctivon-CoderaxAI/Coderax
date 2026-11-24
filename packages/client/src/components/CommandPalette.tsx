@@ -79,7 +79,7 @@ export default function CommandPalette({
   const baseId = useId();
   const listId = `${baseId}-list`;
   const [query, setQuery] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const optionRefs = useRef(new Map<string, HTMLDivElement>());
 
   const matches = useMemo(() => {
@@ -103,14 +103,25 @@ export default function CommandPalette({
     return Array.from(byName, ([name, groupItems]) => ({ name, items: groupItems }));
   }, [matches]);
 
+  /** Rendered order, not match order: grouping can reorder the visible rows. */
   const selectable = useMemo(
-    () => matches.filter((item) => item.unavailableReason == null),
-    [matches],
+    () => groups.flatMap((group) => group.items).filter((item) => item.unavailableReason == null),
+    [groups],
   );
 
-  /** Filtering can shrink the list under the cursor; clamp rather than reset. */
-  const safeIndex = selectable.length === 0 ? -1 : Math.min(activeIndex, selectable.length - 1);
-  const activeItem = safeIndex === -1 ? undefined : selectable[safeIndex];
+  /**
+   * Track the active row by identity. Filtering or inserting rows can move an index onto a
+   * different item; an ID falls back only when that item disappears or becomes unavailable.
+   */
+  const activeIndex = useMemo(() => {
+    if (selectable.length === 0) {
+      return -1;
+    }
+    const index = activeId == null ? -1 : selectable.findIndex((item) => item.id === activeId);
+    return index === -1 ? 0 : index;
+  }, [activeId, selectable]);
+
+  const activeItem = activeIndex === -1 ? undefined : selectable[activeIndex];
 
   const optionIndexById = useMemo(() => {
     const map = new Map<string, number>();
@@ -122,7 +133,7 @@ export default function CommandPalette({
     if (!open) {
       return;
     }
-    setActiveIndex(0);
+    setActiveId(null);
   }, [open]);
 
   useEffect(() => {
@@ -163,10 +174,8 @@ export default function CommandPalette({
     if (selectable.length === 0) {
       return;
     }
-    setActiveIndex((current) => {
-      const from = Math.min(current, selectable.length - 1);
-      return (from + delta + selectable.length) % selectable.length;
-    });
+    const from = activeIndex === -1 ? 0 : activeIndex;
+    setActiveId(selectable[(from + delta + selectable.length) % selectable.length].id);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
@@ -182,12 +191,12 @@ export default function CommandPalette({
     }
     if (event.key === 'Home') {
       event.preventDefault();
-      setActiveIndex(0);
+      setActiveId(selectable[0]?.id ?? null);
       return;
     }
     if (event.key === 'End') {
       event.preventDefault();
-      setActiveIndex(Math.max(selectable.length - 1, 0));
+      setActiveId(selectable[selectable.length - 1]?.id ?? null);
       return;
     }
     if (event.key === 'Enter' && activeItem != null) {
@@ -222,7 +231,7 @@ export default function CommandPalette({
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
-              setActiveIndex(0);
+              setActiveId(null);
             }}
             onKeyDown={handleKeyDown}
             className={cn(
@@ -278,12 +287,8 @@ export default function CommandPalette({
                       aria-selected={isActive}
                       aria-disabled={isUnavailable || undefined}
                       onMouseMove={() => {
-                        if (isUnavailable) {
-                          return;
-                        }
-                        const index = selectable.findIndex((entry) => entry.id === item.id);
-                        if (index !== -1) {
-                          setActiveIndex(index);
+                        if (!isUnavailable) {
+                          setActiveId(item.id);
                         }
                       }}
                       onClick={() => select(item, false)}
