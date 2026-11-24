@@ -2369,9 +2369,8 @@ export async function createRun({
    * Reuse them here so a context-aware factory is evaluated exactly once for the run.
    */
   resolvedToolApprovalHooks?: readonly ResolvedToolApprovalHook[];
-  toolApprovalStorage?: ToolApprovalGrantStorage & {
-    listToolStandingAuthorizations?: ToolStandingAuthorizationStorage['listToolStandingAuthorizations'];
-  };
+  toolApprovalStorage?: ToolApprovalGrantStorage &
+    Partial<Pick<ToolStandingAuthorizationStorage, 'listToolStandingAuthorizations'>>;
   reviewedToolApprovals?: ReviewedToolApprovals;
   scheduledMCPExecution?: ScheduleMCPExecution;
   recordScheduledMCPDenial?: (error: ScheduledMCPPolicyError) => Promise<boolean>;
@@ -2889,10 +2888,8 @@ export async function createRun({
     scope: user?.id != null ? { userId: user.id, tenantId: tenantId ?? user.tenantId } : undefined,
     timeoutMs: toolApprovalPolicy?.standingAuthorizationLookupTimeoutMs,
   });
-  const effectiveToolApprovalPolicy = () => {
-    const policy = baselineToolApprovalPolicy();
-    return applyStandingToolAllows(policy, standingAuthorization.patterns) ?? policy;
-  };
+  const effectiveToolApprovalPolicy = () =>
+    applyStandingToolAllows(baselineToolApprovalPolicy(), standingAuthorization.patterns);
   const nativeEditFileAgentIds = collectNativeEditFileAgentIds(agents);
   const agentApprovalSession = createAgentToolApprovalSession({
     agents: [...codeFileAgents.values()],

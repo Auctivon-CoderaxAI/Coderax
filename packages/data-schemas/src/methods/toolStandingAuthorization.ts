@@ -40,11 +40,11 @@ export function createToolStandingAuthorizationMethods(
   mongoose: typeof import('mongoose'),
 ): ToolStandingAuthorizationStorage {
   return {
-    async listToolStandingAuthorizations(scope: ToolStandingAuthorizationScope, options) {
+    async listToolStandingAuthorizations(scope: ToolStandingAuthorizationScope) {
       const records = await mongoose.models.ToolStandingAuthorization.find({
         user: scope.userId,
         tenantId: scope.tenantId ?? null,
-        ...(options?.includeRevoked === true ? {} : { revokedAt: { $exists: false } }),
+        revokedAt: { $exists: false },
       })
         .select(projection)
         .sort({ createdAt: -1 })
