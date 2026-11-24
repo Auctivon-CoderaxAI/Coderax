@@ -567,6 +567,67 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.ended).toBe(true);
   });
 
+  it('streams each tool call with its arguments and replaces it with its result', async () => {
+    const { store } = fakeStore();
+    const { runner } = fakeRunner([
+      { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'a.txt' },
+      { type: 'text_delta', text: 'Listed it.' },
+    ]);
+
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'List the files', conversationId: CONVERSATION_ID, messageId: USER_MESSAGE_ID },
+    });
+
+    const events = sseEvents(response);
+    const toolParts = events.filter((event) => event.type === 'tool_call');
+    expect(toolParts[0]).toMatchObject({
+      index: 1,
+      tool_call: {
+        id: 'call-1',
+        name: 'bash',
+        type: 'tool_call',
+        args: { command: 'ls' },
+      },
+    });
+    expect(toolParts[toolParts.length - 1]).toMatchObject({
+      index: 1,
+      tool_call: {
+        args: { command: 'ls' },
+        output: 'a.txt',
+        runStepStatus: 'completed',
+      },
+    });
+    /* The final frame carries the same parts, because the client replaces the
+     * streamed message with it. */
+    expect(events.find((event) => event.final === true)?.responseMessage).toEqual({
+      messageId: `${USER_MESSAGE_ID}_`,
+      parentMessageId: USER_MESSAGE_ID,
+      conversationId: CONVERSATION_ID,
+      text: 'Listed it.',
+      content: [
+        { type: 'text', text: 'Listed it.' },
+        {
+          type: 'tool_call',
+          tool_call: {
+            id: 'call-1',
+            name: 'bash',
+            type: 'tool_call',
+            progress: 1,
+            args: { command: 'ls' },
+            runStepStatus: 'completed',
+            output: 'a.txt',
+          },
+        },
+      ],
+      sender: 'OpenCode',
+      isCreatedByUser: false,
+      unfinished: false,
+    });
+  });
+
   it('generates a message id and defaults a missing parent to 0', async () => {
     const { store, saveMessage } = fakeStore();
     const { runner } = fakeRunner([]);

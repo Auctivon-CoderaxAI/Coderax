@@ -57,8 +57,10 @@ function fakeResponse(): FakeResponse {
 }
 
 type Frame = {
-  message?: true;
+  type?: string;
+  index?: number;
   text?: string;
+  tool_call?: Record<string, unknown>;
   final?: true;
   terminalStatus?: string;
   toolCalls?: number;
@@ -206,14 +208,30 @@ describe('Work engine turn end-to-end', () => {
     await handler(request, response, jest.fn());
 
     const sent = frames(response);
-    const text = sent
-      .filter((frame) => frame.message === true)
-      .map((frame) => String(frame.text))
-      .join('');
-    expect(text).toContain('Checked the workspace.');
-    expect(text).toContain('The hash is 9f2c1d3e.');
+    /* The reply streams as content parts, so the client renders the text and
+     * the tool call in one message instead of a bare text row. */
+    const textFrames = sent.filter((frame) => frame.type === 'text');
+    expect(textFrames[textFrames.length - 1]).toMatchObject({
+      index: 0,
+      text: 'Checked the workspace. The hash is 9f2c1d3e.',
+    });
+    const text = textFrames.map((frame) => String(frame.text)).join('\n');
     expect(text).not.toContain('head -c 16');
     expect(text).not.toContain('Current request:');
+
+    const toolFrames = sent.filter((frame) => frame.type === 'tool_call');
+    expect(toolFrames[0]).toMatchObject({
+      index: 1,
+      tool_call: {
+        id: 'call-1',
+        name: 'bash',
+        args: { command: 'head -c 16 /dev/urandom | md5sum' },
+      },
+    });
+    expect(toolFrames[toolFrames.length - 1]).toMatchObject({
+      index: 1,
+      tool_call: { output: '9f2c1d3e', runStepStatus: 'completed' },
+    });
 
     const final = sent.find((frame) => frame.final === true);
     expect(final?.terminalStatus).toBe('complete');
@@ -224,6 +242,19 @@ describe('Work engine turn end-to-end', () => {
       text: 'Checked the workspace. The hash is 9f2c1d3e.',
       sender: 'OpenCode',
       isCreatedByUser: false,
+      content: [
+        { type: 'text', text: 'Checked the workspace. The hash is 9f2c1d3e.' },
+        {
+          type: 'tool_call',
+          tool_call: {
+            id: 'call-1',
+            name: 'bash',
+            args: { command: 'head -c 16 /dev/urandom | md5sum' },
+            output: '9f2c1d3e',
+            runStepStatus: 'completed',
+          },
+        },
+      ],
     });
     expect(saved).toEqual([
       { text: PROMPT, isCreatedByUser: true },
