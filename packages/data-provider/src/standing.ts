@@ -182,6 +182,20 @@ export function validateToolStandingAuthorization(
 }
 
 /**
+ * Whether a grant may still authorize anything at all, before any scope is
+ * consulted. Revocation and expiry are checked here so every consumer — the
+ * execution gate and the run's policy fold — agrees on one definition.
+ */
+export function isStandingAuthorizationActive(
+  authorization: ToolStandingAuthorization,
+  now: number = Date.now(),
+): boolean {
+  if (authorization.revokedAt != null) return false;
+  if (authorization.expiresAt != null && now >= authorization.expiresAt) return false;
+  return authorization.maxCostUsd === STANDING_AUTHORIZATION_MAX_COST_USD;
+}
+
+/**
  * Evaluates one grant against one call. Denials are ordered so the most
  * fundamental reason wins: a revoked or expired grant is never described as a
  * mere scope miss, and spend is refused before any pattern is consulted.
