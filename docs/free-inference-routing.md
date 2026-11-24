@@ -9,7 +9,7 @@ configured into existence.
 ## What is implemented
 
 | Piece                 | Location                                                                 | Behavior                                                                                                                  |
-| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | --- | --------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | Free endpoint catalog | `packages/data-provider/src/free-inference.ts`                           | Allowlisted providers, exact model ids, pricing evidence, capability flags                                                |
 | Model identity guard  | same                                                                     | Accepts only the full R1 checkpoint; every `distill`, `lite`, Qwen or Llama derivative is rejected as the preferred model |
 | Zero-cost enforcement | same                                                                     | Rejects unknown providers, unverified pricing, trial credits and any non-zero rate                                        |
@@ -17,7 +17,8 @@ configured into existence.
 | Quota ledger          | `packages/api/src/routing/quota.ts`                                      | Per-endpoint daily request and token budgets with reservations and settlement                                             |
 | Cooldowns             | `packages/api/src/routing/health.ts`                                     | An endpoint that fails `failureThreshold` times is skipped until its cooldown expires                                     |
 | Safe checkpoints      | `packages/api/src/routing/checkpoint.ts`                                 | A model switch is allowed only at `turn_start` or `between_tool_calls`                                                    |
-| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     |     | Status endpoint | `GET /api/work/routing` | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads |
+| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     |
+| Status endpoint       | `GET /api/work/routing` | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads |
 | Composer badge        | `client/src/components/Chat/Input/WorkRoutingBadge.tsx`                  | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled         |
 | Config                | `freeInference` in `coderax.yaml`                                        | Disabled by default; budgets, retries, cooldown and timeouts are operator levers                                          |
 
