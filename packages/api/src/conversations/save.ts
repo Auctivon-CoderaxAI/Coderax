@@ -120,6 +120,7 @@ function getUnsetFields(
     'isWork',
     'workModel',
     'workState',
+    'workAgent',
   ]);
   const unsetFields: Record<string, number> = {};
   for (const key of Object.keys(existing)) {
@@ -179,13 +180,30 @@ function getReplyStamp(
  * start Work, but it can never write this field: the alias strips any such claim
  * from the body before the handler sees it.
  */
-function workMarkerFields(req?: unknown): { isWork?: true; workModel?: string } {
-  const context = (req as { workContext?: { isWork?: boolean; workModel?: string } } | undefined)
-    ?.workContext;
+function workMarkerFields(req?: unknown): {
+  isWork?: true;
+  workModel?: string;
+  workAgent?: 'coderax' | 'opencode' | 'freebuff';
+} {
+  const context = (
+    req as
+      | {
+          workContext?: {
+            isWork?: boolean;
+            workModel?: string;
+            workAgent?: 'coderax' | 'opencode' | 'freebuff';
+          };
+        }
+      | undefined
+  )?.workContext;
   if (context?.isWork !== true || typeof context.workModel !== 'string' || !context.workModel) {
     return {};
   }
-  return { isWork: true, workModel: context.workModel };
+  return {
+    isWork: true,
+    workModel: context.workModel,
+    ...(context.workAgent ? { workAgent: context.workAgent } : {}),
+  };
 }
 
 async function writeConversation(
@@ -201,6 +219,7 @@ async function writeConversation(
   delete storedOptions.isWork;
   delete storedOptions.workModel;
   delete storedOptions.workState;
+  delete storedOptions.workAgent;
   const conversation = await deps.saveConvo(
     ctx,
     {

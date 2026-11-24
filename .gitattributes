@@ -1,3 +1,13 @@
+# Normalize every text file to LF in the repository, and pin the working tree to
+# LF too, so a checkout that writes CRLF (a Windows client, or an editor that
+# does) cannot register every line of a file as modified. Binary files are
+# detected by content and left untouched.
+* text=auto eol=lf
+
+# Windows-native scripting keeps CRLF in the working tree; the committed blob is
+# still normalized to LF by the rule above.
+*.ps1 text eol=crlf
+
 # Force LF line endings for shell scripts and git hooks (required for cross-platform compatibility)
 .husky/* text eol=lf
 *.sh text eol=lf

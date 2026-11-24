@@ -14,7 +14,10 @@ export type WorkSeedStore = {
   getConvo: (userId: string, conversationId: string) => Promise<SeedConversation | null>;
   saveConvo: (
     context: { userId: string; isTemporary?: boolean },
-    fields: SeedConversation & { workModel: string },
+    fields: SeedConversation & {
+      workModel: string;
+      workAgent?: 'coderax' | 'opencode' | 'freebuff';
+    },
     options: { context: string; noUpsert?: boolean; appendMessageIds: [] },
   ) => Promise<SeedConversation | null>;
 };
@@ -25,7 +28,7 @@ export type WorkSeedStore = {
  */
 export async function seedNativeWorkConversation(
   req: SeedRequest,
-  context: { workModel: string },
+  context: { workModel: string; workAgent?: 'coderax' | 'opencode' | 'freebuff' },
   source: WorkSeedStore | (() => WorkSeedStore),
 ): Promise<
   { seeded: true } | { seeded: false; reason: 'no_target' | 'tenant_mismatch' | 'exists' }
@@ -58,6 +61,7 @@ export async function seedNativeWorkConversation(
       conversationId,
       isWork: true,
       workModel: context.workModel,
+      ...(context.workAgent ? { workAgent: context.workAgent } : {}),
       ...(!existing && tenantId != null ? { tenantId } : {}),
     },
     {
