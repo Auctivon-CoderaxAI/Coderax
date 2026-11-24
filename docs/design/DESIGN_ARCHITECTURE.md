@@ -2,33 +2,33 @@
 
 **Module, navigation and interface specification — v1.0**
 
-| | |
-|---|---|
-| **Document** | Master design architecture for the Coderax application shell and every module in the product vision |
-| **Status** | Design specification. Not a claim of implementation. |
-| **Date** | 24 November 2026 |
-| **Author role** | Visual design and UI/UX contributor (FreeBuff), per the product brief §3 |
-| **Evidence base** | Repository `Auctivon-CoderaxAI/Coderax`, branch `freebuff/a1b038f05f3ba748796db084`, HEAD `ea16749` |
-| **Scope** | Information architecture, navigation, design system, interaction contracts, project creation, per-module specifications, capability registry schema, acceptance matrix, delivery plan |
-| **Out of scope** | Backend implementation, security policy ownership, deployment, production merges |
-| **Companions** | `docs/product/PRODUCT_DESIGN_ARCHITECTURE.md` is the short product brief; this document is the detailed interface specification beneath it. `docs/product/CAPABILITY_REGISTRY.md` and `docs/product/ACCEPTANCE_MATRIX.md` remain the owner's records |
+|                   |                                                                                                                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Document**      | Master design architecture for the Coderax application shell and every module in the product vision                                                                                                                                                  |
+| **Status**        | Design specification. Not a claim of implementation.                                                                                                                                                                                                 |
+| **Date**          | 24 November 2026                                                                                                                                                                                                                                     |
+| **Author role**   | Visual design and UI/UX contributor (FreeBuff), per the product brief §3                                                                                                                                                                             |
+| **Evidence base** | Repository `Auctivon-CoderaxAI/Coderax`, branch `freebuff/a1b038f05f3ba748796db084`, HEAD `ea16749`                                                                                                                                                  |
+| **Scope**         | Information architecture, navigation, design system, interaction contracts, project creation, per-module specifications, capability registry schema, acceptance matrix, delivery plan                                                                |
+| **Out of scope**  | Backend implementation, security policy ownership, deployment, production merges                                                                                                                                                                     |
+| **Companions**    | `docs/product/PRODUCT_DESIGN_ARCHITECTURE.md` is the short product brief; this document is the detailed interface specification beneath it. `docs/product/CAPABILITY_REGISTRY.md` and `docs/product/ACCEPTANCE_MATRIX.md` remain the owner's records |
 
 ## 0. How to read this document
 
 Every module carries one of six statuses. The words are load-bearing and must never be used loosely:
 
-| Status | Meaning | What the interface may show |
-|---|---|---|
-| **Live** | Implemented in this repository and reachable in production | Full controls |
-| **Preview** | Implemented, reachable, with known limits documented | Full controls plus an availability note |
-| **Experimental** | Implemented but default-off behind server configuration | Entry hidden unless enabled; visible "Experimental" chip when on |
-| **Planned** | Designed here, not built | Route reserved; honest empty state; no working controls |
-| **Blocked** | Designed, but a named external prerequisite is missing | Route reserved; blocker stated in plain language |
-| **Retired** | Superseded by another surface | Redirect, never a dead link |
+| Status           | Meaning                                                    | What the interface may show                                      |
+| ---------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Live**         | Implemented in this repository and reachable in production | Full controls                                                    |
+| **Preview**      | Implemented, reachable, with known limits documented       | Full controls plus an availability note                          |
+| **Experimental** | Implemented but default-off behind server configuration    | Entry hidden unless enabled; visible "Experimental" chip when on |
+| **Planned**      | Designed here, not built                                   | Route reserved; honest empty state; no working controls          |
+| **Blocked**      | Designed, but a named external prerequisite is missing     | Route reserved; blocker stated in plain language                 |
+| **Retired**      | Superseded by another surface                              | Redirect, never a dead link                                      |
 
 The repository already encodes this discipline twice, and this document extends it rather than replacing it:
 
-- `packages/product-registry/index.js` states its own truthfulness rule — *"`status` may only describe functionality that exists and has been verified. Do not promote a product to 'live' from this file alone."*
+- `packages/product-registry/index.js` states its own truthfulness rule — _"`status` may only describe functionality that exists and has been verified. Do not promote a product to 'live' from this file alone."_
 - `docs/visual-app-studio.md` ships an explicit **"Not yet built"** section for `/studio`.
 
 A design that cannot say "this does not work yet" is not usable for a private platform whose owner must trust what he sees. That is the single most important constraint in this document.
@@ -39,51 +39,51 @@ This section exists because a design architecture written without it would be fi
 
 ### 1.1 Surfaces that exist
 
-| Surface | Route | Implementation | Status | Evidence |
-|---|---|---|---|---|
-| Chat | `/c/:conversationId?` | `ChatRoute` | **Live** | `client/src/routes/index.tsx` |
-| Work | `/work/:conversationId?` | `WorkRoute` → `<ChatRoute workMode />` | **Preview** — shares the chat shell; no separate run canvas yet | `client/src/routes/WorkRoute.tsx` |
-| Message search | `/search` | `Search` | **Live** (config-gated) | routes + `useSearchEnabled` |
-| Projects list | `/projects` | lazy `ProjectsView` | **Preview** | routes |
-| Project workspace | `/projects/:projectId` | lazy `ProjectWorkspace` | **Preview** | routes |
-| Studio | `/studio` | `Studio` + `lib/studio/templates` | **Preview**, MVP with documented gaps | `docs/visual-app-studio.md` |
-| Workflows | `/workflows` | lazy `WorkflowsView` | **Preview** | routes |
-| Skills | `/skills`, `/skills/new`, `/skills/:skillId`, `/skills/:skillId/edit` | lazy `SkillsView` | **Preview** | routes |
-| Agent marketplace | `/agents`, `/agents/:category` | `MarketplaceRoute` | **Preview** | routes |
-| Insights | `/insights` | lazy `Insights` | **Preview** | routes |
-| Prompt library | `/prompts/:promptId` (dialog-created) | `InlinePromptsView` | **Live** | routes |
-| Shared conversation | `/share/:shareId` | `ShareRoute` | **Live** | routes |
-| CyVox add-on | `/cyvox/:tool` | `CyVoxAddon` | **Preview** | routes |
-| Legacy dashboard | `/d/*` | redirects to `/c/new` | **Retired** | `routes/Dashboard.tsx` |
-| Marketing | `/welcome` | `LandingPage` outside the app shell | **Live** | routes |
-| Settings | dialog, not a route | `components/Nav/Settings` | **Live** | `routes/Root.tsx` |
-| Scheduled chats | side panel entry | server-opted-in, default off | **Experimental** | `hooks/Nav/useSideNavLinks.ts` |
-| Agent builder | side panel | `AgentPanelSwitch` | **Live** | same |
-| Memories, Bookmarks, Parameters, MCP builder, Prompts, Skills | side panel | accordion panels | **Live/Preview** | same |
-| Security Lab | in-app component + package + doc | `components/SecurityLab`, `packages/security-lab-core`, `docs/security-lab.md` | **Preview** | packages list |
+| Surface                                                       | Route                                                                 | Implementation                                                                 | Status                                                          | Evidence                          |
+| ------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- | --------------------------------- |
+| Chat                                                          | `/c/:conversationId?`                                                 | `ChatRoute`                                                                    | **Live**                                                        | `client/src/routes/index.tsx`     |
+| Work                                                          | `/work/:conversationId?`                                              | `WorkRoute` → `<ChatRoute workMode />`                                         | **Preview** — shares the chat shell; no separate run canvas yet | `client/src/routes/WorkRoute.tsx` |
+| Message search                                                | `/search`                                                             | `Search`                                                                       | **Live** (config-gated)                                         | routes + `useSearchEnabled`       |
+| Projects list                                                 | `/projects`                                                           | lazy `ProjectsView`                                                            | **Preview**                                                     | routes                            |
+| Project workspace                                             | `/projects/:projectId`                                                | lazy `ProjectWorkspace`                                                        | **Preview**                                                     | routes                            |
+| Studio                                                        | `/studio`                                                             | `Studio` + `lib/studio/templates`                                              | **Preview**, MVP with documented gaps                           | `docs/visual-app-studio.md`       |
+| Workflows                                                     | `/workflows`                                                          | lazy `WorkflowsView`                                                           | **Preview**                                                     | routes                            |
+| Skills                                                        | `/skills`, `/skills/new`, `/skills/:skillId`, `/skills/:skillId/edit` | lazy `SkillsView`                                                              | **Preview**                                                     | routes                            |
+| Agent marketplace                                             | `/agents`, `/agents/:category`                                        | `MarketplaceRoute`                                                             | **Preview**                                                     | routes                            |
+| Insights                                                      | `/insights`                                                           | lazy `Insights`                                                                | **Preview**                                                     | routes                            |
+| Prompt library                                                | `/prompts/:promptId` (dialog-created)                                 | `InlinePromptsView`                                                            | **Live**                                                        | routes                            |
+| Shared conversation                                           | `/share/:shareId`                                                     | `ShareRoute`                                                                   | **Live**                                                        | routes                            |
+| CyVox add-on                                                  | `/cyvox/:tool`                                                        | `CyVoxAddon`                                                                   | **Preview**                                                     | routes                            |
+| Legacy dashboard                                              | `/d/*`                                                                | redirects to `/c/new`                                                          | **Retired**                                                     | `routes/Dashboard.tsx`            |
+| Marketing                                                     | `/welcome`                                                            | `LandingPage` outside the app shell                                            | **Live**                                                        | routes                            |
+| Settings                                                      | dialog, not a route                                                   | `components/Nav/Settings`                                                      | **Live**                                                        | `routes/Root.tsx`                 |
+| Scheduled chats                                               | side panel entry                                                      | server-opted-in, default off                                                   | **Experimental**                                                | `hooks/Nav/useSideNavLinks.ts`    |
+| Agent builder                                                 | side panel                                                            | `AgentPanelSwitch`                                                             | **Live**                                                        | same                              |
+| Memories, Bookmarks, Parameters, MCP builder, Prompts, Skills | side panel                                                            | accordion panels                                                               | **Live/Preview**                                                | same                              |
+| Security Lab                                                  | in-app component + package + doc                                      | `components/SecurityLab`, `packages/security-lab-core`, `docs/security-lab.md` | **Preview**                                                     | packages list                     |
 
 ### 1.2 The shell, precisely
 
 - `Root.tsx` renders `UnifiedSidebar` + a single flex content pane + `<Outlet />`. Mobile is a translated drawer with a scrim, swipe gestures, an optional 80% "strip" mode, reduced-motion snapping, and a `visibility: hidden` settled state.
 - The rail is **52px** collapsed and **≥360px** expanded, capped at **40%** of viewport width, persisted at `side:width`; the transition is **300ms** `cubic-bezier(0.32, 0.72, 0, 1)`.
 - The active side panel persists at `side:active-panel`; `DEFAULT_PANEL` is `conversations`.
-- **The rail is deliberately not an app launcher.** `useUnifiedSidebarLinks.ts` says so in a comment: *"Keep the sidebar as a chat navigation surface, not a general app launcher."* It exposes exactly one link — chat history.
+- **The rail is deliberately not an app launcher.** `useUnifiedSidebarLinks.ts` says so in a comment: _"Keep the sidebar as a chat navigation surface, not a general app launcher."_ It exposes exactly one link — chat history.
 - Modules are therefore discovered today by URL, the product switcher, or nothing at all. There is no unified module navigation. **This is the central IA gap this document closes.**
 
 ### 1.3 The design system, precisely
 
-| Layer | What exists | Source of truth |
-|---|---|---|
-| Colour | ~150 **semantic** tokens (`surface-*`, `text-*`, `border-*`, `status-*`, `series-*`, `file-*`) resolved from bare `R G B` triplets, rewritten at runtime | `packages/client/src/theme/tokens.css`, `defaults.css` |
-| Radius, type scale, shadows | Theme-owned properties mapped through `@theme inline`, so themes reshape `rounded-*`, `text-*`, `shadow-*` with no call-site migration | `tokens.css` |
-| Themes | `default`, `dark`, `highContrast`, `clickui`, `clickhouse` | `theme/themes/` |
-| Controls | Theme-owned heights, WCAG 2.5.8 **24px minimum target** (`theme-target`), tab/list minimums | `packages/client/tailwind.preset.cjs` |
-| Primitives | **115** shared components in `packages/client/src/components`, including `EmptyState`, `RetryableError`, `Progress`, `Skeleton`, `Pagination`, `DataTable`, `Badge`, `Chip`, `Breadcrumb`, `Tabs`, `Select`, `Dialog`, `AlertDialog`, `Toast`, `Tooltip`, `ThemeSelector`, `SegmentedMeter`, `SeriesLabel` | `packages/client` |
-| Menus | Ariakit `MenuButton` + `DropdownPopup` for action menus; Radix `DropdownMenu` is banned | `AGENTS.md` |
-| Motion | Existing keyframes; `prefers-reduced-motion` respected in drawer, scrim, transitions | `client/tailwind.config.cjs`, `Root.tsx` |
-| Copy | `useLocalize()`, **3,711** keys in English only | `client/src/locales/en/translation.json` |
-| State | Recoil → Jotai migration in progress; **new state must be Jotai** | `AGENTS.md` |
-| Data | React Query; keys declared in `packages/data-provider/src/keys.ts` | `AGENTS.md` |
+| Layer                       | What exists                                                                                                                                                                                                                                                                                                | Source of truth                                        |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Colour                      | ~150 **semantic** tokens (`surface-*`, `text-*`, `border-*`, `status-*`, `series-*`, `file-*`) resolved from bare `R G B` triplets, rewritten at runtime                                                                                                                                                   | `packages/client/src/theme/tokens.css`, `defaults.css` |
+| Radius, type scale, shadows | Theme-owned properties mapped through `@theme inline`, so themes reshape `rounded-*`, `text-*`, `shadow-*` with no call-site migration                                                                                                                                                                     | `tokens.css`                                           |
+| Themes                      | `default`, `dark`, `highContrast`, `clickui`, `clickhouse`                                                                                                                                                                                                                                                 | `theme/themes/`                                        |
+| Controls                    | Theme-owned heights, WCAG 2.5.8 **24px minimum target** (`theme-target`), tab/list minimums                                                                                                                                                                                                                | `packages/client/tailwind.preset.cjs`                  |
+| Primitives                  | **115** shared components in `packages/client/src/components`, including `EmptyState`, `RetryableError`, `Progress`, `Skeleton`, `Pagination`, `DataTable`, `Badge`, `Chip`, `Breadcrumb`, `Tabs`, `Select`, `Dialog`, `AlertDialog`, `Toast`, `Tooltip`, `ThemeSelector`, `SegmentedMeter`, `SeriesLabel` | `packages/client`                                      |
+| Menus                       | Ariakit `MenuButton` + `DropdownPopup` for action menus; Radix `DropdownMenu` is banned                                                                                                                                                                                                                    | `AGENTS.md`                                            |
+| Motion                      | Existing keyframes; `prefers-reduced-motion` respected in drawer, scrim, transitions                                                                                                                                                                                                                       | `client/tailwind.config.cjs`, `Root.tsx`               |
+| Copy                        | `useLocalize()`, **3,711** keys in English only                                                                                                                                                                                                                                                            | `client/src/locales/en/translation.json`               |
+| State                       | Recoil → Jotai migration in progress; **new state must be Jotai**                                                                                                                                                                                                                                          | `AGENTS.md`                                            |
+| Data                        | React Query; keys declared in `packages/data-provider/src/keys.ts`                                                                                                                                                                                                                                         | `AGENTS.md`                                            |
 
 The token layer is unusually strong: it already supports per-theme control geometry, fill-versus-ring field focus, soft-versus-solid destructive buttons, and disabled-by-fill. **The design system does not need replacing. It needs a module-scale vocabulary built on top of it.**
 
@@ -112,16 +112,16 @@ These eight rules resolve most future disagreements without escalation.
 
 ### Anti-patterns, stated so reviews can cite them
 
-| Anti-pattern | Why it is rejected |
-|---|---|
-| A grid of 40 module icons in the rail | Contradicts the chat-first shell; unscannable at 52px |
-| "Coming soon" buttons that do nothing | Trains the owner to distrust every control |
-| A dashboard of zeros presented as telemetry | Invents data; violates the truthfulness rule |
-| Auto-playing template previews | Unbounded CPU/RAM; violates the performance budget |
-| Per-module design languages | Fragments an identity the brief requires to be preserved |
-| Deep linking to a dialog that loses state on reload | Settings must survive refresh and share |
-| Silent agent switching | The brief forbids it outright |
-| Tests reported as passing from mocks | The brief forbids it; evidence engine must distinguish |
+| Anti-pattern                                        | Why it is rejected                                       |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| A grid of 40 module icons in the rail               | Contradicts the chat-first shell; unscannable at 52px    |
+| "Coming soon" buttons that do nothing               | Trains the owner to distrust every control               |
+| A dashboard of zeros presented as telemetry         | Invents data; violates the truthfulness rule             |
+| Auto-playing template previews                      | Unbounded CPU/RAM; violates the performance budget       |
+| Per-module design languages                         | Fragments an identity the brief requires to be preserved |
+| Deep linking to a dialog that loses state on reload | Settings must survive refresh and share                  |
+| Silent agent switching                              | The brief forbids it outright                            |
+| Tests reported as passing from mocks                | The brief forbids it; evidence engine must distinguish   |
 
 ## 3. Information architecture
 
@@ -129,15 +129,15 @@ These eight rules resolve most future disagreements without escalation.
 
 The interface is a projection of seven objects. Every screen is a view of one of them, and every navigation decision can be answered by asking which object the owner is looking at.
 
-| Object | Definition | Owns | Survives |
-|---|---|---|---|
-| **Workspace** | The owner's single private tenancy | Grants, quotas, agents, memory policy | Everything |
-| **Project** | The unit of isolation and delivery — a website, film, game, investigation, automation, invention | Files, artifacts, milestones, members, memory scope, checkpoints | Indefinitely |
-| **Session** | A conversation. Either a *Chat* session or a *Work* session — same object, different mode | Messages, attachments, model selection, branch tree | Indefinitely |
-| **Run** | One durable execution of a Work objective or a workflow | Plan, steps, checkpoints, approvals, cost, outputs | Until purged |
-| **Artifact** | A produced thing: file, document, design, image, build, dataset, report | Version history, provenance, export formats | With the project |
-| **Evidence** | A receipt proving something happened: test output, commit SHA, preview URL, diff, screenshot, signature | Immutable record, verifier identity | Immutable |
-| **Grant** | A scoped authorization: category, destinations, quota, expiry | Enforcement inputs | Auditable, revocable |
+| Object        | Definition                                                                                              | Owns                                                             | Survives             |
+| ------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | -------------------- |
+| **Workspace** | The owner's single private tenancy                                                                      | Grants, quotas, agents, memory policy                            | Everything           |
+| **Project**   | The unit of isolation and delivery — a website, film, game, investigation, automation, invention        | Files, artifacts, milestones, members, memory scope, checkpoints | Indefinitely         |
+| **Session**   | A conversation. Either a _Chat_ session or a _Work_ session — same object, different mode               | Messages, attachments, model selection, branch tree              | Indefinitely         |
+| **Run**       | One durable execution of a Work objective or a workflow                                                 | Plan, steps, checkpoints, approvals, cost, outputs               | Until purged         |
+| **Artifact**  | A produced thing: file, document, design, image, build, dataset, report                                 | Version history, provenance, export formats                      | With the project     |
+| **Evidence**  | A receipt proving something happened: test output, commit SHA, preview URL, diff, screenshot, signature | Immutable record, verifier identity                              | Immutable            |
+| **Grant**     | A scoped authorization: category, destinations, quota, expiry                                           | Enforcement inputs                                               | Auditable, revocable |
 
 Two rules follow, and they resolve most ambiguity:
 
@@ -162,14 +162,14 @@ The application is one shell with five persistent or contextual zones. Modules o
                     ⌘K Command palette (overlay)
 ```
 
-| Zone | Purpose | Persistence | Collapse rule |
-|---|---|---|---|
-| **Rail** | Chat history and conversations only — unchanged in intent | Persisted (`side:width`, `side:active-panel`) | 52px icon rail; 360px panel; ≤40% viewport |
-| **Top bar** | Workspace chip (module switcher), breadcrumb, run status pill, global actions | Always | Merges into canvas header below 768px |
-| **Canvas** | The routed surface | Route-driven | Single column; full width |
-| **Inspector** | Contextual detail for the selected object: permissions, evidence, versions, properties | Persisted per module | Overlay sheet below 1280px |
-| **Timeline dock** | Chronology of runs, checkpoints and evidence for the current project | Collapsed by default | Hidden below 1280px; reachable as a sheet |
-| **Command palette** | Universal navigation, actions and search | Overlay | Always available via ⌘K / Ctrl-K |
+| Zone                | Purpose                                                                                | Persistence                                   | Collapse rule                              |
+| ------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------ |
+| **Rail**            | Chat history and conversations only — unchanged in intent                              | Persisted (`side:width`, `side:active-panel`) | 52px icon rail; 360px panel; ≤40% viewport |
+| **Top bar**         | Workspace chip (module switcher), breadcrumb, run status pill, global actions          | Always                                        | Merges into canvas header below 768px      |
+| **Canvas**          | The routed surface                                                                     | Route-driven                                  | Single column; full width                  |
+| **Inspector**       | Contextual detail for the selected object: permissions, evidence, versions, properties | Persisted per module                          | Overlay sheet below 1280px                 |
+| **Timeline dock**   | Chronology of runs, checkpoints and evidence for the current project                   | Collapsed by default                          | Hidden below 1280px; reachable as a sheet  |
+| **Command palette** | Universal navigation, actions and search                                               | Overlay                                       | Always available via ⌘K / Ctrl-K           |
 
 **Why the rail does not become a launcher.** The codebase deliberately keeps it chat-only. Forty icons at 52px are unscannable and would make the shell read as a launcher for a product that is, first, a conversation. Instead, modules are reached through three surfaces that scale to hundreds of entries without growing the chrome:
 
@@ -194,101 +194,101 @@ All routes follow one shape so deep links are predictable and middleware-free:
 
 ### 3.4 Master module map
 
-Routes marked *(existing)* are already in `client/src/routes/index.tsx` and must not be renamed without a redirect.
+Routes marked _(existing)_ are already in `client/src/routes/index.tsx` and must not be renamed without a redirect.
 
 #### Group A — Conversation and project core
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| A1 | Chat | `/c/:conversationId?` *(existing)* | Live | 1 |
-| A2 | Work | `/work/:conversationId?` *(existing)* | Preview | 1 |
-| A3 | Search | `/search` *(existing)* | Live | 1 |
-| A4 | Projects | `/projects`, `/projects/:projectId` *(existing)* | Preview | 1 |
-| A5 | Artifacts | inspector + `/projects/:id/files` | Preview | 1 |
-| A6 | Prompt library | `/prompts/:promptId` *(existing)* | Live | 1 |
-| A7 | Bookmarks | side panel | Live | 1 |
-| A8 | Schedules | side panel | Experimental | 1 |
-| A9 | Memory Graph | `/memory` | Planned | 4 |
-| A10 | Time Machine | `/timemachine` | Planned | 2 |
+| ID  | Module         | Route                                            | Status       | Wave |
+| --- | -------------- | ------------------------------------------------ | ------------ | ---- |
+| A1  | Chat           | `/c/:conversationId?` _(existing)_               | Live         | 1    |
+| A2  | Work           | `/work/:conversationId?` _(existing)_            | Preview      | 1    |
+| A3  | Search         | `/search` _(existing)_                           | Live         | 1    |
+| A4  | Projects       | `/projects`, `/projects/:projectId` _(existing)_ | Preview      | 1    |
+| A5  | Artifacts      | inspector + `/projects/:id/files`                | Preview      | 1    |
+| A6  | Prompt library | `/prompts/:promptId` _(existing)_                | Live         | 1    |
+| A7  | Bookmarks      | side panel                                       | Live         | 1    |
+| A8  | Schedules      | side panel                                       | Experimental | 1    |
+| A9  | Memory Graph   | `/memory`                                        | Planned      | 4    |
+| A10 | Time Machine   | `/timemachine`                                   | Planned      | 2    |
 
 #### Group B — Agents and models
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| B1 | Agent Builder | side panel *(existing)* | Live | 1 |
-| B2 | Agent Marketplace | `/agents`, `/agents/:category` *(existing)* | Preview | 1 |
-| B3 | Workforce | `/workforce`, `/workforce/:teamId` | Planned | 5 |
-| B4 | AI Council | `/council`, `/council/:sessionId` | Planned | 5 |
-| B5 | Model Intelligence Lab | `/models`, `/models/:modelId` | Planned | 5 |
-| B6 | Performance Passports | `/passports` | Planned | 5 |
-| B7 | Interop (MCP / A2A) | `/interop` | Preview | 5 |
+| ID  | Module                 | Route                                       | Status  | Wave |
+| --- | ---------------------- | ------------------------------------------- | ------- | ---- |
+| B1  | Agent Builder          | side panel _(existing)_                     | Live    | 1    |
+| B2  | Agent Marketplace      | `/agents`, `/agents/:category` _(existing)_ | Preview | 1    |
+| B3  | Workforce              | `/workforce`, `/workforce/:teamId`          | Planned | 5    |
+| B4  | AI Council             | `/council`, `/council/:sessionId`           | Planned | 5    |
+| B5  | Model Intelligence Lab | `/models`, `/models/:modelId`               | Planned | 5    |
+| B6  | Performance Passports  | `/passports`                                | Planned | 5    |
+| B7  | Interop (MCP / A2A)    | `/interop`                                  | Preview | 5    |
 
 #### Group C — Engineering
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| C1 | Cloud IDE | `/ide`, `/ide/:workspaceId` | Planned | 2 |
-| C2 | Repository Intelligence | `/eng/repos`, `/eng/repos/:repoId/:view?` | Planned | 2 |
-| C3 | Code Review | `/review`, `/review/:reviewId` | Planned | 2 |
-| C4 | Testing Lab | `/tests`, `/tests/:suiteId` | Planned | 2 |
-| C5 | Reliability Center | `/reliability`, `/reliability/:incidentId` | Planned | 2 |
-| C6 | Backend Factory | `/backend`, `/backend/:appId` | Planned | 3 |
-| C7 | Distribution | `/distribute`, `/distribute/:projectId` | Planned | 3 |
-| C8 | Evidence Explorer | `/evidence`, `/evidence/:receiptId` | Planned | 2 |
+| ID  | Module                  | Route                                      | Status  | Wave |
+| --- | ----------------------- | ------------------------------------------ | ------- | ---- |
+| C1  | Cloud IDE               | `/ide`, `/ide/:workspaceId`                | Planned | 2    |
+| C2  | Repository Intelligence | `/eng/repos`, `/eng/repos/:repoId/:view?`  | Planned | 2    |
+| C3  | Code Review             | `/review`, `/review/:reviewId`             | Planned | 2    |
+| C4  | Testing Lab             | `/tests`, `/tests/:suiteId`                | Planned | 2    |
+| C5  | Reliability Center      | `/reliability`, `/reliability/:incidentId` | Planned | 2    |
+| C6  | Backend Factory         | `/backend`, `/backend/:appId`              | Planned | 3    |
+| C7  | Distribution            | `/distribute`, `/distribute/:projectId`    | Planned | 3    |
+| C8  | Evidence Explorer       | `/evidence`, `/evidence/:receiptId`        | Planned | 2    |
 
 #### Group D — Creation
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| D1 | Studio (umbrella) | `/studio` *(existing)* | Preview | 1 |
-| D2 | Template Library | `/studio/templates` | Planned | 3 |
-| D3 | Visual Editor + App DNA | `/studio/editor/:projectId` | Planned | 3 |
-| D4 | Asset Factory | `/studio/assets` | Planned | 3 |
-| D5 | Movie Studio | `/film`, `/film/:productionId` | Planned | 6 |
-| D6 | Avatar Lab | `/avatars`, `/avatars/:characterId` | Blocked | 6 |
-| D7 | Game Studio | `/games`, `/games/:gameId` | Planned | 6 |
-| D8 | Gaming Agent | `/games/agent/:sessionId` | Blocked | 6 |
+| ID  | Module                  | Route                               | Status  | Wave |
+| --- | ----------------------- | ----------------------------------- | ------- | ---- |
+| D1  | Studio (umbrella)       | `/studio` _(existing)_              | Preview | 1    |
+| D2  | Template Library        | `/studio/templates`                 | Planned | 3    |
+| D3  | Visual Editor + App DNA | `/studio/editor/:projectId`         | Planned | 3    |
+| D4  | Asset Factory           | `/studio/assets`                    | Planned | 3    |
+| D5  | Movie Studio            | `/film`, `/film/:productionId`      | Planned | 6    |
+| D6  | Avatar Lab              | `/avatars`, `/avatars/:characterId` | Blocked | 6    |
+| D7  | Game Studio             | `/games`, `/games/:gameId`          | Planned | 6    |
+| D8  | Gaming Agent            | `/games/agent/:sessionId`           | Blocked | 6    |
 
 #### Group E — Knowledge and productivity
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| E1 | Deep Research | `/research`, `/research/:studyId` | Planned | 4 |
-| E2 | Notebook | `/notebooks`, `/notebooks/:notebookId` | Planned | 4 |
-| E3 | Knowledge Library | `/library` | Planned | 4 |
-| E4 | Office | `/office`, `/office/:docId` | Planned | 4 |
-| E5 | Learning Academy | `/learn` | Planned | 4 |
-| E6 | Invention Laboratory | `/invent`, `/invent/:projectId` | Planned | 4 |
-| E7 | Business & Career | `/business`, `/business/:ventureId` | Planned | 4 |
+| ID  | Module               | Route                                  | Status  | Wave |
+| --- | -------------------- | -------------------------------------- | ------- | ---- |
+| E1  | Deep Research        | `/research`, `/research/:studyId`      | Planned | 4    |
+| E2  | Notebook             | `/notebooks`, `/notebooks/:notebookId` | Planned | 4    |
+| E3  | Knowledge Library    | `/library`                             | Planned | 4    |
+| E4  | Office               | `/office`, `/office/:docId`            | Planned | 4    |
+| E5  | Learning Academy     | `/learn`                               | Planned | 4    |
+| E6  | Invention Laboratory | `/invent`, `/invent/:projectId`        | Planned | 4    |
+| E7  | Business & Career    | `/business`, `/business/:ventureId`    | Planned | 4    |
 
 #### Group F — Automation, cloud and operations
 
-| ID | Module | Route | Status | Wave |
-|---|---|---|---|---|
-| F1 | Flow | `/workflows` *(existing)* | Preview | 1 |
-| F2 | Skills & Extensions | `/skills*` *(existing)* | Preview | 1 |
-| F3 | Cloud Computer | `/cloud/computer`, `/cloud/computer/:sessionId` | Planned | 7 |
-| F4 | Cloud Resources | `/cloud/resources` | Planned | 7 |
-| F5 | Observability | `/ops` | Planned | 7 |
-| F6 | Security Center | `/security` | Preview | 2 |
-| F7 | Capability Registry | `/registry` | Planned | 2 |
+| ID  | Module              | Route                                           | Status  | Wave |
+| --- | ------------------- | ----------------------------------------------- | ------- | ---- |
+| F1  | Flow                | `/workflows` _(existing)_                       | Preview | 1    |
+| F2  | Skills & Extensions | `/skills*` _(existing)_                         | Preview | 1    |
+| F3  | Cloud Computer      | `/cloud/computer`, `/cloud/computer/:sessionId` | Planned | 7    |
+| F4  | Cloud Resources     | `/cloud/resources`                              | Planned | 7    |
+| F5  | Observability       | `/ops`                                          | Planned | 7    |
+| F6  | Security Center     | `/security`                                     | Preview | 2    |
+| F7  | Capability Registry | `/registry`                                     | Planned | 2    |
 
 #### Group G — Shell services
 
-| ID | Module | Route | Status |
-|---|---|---|---|
-| G1 | Settings | `/settings/:section` (+ existing dialog) | Live → Preview |
-| G2 | Share | `/share/:shareId` *(existing)* | Live |
-| G3 | Notifications | overlay, no route | Live |
-| G4 | Voice & Vision | overlay, no route | Planned |
-| G5 | Product switcher | overlay *(existing)* | Live |
+| ID  | Module           | Route                                    | Status         |
+| --- | ---------------- | ---------------------------------------- | -------------- |
+| G1  | Settings         | `/settings/:section` (+ existing dialog) | Live → Preview |
+| G2  | Share            | `/share/:shareId` _(existing)_           | Live           |
+| G3  | Notifications    | overlay, no route                        | Live           |
+| G4  | Voice & Vision   | overlay, no route                        | Planned        |
+| G5  | Product switcher | overlay _(existing)_                     | Live           |
 
 ### 3.5 The workspace chip
 
 One control in the top-left of the canvas, replacing the ambiguous "product switcher" duplication over time.
 
 **Anatomy:** current module icon · module name · project name (when scoped) · chevron.
-**Opens:** a searchable, grouped menu with five sections — *Pinned*, *Recent*, *Conversation* (Chat, Work, Search), *Build* (Projects, IDE, Review, Tests, Studio, Flow), *Everything else* (alphabetical, grouped by group letter).
+**Opens:** a searchable, grouped menu with five sections — _Pinned_, _Recent_, _Conversation_ (Chat, Work, Search), _Build_ (Projects, IDE, Review, Tests, Studio, Flow), _Everything else_ (alphabetical, grouped by group letter).
 **Behaviour rules:**
 
 - Groups are collapsible and remember state per owner.
@@ -302,15 +302,15 @@ The palette is the primary navigation surface for a platform expected to reach h
 
 **Sources** (ranked, then merged):
 
-| Rank | Source | Example |
-|---|---|---|
-| 1 | Exact module or object name | `timemachine` |
-| 2 | Recent destinations | last 8 visited |
-| 3 | Actions on the current object | `checkpoint this project` |
-| 4 | Conversations (title, message content when search enabled) | `deployment migration` |
-| 5 | Files and artifacts | `schema.prisma` |
-| 6 | Settings | `theme`, `permissions` |
-| 7 | Help and shortcuts | `keyboard shortcuts` |
+| Rank | Source                                                     | Example                   |
+| ---- | ---------------------------------------------------------- | ------------------------- |
+| 1    | Exact module or object name                                | `timemachine`             |
+| 2    | Recent destinations                                        | last 8 visited            |
+| 3    | Actions on the current object                              | `checkpoint this project` |
+| 4    | Conversations (title, message content when search enabled) | `deployment migration`    |
+| 5    | Files and artifacts                                        | `schema.prisma`           |
+| 6    | Settings                                                   | `theme`, `permissions`    |
+| 7    | Help and shortcuts                                         | `keyboard shortcuts`      |
 
 **Rules:**
 
@@ -324,12 +324,12 @@ The palette is the primary navigation surface for a platform expected to reach h
 
 They are different jobs and must not be merged.
 
-| | Palette | Search (`/search`) |
-|---|---|---|
-| Question | "Take me to…" | "Find everything about…" |
-| Scope | Navigation + light recall | Messages, files, artifacts, memory, evidence |
-| Result | A destination | A ranked corpus with facets |
-| Persistence | Dismissed on select | A page with URL state |
+|             | Palette                   | Search (`/search`)                           |
+| ----------- | ------------------------- | -------------------------------------------- |
+| Question    | "Take me to…"             | "Find everything about…"                     |
+| Scope       | Navigation + light recall | Messages, files, artifacts, memory, evidence |
+| Result      | A destination             | A ranked corpus with facets                  |
+| Persistence | Dismissed on select       | A page with URL state                        |
 
 Search inherits the existing message-search implementation and extends it by source, not by rewriting it. Facets: type, project, date, agent, verification status.
 
@@ -341,18 +341,18 @@ The system is not replaced. It is **extended in one direction only**: from conve
 
 Roles are assigned by meaning, never by appearance. A surface that needs a new meaning gets a new semantic token; it does not borrow a near-match.
 
-| Need | Token family | Never |
-|---|---|---|
-| Page background | `surface-canvas` | `surface-primary` (that is a raised panel) |
-| Panel, card, dialog | `surface-primary`, `surface-card`, `surface-dialog` | raw `bg-white` / `bg-gray-*` |
-| Selected navigation row | `surface-nav-selected` | `surface-active` (that is a pressed control) |
-| Hover chrome | `surface-nav-hover`, `surface-hover` | opacity on a text colour |
-| Body copy | `text-primary` / `text-secondary` | `text-gray-500` |
-| Metadata, counts | `text-tertiary` / `text-muted` | a lighter alpha of body copy |
-| Verified state | `status-verified` | `status-success` (success is an outcome, verified is evidence) |
-| Warning / blocker | `status-warning`, `status-error` + `*-subtle` fill + `*-border` | a red literal |
-| Charts | `series-1…8` | colour picked by eye |
-| Files by type | `file-document`, `file-code`, `file-video`… | a rainbow of arbitrary hues |
+| Need                    | Token family                                                    | Never                                                          |
+| ----------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- |
+| Page background         | `surface-canvas`                                                | `surface-primary` (that is a raised panel)                     |
+| Panel, card, dialog     | `surface-primary`, `surface-card`, `surface-dialog`             | raw `bg-white` / `bg-gray-*`                                   |
+| Selected navigation row | `surface-nav-selected`                                          | `surface-active` (that is a pressed control)                   |
+| Hover chrome            | `surface-nav-hover`, `surface-hover`                            | opacity on a text colour                                       |
+| Body copy               | `text-primary` / `text-secondary`                               | `text-gray-500`                                                |
+| Metadata, counts        | `text-tertiary` / `text-muted`                                  | a lighter alpha of body copy                                   |
+| Verified state          | `status-verified`                                               | `status-success` (success is an outcome, verified is evidence) |
+| Warning / blocker       | `status-warning`, `status-error` + `*-subtle` fill + `*-border` | a red literal                                                  |
+| Charts                  | `series-1…8`                                                    | colour picked by eye                                           |
+| Files by type           | `file-document`, `file-code`, `file-video`…                     | a rainbow of arbitrary hues                                    |
 
 **Rule:** a module that needs colour beyond these families is making an argument for a new semantic role, not a local exception. That argument is made in `packages/client/src/theme/defaults.css` plus a `tokens.spec.ts` entry, so every theme inherits it and `@shadcn/lint` can see it.
 
@@ -360,18 +360,18 @@ Roles are assigned by meaning, never by appearance. A surface that needs a new m
 
 The following semantics have no home today. They are additive, defaulted in `defaults.css`, and must be added with theme coverage rather than inline CSS:
 
-| Token | Meaning | Default derivation |
-|---|---|---|
-| `status-blocked` (+ `-subtle`, `-border`) | Capability cannot run; prerequisite missing | Derived from `status-neutral` shifted to warning hue |
-| `status-planned` | Designed, not built | `status-neutral` |
-| `status-live` | Verified and operating | `status-success` |
-| `status-verified` | Evidence attached | exists |
-| `surface-run` | Run/timeline dock surface | `surface-secondary-alt` |
-| `surface-inspector` | Inspector panel | `surface-primary` |
-| `surface-evidence` | Evidence receipt card | `surface-card` |
-| `border-evidence` | Receipt edge | `border-medium` |
-| `agent-1…6` | Agent identity accents, used only for presence and attribution | Harmonics of `accent-primary` |
-| `--theme-density-row` | Row height for dense tables (`compact` 32px, `default` 40px, `comfortable` 48px) | new theme-owned property |
+| Token                                     | Meaning                                                                          | Default derivation                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `status-blocked` (+ `-subtle`, `-border`) | Capability cannot run; prerequisite missing                                      | Derived from `status-neutral` shifted to warning hue |
+| `status-planned`                          | Designed, not built                                                              | `status-neutral`                                     |
+| `status-live`                             | Verified and operating                                                           | `status-success`                                     |
+| `status-verified`                         | Evidence attached                                                                | exists                                               |
+| `surface-run`                             | Run/timeline dock surface                                                        | `surface-secondary-alt`                              |
+| `surface-inspector`                       | Inspector panel                                                                  | `surface-primary`                                    |
+| `surface-evidence`                        | Evidence receipt card                                                            | `surface-card`                                       |
+| `border-evidence`                         | Receipt edge                                                                     | `border-medium`                                      |
+| `agent-1…6`                               | Agent identity accents, used only for presence and attribution                   | Harmonics of `accent-primary`                        |
+| `--theme-density-row`                     | Row height for dense tables (`compact` 32px, `default` 40px, `comfortable` 48px) | new theme-owned property                             |
 
 Density must be theme-owned for the same reason control heights already are: a theme may draw a denser product without any module opting out.
 
@@ -385,13 +385,13 @@ Density must be theme-owned for the same reason control heights already are: a t
 
 ### 4.4 Motion
 
-| Interaction | Duration | Easing |
-|---|---|---|
-| Drawer, pane shift | 300ms (existing) | `cubic-bezier(0.32, 0.72, 0, 1)` |
-| Panel/inspector slide | 220ms | same |
-| Row hover, chip state | 120ms | `ease-out` |
-| Progress pulse | 1.6s loop, opacity only | `ease-in-out` |
-| Step completion | 180ms check + 240ms row settle | `ease-out` |
+| Interaction           | Duration                       | Easing                           |
+| --------------------- | ------------------------------ | -------------------------------- |
+| Drawer, pane shift    | 300ms (existing)               | `cubic-bezier(0.32, 0.72, 0, 1)` |
+| Panel/inspector slide | 220ms                          | same                             |
+| Row hover, chip state | 120ms                          | `ease-out`                       |
+| Progress pulse        | 1.6s loop, opacity only        | `ease-in-out`                    |
+| Step completion       | 180ms check + 240ms row settle | `ease-out`                       |
 
 Rules: never animate layout properties on lists longer than 20 rows; never loop an animation that is not a live-status indicator; `prefers-reduced-motion` collapses every transform to a cut and keeps opacity changes ≤120ms. The existing drawer already does this correctly and is the reference implementation.
 
@@ -403,30 +403,30 @@ Rules: never animate layout properties on lists longer than 20 rows; never loop 
 
 **Net-new shared components.** Each is justified by at least two consuming modules. They belong in `packages/client`, not in `client/src/components/<feature>`.
 
-| # | Component | Purpose | Consumers | Built on |
-|---|---|---|---|---|
-| N1 | `ModuleShell` | Canvas frame: breadcrumb slot, title, action bar, tab strip, body, empty/blocked slots | All | `Breadcrumb`, `Tabs`, `Separator` |
-| N2 | `SplitWorkspace` | List · canvas · inspector layout with collapse rules | Projects, IDE, Review, Research, Studio | `Resizable` |
-| N3 | `CapabilityBadge` | The six-status chip with icon + text + reason popover | All module entries | `Badge`, `Tooltip` |
-| N4 | `ScopeChip` | Shows the grant an action spends; opens the grant sheet | Work, Flow, Cloud, IDE | `Chip`, `HoverCard` |
-| N5 | `ApprovalSheet` | Request, review and grant a scoped permission | Work, Flow, Cloud Computer | `Dialog`, `Checkbox`, `InputNumber` |
-| N6 | `RunProgress` | Plan tree with per-step state, retries, durations | Work, Flow, Tests, Reliability | `Progress`, `Collapsible` |
-| N7 | `StepTimeline` | Chronological steps and tool calls with expandable detail | Work, Council, Gaming Agent | `Accordion` |
-| N8 | `EvidenceCard` / `EvidenceList` | Signed receipt with verifier, artifact links, timestamp | Work, Review, Tests, Ops | `Badge`, `Table`, `Tooltip` |
-| N9 | `VerificationBadge` | `Verified` / `Unverified` / `Failed` with reason | Every completion claim | `Badge` |
-| N10 | `ObjectInspector` | Host frame for contextual detail panels, URL-synced | All | `Tabs`, `Resizable` |
-| N11 | `DiffViewer` | Side-by-side and unified diff with hunk actions | Review, Time Machine, IDE | `Table` |
-| N12 | `VersionRail` | Scrubber over checkpoints with before/after compare | Time Machine, Artifacts, Studio | `Slider`, `Timeline` (new) |
-| N13 | `CommandPalette` | Ranked federated navigation and actions | Global | `Combobox`, `Dialog` |
-| N14 | `ArtifactFrame` | Sandboxed preview host with poster, reload, fullscreen, CSP badge | Studio, Gallery, Games | `Dialog` |
-| N15 | `PlanPreview` | Editable plan before execution: steps, cost, grants | Work, Flow | `RunProgress` |
-| N16 | `GraphCanvas` | Node/edge view with clustering cap | Memory, Repo graph, Lineage | `Resizable` |
-| N17 | `MetricStrip` | A small set of labelled measurements with window and source | Ops, Insights, Cloud | `SeriesLabel`, `SegmentedMeter` |
-| N18 | `BlockedState` | Named blocker, prerequisite, and the exact next action | All planned modules | `EmptyState` |
-| N19 | `PresenceBar` | Which agents are active, on what, since when | Workforce, Council, Work | `Avatar`, `Tooltip` |
-| N20 | `TemplateCard` | Preview poster, category, stack, licence, use action | Templates, Studio, Projects | `PixelCard`, `Badge` |
-| N21 | `BudgetMeter` | Quota consumed vs remaining, fail-closed state | Cloud, Models, Flow | `SegmentedMeter` |
-| N22 | `RecordTable` | `DataTable` + filter bar + saved views + URL state | Review, Tests, Registry, Library | `DataTable`, `FilterInput` |
+| #   | Component                       | Purpose                                                                                | Consumers                               | Built on                            |
+| --- | ------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------- | ----------------------------------- |
+| N1  | `ModuleShell`                   | Canvas frame: breadcrumb slot, title, action bar, tab strip, body, empty/blocked slots | All                                     | `Breadcrumb`, `Tabs`, `Separator`   |
+| N2  | `SplitWorkspace`                | List · canvas · inspector layout with collapse rules                                   | Projects, IDE, Review, Research, Studio | `Resizable`                         |
+| N3  | `CapabilityBadge`               | The six-status chip with icon + text + reason popover                                  | All module entries                      | `Badge`, `Tooltip`                  |
+| N4  | `ScopeChip`                     | Shows the grant an action spends; opens the grant sheet                                | Work, Flow, Cloud, IDE                  | `Chip`, `HoverCard`                 |
+| N5  | `ApprovalSheet`                 | Request, review and grant a scoped permission                                          | Work, Flow, Cloud Computer              | `Dialog`, `Checkbox`, `InputNumber` |
+| N6  | `RunProgress`                   | Plan tree with per-step state, retries, durations                                      | Work, Flow, Tests, Reliability          | `Progress`, `Collapsible`           |
+| N7  | `StepTimeline`                  | Chronological steps and tool calls with expandable detail                              | Work, Council, Gaming Agent             | `Accordion`                         |
+| N8  | `EvidenceCard` / `EvidenceList` | Signed receipt with verifier, artifact links, timestamp                                | Work, Review, Tests, Ops                | `Badge`, `Table`, `Tooltip`         |
+| N9  | `VerificationBadge`             | `Verified` / `Unverified` / `Failed` with reason                                       | Every completion claim                  | `Badge`                             |
+| N10 | `ObjectInspector`               | Host frame for contextual detail panels, URL-synced                                    | All                                     | `Tabs`, `Resizable`                 |
+| N11 | `DiffViewer`                    | Side-by-side and unified diff with hunk actions                                        | Review, Time Machine, IDE               | `Table`                             |
+| N12 | `VersionRail`                   | Scrubber over checkpoints with before/after compare                                    | Time Machine, Artifacts, Studio         | `Slider`, `Timeline` (new)          |
+| N13 | `CommandPalette`                | Ranked federated navigation and actions                                                | Global                                  | `Combobox`, `Dialog`                |
+| N14 | `ArtifactFrame`                 | Sandboxed preview host with poster, reload, fullscreen, CSP badge                      | Studio, Gallery, Games                  | `Dialog`                            |
+| N15 | `PlanPreview`                   | Editable plan before execution: steps, cost, grants                                    | Work, Flow                              | `RunProgress`                       |
+| N16 | `GraphCanvas`                   | Node/edge view with clustering cap                                                     | Memory, Repo graph, Lineage             | `Resizable`                         |
+| N17 | `MetricStrip`                   | A small set of labelled measurements with window and source                            | Ops, Insights, Cloud                    | `SeriesLabel`, `SegmentedMeter`     |
+| N18 | `BlockedState`                  | Named blocker, prerequisite, and the exact next action                                 | All planned modules                     | `EmptyState`                        |
+| N19 | `PresenceBar`                   | Which agents are active, on what, since when                                           | Workforce, Council, Work                | `Avatar`, `Tooltip`                 |
+| N20 | `TemplateCard`                  | Preview poster, category, stack, licence, use action                                   | Templates, Studio, Projects             | `PixelCard`, `Badge`                |
+| N21 | `BudgetMeter`                   | Quota consumed vs remaining, fail-closed state                                         | Cloud, Models, Flow                     | `SegmentedMeter`                    |
+| N22 | `RecordTable`                   | `DataTable` + filter bar + saved views + URL state                                     | Review, Tests, Registry, Library        | `DataTable`, `FilterInput`          |
 
 **Rule of two.** A component used once stays feature-local. Only the second consumer promotes it. Promoting means: move to `packages/client`, add a colocated spec, cover loading/success/failure, and document any new token.
 
@@ -434,16 +434,16 @@ Rules: never animate layout properties on lists longer than 20 rows; never loop 
 
 Status is a first-class visual grammar, used identically in the chip, the inspector and the receipt.
 
-| Status | Icon | Text | Colour role | Where it appears |
-|---|---|---|---|---|
-| Live | filled dot | `Live` | `status-live` | Module menu, header |
-| Preview | half dot | `Preview` | `status-info` | Module menu, header |
-| Experimental | flask | `Experimental` | `status-warning` | Entry + header banner |
-| Planned | outline dot | `Planned` | `status-planned` | Menu, route empty state |
-| Blocked | slash | `Blocked` | `status-blocked` | Menu, route, action |
-| Verified | check-shield | `Verified` | `status-verified` | Evidence, completion |
-| Unverified | dashed check | `Unverified` | `status-neutral` | Completion claims |
-| Failed | cross | `Failed` | `status-error` | Runs, tests, receipts |
+| Status       | Icon         | Text           | Colour role       | Where it appears        |
+| ------------ | ------------ | -------------- | ----------------- | ----------------------- |
+| Live         | filled dot   | `Live`         | `status-live`     | Module menu, header     |
+| Preview      | half dot     | `Preview`      | `status-info`     | Module menu, header     |
+| Experimental | flask        | `Experimental` | `status-warning`  | Entry + header banner   |
+| Planned      | outline dot  | `Planned`      | `status-planned`  | Menu, route empty state |
+| Blocked      | slash        | `Blocked`      | `status-blocked`  | Menu, route, action     |
+| Verified     | check-shield | `Verified`     | `status-verified` | Evidence, completion    |
+| Unverified   | dashed check | `Unverified`   | `status-neutral`  | Completion claims       |
+| Failed       | cross        | `Failed`       | `status-error`    | Runs, tests, receipts   |
 
 Every badge carries text, never colour alone. `CapabilityBadge` supports a `reason` prop that renders in a popover **and** as an inline sentence in the blocked state — a tooltip is not sufficient disclosure for a control that cannot be used.
 
@@ -463,13 +463,13 @@ WCAG 2.2 AA is the floor. The codebase already sets a 24px minimum target (`them
 
 `useMediaQuery('(max-width: 768px)')` is the existing convention and remains the only boolean the shell branches on. Two additive hooks are required: `useWideLayout()` (≥1280) and `useUltraLayout()` (≥1600).
 
-| Range | Rail | Canvas | Inspector | Timeline | Tables |
-|---|---|---|---|---|---|
-| **<768** | Drawer, 100% or 80% strip (existing) | Single column | Full-height sheet | Hidden, sheet from header | Card list |
-| **768–1023** | 52px rail | Single column | Overlay, 380px | Hidden | Card list ≥2 cols |
-| **1024–1279** | 52 or 360px | Single column | Overlay, 400px | Collapsed bar | Table, 2 sticky columns |
-| **≥1280** | Persistent, resizable | Column with inspector | Persistent 320–420px | Collapsed bar, expandable | Full table |
-| **≥1600** | Persistent | Centred, ≤1400px | Persistent | Optionally docked | Full table |
+| Range         | Rail                                 | Canvas                | Inspector            | Timeline                  | Tables                  |
+| ------------- | ------------------------------------ | --------------------- | -------------------- | ------------------------- | ----------------------- |
+| **<768**      | Drawer, 100% or 80% strip (existing) | Single column         | Full-height sheet    | Hidden, sheet from header | Card list               |
+| **768–1023**  | 52px rail                            | Single column         | Overlay, 380px       | Hidden                    | Card list ≥2 cols       |
+| **1024–1279** | 52 or 360px                          | Single column         | Overlay, 400px       | Collapsed bar             | Table, 2 sticky columns |
+| **≥1280**     | Persistent, resizable                | Column with inspector | Persistent 320–420px | Collapsed bar, expandable | Full table              |
+| **≥1600**     | Persistent                           | Centred, ≤1400px      | Persistent           | Optionally docked         | Full table              |
 
 **Collapse order** when space is short — never reorder arbitrarily:
 
@@ -487,18 +487,18 @@ Mobile-specific rules: no hover-only affordance; every drag has a menu equivalen
 
 Declared per module and checked at review. These are ceilings, not targets.
 
-| Budget | Ceiling | Mechanism |
-|---|---|---|
-| Route chunk, initial | 180KB gzip | `lazyWithRecovery` / `importWithRecovery` (both exist) |
-| Live preview surfaces | 1 at a time | `ArtifactFrame` renders a poster for any non-active card |
-| Idle requests (tab visible) | ≤1 per 10s per module; 0 hidden | SSE for runs; no polling loops |
-| Lists | Virtualized above 100 rows | existing conversation list pattern |
-| Transcript | `content-visibility: auto` per message | avoids off-screen layout |
-| Graph rendering | ≤400 rendered nodes, cluster beyond | `GraphCanvas` cap |
-| Animation | ≤32 simultaneous animated elements | no staggered entrance on long lists |
-| Chart updates | ≤4Hz | throttle streaming metrics |
-| Cleanup | Every subscription, observer, worker disposed on unmount/route change | review checklist |
-| LCP | No regression on visible conversation | `npm run lighthouse` (repo gate) |
+| Budget                      | Ceiling                                                               | Mechanism                                                |
+| --------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------- |
+| Route chunk, initial        | 180KB gzip                                                            | `lazyWithRecovery` / `importWithRecovery` (both exist)   |
+| Live preview surfaces       | 1 at a time                                                           | `ArtifactFrame` renders a poster for any non-active card |
+| Idle requests (tab visible) | ≤1 per 10s per module; 0 hidden                                       | SSE for runs; no polling loops                           |
+| Lists                       | Virtualized above 100 rows                                            | existing conversation list pattern                       |
+| Transcript                  | `content-visibility: auto` per message                                | avoids off-screen layout                                 |
+| Graph rendering             | ≤400 rendered nodes, cluster beyond                                   | `GraphCanvas` cap                                        |
+| Animation                   | ≤32 simultaneous animated elements                                    | no staggered entrance on long lists                      |
+| Chart updates               | ≤4Hz                                                                  | throttle streaming metrics                               |
+| Cleanup                     | Every subscription, observer, worker disposed on unmount/route change | review checklist                                         |
+| LCP                         | No regression on visible conversation                                 | `npm run lighthouse` (repo gate)                         |
 
 A module that cannot meet its budget ships with a **degraded mode** it can name, rather than silently exceeding it.
 
@@ -506,7 +506,7 @@ A module that cannot meet its budget ships with a **degraded mode** it can name,
 
 - Icons: `lucide-react`, 20px in canvas chrome, 16px inline, 24px in empty states. One icon per concept, registered in the module registry so the chip, palette and empty state agree.
 - Imagery: original or licensed only; no third-party UI screenshots as decoration; film/game/avatar imagery always labelled with its generator and licence in the inspector.
-- Voice: sentence case for controls, title case for module names, no exclamation marks, no anthropomorphising of agents. Blockers are written as *fact · prerequisite · next action*.
+- Voice: sentence case for controls, title case for module names, no exclamation marks, no anthropomorphising of agents. Blockers are written as _fact · prerequisite · next action_.
 
 ## 5. Interaction specifications
 
@@ -537,32 +537,38 @@ Every durable execution — a Work run, a Flow execution, a test suite, a reliab
 
 ```
 draft ──plan──▶ planned ──approve──▶ queued ──admit──▶ running
-                    │                    │              │
-                    │                    │              ├─pause──▶ paused ──resume──▶ running
-                    │                    │              ├─block──▶ blocked ──resolve──▶ queued
-                    │                    │              ├─fail───▶ failed ──retry───▶ queued
-                    │                    │              └─cancel─▶ cancelled
-                    │                    └──deny────────▶ cancelled
-                    └──discard────▶ (deleted)
+  │                 │                  │                 │
+  │                 │                  │                 ├─pause──▶ paused ──resume──▶ running
+  │                 │                  │                 ├─block──▶ blocked ──resolve──▶ queued
+  │                 │                  │                 ├─fail───▶ failed ──retry───▶ queued
+  │                 │                  │                 └─cancel─▶ cancelled
+  │                 └──deny──▶ planned   (reason recorded; plan revised in place, never cancelled)
+  └──discard──▶ (deleted)
+
+blocked ──deny──▶ blocked   (reason recorded; blocker and next action restated)
 
 running ──finish──▶ verifying ──evidence──▶ complete
                          │
                          └─no evidence──▶ unverified
+unverified ──re-verify or attach evidence──▶ verifying
+
+cancel, available in every non-terminal state ──▶ cancelled
+  draft · planned · queued · running · paused · blocked · failed · verifying · unverified
 ```
 
-| State | Meaning | Header pill | Primary actions |
-|---|---|---|---|
-| `draft` | Objective captured, no plan | `Draft` | Edit objective, plan |
-| `planned` | Plan exists, not authorised | `Needs approval` | Approve, edit plan, discard |
-| `queued` | Authorised, awaiting capacity | `Queued · position 2` | Cancel, view queue |
-| `running` | Executing a step | `Running · 4/9` | Pause, cancel, take control |
-| `paused` | Owner-stopped, state preserved | `Paused` | Resume, inspect, cancel |
-| `blocked` | Needs a decision or a prerequisite | `Blocked: needs repository access` | Resolve, skip step, cancel |
-| `failed` | Terminal failure, retryable or not | `Failed` | Retry, inspect evidence, clone to new run |
-| `cancelled` | Stopped by owner or policy | `Cancelled` | Clone, view partial artifacts |
-| `verifying` | Work claims done, checks running | `Verifying` | View checks |
-| `complete` | Verification passed | `Complete · verified` | Review evidence, merge, export |
-| `unverified` | Finished without evidence | `Complete · unverified` | Attach evidence, re-verify, accept as-is |
+| State        | Meaning                            | Header pill                        | Primary actions                                                         |
+| ------------ | ---------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| `draft`      | Objective captured, no plan        | `Draft`                            | Edit objective, plan, cancel                                            |
+| `planned`    | Plan exists, not authorised        | `Needs approval`                   | Approve, edit plan, discard, cancel                                     |
+| `queued`     | Authorised, awaiting capacity      | `Queued · position 2`              | Cancel, view queue                                                      |
+| `running`    | Executing a step                   | `Running · 4/9`                    | Pause, cancel, take control                                             |
+| `paused`     | Owner-stopped, state preserved     | `Paused`                           | Resume, inspect, cancel                                                 |
+| `blocked`    | Needs a decision or a prerequisite | `Blocked: needs repository access` | Resolve, skip step, cancel                                              |
+| `failed`     | Terminal failure, retryable or not | `Failed`                           | Retry, inspect evidence, clone to new run                               |
+| `cancelled`  | Stopped by owner or policy         | `Cancelled`                        | Clone, view partial artifacts                                           |
+| `verifying`  | Work claims done, checks running   | `Verifying`                        | View checks, cancel                                                     |
+| `complete`   | Verification passed                | `Complete · verified`              | Review evidence, merge, export                                          |
+| `unverified` | Finished without evidence          | `Complete · unverified`            | Attach evidence or re-verify (both return to `verifying`), accept as-is |
 
 **Non-negotiables:**
 
@@ -578,14 +584,14 @@ Authorization is designed as a visible object, not a settings abstraction.
 
 **Four tiers.**
 
-| Tier | Examples | Default | Confirmation |
-|---|---|---|---|
-| **T0 · Read** | Read repository, search memory, list files | Always allowed | None |
-| **T1 · Reversible write** | Edit a branch, create a file, change a draft | Standing grant allowed | Scope chip on the action |
-| **T2 · External effect** | Open a PR, send an email, deploy a preview, call a paid API | Standing grant required, scoped by destination | Approval sheet, once per scope |
-| **T3 · Irreversible** | Merge to a protected branch, delete data, publish to production, spend money | Never standing | Explicit per action, typed confirmation, re-auth |
+| Tier                      | Examples                                                                     | Default                                        | Confirmation                                     |
+| ------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------ |
+| **T0 · Read**             | Read repository, search memory, list files                                   | Always allowed                                 | None                                             |
+| **T1 · Reversible write** | Edit a branch, create a file, change a draft                                 | Standing grant allowed                         | Scope chip on the action                         |
+| **T2 · External effect**  | Open a PR, send an email, deploy a preview, call a paid API                  | Standing grant required, scoped by destination | Approval sheet, once per scope                   |
+| **T3 · Irreversible**     | Merge to a protected branch, delete data, publish to production, spend money | Never standing                                 | Explicit per action, typed confirmation, re-auth |
 
-**Grant anatomy.** A grant is `{ category, destinations[], quota, budget, expiresAt, requiresReview }`. The UI shows it as a sentence, never as JSON: *"Open pull requests on `Auctivon-CoderaxAI/Coderax`, max 3 per day, expires in 24 hours."*
+**Grant anatomy.** A grant is `{ category, destinations[], quota, budget, expiresAt, requiresReview }`. The UI shows it as a sentence, never as JSON: _"Open pull requests on `Auctivon-CoderaxAI/Coderax`, max 3 per day, expires in 24 hours."_
 
 **Approval sheet.** Opens from `ScopeChip` or a `blocked` run. Contains: what will happen, the exact destinations, what it can and cannot touch, expiry, quota, a `Requires my review before merge` checkbox (default on), and two buttons — `Grant` and `Deny`. Denying records a reason, which the run uses to re-plan rather than fail blindly.
 
@@ -607,7 +613,7 @@ Restoration is the most dangerous routine action in the product, so it has the m
 **Restore flow (never one click):**
 
 1. **Select** a checkpoint. The canvas switches to a comparison against current state.
-2. **Impact preview** answers four questions explicitly: components affected, changes made *after* the checkpoint, conflicts, and what cannot be restored (with the reason).
+2. **Impact preview** answers four questions explicitly: components affected, changes made _after_ the checkpoint, conflicts, and what cannot be restored (with the reason).
 3. **Choose a policy:** `Preserve newer work` (default — restore only what is untouched), `Restore exact state` (destructive, requires typed confirmation), or `Restore to a branch` (safest; produces a reviewable change instead of mutating).
 4. **Confirm.** A pre-restore checkpoint is created automatically, always, even for the safest policy.
 5. **Receipt.** The result is an evidence record: what was restored, what was skipped, verification status.
@@ -618,36 +624,36 @@ Restoration is the most dangerous routine action in the product, so it has the m
 
 One map, documented in the existing `KeyboardShortcutsDialog` and reachable with `⌘/`.
 
-| Shortcut | Action | Scope |
-|---|---|---|
-| `⌘K` / `Ctrl-K` | Command palette | Global |
-| `⌘/` | Shortcut help | Global |
-| `⌘⇧N` | New chat | Global |
-| `⌘⇧W` | Toggle Chat / Work mode | Composer |
-| `⌘B` | Toggle rail | Global |
-| `⌘I` | Toggle inspector | Modules |
-| `⌘J` | Toggle timeline dock | Modules |
-| `⌘⏎` | Run / approve plan | Work, Flow |
-| `⌘.` | Pause run | Active run |
-| `⌘⇧.` | Cancel run (double-press to confirm) | Active run |
-| `Esc` | Close innermost layer | Global |
-| `G` then `C` / `W` / `P` | Go to Chat / Work / Projects | Global |
+| Shortcut                 | Action                               | Scope      |
+| ------------------------ | ------------------------------------ | ---------- |
+| `⌘K` / `Ctrl-K`          | Command palette                      | Global     |
+| `⌘/`                     | Shortcut help                        | Global     |
+| `⌘⇧N`                    | New chat                             | Global     |
+| `⌘⇧W`                    | Toggle Chat / Work mode              | Composer   |
+| `⌘B`                     | Toggle rail                          | Global     |
+| `⌘I`                     | Toggle inspector                     | Modules    |
+| `⌘J`                     | Toggle timeline dock                 | Modules    |
+| `⌘⏎`                     | Run / approve plan                   | Work, Flow |
+| `⌘.`                     | Pause run                            | Active run |
+| `⌘⇧.`                    | Cancel run (double-press to confirm) | Active run |
+| `Esc`                    | Close innermost layer                | Global     |
+| `G` then `C` / `W` / `P` | Go to Chat / Work / Projects         | Global     |
 
-Rules: shortcuts never fire while a text field has focus unless they use a modifier and the field is not the composer; `Esc` never cancels a run by itself; destructive shortcuts require a second press within 2s and announce the pending state.
+Rules: shortcuts never fire while a text field has focus, except `⌘K` and `⌘⇧W`, whose declared scope includes the composer and which stay live there; `Esc` never cancels a run by itself; destructive shortcuts require a second press within 2s and announce the pending state.
 
 ### 5.6 State taxonomy for every surface
 
 Seven states, defined once, reused everywhere. A module that invents an eighth must justify it.
 
-| State | Trigger | Structure | Required elements |
-|---|---|---|---|
-| **First use** | No objects yet | Centred card | One-line value statement, primary create action, one example |
-| **No results** | Filters excluded everything | Inline block | What was filtered, `Clear filters`, count of hidden items |
-| **Cleared** | Everything done | Quiet block | Confirmation, next suggested action |
-| **Not configured** | Prerequisite missing | Banner + disabled content | What is missing, where to fix it, deep link |
-| **Blocked** | External prerequisite unavailable | `BlockedState` | Fact · prerequisite · next action · what still works |
-| **Unavailable (Planned)** | Capability designed, not built | `BlockedState` variant | Status chip, one paragraph of intent, roadmap link |
-| **Error** | Operation failed | `RetryableError` | Safe message, code, retry, copy diagnostics (redacted) |
+| State                     | Trigger                           | Structure                 | Required elements                                            |
+| ------------------------- | --------------------------------- | ------------------------- | ------------------------------------------------------------ |
+| **First use**             | No objects yet                    | Centred card              | One-line value statement, primary create action, one example |
+| **No results**            | Filters excluded everything       | Inline block              | What was filtered, `Clear filters`, count of hidden items    |
+| **Cleared**               | Everything done                   | Quiet block               | Confirmation, next suggested action                          |
+| **Not configured**        | Prerequisite missing              | Banner + disabled content | What is missing, where to fix it, deep link                  |
+| **Blocked**               | External prerequisite unavailable | `BlockedState`            | Fact · prerequisite · next action · what still works         |
+| **Unavailable (Planned)** | Capability designed, not built    | `BlockedState` variant    | Status chip, one paragraph of intent, roadmap link           |
+| **Error**                 | Operation failed                  | `RetryableError`          | Safe message, code, retry, copy diagnostics (redacted)       |
 
 Loading uses the existing `Skeleton` in the shape of the eventual content — never a centred spinner for a layout that has structure. Streaming and long operations use `Progress` with a named current step, not an indeterminate bar.
 
@@ -655,12 +661,12 @@ Loading uses the existing `Skeleton` in the shape of the eventual content — ne
 
 Four severities, each with one home:
 
-| Severity | Examples | Surface |
-|---|---|---|
-| **Blocking** | Run blocked, approval required, security finding | Timeline dock + header pill + toast |
-| **Completed** | Run finished, PR opened, deploy verified | Timeline dock, coalesced |
-| **Informational** | Model fallback used, cache warmed | Timeline only |
-| **Failure** | Test failed, provider outage | Timeline + toast, with retry |
+| Severity          | Examples                                         | Surface                             |
+| ----------------- | ------------------------------------------------ | ----------------------------------- |
+| **Blocking**      | Run blocked, approval required, security finding | Timeline dock + header pill + toast |
+| **Completed**     | Run finished, PR opened, deploy verified         | Timeline dock, coalesced            |
+| **Informational** | Model fallback used, cache warmed                | Timeline only                       |
+| **Failure**       | Test failed, provider outage                     | Timeline + toast, with retry        |
 
 Rules: at most one toast visible; identical events within 60s coalesce (`3 runs completed`); no badge counts on more than three destinations; the timeline dock is the durable record, so dismissing a toast loses nothing; nothing uses a modal for a non-blocking event.
 
@@ -687,23 +693,23 @@ The owner must never wonder who is acting.
 1. **Type first, then depth.** The owner picks what they are making before choosing a stack, so the flow can show only relevant questions.
 2. **Honest catalogue.** A project type that cannot yet be scaffolded is shown as `Planned` with its blocker — it is not offered and then failed after creation. The brief forbids empty shells that claim capability.
 3. **Two speeds.** `Quick create` (2 steps, sensible defaults) and `Guided setup` (5 steps, full control). The flow defaults to Quick and offers Guided inline; it never forces a wizard on someone who knows what they want.
-4. **Resumable and non-destructive.** Abandoning creation leaves a `draft` project in Projects, not a half-built workspace. Creating never mutates an existing project; `Duplicate` and `Create from template` are separate explicit actions.
+4. **Non-destructive.** Abandoning creation before the final confirmation saves nothing — no project, no half-built workspace. Once confirmed, the project exists in `draft` until it has produced an artifact. Creating never mutates an existing project; `Duplicate` and `Create from template` are separate explicit actions.
 5. **Scaffold, don't promise.** What the flow creates is stated before creation: number of files, what runs, what does not. A preview thumbnail is labelled `Example preview`, never presented as the owner's output.
 
 ### 6.2 Entry points
 
-| Entry | Behaviour |
-|---|---|
-| Workspace chip → `New project` | Starts at type selection |
-| Palette → `New project` | Same, with type prefix if typed (`new project film`) |
-| Projects → `New project` | Same |
-| Chat → `Promote to project` | Skips type selection if inferable; pre-fills requirements from the transcript |
-| Template card → `Use template` | Skips to step 3 with the template's DNA applied |
-| Flow → `Create project for workflow` | Creates a `automation` project pre-bound to the workflow |
+| Entry                                | Behaviour                                                                     |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| Workspace chip → `New project`       | Starts at type selection                                                      |
+| Palette → `New project`              | Same, with type prefix if typed (`new project film`)                          |
+| Projects → `New project`             | Same                                                                          |
+| Chat → `Promote to project`          | Skips type selection if inferable; pre-fills requirements from the transcript |
+| Template card → `Use template`       | Skips to step 3 with the template's DNA applied                               |
+| Flow → `Create project for workflow` | Creates a `automation` project pre-bound to the workflow                      |
 
 ### 6.3 The five steps
 
-**Step 1 — Type.** A searchable grid grouped by discipline: *Software, Creative, Knowledge, Business, Physical*. Each card shows name, one-line output, status chip and prerequisites. `Planned` cards are selectable only to read their blocker and roadmap.
+**Step 1 — Type.** A searchable grid grouped by discipline: _Software, Creative, Knowledge, Business, Physical_. Each card shows name, one-line output, status chip and prerequisites. `Planned` cards are selectable only to read their blocker and roadmap.
 
 **Step 2 — Starting point.** Three choices: `Blank` (default), `Template` (opens the template picker with filters), `Import` (GitHub repository, existing files, URL, or a previous Coderax project). Import requires a T2 grant for repository access and states exactly what will be read.
 
@@ -734,32 +740,32 @@ The flow converts this into structured requirements the rest of the platform can
 
 Status here describes **scaffolding** capability, which is narrower than the module status elsewhere.
 
-| Type | Scaffold | Prerequisite | First real artifact | Specialised view |
-|---|---|---|---|---|
-| Website | Preview | None | Static page + preview URL | Files, Preview |
-| Full-stack app | Planned | Cloud execution + database binding | Schema, API, UI, tests | Files, API, DB |
-| Dashboard | Preview | None (template-driven) | Editable page with sample data labelled | Files, Data |
-| API service | Planned | Cloud execution | OpenAPI spec + handlers + tests | Endpoints, Tests |
-| Database | Planned | Provisioned instance | Schema + migration + seed | Schema, Lineage |
-| Mobile app | Blocked | Signing accounts for device builds | Expo/React Native scaffold, web preview | Devices, Builds |
-| Desktop app | Blocked | OS signing certificates | Electron/Tauri scaffold, unsigned local preview | Builds, Distribution |
-| CLI tool | Planned | Cloud execution | Command scaffold + tests | Commands, Tests |
-| Browser extension | Planned | Store accounts for publishing | Manifest + popup + background worker | Permissions, Builds |
-| AI agent | Preview | Model access | Agent config + tools + eval set | Behaviour, Evals |
-| Mobile game | Planned | Engine selection | Playable prototype | Scene, Playtest |
-| Web game | Preview | None | Playable prototype in a sandboxed frame | Scene, Playtest |
-| Film / video | Blocked | Verified video generation capacity | Screenplay, shot list, storyboards | Scenes, Timeline, Renders |
-| Realistic avatar | Blocked | Verified avatar/voice capacity + consent record | Character sheet, voice config, consent declaration | Appearance, Voice, Consent |
-| Music / podcast | Planned | Audio generation or licensed assets | Script, timeline, asset list | Timeline, Mix |
-| Book / long-form | Preview | None | Structured outline + draft chapters | Outline, Draft |
-| Presentation | Preview | None | Slide deck, editable | Slides |
-| Research study | Preview | None (network egress policy) | Question, sources, evidence table | Sources, Findings |
-| Scientific experiment | Planned | Simulation environment | Protocol, parameters, simulated results (labelled) | Protocol, Runs |
-| Invention | Planned | CAD/simulation environment | Requirements, drawings, BOM | Models, Calculations |
-| Robotics | Blocked | Hardware access + safety review | Spec, wiring, simulation only | Diagrams, Simulation |
-| 3D model | Planned | Rendering capacity | Parametric model + renders | Viewport, Materials |
-| Business | Preview | None | One-page plan + financial model with explicit assumptions | Model, Plan |
-| Automation | Preview | None | Workflow draft with dry-run | Graph, Runs |
+| Type                  | Scaffold | Prerequisite                                    | First real artifact                                       | Specialised view           |
+| --------------------- | -------- | ----------------------------------------------- | --------------------------------------------------------- | -------------------------- |
+| Website               | Preview  | None                                            | Static page + preview URL                                 | Files, Preview             |
+| Full-stack app        | Planned  | Cloud execution + database binding              | Schema, API, UI, tests                                    | Files, API, DB             |
+| Dashboard             | Preview  | None (template-driven)                          | Editable page with sample data labelled                   | Files, Data                |
+| API service           | Planned  | Cloud execution                                 | OpenAPI spec + handlers + tests                           | Endpoints, Tests           |
+| Database              | Planned  | Provisioned instance                            | Schema + migration + seed                                 | Schema, Lineage            |
+| Mobile app            | Blocked  | Signing accounts for device builds              | Expo/React Native scaffold, web preview                   | Devices, Builds            |
+| Desktop app           | Blocked  | OS signing certificates                         | Electron/Tauri scaffold, unsigned local preview           | Builds, Distribution       |
+| CLI tool              | Planned  | Cloud execution                                 | Command scaffold + tests                                  | Commands, Tests            |
+| Browser extension     | Planned  | Store accounts for publishing                   | Manifest + popup + background worker                      | Permissions, Builds        |
+| AI agent              | Preview  | Model access                                    | Agent config + tools + eval set                           | Behaviour, Evals           |
+| Mobile game           | Planned  | Engine selection                                | Playable prototype                                        | Scene, Playtest            |
+| Web game              | Preview  | None                                            | Playable prototype in a sandboxed frame                   | Scene, Playtest            |
+| Film / video          | Blocked  | Verified video generation capacity              | Screenplay, shot list, storyboards                        | Scenes, Timeline, Renders  |
+| Realistic avatar      | Blocked  | Verified avatar/voice capacity + consent record | Character sheet, voice config, consent declaration        | Appearance, Voice, Consent |
+| Music / podcast       | Planned  | Audio generation or licensed assets             | Script, timeline, asset list                              | Timeline, Mix              |
+| Book / long-form      | Planned  | None                                            | Structured outline + draft chapters                       | Outline, Draft             |
+| Presentation          | Planned  | None                                            | Slide deck, editable                                      | Slides                     |
+| Research study        | Preview  | None (network egress policy)                    | Question, sources, evidence table                         | Sources, Findings          |
+| Scientific experiment | Planned  | Simulation environment                          | Protocol, parameters, simulated results (labelled)        | Protocol, Runs             |
+| Invention             | Planned  | CAD/simulation environment                      | Requirements, drawings, BOM                               | Models, Calculations       |
+| Robotics              | Blocked  | Hardware access + safety review                 | Spec, wiring, simulation only                             | Diagrams, Simulation       |
+| 3D model              | Planned  | Rendering capacity                              | Parametric model + renders                                | Viewport, Materials        |
+| Business              | Preview  | None                                            | One-page plan + financial model with explicit assumptions | Model, Plan                |
+| Automation            | Preview  | None                                            | Workflow draft with dry-run                               | Graph, Runs                |
 
 **Reading the Blocked rows.** Each is blocked on a named external prerequisite, not on design or effort — video generation, avatar synthesis, OS code-signing, store accounts, hardware. The project type stays in the catalogue, opens to a `BlockedState` explaining the prerequisite, and reserves its route. That is how the roadmap survives contact with reality without misleading the owner.
 
@@ -767,17 +773,17 @@ Status here describes **scaffolding** capability, which is narrower than the mod
 
 Every project, regardless of type, opens to the same frame with type-specific tabs appended. This is what makes twenty-four project types feel like one product.
 
-| Tab | Content | Notes |
-|---|---|---|
-| **Overview** | Objective, definition of done, status, next action, recent evidence | The only tab guaranteed to be useful on day one |
-| **Requirements** | Structured requirements and acceptance criteria | Editable; feeds the test compiler |
-| **Plan** | Milestones, steps, dependencies, assigned agents | The Work plan preview, persisted |
-| **Files** | Tree + editor + preview | Artifacts, versions, provenance |
-| **Runs** | Every execution with state and evidence | Shared `RunProgress` |
-| **Evidence** | Verification receipts | Immutable |
-| **Preview** | Sandboxed output when one exists | `ArtifactFrame`, one at a time |
-| *Type tabs* | e.g. Scenes, Schema, Evals, Endpoints | Only when the type supports them |
-| **Settings** | Members, memory scope, grants, integrations, danger zone | Route-backed (`/projects/:id/settings`) |
+| Tab              | Content                                                             | Notes                                           |
+| ---------------- | ------------------------------------------------------------------- | ----------------------------------------------- |
+| **Overview**     | Objective, definition of done, status, next action, recent evidence | The only tab guaranteed to be useful on day one |
+| **Requirements** | Structured requirements and acceptance criteria                     | Editable; feeds the test compiler               |
+| **Plan**         | Milestones, steps, dependencies, assigned agents                    | The Work plan preview, persisted                |
+| **Files**        | Tree + editor + preview                                             | Artifacts, versions, provenance                 |
+| **Runs**         | Every execution with state and evidence                             | Shared `RunProgress`                            |
+| **Evidence**     | Verification receipts                                               | Immutable                                       |
+| **Preview**      | Sandboxed output when one exists                                    | `ArtifactFrame`, one at a time                  |
+| _Type tabs_      | e.g. Scenes, Schema, Evals, Endpoints                               | Only when the type supports them                |
+| **Settings**     | Members, memory scope, grants, integrations, danger zone            | Route-backed (`/projects/:id/settings`)         |
 
 **Isolation defaults:** project memory is scoped to the project; artifacts are private; cross-project reuse is off until enabled; deleting a project requires typed confirmation and offers export first.
 
@@ -785,7 +791,7 @@ Every project, regardless of type, opens to the same frame with type-specific ta
 
 Creation is a durable job, so it can fail halfway. Rules:
 
-- The project exists from the moment of confirmation, in `draft`.
+- The project exists from the moment of confirmation, in `draft`. A creation abandoned before that confirmation is not saved and appears nowhere in Projects; `draft` never describes an unconfirmed creation.
 - A failed scaffold shows the exact step, the safe error message and a retry — never a blank workspace pretending success.
 - Partially created files are listed and individually removable.
 - If a prerequisite turns out to be missing at scaffold time, the project moves to `blocked` with the reason, and keeps everything already produced.
@@ -796,18 +802,18 @@ Creation is a durable job, so it can fail halfway. Rules:
 
 Every module inherits the following unless its block states a deviation. This is what prevents forty modules from becoming forty products.
 
-| Contract | Rule |
-|---|---|
-| **Frame** | `ModuleShell`: breadcrumb, title, `CapabilityBadge`, actions, tab strip, body. No module draws its own header. |
-| **States** | The seven-state taxonomy in §5.6. A module must implement at least First use, Not configured, Blocked and Error. |
-| **Loading** | Skeletons in the eventual layout shape. Streaming work shows a named current step. |
-| **Permissions** | Every mutating action shows its `ScopeChip` when it costs T1+; nothing is granted implicitly. |
-| **Evidence** | Anything reporting completion emits an `EvidenceCard` with a verifier and timestamp, or is labelled `Unverified`. |
-| **Accessibility** | §4.7 in full; the module's primary object is reachable by keyboard in ≤6 tab stops. |
-| **Responsive** | §4.8 collapse order; card-list fallback for tables below 768px. |
-| **Budget** | Declared chunk, idle-request and preview limits before implementation. |
-| **Localisation** | Every string through `useLocalize()`; no inline English in components. |
-| **Deep links** | Selection and filters live in the URL. |
+| Contract          | Rule                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Frame**         | `ModuleShell`: breadcrumb, title, `CapabilityBadge`, actions, tab strip, body. No module draws its own header.           |
+| **States**        | The seven-state taxonomy in §5.6. A module must implement at least First use, Not configured, Blocked and Error.         |
+| **Loading**       | Skeletons in the eventual layout shape. Streaming work shows a named current step.                                       |
+| **Permissions**   | Every mutating action shows its `ScopeChip` when it costs T1+; nothing is granted implicitly.                            |
+| **Evidence**      | Anything reporting completion emits an `EvidenceCard` with a verifier and timestamp, or is labelled `Unverified`.        |
+| **Accessibility** | §4.7 in full; the module's primary object is reachable by keyboard in ≤6 tab stops.                                      |
+| **Responsive**    | §4.8 collapse order; card-list fallback for tables below 768px.                                                          |
+| **Budget**        | Declared chunk, idle-request and preview limits before implementation.                                                   |
+| **Localisation**  | Every string through `useLocalize()`; no inline English in components.                                                   |
+| **Deep links**    | Selection and filters live in the URL.                                                                                   |
 | **Empty honesty** | A `Planned` module renders `BlockedState` with intent, dependencies and roadmap — never a skeleton that implies loading. |
 
 ---
@@ -1101,7 +1107,7 @@ This wave establishes the shared runtime surfaces the rest of the platform depen
 
 **D3 · Visual Editor + Application DNA** — `Planned` — `/studio/editor/:projectId`
 
-- **Purpose:** edit individual components without regenerating a project, and transplant reusable *functional* architecture between projects.
+- **Purpose:** edit individual components without regenerating a project, and transplant reusable _functional_ architecture between projects.
 - **Journey:** select node → edit props/style from tokens → responsive preview → save version → (DNA) pick a capability → compatibility check → attach.
 - **Screens:** canvas | layer tree | property inspector | tokens panel | breakpoint switcher | DNA browser.
 - **Components:** `SplitWorkspace`, `DiffViewer`, token editor, `ArtifactFrame`, compatibility report.
@@ -1121,7 +1127,6 @@ This wave establishes the shared runtime surfaces the rest of the platform depen
 - **Relationships:** D5, D6, D7, E4, A5.
 
 ---
-
 
 ### 7.4 Wave 4 — Knowledge, memory and productivity
 
@@ -1336,26 +1341,26 @@ These modules are the ones most likely to be misrepresented by a UI. Every one o
 
 The brief's original differentiators (§43) are not modules. They are **behaviours of the surfaces above**, and each needs one visible home or it does not exist.
 
-| Capability | Where it lives in the UI | Contract |
-|---|---|---|
-| Evidence Engine | C8, and every completion state | No claim without a receipt or an `Unverified` label |
-| Failure Memory | B6, C5, and inline test hints | A recorded failure must name the later check that covers it |
-| Agent Performance Passport | B6 | Sample sizes shown; no synthetic score |
-| Project Genome | A4 → Settings → Genome | Requirements, architecture, dependencies, reusable capabilities in one readable record |
-| Digital Twin | A4 → Environments | A labelled replica; never called production |
-| Instruction Compiler | G1 → Policies | Standing instructions shown as enforceable rules with scope and expiry |
-| Intent Preservation | A2 → Verifying | The run is checked against the original objective, displayed verbatim |
-| Autonomous Blocker Resolver | A2 → blocked state | Up to three alternatives proposed with their trade-offs before asking the owner |
-| Project Archaeologist | C2 → History | Reconstructed architecture labelled `Inferred from commits` |
-| Abandoned Project Recovery | A4 → filter `Needs attention` | Evidence-based resume plan, never automatic deletion |
-| Universal Compatibility | D3 → DNA import | Blocking conflicts refuse the transfer |
-| Agent Conflict Detector | B3, C1 | Resource locks visible before collision |
-| Autonomous Documentation | A4 → Docs | Regenerated from verified implementation, diff-reviewed |
-| Requirement-to-Test Compiler | C4 | Every requirement maps to at least one case or is flagged |
-| Capability Black Box | A2, C8 | Tool calls, decisions, results, failures replayable |
-| Portable Intelligence | G1 → Export | Agent config, skills, memory exported in a documented format |
-| Counterfactual Simulator | B4, A10 | Alternative decisions compared in isolation, labelled simulated |
-| Self-Improvement Lab | F7 → Proposals | Proposed changes tested in a sandbox; never auto-applied to security or authorization |
+| Capability                   | Where it lives in the UI       | Contract                                                                               |
+| ---------------------------- | ------------------------------ | -------------------------------------------------------------------------------------- |
+| Evidence Engine              | C8, and every completion state | No claim without a receipt or an `Unverified` label                                    |
+| Failure Memory               | B6, C5, and inline test hints  | A recorded failure must name the later check that covers it                            |
+| Agent Performance Passport   | B6                             | Sample sizes shown; no synthetic score                                                 |
+| Project Genome               | A4 → Settings → Genome         | Requirements, architecture, dependencies, reusable capabilities in one readable record |
+| Digital Twin                 | A4 → Environments              | A labelled replica; never called production                                            |
+| Instruction Compiler         | G1 → Policies                  | Standing instructions shown as enforceable rules with scope and expiry                 |
+| Intent Preservation          | A2 → Verifying                 | The run is checked against the original objective, displayed verbatim                  |
+| Autonomous Blocker Resolver  | A2 → blocked state             | Up to three alternatives proposed with their trade-offs before asking the owner        |
+| Project Archaeologist        | C2 → History                   | Reconstructed architecture labelled `Inferred from commits`                            |
+| Abandoned Project Recovery   | A4 → filter `Needs attention`  | Evidence-based resume plan, never automatic deletion                                   |
+| Universal Compatibility      | D3 → DNA import                | Blocking conflicts refuse the transfer                                                 |
+| Agent Conflict Detector      | B3, C1                         | Resource locks visible before collision                                                |
+| Autonomous Documentation     | A4 → Docs                      | Regenerated from verified implementation, diff-reviewed                                |
+| Requirement-to-Test Compiler | C4                             | Every requirement maps to at least one case or is flagged                              |
+| Capability Black Box         | A2, C8                         | Tool calls, decisions, results, failures replayable                                    |
+| Portable Intelligence        | G1 → Export                    | Agent config, skills, memory exported in a documented format                           |
+| Counterfactual Simulator     | B4, A10                        | Alternative decisions compared in isolation, labelled simulated                        |
+| Self-Improvement Lab         | F7 → Proposals                 | Proposed changes tested in a sandbox; never auto-applied to security or authorization  |
 
 ## 8. Template library
 
@@ -1372,64 +1377,64 @@ Fifty-six templates ship in Wave 3, expanding toward one hundred with no long-te
 
 ### 8.2 The catalogue
 
-| ID | Template | Category | Layout DNA | Type & density | Distinctive detail |
-|---|---|---|---|---|---|
-| L1 | Monolith | Landing | Full-bleed hero, single column, one CTA | Display serif, 3 sizes only, airy | Oversized numerals in the hero stat |
-| L2 | Split Ledger | Landing | 50/50 split, form pinned right | Sans, compact form, dense labels | Live field validation summary |
-| L3 | Terminal | Landing | Dark canvas, mono, command demo | Mono throughout, tight leading | Copyable command blocks |
-| L4 | Gallery Scroll | Landing | Horizontal snap sections | Large serif captions, minimal UI | Progress rail replaces a nav bar |
-| L5 | Bento Grid | Landing | Asymmetric 12-column bento | Mixed scale, medium density | Tiles resize by content importance |
-| L6 | Long Read | Landing | Narrow measure with chapter nav | Editorial serif, footnotes | Sticky chapter index |
-| L7 | Waitlist Minimal | Landing | Centred, one input, counter | Single family, very airy | Real count only, or “count unavailable” |
-| L8 | Comparison Matrix | Landing | Feature table as hero | Compact tabular, sticky header | Row-level “why it matters” expander |
-| L9 | Poster First | Landing | Poster + captions, no autoplay | Bold sans, sparse | Caption track and transcript |
-| L10 | Local Business | Landing | Map + hours + action panel | Warm sans, medium | Hours computed from timezone, not hard-coded |
-| S1 | Command Deck | SaaS | Dense rail + KPI strip + table | Small sans, compact rows | Keyboard-first command bar |
-| S2 | Calm Workspace | SaaS | Single column, generous gutters | Large body, low density | One primary action per screen |
-| S3 | Ops Console | SaaS | Dark, mono tables, status LEDs | Mono numerals, dense | Live status without colour-only cues |
-| S4 | Document First | SaaS | Editor + outline rail | Readable serif body | Outline generated from structure |
-| S5 | Inbox Triage | SaaS | Three-pane mail model | Dense lists, short previews | Bulk actions with undo |
-| S6 | Board | SaaS | Kanban columns + swimlanes | Compact cards | WIP limits surfaced per column |
-| S7 | Week Grid | SaaS | Calendar as the primary canvas | Small labels, time grid | Drag-to-create with keyboard parity |
-| S8 | Record Grid | SaaS | Dense grid + side peek | Tabular, compact | Saved views in the URL |
-| S9 | Metrics Studio | SaaS | Chart canvas + filter bar | Chart labels small, titles large | Every chart states window and source |
-| S10 | Guided Setup | SaaS | Full-screen stepper | Large headings, one field group | Progress survives reload |
-| C1 | Editorial Store | Commerce | Full-bleed imagery, serif | Editorial, airy | Product story sections |
-| C2 | Catalogue | Commerce | Filter rail + 4-column grid | Compact cards | Facet counts update live |
-| C3 | Single Product | Commerce | Long scroll, sticky buy bar | Large type, medium | Sticky bar collapses on scroll |
-| C4 | Marketplace | Commerce | Search-first, card grid | Dense cards, trust badges | Seller verification shown per listing |
-| C5 | Plan Matrix | Commerce | Plan comparison table | Compact | Price, limits and overage stated plainly |
-| C6 | Digital Goods | Commerce | Minimal, licence-focused | Small print present, not hidden | Licence summary before checkout |
-| P1 | Case Study | Portfolio | Index → detail with figures | Mixed display/body | Before/after figure pairs |
-| P2 | Photographer | Portfolio | Masonry, EXIF captions | Minimal chrome | Keyboard lightbox |
-| P3 | Developer Portfolio | Portfolio | Mono, repo cards, changelog | Mono + sans, compact | Commit activity from real data or omitted |
-| P4 | Personal Blog | Portfolio | Typographic, almost no chrome | Serif body, wide margins | Reading progress as a thin rule |
-| P5 | Documentation | Docs | Three-pane with version switch | Readable, medium | Version selector changes all links |
-| P6 | API Reference | Docs | Endpoint rail + try-it panel | Mono code, compact | “Try it” disabled without a key, with reason |
-| A1 | Chat Workspace | AI | Session rail + thread | Comfortable body | Mode and model always visible |
-| A2 | Prompt Studio | AI | Library + variables + diff | Compact forms, mono output | Variable preview before run |
-| A3 | Agent Console | AI | Run timeline + tool calls | Dense mono metadata | Expandable tool payloads, redacted |
-| A4 | Model Compare | AI | Two-column outputs, one prompt | Neutral, medium | Diff view between responses |
-| A5 | Notebook | AI | Sources left, grounded answer right | Readable, medium | Citation hover reveals passage |
-| A6 | Voice Assistant | AI | Waveform + transcript | Large, sparse | Push-to-talk and captions |
-| M1 | Production Board | Film | Scenes × status grid | Compact cards | Call-sheet style day grouping |
-| M2 | Storyboard Strip | Film | 16:9 panels in sequence | Caption micro-type | Continuity flags per panel |
-| M3 | Music Studio | Audio | Track timeline + mixer | Mono numerals, dense | Meter values sourced, never decorative |
-| M4 | Podcast Studio | Audio | Episode list + waveform editor | Readable, medium | Chapter markers from transcript |
-| M5 | Design System | Design | Token tables + component gallery | Mono labels, medium | Live states: hover, focus, disabled, error |
-| M6 | Model Viewer | 3D | Full viewport + material rail | Minimal UI | Performance badge for polygon budget |
-| G1 | Arcade | Game | Attract screen → HUD | Display type, minimal | Input remap screen |
-| G2 | Level Editor | Game | Canvas + entity palette | Compact inspector | Grid snapping and bounds warnings |
-| G3 | Lobby | Game | Roster + ready state | Medium, playful | Connection quality per player |
-| G4 | Puzzle Grid | Game | Centred grid, large targets | Very large numerals | Full keyboard and screen-reader play |
-| B1 | Pitch Deck | Business | 12-slide arc | Large headings, sparse | Each slide one claim, one proof |
-| B2 | Financial Model | Business | Assumptions → outputs | Tabular nums, dense | Assumption provenance per cell |
-| B3 | Research Report | Knowledge | Findings-first with evidence table | Readable, medium | Confidence tag per finding |
-| B4 | Course | Knowledge | Modules, progress, quiz | Comfortable | Progress from completed checks |
-| B5 | Pipeline Lite | Business | Contacts + stage board | Compact | Activity timeline per contact |
-| W1 | App Shell | Mobile | Bottom tabs, list → detail | Touch-scale type | Safe-area and gesture aware |
-| W2 | Feed | Mobile | Card stack, virtualized | Comfortable | Skeleton placeholders on load |
-| W3 | Cards & Wallet | Mobile | Stacked cards + transactions | Numeric emphasis | Masked values until revealed |
+| ID  | Template            | Category  | Layout DNA                              | Type & density                    | Distinctive detail                           |
+| --- | ------------------- | --------- | --------------------------------------- | --------------------------------- | -------------------------------------------- |
+| L1  | Monolith            | Landing   | Full-bleed hero, single column, one CTA | Display serif, 3 sizes only, airy | Oversized numerals in the hero stat          |
+| L2  | Split Ledger        | Landing   | 50/50 split, form pinned right          | Sans, compact form, dense labels  | Live field validation summary                |
+| L3  | Terminal            | Landing   | Dark canvas, mono, command demo         | Mono throughout, tight leading    | Copyable command blocks                      |
+| L4  | Gallery Scroll      | Landing   | Horizontal snap sections                | Large serif captions, minimal UI  | Progress rail replaces a nav bar             |
+| L5  | Bento Grid          | Landing   | Asymmetric 12-column bento              | Mixed scale, medium density       | Tiles resize by content importance           |
+| L6  | Long Read           | Landing   | Narrow measure with chapter nav         | Editorial serif, footnotes        | Sticky chapter index                         |
+| L7  | Waitlist Minimal    | Landing   | Centred, one input, counter             | Single family, very airy          | Real count only, or “count unavailable”      |
+| L8  | Comparison Matrix   | Landing   | Feature table as hero                   | Compact tabular, sticky header    | Row-level “why it matters” expander          |
+| L9  | Poster First        | Landing   | Poster + captions, no autoplay          | Bold sans, sparse                 | Caption track and transcript                 |
+| L10 | Local Business      | Landing   | Map + hours + action panel              | Warm sans, medium                 | Hours computed from timezone, not hard-coded |
+| S1  | Command Deck        | SaaS      | Dense rail + KPI strip + table          | Small sans, compact rows          | Keyboard-first command bar                   |
+| S2  | Calm Workspace      | SaaS      | Single column, generous gutters         | Large body, low density           | One primary action per screen                |
+| S3  | Ops Console         | SaaS      | Dark, mono tables, status LEDs          | Mono numerals, dense              | Live status without colour-only cues         |
+| S4  | Document First      | SaaS      | Editor + outline rail                   | Readable serif body               | Outline generated from structure             |
+| S5  | Inbox Triage        | SaaS      | Three-pane mail model                   | Dense lists, short previews       | Bulk actions with undo                       |
+| S6  | Board               | SaaS      | Kanban columns + swimlanes              | Compact cards                     | WIP limits surfaced per column               |
+| S7  | Week Grid           | SaaS      | Calendar as the primary canvas          | Small labels, time grid           | Drag-to-create with keyboard parity          |
+| S8  | Record Grid         | SaaS      | Dense grid + side peek                  | Tabular, compact                  | Saved views in the URL                       |
+| S9  | Metrics Studio      | SaaS      | Chart canvas + filter bar               | Chart labels small, titles large  | Every chart states window and source         |
+| S10 | Guided Setup        | SaaS      | Full-screen stepper                     | Large headings, one field group   | Progress survives reload                     |
+| C1  | Editorial Store     | Commerce  | Full-bleed imagery, serif               | Editorial, airy                   | Product story sections                       |
+| C2  | Catalogue           | Commerce  | Filter rail + 4-column grid             | Compact cards                     | Facet counts update live                     |
+| C3  | Single Product      | Commerce  | Long scroll, sticky buy bar             | Large type, medium                | Sticky bar collapses on scroll               |
+| C4  | Marketplace         | Commerce  | Search-first, card grid                 | Dense cards, trust badges         | Seller verification shown per listing        |
+| C5  | Plan Matrix         | Commerce  | Plan comparison table                   | Compact                           | Price, limits and overage stated plainly     |
+| C6  | Digital Goods       | Commerce  | Minimal, licence-focused                | Small print present, not hidden   | Licence summary before checkout              |
+| P1  | Case Study          | Portfolio | Index → detail with figures             | Mixed display/body                | Before/after figure pairs                    |
+| P2  | Photographer        | Portfolio | Masonry, EXIF captions                  | Minimal chrome                    | Keyboard lightbox                            |
+| P3  | Developer Portfolio | Portfolio | Mono, repo cards, changelog             | Mono + sans, compact              | Commit activity from real data or omitted    |
+| P4  | Personal Blog       | Portfolio | Typographic, almost no chrome           | Serif body, wide margins          | Reading progress as a thin rule              |
+| P5  | Documentation       | Docs      | Three-pane with version switch          | Readable, medium                  | Version selector changes all links           |
+| P6  | API Reference       | Docs      | Endpoint rail + try-it panel            | Mono code, compact                | “Try it” disabled without a key, with reason |
+| A1  | Chat Workspace      | AI        | Session rail + thread                   | Comfortable body                  | Mode and model always visible                |
+| A2  | Prompt Studio       | AI        | Library + variables + diff              | Compact forms, mono output        | Variable preview before run                  |
+| A3  | Agent Console       | AI        | Run timeline + tool calls               | Dense mono metadata               | Expandable tool payloads, redacted           |
+| A4  | Model Compare       | AI        | Two-column outputs, one prompt          | Neutral, medium                   | Diff view between responses                  |
+| A5  | Notebook            | AI        | Sources left, grounded answer right     | Readable, medium                  | Citation hover reveals passage               |
+| A6  | Voice Assistant     | AI        | Waveform + transcript                   | Large, sparse                     | Push-to-talk and captions                    |
+| M1  | Production Board    | Film      | Scenes × status grid                    | Compact cards                     | Call-sheet style day grouping                |
+| M2  | Storyboard Strip    | Film      | 16:9 panels in sequence                 | Caption micro-type                | Continuity flags per panel                   |
+| M3  | Music Studio        | Audio     | Track timeline + mixer                  | Mono numerals, dense              | Meter values sourced, never decorative       |
+| M4  | Podcast Studio      | Audio     | Episode list + waveform editor          | Readable, medium                  | Chapter markers from transcript              |
+| M5  | Design System       | Design    | Token tables + component gallery        | Mono labels, medium               | Live states: hover, focus, disabled, error   |
+| M6  | Model Viewer        | 3D        | Full viewport + material rail           | Minimal UI                        | Performance badge for polygon budget         |
+| G1  | Arcade              | Game      | Attract screen → HUD                    | Display type, minimal             | Input remap screen                           |
+| G2  | Level Editor        | Game      | Canvas + entity palette                 | Compact inspector                 | Grid snapping and bounds warnings            |
+| G3  | Lobby               | Game      | Roster + ready state                    | Medium, playful                   | Connection quality per player                |
+| G4  | Puzzle Grid         | Game      | Centred grid, large targets             | Very large numerals               | Full keyboard and screen-reader play         |
+| B1  | Pitch Deck          | Business  | 12-slide arc                            | Large headings, sparse            | Each slide one claim, one proof              |
+| B2  | Financial Model     | Business  | Assumptions → outputs                   | Tabular nums, dense               | Assumption provenance per cell               |
+| B3  | Research Report     | Knowledge | Findings-first with evidence table      | Readable, medium                  | Confidence tag per finding                   |
+| B4  | Course              | Knowledge | Modules, progress, quiz                 | Comfortable                       | Progress from completed checks               |
+| B5  | Pipeline Lite       | Business  | Contacts + stage board                  | Compact                           | Activity timeline per contact                |
+| W1  | App Shell           | Mobile    | Bottom tabs, list → detail              | Touch-scale type                  | Safe-area and gesture aware                  |
+| W2  | Feed                | Mobile    | Card stack, virtualized                 | Comfortable                       | Skeleton placeholders on load                |
+| W3  | Cards & Wallet      | Mobile    | Stacked cards + transactions            | Numeric emphasis                  | Masked values until revealed                 |
 
 **Coverage check:** 10 landing, 10 SaaS, 6 commerce, 6 portfolio/docs, 6 AI, 6 creative, 4 game, 5 business/knowledge, 3 mobile. Every category in the brief is represented, and the distribution is deliberate: the owner's most common jobs (landing, SaaS, documentation) get the most starting points.
 
@@ -1439,11 +1444,11 @@ A template is rejected at review if it differs from an existing one only in colo
 
 ### 8.4 Expansion path
 
-| Milestone | Count | Composition |
-|---|---|---|
-| Wave 3 | 56 | The table above |
-| Wave 5 | 72 | 8 industry landing pages, 8 data-heavy admin views |
-| Wave 7 | 100+ | Owner-authored templates promoted from projects, plus generator output reviewed by hand |
+| Milestone | Count | Composition                                                                             |
+| --------- | ----- | --------------------------------------------------------------------------------------- |
+| Wave 3    | 56    | The table above                                                                         |
+| Wave 5    | 72    | 8 industry landing pages, 8 data-heavy admin views                                      |
+| Wave 7    | 100+  | Owner-authored templates promoted from projects, plus generator output reviewed by hand |
 
 Owner-authored templates enter the same catalogue with a `Custom` origin label and the same licence and dependency checks. Generated templates are reviewed before they are published to the library — an unreviewed generated layout is a variant, not a template.
 
@@ -1457,63 +1462,61 @@ The eight fields the brief requires map to this shape. It belongs in `packages/p
 
 ```ts
 /** Capability vocabulary for the product, distinct from ProductStatus. */
-type CapabilityStatus =
-  | 'live' | 'preview' | 'experimental' | 'planned' | 'blocked' | 'retired';
+type CapabilityStatus = 'live' | 'preview' | 'experimental' | 'planned' | 'blocked' | 'retired';
 
-type CapabilityKind =
-  | 'surface' | 'behaviour' | 'integration' | 'platform' | 'differentiator';
+type CapabilityKind = 'surface' | 'behaviour' | 'integration' | 'platform' | 'differentiator';
 
 interface Capability {
-  id: string;                    // stable, kebab-case: 'review.inline-findings'
+  id: string; // stable, kebab-case: 'review.inline-findings'
   title: string;
   kind: CapabilityKind;
-  module: ModuleId;              // 'C3' — the owning module from §3.4
-  summary: string;               // one sentence, no marketing
+  module: ModuleId; // 'C3' — the owning module from §3.4
+  summary: string; // one sentence, no marketing
 
   competitors: Array<{
-    product: string;             // 'CodeRabbit'
-    evidenceUrl: string;         // official docs or observable product behaviour
-    observedAt: string;          // ISO date the claim was checked
-    note: string;                // what they do, factually
+    product: string; // 'CodeRabbit'
+    evidenceUrl: string; // official docs or observable product behaviour
+    observedAt: string; // ISO date the claim was checked
+    note: string; // what they do, factually
   }>;
 
   implementation: {
-    paths: string[];             // repo files proving the state
-    evidenceIds: string[];       // C8 receipts; required for 'live'
+    paths: string[]; // repo files proving the state
+    evidenceIds: string[]; // C8 receipts; required for 'live'
     issueRefs: string[];
     prRefs: string[];
     commitRefs: string[];
   };
 
   status: CapabilityStatus;
-  dependencies: string[];        // capability ids or external prerequisites
+  dependencies: string[]; // capability ids or external prerequisites
   security: {
     grantTier: 0 | 1 | 2 | 3;
-    dataClasses: string[];       // what it may read or emit
+    dataClasses: string[]; // what it may read or emit
     notes: string;
   };
   freeCloud: {
     feasible: boolean;
-    requirement: string;         // 'no paid inference', 'signing certificate'
+    requirement: string; // 'no paid inference', 'signing certificate'
     verifiedAt: string | null;
   };
   priority: 'p0' | 'p1' | 'p2' | 'p3';
-  acceptance: string[];          // measurable criteria, per §10
-  blockers: string[];            // named prerequisites, never 'not enough time'
+  acceptance: string[]; // measurable criteria, per §10
+  blockers: string[]; // named prerequisites, never 'not enough time'
   nextAction: string;
 }
 ```
 
 ### 9.2 Lifecycle rules
 
-| Rule | Enforcement |
-|---|---|
-| `live` requires at least one evidence receipt and one repo path | Registry UI refuses the edit; the API rejects it |
-| `planned` requires a non-empty `acceptance` and `dependencies` | Prevents “someday” entries |
-| A competitor claim requires `evidenceUrl` and `observedAt` | No unsourced competitive claims |
-| Duplicates are merged, not added | Search by id and title before create; merge keeps both evidence sets |
-| `freeCloud.feasible: false` requires a stated requirement and a blocker | This is the honest-blocker path, not a rejection path |
-| Roadmap presence never implies possession | The UI never renders a competitor feature as ours |
+| Rule                                                                    | Enforcement                                                          |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `live` requires at least one evidence receipt and one repo path         | Registry UI refuses the edit; the API rejects it                     |
+| `planned` requires a non-empty `acceptance` and `dependencies`          | Prevents “someday” entries                                           |
+| A competitor claim requires `evidenceUrl` and `observedAt`              | No unsourced competitive claims                                      |
+| Duplicates are merged, not added                                        | Search by id and title before create; merge keeps both evidence sets |
+| `freeCloud.feasible: false` requires a stated requirement and a blocker | This is the honest-blocker path, not a rejection path                |
+| Roadmap presence never implies possession                               | The UI never renders a competitor feature as ours                    |
 
 ### 9.3 Competitive intelligence loop
 
@@ -1536,34 +1539,34 @@ Design work is accepted on observable evidence, not on the existence of a screen
 
 ### 10.1 Required evidence per claim
 
-| Claim | Minimum evidence | Never accepted |
-|---|---|---|
-| “Screen exists” | Route reachable in a built client; screenshot or DOM snapshot | A component file alone |
-| “Interaction works” | Recorded flow including the failure path | A happy-path click |
-| “Tests pass” | Command, exit status and output (masked) at the pushed head | Mocked results presented as integration |
-| “Deployed” | Deployment receipt plus a verified response from the deployed origin | A successful upload |
-| “Accessible” | Keyboard traversal of the primary task + one screen-reader pass | Automated score alone |
-| “Performant” | Measured budget value, before and after | An assertion that it feels fast |
+| Claim               | Minimum evidence                                                     | Never accepted                          |
+| ------------------- | -------------------------------------------------------------------- | --------------------------------------- |
+| “Screen exists”     | Route reachable in a built client; screenshot or DOM snapshot        | A component file alone                  |
+| “Interaction works” | Recorded flow including the failure path                             | A happy-path click                      |
+| “Tests pass”        | Command, exit status and output (masked) at the pushed head          | Mocked results presented as integration |
+| “Deployed”          | Deployment receipt plus a verified response from the deployed origin | A successful upload                     |
+| “Accessible”        | Keyboard traversal of the primary task + one screen-reader pass      | Automated score alone                   |
+| “Performant”        | Measured budget value, before and after                              | An assertion that it feels fast         |
 
 ### 10.2 Seed matrix
 
-| ID | Wave | Given | When | Then | Evidence |
-|---|---|---|---|---|---|
-| ACC-01 | 0 | An owner on any module route | They press ⌘K and type a module name | The module is first result and Enter navigates there | Recorded flow; palette unit test |
-| ACC-02 | 0 | A module that is `planned` | The owner opens its route | A blocked state names dependencies and what still works; no working control is shown | Snapshot; manual check |
-| ACC-03 | 1 | A chat that implies six steps | The owner sends it | A plan is proposed with grants and cost; nothing executes before approval | Recorded flow |
-| ACC-04 | 1 | A Work run at step 3 of 7 | The owner navigates to Projects and back | The run is still running, the pill is accurate, and scroll position is restored | Recorded flow; resume summary |
-| ACC-05 | 1 | A run whose verification produced no receipt | It finishes | It renders `Complete · unverified`, not `Complete` | Receipt absence test |
-| ACC-06 | 2 | A checkpoint from two days ago and edits since | The owner selects restore with `Preserve newer work` | Only untouched components change; a pre-restore checkpoint exists; a receipt is issued | Restore receipt |
-| ACC-07 | 2 | A capability record with no receipt | Someone sets status to `live` | The save is refused with the reason | API rejection test; UI state |
-| ACC-08 | 3 | Two templates of the same category | They are compared | At least four stated axes differ | Comparison view |
-| ACC-09 | 3 | A template preview grid of 56 items | The page loads | At most one live preview surface exists; others are posters | DOM count; budget measurement |
-| ACC-10 | 4 | Memory from project A | A session in project B queries memory | Nothing from A is disclosed without a grant | Isolation test on the boundary |
-| ACC-11 | 5 | A council with an unresolved disagreement | The recommendation is produced | The disagreement and both evidence sets remain visible | Council view |
-| ACC-12 | 6 | A production with storyboards but no generated shots | The owner exports a film | Export is refused and lists the missing shots | Export dialog state |
-| ACC-13 | 7 | A workload whose cost status is unknown | Admission is requested | The workload is blocked and queued, never admitted | Governor log; UI state |
-| ACC-14 | all | Any table below 768px | The viewport narrows | The table becomes a card list; no horizontal scroll on the page | Responsive capture |
-| ACC-15 | all | Any new visible string | The build runs | The string resolves through `useLocalize()`; English key added | Lint + diff |
+| ID     | Wave | Given                                                | When                                                 | Then                                                                                   | Evidence                         |
+| ------ | ---- | ---------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------- |
+| ACC-01 | 0    | An owner on any module route                         | They press ⌘K and type a module name                 | The module is first result and Enter navigates there                                   | Recorded flow; palette unit test |
+| ACC-02 | 0    | A module that is `planned`                           | The owner opens its route                            | A blocked state names dependencies and what still works; no working control is shown   | Snapshot; manual check           |
+| ACC-03 | 1    | A chat that implies six steps                        | The owner sends it                                   | A plan is proposed with grants and cost; nothing executes before approval              | Recorded flow                    |
+| ACC-04 | 1    | A Work run at step 3 of 7                            | The owner navigates to Projects and back             | The run is still running, the pill is accurate, and scroll position is restored        | Recorded flow; resume summary    |
+| ACC-05 | 1    | A run whose verification produced no receipt         | It finishes                                          | It renders `Complete · unverified`, not `Complete`                                     | Receipt absence test             |
+| ACC-06 | 2    | A checkpoint from two days ago and edits since       | The owner selects restore with `Preserve newer work` | Only untouched components change; a pre-restore checkpoint exists; a receipt is issued | Restore receipt                  |
+| ACC-07 | 2    | A capability record with no receipt                  | Someone sets status to `live`                        | The save is refused with the reason                                                    | API rejection test; UI state     |
+| ACC-08 | 3    | Two templates of the same category                   | They are compared                                    | At least four stated axes differ                                                       | Comparison view                  |
+| ACC-09 | 3    | A template preview grid of 56 items                  | The page loads                                       | At most one live preview surface exists; others are posters                            | DOM count; budget measurement    |
+| ACC-10 | 4    | Memory from project A                                | A session in project B queries memory                | Nothing from A is disclosed without a grant                                            | Isolation test on the boundary   |
+| ACC-11 | 5    | A council with an unresolved disagreement            | The recommendation is produced                       | The disagreement and both evidence sets remain visible                                 | Council view                     |
+| ACC-12 | 6    | A production with storyboards but no generated shots | The owner exports a film                             | Export is refused and lists the missing shots                                          | Export dialog state              |
+| ACC-13 | 7    | A workload whose cost status is unknown              | Admission is requested                               | The workload is blocked and queued, never admitted                                     | Governor log; UI state           |
+| ACC-14 | all  | Any table below 768px                                | The viewport narrows                                 | The table becomes a card list; no horizontal scroll on the page                        | Responsive capture               |
+| ACC-15 | all  | Any new visible string                               | The build runs                                       | The string resolves through `useLocalize()`; English key added                         | Lint + diff                      |
 
 ### 10.3 Definition of done for a design change
 
@@ -1575,16 +1578,16 @@ A frontend change is done when: the route is reachable; loading, empty, error, b
 
 Waves are ordered by dependency, not by ambition. Later modules reuse earlier contracts, so building out of order produces rework.
 
-| Wave | Scope | Exit criteria | Depends on |
-|---|---|---|---|
-| **0 · Shell foundation** | `ModuleShell`, `CapabilityBadge`, `CommandPalette`, run state machine, `EvidenceCard`, seven-state taxonomy, module registry, `/registry` read-only, new semantic tokens | Palette navigates every existing route; every module route renders a truthful state; tokens pass theme and lint checks | — |
-| **1 · Coherence** | Upgrade A1-A8, B1, B2, D1, F1, F2, G1-G5 to the module contract; add `ScopeChip`/`ApprovalSheet` to Work; settings routes | Chat↔Work escalation works end to end in one URL; no surface invents its own header or state language | 0 |
-| **2 · Engineering + evidence** | A10, C1-C5, C8, F6, F7 | A change can be made, reviewed, tested, verified and restored with receipts at every step | 0, 1 |
-| **3 · Creation** | C6, C7, D2, D3, D4 + the 56 templates | A website or dashboard can be created from a template, edited at component level and exported with an honest distribution matrix | 2 |
-| **4 · Knowledge** | A9, E1-E7 | Research and memory are source-attributed and project-scoped | 2 |
-| **5 · Agents** | B3-B7 | Teams, councils and model routing produce measured results and visible disagreement | 2 |
-| **6 · Media** | D5-D8 | Each studio states its validation level per asset and cannot export a placeholder as a finished work | 3, 4 |
-| **7 · Cloud + ops** | F3, F4, F5 | Workloads are admitted, refused and explained under a fail-closed governor | 2, 5 |
+| Wave                           | Scope                                                                                                                                                                    | Exit criteria                                                                                                                    | Depends on |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **0 · Shell foundation**       | `ModuleShell`, `CapabilityBadge`, `CommandPalette`, run state machine, `EvidenceCard`, seven-state taxonomy, module registry, `/registry` read-only, new semantic tokens | Palette navigates every existing route; every module route renders a truthful state; tokens pass theme and lint checks           | —          |
+| **1 · Coherence**              | Upgrade A1-A8, B1, B2, D1, F1, F2, G1-G5 to the module contract; add `ScopeChip`/`ApprovalSheet` to Work; settings routes                                                | Chat↔Work escalation works end to end in one URL; no surface invents its own header or state language                           | 0          |
+| **2 · Engineering + evidence** | A10, C1-C5, C8, F6, F7                                                                                                                                                   | A change can be made, reviewed, tested, verified and restored with receipts at every step                                        | 0, 1       |
+| **3 · Creation**               | C6, C7, D2, D3, D4 + the 56 templates                                                                                                                                    | A website or dashboard can be created from a template, edited at component level and exported with an honest distribution matrix | 2          |
+| **4 · Knowledge**              | A9, E1-E7                                                                                                                                                                | Research and memory are source-attributed and project-scoped                                                                     | 2          |
+| **5 · Agents**                 | B3-B7                                                                                                                                                                    | Teams, councils and model routing produce measured results and visible disagreement                                              | 2          |
+| **6 · Media**                  | D5-D8                                                                                                                                                                    | Each studio states its validation level per asset and cannot export a placeholder as a finished work                             | 3, 4       |
+| **7 · Cloud + ops**            | F3, F4, F5                                                                                                                                                               | Workloads are admitted, refused and explained under a fail-closed governor                                                       | 2, 5       |
 
 ### 11.1 Sequencing rationale
 
@@ -1595,14 +1598,14 @@ Waves are ordered by dependency, not by ambition. Later modules reuse earlier co
 
 ### 11.2 PR slicing
 
-| Rule | Reason |
-|---|---|
-| One module or one primitive per PR | Reviewable, revertable |
-| Tokens and primitives land before their first consumer | Avoids feature-local CSS |
-| No PR introduces a route without its state set | Prevents placeholder pages |
-| No PR adds more than ~40 new locale keys | Keeps review and translation honest |
-| Copy changes ride with the UI change | A string without a key is a broken build |
-| Every PR states its budget impact | Chunk size, idle requests, preview count |
+| Rule                                                   | Reason                                   |
+| ------------------------------------------------------ | ---------------------------------------- |
+| One module or one primitive per PR                     | Reviewable, revertable                   |
+| Tokens and primitives land before their first consumer | Avoids feature-local CSS                 |
+| No PR introduces a route without its state set         | Prevents placeholder pages               |
+| No PR adds more than ~40 new locale keys               | Keeps review and translation honest      |
+| Copy changes ride with the UI change                   | A string without a key is a broken build |
+| Every PR states its budget impact                      | Chunk size, idle requests, preview count |
 
 ### 11.3 Non-goals
 
@@ -1616,12 +1619,12 @@ This architecture is a design contribution under the brief's §3 and §47. It is
 
 ### 12.1 Boundary
 
-| FreeBuff does | FreeBuff does not |
-|---|---|
-| Design systems, journey maps, interaction specs, component proposals, responsive and accessibility contracts | Rewrite the native backend or orchestration |
-| Focused frontend changes through the established PR process, when explicitly authorised | Own security policy, authorization enforcement or infra |
-| New shared primitives and semantic tokens with tests | Deploy production, merge, or push to a protected branch |
-| Honest status language and blocked states | Claim completion without evidence |
+| FreeBuff does                                                                                                | FreeBuff does not                                       |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Design systems, journey maps, interaction specs, component proposals, responsive and accessibility contracts | Rewrite the native backend or orchestration             |
+| Focused frontend changes through the established PR process, when explicitly authorised                      | Own security policy, authorization enforcement or infra |
+| New shared primitives and semantic tokens with tests                                                         | Deploy production, merge, or push to a protected branch |
+| Honest status language and blocked states                                                                    | Claim completion without evidence                       |
 
 ### 12.2 Repository mechanics
 
@@ -1655,16 +1658,16 @@ Parallel work on one shell is the main risk. These rules are cheap and prevent m
 
 These need the owner's decision or an external prerequisite. None block Wave 0.
 
-| # | Question | Recommended | Why it matters |
-|---|---|---|---|
-| D1 | Settings: routes or dialog? | Routes with the dialog retained as a shortcut | Deep links, refresh survival, hub-and-spoke navigation |
-| D2 | Rename `/studio` into a Studio umbrella with child routes? | Yes, preserving `/studio` | Avoids two competing studios |
-| D3 | Where does `CapabilityStatus` live? | New export in `packages/product-registry` | Do not widen `ProductStatus`; CLI and Electron consume it |
-| D4 | Add density as a theme-owned property? | Yes (`--theme-density-row`) | Tables and consoles need density without per-module CSS |
-| D5 | Keep the product switcher alongside the workspace chip? | Keep, but remove overlapping destinations | Two switchers listing the same modules is the confusion to avoid |
-| D6 | Search federation scope | Messages + files + evidence first; memory later | Each source adds cost and privacy surface |
-| D7 | Cloud execution provider and admission limits | Owner decision | Governs every `Blocked` state in Waves 2-7 |
-| D8 | External agent integrations (FreeBuff / OpenCode / Claude Code) | Opt-in, separately labelled, separately granted | The brief forbids silent substitution |
+| #   | Question                                                        | Recommended                                     | Why it matters                                                   |
+| --- | --------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------- |
+| D1  | Settings: routes or dialog?                                     | Routes with the dialog retained as a shortcut   | Deep links, refresh survival, hub-and-spoke navigation           |
+| D2  | Rename `/studio` into a Studio umbrella with child routes?      | Yes, preserving `/studio`                       | Avoids two competing studios                                     |
+| D3  | Where does `CapabilityStatus` live?                             | New export in `packages/product-registry`       | Do not widen `ProductStatus`; CLI and Electron consume it        |
+| D4  | Add density as a theme-owned property?                          | Yes (`--theme-density-row`)                     | Tables and consoles need density without per-module CSS          |
+| D5  | Keep the product switcher alongside the workspace chip?         | Keep, but remove overlapping destinations       | Two switchers listing the same modules is the confusion to avoid |
+| D6  | Search federation scope                                         | Messages + files + evidence first; memory later | Each source adds cost and privacy surface                        |
+| D7  | Cloud execution provider and admission limits                   | Owner decision                                  | Governs every `Blocked` state in Waves 2-7                       |
+| D8  | External agent integrations (FreeBuff / OpenCode / Claude Code) | Opt-in, separately labelled, separately granted | The brief forbids silent substitution                            |
 
 **Known blockers already reflected in the design:** video generation capacity (D5), avatar synthesis (D6), game input environment (D8), OS signing and store accounts (C7), and cloud executors (C1, C6, F3). Each appears as a `Blocked` state with its prerequisite rather than as a missing feature.
 
@@ -1672,37 +1675,37 @@ These need the owner's decision or an external prerequisite. None block Wave 0.
 
 ## Appendix A — Where things live
 
-| Concern | Home |
-|---|---|
-| Shell, drawer, mobile | `client/src/routes/Root.tsx`, `client/src/components/UnifiedSidebar/` |
-| Routes | `client/src/routes/index.tsx` |
-| Rail links | `client/src/hooks/Nav/useUnifiedSidebarLinks.ts` |
-| Side-panel links | `client/src/hooks/Nav/useSideNavLinks.ts` |
-| Active panel persistence | `client/src/Providers/ActivePanelContext.tsx` |
-| Semantic tokens | `packages/client/src/theme/tokens.css`, `defaults.css` |
-| Themes | `packages/client/src/theme/themes/` |
-| Theme-owned control geometry | `packages/client/tailwind.preset.cjs` |
-| Primitives | `packages/client/src/components/` |
-| Product registry | `packages/product-registry/index.js` |
-| Copy | `client/src/locales/en/translation.json` |
-| Query keys | `packages/data-provider/src/keys.ts` |
-| Studio limits | `docs/visual-app-studio.md` |
-| Security lab | `packages/security-lab-core`, `docs/security-lab.md` |
+| Concern                      | Home                                                                  |
+| ---------------------------- | --------------------------------------------------------------------- |
+| Shell, drawer, mobile        | `client/src/routes/Root.tsx`, `client/src/components/UnifiedSidebar/` |
+| Routes                       | `client/src/routes/index.tsx`                                         |
+| Rail links                   | `client/src/hooks/Nav/useUnifiedSidebarLinks.ts`                      |
+| Side-panel links             | `client/src/hooks/Nav/useSideNavLinks.ts`                             |
+| Active panel persistence     | `client/src/Providers/ActivePanelContext.tsx`                         |
+| Semantic tokens              | `packages/client/src/theme/tokens.css`, `defaults.css`                |
+| Themes                       | `packages/client/src/theme/themes/`                                   |
+| Theme-owned control geometry | `packages/client/tailwind.preset.cjs`                                 |
+| Primitives                   | `packages/client/src/components/`                                     |
+| Product registry             | `packages/product-registry/index.js`                                  |
+| Copy                         | `client/src/locales/en/translation.json`                              |
+| Query keys                   | `packages/data-provider/src/keys.ts`                                  |
+| Studio limits                | `docs/visual-app-studio.md`                                           |
+| Security lab                 | `packages/security-lab-core`, `docs/security-lab.md`                  |
 
 ## Appendix B — Vocabulary
 
-| Term | Meaning in this document |
-|---|---|
-| **Canvas** | The routed content area; exactly one per screen |
-| **Inspector** | Contextual detail panel for the selected object |
-| **Run** | One durable execution with checkpoints and evidence |
-| **Receipt / Evidence** | Immutable proof an action occurred and was verified |
-| **Grant** | Scoped, expiring authorization with quota |
-| **Blocked** | Cannot proceed, with a named prerequisite |
-| **Unverified** | Finished without proof; an honest terminal state |
-| **DNA** | Reusable functional architecture transferred between projects |
-| **Passport** | Measured performance record for an agent |
-| **Genome** | Complete durable record of a project's architecture and capabilities |
+| Term                   | Meaning in this document                                             |
+| ---------------------- | -------------------------------------------------------------------- |
+| **Canvas**             | The routed content area; exactly one per screen                      |
+| **Inspector**          | Contextual detail panel for the selected object                      |
+| **Run**                | One durable execution with checkpoints and evidence                  |
+| **Receipt / Evidence** | Immutable proof an action occurred and was verified                  |
+| **Grant**              | Scoped, expiring authorization with quota                            |
+| **Blocked**            | Cannot proceed, with a named prerequisite                            |
+| **Unverified**         | Finished without proof; an honest terminal state                     |
+| **DNA**                | Reusable functional architecture transferred between projects        |
+| **Passport**           | Measured performance record for an agent                             |
+| **Genome**             | Complete durable record of a project's architecture and capabilities |
 
 ---
 
@@ -1711,4 +1714,3 @@ These need the owner's decision or an external prerequisite. None block Wave 0.
 This document deliberately spends as much space on what the interface must refuse to claim as on what it should display. For a private platform whose owner must trust it with real work, the honest state is the feature.
 
 It is a design specification. It does not assert that any module marked `Planned` or `Blocked` exists, and it should be revised whenever implementation evidence contradicts it — not the other way around.
-
