@@ -43,7 +43,7 @@ it('restores a conversation mode after a reload and isolates it from other conve
       initialMode: 'chat',
     }),
   );
-  act(() => first.result.current.setMode('work'));
+  act(() => first.result.current.setMode('code'));
   first.unmount();
   const restored = renderModeHook(
     ({ userId, conversationId }) =>
@@ -53,8 +53,27 @@ it('restores a conversation mode after a reload and isolates it from other conve
   expect(restored.result.current.mode).toBe('code');
   restored.rerender({ userId: 'owner-a', conversationId: 'conversation-b' });
   expect(restored.result.current.mode).toBe('chat');
+
   restored.rerender({ userId: 'owner-b', conversationId: 'conversation-a' });
   expect(restored.result.current.mode).toBe('chat');
+});
+
+it('carries the draft mode to an acknowledged conversation on first save', () => {
+  const { result, rerender } = renderHook(
+    ({ conversationId }) =>
+      useStoredConversationMode({ userId: 'owner', conversationId, initialMode: 'chat' }),
+    { initialProps: { conversationId: 'new' } },
+  );
+
+  act(() => result.current.setMode('review'));
+  act(() => result.current.adoptConversation('server-id'));
+  rerender({ conversationId: 'server-id' });
+
+  expect(result.current.mode).toBe('review');
+  expect(JSON.parse(localStorage.getItem('conversationModes:owner') ?? '{}')).toEqual({
+    new: 'review',
+    'server-id': 'review',
+  });
 });
 
 it('copies the latest mode only to an acknowledged server identity, not to an arbitrary visited conversation', () => {
@@ -63,16 +82,33 @@ it('copies the latest mode only to an acknowledged server identity, not to an ar
       useStoredConversationMode({ userId: 'owner', conversationId, initialMode: 'chat' }),
     { initialProps: { conversationId: 'new' } },
   );
+
   act(() => result.current.setMode('work'));
   const runningTurn = result.current;
   act(() => result.current.setMode('chat'));
   act(() => runningTurn.adoptConversation('server-id'));
   rerender({ conversationId: 'server-id' });
   expect(result.current.mode).toBe('chat');
+
   rerender({ conversationId: 'new' });
-  act(() => result.current.setMode('work'));
+  act(() => result.current.setMode('code'));
   rerender({ conversationId: 'previous-chat' });
   expect(result.current.mode).toBe('chat');
+});
+
+it('can adopt an acknowledged conversation when stored mode data is null', () => {
+  localStorage.setItem('conversationModes:owner', 'null');
+
+  const { result, rerender } = renderHook(
+    ({ conversationId }) =>
+      useStoredConversationMode({ userId: 'owner', conversationId, initialMode: 'work' }),
+    { initialProps: { conversationId: 'new' } },
+  );
+
+  act(() => result.current.adoptConversation('server-id'));
+  rerender({ conversationId: 'server-id' });
+
+  expect(result.current.mode).toBe('code');
 });
 
 it('honors an explicit Work deep link over a saved Chat mode', () => {

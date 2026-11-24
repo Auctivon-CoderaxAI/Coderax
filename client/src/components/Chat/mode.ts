@@ -105,6 +105,7 @@ export function useStoredConversationMode({
 }) {
   const modesAtom = useMemo(() => getConversationModesAtom(userId), [userId]);
   const [modes, setModes] = useAtom(modesAtom);
+  const initial = normaliseMode(initialMode) ?? 'chat';
   const saved = modes?.[conversationId];
   const forcedModeKey = JSON.stringify([userId, conversationId]);
   const forcedModeKeyRef = useRef<string | null>(null);
@@ -123,7 +124,7 @@ export function useStoredConversationMode({
         ? current
         : recordMode(current ?? {}, conversationId, initialMode),
     );
-  }, [conversationId, forcedModeKey, initialMode, setModes, shouldForceInitialMode]);
+  }, [conversationId, forcedModeKey, initial, setModes, shouldForceInitialMode]);
 
   return useMemo(
     () => ({
@@ -141,6 +142,10 @@ export function useStoredConversationMode({
             recordMode(current ?? {}, id, normaliseMode(current?.[conversationId]) ?? mode),
           );
         }
+        setModes((current) => {
+          const drafted = normaliseMode(current?.[conversationId]) ?? mode;
+          return current?.[id] === drafted ? current : recordMode(current ?? {}, id, drafted);
+        });
       },
     }),
     [mode, userId, conversationId, setModes],

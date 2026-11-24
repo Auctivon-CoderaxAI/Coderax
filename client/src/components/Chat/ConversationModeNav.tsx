@@ -17,7 +17,7 @@ const idleClassName = `${segmentClassName} text-text-secondary hover:text-text-p
 
 export default function ConversationModeNav({ active, labels }: ConversationModeNavProps) {
   const { mode, setMode } = useConversationMode();
-  const selected = active ?? mode;
+  const selected = normaliseMode(active ?? mode) ?? 'chat';
   return (
     <nav
       aria-label={labels.ariaLabel}
