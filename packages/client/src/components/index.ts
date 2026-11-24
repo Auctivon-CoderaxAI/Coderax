@@ -86,6 +86,16 @@ export type {
 export { default as OGDialogTemplate } from './OGDialogTemplate';
 export { default as InputWithDropdown } from './InputWithDropDown';
 export { default as AnimatedSearchInput } from './AnimatedSearchInput';
+export { default as ModuleShell } from './ModuleShell';
+export type { ModuleShellProps, ModuleTab } from './ModuleShell';
+export { default as CapabilityBadge } from './CapabilityBadge';
+export type { CapabilityBadgeProps, CapabilityStatus } from './CapabilityBadge';
+export { default as CommandPalette } from './CommandPalette';
+export type {
+  CommandPaletteItem,
+  CommandPaletteLabels,
+  CommandPaletteProps,
+} from './CommandPalette';
 export { default as VirtualizedDataTable } from './DataTable/DataTable';
 export type {
   TableColumn,
