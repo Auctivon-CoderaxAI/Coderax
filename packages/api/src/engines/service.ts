@@ -32,7 +32,6 @@ export type ExecutionEnginesConfig =
         defaultEngine?: 'opencode' | 'openhands' | 'freebuff';
         workChat?: {
           enabled?: boolean;
-          engine?: 'opencode' | 'freebuff';
           mode?: 'private' | 'cloud';
         } | null;
         workspaces?: {
@@ -55,9 +54,11 @@ export type ExecutionEnginesConfig =
           /** Absolute path to a source-built Freebuff SDK CommonJS entrypoint. */
           sdkPath?: string;
           baseURL?: string;
-          /** Explicitly trusted non-loopback endpoint hostnames. */
+          /** Retained for diagnostics; the pinned SDK rejects non-loopback HTTP. */
           allowedHosts?: string[];
           model?: string;
+          minContextTokens?: number;
+          probeTimeoutMs?: number;
           timeoutMs?: number;
           maxAgentSteps?: number;
         } | null;
@@ -94,12 +95,12 @@ export function createExecutionEngines(
   const openCode = engines?.opencode ?? null;
   const openHands = engines?.openhands ?? null;
   const freebuff = engines?.freebuff ?? null;
+  const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
 
   let transport: OpenCodeTransport | null = null;
   let unavailableDetail: string | undefined;
   if (openCode?.enabled === true) {
-    const workMode = engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
-    const requiredRoot = workMode === 'cloud' ? roots.cloud : roots.private;
+    const requiredRoot = roots[workMode];
     const model = parseEngineModel(openCode.model);
     if (!openCode.baseURL || !requiredRoot) {
       unavailableDetail = `engines.opencode.baseURL and engines.workspaces.${workMode}Root must both be configured.`;
@@ -109,7 +110,7 @@ export function createExecutionEngines(
           ? PRIVATE_MODEL_DETAIL
           : ZERO_COST_MODEL_DETAIL;
     } else {
-      const loaded = loadSdk({ baseURL: openCode.baseURL, directory: roots.private });
+      const loaded = loadSdk({ baseURL: openCode.baseURL, directory: requiredRoot });
       if (loaded.ok) {
         transport = loaded.value.transport;
       } else {
@@ -151,10 +152,14 @@ export function createExecutionEngines(
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
             ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
             model: parseEngineModel(freebuff.model),
+            ...(freebuff.minContextTokens != null
+              ? { minContextTokens: freebuff.minContextTokens }
+              : {}),
+            ...(freebuff.probeTimeoutMs != null ? { probeTimeoutMs: freebuff.probeTimeoutMs } : {}),
             sdk: loadedFreebuff,
             ...(freebuffUnavailableDetail ? { unavailableDetail: freebuffUnavailableDetail } : {}),
             roots,
-            mode: engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private',
+            mode: workMode,
             limits: limitsFor(freebuff.timeoutMs),
             maxAgentSteps: freebuff.maxAgentSteps,
           }),

@@ -41,7 +41,11 @@ export class ConfigReloadError extends Error {
   readonly validationErrors?: readonly ConfigValidationIssue[];
   override readonly cause?: unknown;
 
-  constructor(message: string, cause?: unknown, validationErrors?: readonly ConfigValidationIssue[]) {
+  constructor(
+    message: string,
+    cause?: unknown,
+    validationErrors?: readonly ConfigValidationIssue[],
+  ) {
     super(message);
     this.name = 'ConfigReloadError';
     this.cause = cause;
@@ -156,6 +160,35 @@ function parseCustomParams(endpointName: string | undefined, customParams: Custo
   }
 }
 
+/** Keep legacy configs bootable without reactivating the retired provider. */
+function migrateRetiredFallback(config: unknown): unknown {
+  if (typeof config !== 'object' || config == null || !('providerFallback' in config)) {
+    return config;
+  }
+  const settings = config.providerFallback;
+  if (typeof settings !== 'object' || settings == null || !('order' in settings)) {
+    return config;
+  }
+  if (!Array.isArray(settings.order) || !settings.order.includes('vercel')) {
+    return config;
+  }
+  const order = settings.order.filter((id) => id !== 'vercel');
+  logger.warn('Ignoring retired provider "vercel" in providerFallback.order.');
+  if (order.length === 0) {
+    logger.warn('Disabling provider fallback because its only configured provider was retired.');
+    const enabled = 'enabled' in settings ? settings.enabled : undefined;
+    return {
+      ...config,
+      providerFallback: {
+        ...settings,
+        enabled: typeof enabled === 'boolean' ? false : enabled,
+        order: undefined,
+      },
+    };
+  }
+  return { ...config, providerFallback: { ...settings, order } };
+}
+
 function isRemoteConfigPath(configPath: string): boolean {
   return /^https?:\/\//.test(configPath);
 }
@@ -268,6 +301,7 @@ export function createCustomConfigLoader({
       reportThemeCheck(configPath, themeCheck.errors, themeCheck.warnings);
 
       setMaxSubagents(getConfiguredMaxSubagents(loadedConfig));
+      loadedConfig = migrateRetiredFallback(loadedConfig);
       const result = configSchema.strict().safeParse(loadedConfig);
       if (
         result.error?.issues.some(

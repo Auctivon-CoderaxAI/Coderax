@@ -11,8 +11,6 @@ services:
         condition: service_started
       rag_api:
         condition: service_started
-      ollama-init:
-        condition: service_completed_successfully
     build:
       context: .
       dockerfile: Dockerfile
@@ -21,19 +19,17 @@ services:
       target: node-freebuff
       additional_contexts:
         freebuff-sdk-src: ${FREEBUFF_SDK_DIR:-../freebuff-main/sdk}
-      args:
-        # Bump with the SDK checkout and the lockfile in docker/freebuff-sdk/.
-        FREEBUFF_SDK_VERSION: ${FREEBUFF_SDK_VERSION:-0.10.7}
     image: coderax:local
     networks:
       - default
       - model
-    # The image creates this on a fresh data volume; repeat it so an existing
-    # volume also has the private Work workspace root.
+    # The image creates these on a fresh data volume; repeat it so an existing
+    # volume also has both Work workspace roots. Cloud Work uses free hosted
+    # models, so the API no longer waits for a local model download.
     command:
       - sh
       - -c
-      - mkdir -p /app/data/freebuff-workspace && exec node api/server/index.js
+      - mkdir -p /app/data/freebuff-workspace /app/data/freebuff-cloud-workspace && exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
@@ -66,7 +62,10 @@ services:
       - ./logs:/app/logs
       - ./skill:/app/skill
       - coderax-data:/app/data
+  # Legacy local inference, opt-in only: `docker compose --profile ollama up`.
+  # It is not started by default and is no longer a dependency of the API.
   ollama:
+    profiles: ["ollama"]
     container_name: coderax-ollama
     image: ollama/ollama:0.40.17
     networks:
@@ -77,12 +76,21 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      # The model is created by ollama-init, so this check becomes healthy only
+      # after that one-shot service has installed the 16k-context variant.
+      test:
+        - CMD-SHELL
+        - >-
+          ollama show qwen3.5:4b-16k >/tmp/freebuff-show 2>/dev/null ||
+          { echo freebuff_model_missing >&2; exit 1; };
+          awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show ||
+          { echo freebuff_context_too_small >&2; exit 1; }
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 10s
   ollama-init:
+    profiles: ["ollama"]
     # Creates the durable 16k-context variant once the model store is ready.
     # The source model is pulled on first start and reused from ollama-data.
     container_name: coderax-ollama-init
@@ -91,7 +99,9 @@ services:
       - model
     depends_on:
       ollama:
-        condition: service_healthy
+        # The health check waits for the model created below, so it cannot gate
+        # the service that creates it. Pull/retry handles daemon startup.
+        condition: service_started
     environment:
       # The CLI takes host:port; a scheme makes some versions dial the literal
       # value. The service is reachable by name on the Compose network.
@@ -100,7 +110,8 @@ services:
     command:
       - |
         set -eu
-        if ollama show qwen3.5:4b-16k >/dev/null 2>&1; then
+        if ollama show qwen3.5:4b-16k >/tmp/freebuff-show 2>/dev/null &&
+          awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show; then
           exit 0
         fi
         if ! ollama show qwen3.5:4b >/dev/null 2>&1; then
@@ -128,9 +139,10 @@ services:
     restart: always
     environment:
       - PORT=3000
-      # Plain expansion (not :?) so `docker compose down`/`pull` still run when this is unset.
-      # The panel itself refuses to start without it; set ADMIN_PANEL_SESSION_SECRET in .env.
-      - SESSION_SECRET=${ADMIN_PANEL_SESSION_SECRET}
+      # Empty default keeps `docker compose down`/`pull` working when unset and
+      # avoids an interpolation warning. The panel itself refuses to start
+      # without a secret; set ADMIN_PANEL_SESSION_SECRET in .env.
+      - SESSION_SECRET=${ADMIN_PANEL_SESSION_SECRET:-}
       - API_SERVER_URL=http://api:${PORT:-3080}
       - VITE_API_BASE_URL=${DOMAIN_CLIENT:-http://localhost:3080}
       - SESSION_COOKIE_SECURE=${ADMIN_PANEL_SESSION_COOKIE_SECURE:-false}
@@ -150,7 +162,7 @@ services:
     environment:
       - MEILI_HOST=http://meilisearch:7700
       - MEILI_NO_ANALYTICS=true
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
     volumes:
       - ./meili_data_v1.35.1:/meili_data
   vectordb:

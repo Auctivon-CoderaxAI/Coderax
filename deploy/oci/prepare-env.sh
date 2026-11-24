@@ -48,11 +48,9 @@ done
 [ "${#CREDS_KEY}" -eq 64 ] || { echo 'CREDS_KEY must be a 32-byte hexadecimal AES-256 key.' >&2; exit 1; }
 [ "${#CREDS_IV}" -eq 32 ] || { echo 'CREDS_IV must be a 16-byte hexadecimal value.' >&2; exit 1; }
 
-# Hosted inference is the only inference this VM answers quickly: on 2 ARM
-# OCPUs a local Qwen turn takes about a minute, so the key is not optional.
-read_secret OPENROUTER_API_KEY 'Enter an OpenRouter API key (https://openrouter.ai/keys) for the free hosted models: '
+read_secret OPENROUTER_API_KEY 'Enter the required OpenRouter API key for the free hosted Work models: '
 case "$OPENROUTER_API_KEY" in
-  '') echo 'An OpenRouter API key is required; without it every chat runs on local Qwen on this VM.' >&2; exit 1 ;;
+  '' ) echo 'An OpenRouter API key is required: free hosted models are the only Work inference path.' >&2; exit 1 ;;
   *[!A-Za-z0-9._-]*) echo 'The OpenRouter API key must be a single token without spaces.' >&2; exit 1 ;;
 esac
 
@@ -86,8 +84,8 @@ JWT_SECRET=$JWT_SECRET
 JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 CREDS_KEY=$CREDS_KEY
 CREDS_IV=$CREDS_IV
-OPENROUTER_API_KEY=$OPENROUTER_API_KEY
 EOF
+printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
 cat > origin.env <<EOF
 CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET
@@ -96,5 +94,4 @@ unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_
 chmod 600 app.env origin.env
 
 printf 'Created protected environment files. API origin: https://%s\n' "$API_HOST"
-printf 'Free OpenRouter models are enabled; local Qwen stays available as a fallback.\n'
 printf 'The proxy secret is stored in origin.env; do not print or commit that file.\n'

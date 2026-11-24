@@ -23,6 +23,7 @@ import {
   DecibelSelector,
 } from '../SettingsTabs/Speech/STT';
 import DisplayUsernameMessages from '../SettingsTabs/Account/DisplayUsernameMessages';
+import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import ConversationModeSwitch from '../SettingsTabs/Speech/ConversationModeSwitch';
 import EnableTwoFactorItem from '../SettingsTabs/Account/TwoFactorAuthentication';
 import LangfuseConnection from '../SettingsTabs/Integrations/LangfuseConnection';
@@ -37,6 +38,7 @@ import { EngineSTTSetting, EngineTTSSetting } from './SpeechControls';
 import UiScaleSelector from '../SettingsTabs/General/UiScaleSelector';
 import FontSizeSelector from '../SettingsTabs/Chat/FontSizeSelector';
 import ChatTitleInTab from '../SettingsTabs/General/ChatTitleInTab';
+import { ArchivedChats } from '../SettingsTabs/Data/ArchivedChats';
 import AdvancedPrompts from '../SettingsTabs/Chat/AdvancedPrompts';
 import DuringRunAction from '../SettingsTabs/Chat/DuringRunAction';
 import DeleteAccount from '../SettingsTabs/Account/DeleteAccount';
@@ -55,7 +57,6 @@ import SharedLinks from '../SettingsTabs/Data/SharedLinks';
 import ImageResize from '../SettingsTabs/Chat/ImageResize';
 import Passkeys from '../SettingsTabs/Account/Passkeys';
 import { showThinkingAtom } from '~/store/showThinking';
-import { centerFormOnLandingAtom, maximizeChatSpaceAtom } from '~/store/chatLayout';
 import ProviderKeys from '../SettingsTabs/ProviderKeys';
 import { autoScrollAtom } from '~/store/autoScroll';
 import Avatar from '../SettingsTabs/Account/Avatar';
@@ -702,6 +703,14 @@ export const registry: SettingEntry[] = [
     labelKey: 'com_ui_settings_label_manage_files',
     keywords: ['file', 'files', 'upload', 'uploads', 'storage', 'attachments'],
     Component: ManageFiles,
+  },
+  {
+    id: 'archivedChats',
+    tab: DATA,
+    section: 'data',
+    labelKey: 'com_nav_archived_chats',
+    keywords: ['archive', 'archived', 'chats', 'conversations'],
+    Component: ArchivedChats,
   },
   {
     id: 'archiveAllChats',

@@ -86,6 +86,26 @@ const loadInsightsView = () =>
     Component: m.default,
   }));
 
+const loadGamesView = () =>
+  importWithRecovery(() => import('~/components/Games')).then((m) => ({
+    Component: m.GamesView,
+  }));
+
+const loadGameNew = () =>
+  importWithRecovery(() => import('~/components/Games')).then((m) => ({
+    Component: m.GameNew,
+  }));
+
+const loadGameTemplates = () =>
+  importWithRecovery(() => import('~/components/Games')).then((m) => ({
+    Component: m.GameTemplates,
+  }));
+
+const loadGameWorkspace = () =>
+  importWithRecovery(() => import('~/components/Games')).then((m) => ({
+    Component: m.GameWorkspace,
+  }));
+
 const loadProjectsView = () =>
   importWithRecovery(() => import('~/components/Projects')).then((m) => ({
     Component: m.ProjectsView,
@@ -258,6 +278,22 @@ export const router = createBrowserRouter(
                 {
                   path: 'projects/:projectId',
                   lazy: loadProjectWorkspace,
+                },
+                {
+                  path: 'games',
+                  lazy: loadGamesView,
+                },
+                {
+                  path: 'games/new',
+                  lazy: loadGameNew,
+                },
+                {
+                  path: 'games/templates',
+                  lazy: loadGameTemplates,
+                },
+                {
+                  path: 'games/:gameId',
+                  lazy: loadGameWorkspace,
                 },
                 {
                   path: 'agents',

@@ -36,6 +36,12 @@ import {
   eReasoningResponseKeySchema,
 } from './schemas';
 import {
+  DEFAULT_GAME_PROJECTS_PER_OWNER,
+  MAX_GAME_PROJECTS_PER_OWNER_CEILING,
+  MAX_GAME_PROMPT_LENGTH,
+  MAX_GAME_SUMMARY_LENGTH,
+} from './games';
+import {
   scheduledMCPResourceBindingSchema,
   scheduledMCPReadOnlyPolicySchema,
 } from './types/scheduleConsent';
@@ -1130,6 +1136,8 @@ export const toolApprovalPolicySchema = z
     agentModes: z.boolean().optional(),
     /** Bounded grant lookups fail back to manual review, never automatic approval. */
     grantLookupTimeoutMs: z.number().int().min(100).max(5000).optional(),
+    /** Standing-authorization lookups are bounded too; a slow store folds nothing. */
+    standingAuthorizationLookupTimeoutMs: z.number().int().min(100).max(5000).optional(),
     allow: z.array(z.string()).optional(),
     deny: z.array(z.string()).optional(),
     ask: z.array(z.string()).optional(),
@@ -3831,6 +3839,39 @@ export const chatProjectsConfigSchema = z
 
 export type TChatProjectsConfig = z.infer<typeof chatProjectsConfigSchema>;
 
+/**
+ * Native Game Studio limits. Owner-only by default, and it exposes no build,
+ * playtest or agent-session capability: those need a verified cloud executor
+ * first, so they are not configurable into existence here.
+ */
+export const gamesConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    ownerOnly: z.boolean().default(true),
+    maxProjectsPerOwner: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_PROJECTS_PER_OWNER_CEILING)
+      .default(DEFAULT_GAME_PROJECTS_PER_OWNER),
+    maxSpecPromptLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_PROMPT_LENGTH)
+      .default(MAX_GAME_PROMPT_LENGTH),
+    maxSummaryLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_GAME_SUMMARY_LENGTH)
+      .default(MAX_GAME_SUMMARY_LENGTH),
+  })
+  .strict()
+  .prefault({});
+
+export type TGamesConfig = z.infer<typeof gamesConfigSchema>;
+
 /** Maximum CAS attempts per ACL document, including the initial attempt. */
 export const permissionWriteAttemptsSchema = z.number().int().min(1).max(100).default(3);
 
@@ -3890,6 +3931,8 @@ export const workConfigSchema = z
 
 export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
+export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
+export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
 
 /**
  * Coding-agent execution engines. Both are disabled by default, which keeps the
@@ -3908,16 +3951,16 @@ export const enginesConfigSchema = z
       })
       .prefault({}),
     /**
-     * Owner-only Work chat execution. When enabled, an ADMIN's Work turns run
-     * through the configured engine instead of the native agent runner; every
-     * other user, and every turn with a selected agent or attachment, still
-     * takes the native path. Disabled by default.
+     * Owner-gated external agent execution. The native Coderax agent is always
+     * the default and does not require this flag. When enabled, an ADMIN may
+     * explicitly select OpenCode Agent or FreeBuff Agent for a Work turn; the
+     * request names the identity, so no engine is ever switched silently.
+     * Disabled by default.
      */
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.enum(['opencode', 'freebuff']).default('opencode'),
-        /** Private runs use local weights; cloud runs may use free hosted models. */
+        /** External agents are cloud-only; native Work is governed separately. */
         mode: z.enum(['private', 'cloud']).default('private'),
       })
       .prefault({}),
@@ -3952,17 +3995,31 @@ export const enginesConfigSchema = z
          */
         sdkPath: z.string().trim().optional(),
         /**
-         * OpenAI-compatible endpoint. Loopback is implicit; any other host must
-         * be listed in allowedHosts. Coderax never calls a hosted Freebuff API.
+         * OpenAI-compatible loopback endpoint. The pinned SDK rejects plain HTTP
+         * for every other host. Coderax never calls a hosted Freebuff API.
          */
         baseURL: z.string().trim().url().optional(),
         /**
-         * Explicitly trusted non-loopback endpoint hostnames, e.g.
-         * host.docker.internal or a Compose service name. Bare hostnames only.
+         * Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+         * only on loopback, so these entries do not make a host available.
          */
         allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
         /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
         model: z.string().trim().optional(),
+        /** Minimum declared Ollama num_ctx accepted for a Work run. */
+        minContextTokens: z
+          .number()
+          .int()
+          .min(1_024)
+          .max(2_000_000)
+          .default(DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS),
+        /** Bound on the runtime model-presence/context probe. */
+        probeTimeoutMs: z
+          .number()
+          .int()
+          .min(100)
+          .max(30_000)
+          .default(DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
         maxAgentSteps: z.number().int().min(1).max(100).default(24),
       })
@@ -4092,7 +4149,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
         apinex: z.string().trim().min(1).default('free/deepseek-v4.1-flash'),
         cloudflare: z.string().trim().min(1).default('@cf/openai/gpt-oss-120b'),
-        vercel: z.string().trim().min(1).default('nvidia/nemotron-3.5-lightning-free'),
         freeai: z.string().trim().min(1).default('qwen7b'),
         '100millionseek': z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
       })
@@ -4106,7 +4162,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().url().optional(),
         apinex: z.string().trim().url().optional(),
         cloudflare: z.string().trim().url().optional(),
-        vercel: z.string().trim().url().optional(),
         freeai: z.string().trim().url().optional(),
         '100millionseek': z.string().trim().url().optional(),
       })
@@ -4116,7 +4171,29 @@ export const providerFallbackConfigSchema = z
 
 export type TProviderFallbackConfig = z.infer<typeof providerFallbackConfigSchema>;
 
+/** Deployment-local TCP forwarder. Disabled unless the deployment opts in. */
+export const ollamaLoopbackConfigSchema = z.strictObject({
+  enabled: z.boolean().default(false),
+  listenHost: z
+    .string()
+    .trim()
+    .refine(
+      (host) =>
+        host.toLowerCase() === 'localhost' ||
+        host === '::1' ||
+        /^127(?:\.(?:0|[1-9]\d?|1\d{2}|2[0-4]\d|25[0-5])){3}$/.test(host),
+      'The listener host must be a loopback address',
+    )
+    .transform((host) => (host.toLowerCase() === 'localhost' ? '127.0.0.1' : host))
+    .default('127.0.0.1'),
+  listenPort: z.number().int().min(1).max(65_535).default(11_434),
+  upstreamHost: z.string().trim().min(1).default('ollama'),
+  upstreamPort: z.number().int().min(1).max(65_535).default(11_434),
+  connectTimeoutMs: z.number().int().min(1).max(2_147_483_647).default(10_000),
+});
+
 export const configSchema = z.object({
+  ollamaLoopback: ollamaLoopbackConfigSchema.optional(),
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,
@@ -4126,6 +4203,7 @@ export const configSchema = z.object({
   providerFallback: providerFallbackConfigSchema,
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
+  games: gamesConfigSchema,
   /** Durable workflow runner limits; omitted fields keep built-in defaults. */
   workflows: z
     .object({

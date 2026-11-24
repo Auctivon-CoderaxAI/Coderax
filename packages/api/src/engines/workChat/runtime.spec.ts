@@ -1,8 +1,25 @@
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, realpath, rm, symlink, rmdir } from 'node:fs/promises';
 import type { EngineRegistryApi } from '../registry';
 import type { EngineRunHandle } from '../types';
 import { EngineWorkChatRuntime } from './runtime';
 
-const roots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
+let cloudRoot = '';
+const roots = {
+  private: '/srv/coderax/private',
+  get cloud() {
+    return cloudRoot;
+  },
+};
+
+beforeAll(async () => {
+  cloudRoot = await realpath(await mkdtemp(path.join(os.tmpdir(), 'coderax-runtime-')));
+});
+
+afterAll(async () => {
+  await rm(cloudRoot, { recursive: true, force: true });
+});
 
 function handle(sessionId: string): EngineRunHandle {
   return {
@@ -18,6 +35,7 @@ function fakeRegistry(start: jest.Mock) {
   return {
     start,
     select: jest.fn(),
+    probe: jest.fn(async () => undefined),
     snapshot: () => ({ defaultEngine: 'opencode' as const, engines: [] }),
     arbiter: {},
   } as unknown as EngineRegistryApi;
@@ -30,6 +48,7 @@ const scope = (
   userId: overrides.userId ?? 'owner',
   tenantId: overrides.tenantId === undefined ? 'tenant-1' : overrides.tenantId,
   conversationId,
+  engine: 'opencode' as const,
 });
 
 describe('EngineWorkChatRuntime', () => {
@@ -68,11 +87,11 @@ describe('EngineWorkChatRuntime', () => {
     expect(start).toHaveBeenCalledWith({
       engine: 'opencode',
       request: {
-        taskKey: 'conversation-b',
+        taskKey: JSON.stringify(['tenant-1', 'owner', 'conversation-b']),
         conversationId: 'conversation-b',
         prompt: 'Fix it',
         mode: 'cloud',
-        workspaceRoot: '/srv/coderax/cloud',
+        workspaceRoot: expect.stringMatching(/work-opencode-[a-f0-9]{64}$/),
         model: { providerId: 'ollama', modelId: 'qwen3.5:4b' },
       },
     });
@@ -101,20 +120,44 @@ describe('EngineWorkChatRuntime', () => {
     runtime.release(scope(conversation));
   });
 
-  it('keeps tenants, users and conversations in separate leases', async () => {
-    const start = jest.fn(async () => ({ ok: true as const, value: handle('session-key') }));
-    const runtime = new EngineWorkChatRuntime(fakeRegistry(start), roots);
+  it('isolates cloud workspaces by tenant, user, conversation and engine', async () => {
+    const start = jest.fn<
+      ReturnType<EngineRegistryApi['start']>,
+      Parameters<EngineRegistryApi['start']>
+    >(async () => ({ ok: true, value: handle('session-key') }));
+    const runtime = new EngineWorkChatRuntime(fakeRegistry(start), roots, 'cloud');
+    const scopes = [
+      scope('conversation-d'),
+      scope('conversation-d', { tenantId: 'tenant-2' }),
+      scope('conversation-d', { userId: 'other' }),
+      scope('conversation-e'),
+      { ...scope('conversation-d'), engine: 'freebuff' as const },
+    ];
 
-    await runtime.start({ ...scope('conversation-d'), prompt: 'Owner' });
-    await runtime.start({ ...scope('conversation-d', { tenantId: 'tenant-2' }), prompt: 'Other' });
-    await runtime.start({ ...scope('conversation-d', { userId: 'other' }), prompt: 'Other' });
-    await runtime.start({ ...scope('conversation-e'), prompt: 'Other' });
-    expect(start).toHaveBeenCalledTimes(4);
+    for (const runScope of scopes) {
+      await expect(runtime.start({ ...runScope, prompt: 'Run' })).resolves.toMatchObject({
+        ok: true,
+      });
+      runtime.release(runScope);
+    }
+    const workspaces = start.mock.calls.map(([input]) => input.request.workspaceRoot);
+    expect(new Set(workspaces).size).toBe(scopes.length);
+    expect(workspaces.map((workspace) => path.dirname(workspace))).toEqual(
+      scopes.map(() => cloudRoot),
+    );
 
-    runtime.release(scope('conversation-d'));
-    runtime.release(scope('conversation-d', { tenantId: 'tenant-2' }));
-    runtime.release(scope('conversation-d', { userId: 'other' }));
-    runtime.release(scope('conversation-e'));
+    await runtime.start({ ...scopes[0], prompt: 'Continue' });
+    expect(start.mock.lastCall?.[0].request.workspaceRoot).toBe(workspaces[0]);
+    runtime.release(scopes[0]);
+
+    await rmdir(workspaces[0]);
+    await symlink(workspaces[1], workspaces[0], 'dir');
+    start.mockClear();
+    await expect(runtime.start({ ...scopes[0], prompt: 'Continue' })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'workspace_denied' },
+    });
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('does not hold a lease when the registry refuses to start', async () => {
@@ -149,8 +192,19 @@ describe('EngineWorkChatRuntime', () => {
     expect(runtime.state(scope(conversation))).toBeNull();
   });
 
-  it('reports the registry snapshot', () => {
-    const runtime = new EngineWorkChatRuntime(fakeRegistry(jest.fn()), roots);
-    expect(runtime.snapshot()).toEqual({ defaultEngine: 'opencode', engines: [] });
+  it('waits for readiness before taking the registry snapshot', async () => {
+    const registry = fakeRegistry(jest.fn());
+    const snapshot = jest.spyOn(registry, 'snapshot');
+    let finishProbe!: () => void;
+    jest.spyOn(registry, 'probe').mockReturnValue(
+      new Promise((resolve) => {
+        finishProbe = resolve;
+      }),
+    );
+    const runtime = new EngineWorkChatRuntime(registry, roots);
+    const refreshed = runtime.refreshSnapshot();
+    expect(snapshot).not.toHaveBeenCalled();
+    finishProbe();
+    await expect(refreshed).resolves.toEqual({ defaultEngine: 'opencode', engines: [] });
   });
 });

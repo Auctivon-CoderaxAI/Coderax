@@ -32,7 +32,7 @@ function config(overrides: {
         baseURL: 'http://127.0.0.1:4096',
         ...(overrides.model ? { model: overrides.model } : {}),
       },
-      workChat: { enabled: true, engine: 'opencode', mode: overrides.mode ?? 'private' },
+      workChat: { enabled: true, mode: overrides.mode ?? 'private' },
     },
   };
 }

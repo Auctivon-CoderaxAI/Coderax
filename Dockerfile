@@ -60,7 +60,7 @@ ARG VITE_MCP_SANDBOX_URL=
 RUN \
     # React client build with configurable memory
     NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend && \
-    npm prune --production && \
+    npm prune --omit=dev --no-audit && \
     npm cache clean --force
 
 # Optional build metadata surfaced in Settings -> About for support triage.
@@ -88,7 +88,6 @@ CMD ["node", "api/server/index.js"]
 #     --target node-freebuff -t coderax:freebuff .
 # docker-compose.yml declares that context and targets the stage below.
 FROM node:24.16.0-alpine AS freebuff-sdk
-ARG FREEBUFF_SDK_VERSION=0.10.7
 WORKDIR /opt/freebuff-sdk
 COPY --from=freebuff-sdk-src package.json /opt/freebuff-sdk/package.json
 COPY --from=freebuff-sdk-src dist /opt/freebuff-sdk/dist
@@ -96,9 +95,13 @@ COPY docker/freebuff-sdk/package-lock.json /opt/freebuff-sdk/package-lock.json
 # The bundle externalizes its dependencies, so they are installed here rather
 # than shipped inside dist. The Linux production install is pinned by the
 # lockfile in docker/freebuff-sdk/; no lifecycle scripts are needed here.
+# Keep zod at 4.2.1: the bundled AI SDK's JSON-schema context has no `deferred`,
+# and newer zod 4.x record processors call `ctx.deferred.push`, which crashes on
+# set_output's z.record schema before the model request starts.
 RUN set -eu; \
-    test "$(node -p 'require("/opt/freebuff-sdk/package.json").version')" = "$FREEBUFF_SDK_VERSION"; \
+    node -e "const pkg = require('/opt/freebuff-sdk/package.json'); const lock = require('/opt/freebuff-sdk/package-lock.json'); if (pkg.version !== lock.version) throw new Error('Freebuff SDK version does not match its lockfile: ' + pkg.version + ' != ' + lock.version);"; \
     npm ci --omit=dev --no-audit --no-fund --ignore-scripts; \
+    test "$(node -p 'require("/opt/freebuff-sdk/node_modules/zod/package.json").version')" = "4.2.1"; \
     node -e "const sdk = require('/opt/freebuff-sdk/dist/index.cjs'); for (const name of ['CodebuffClient', 'normalizeByokBaseUrl', 'isUntrustedAgentPublisherError']) { if (typeof sdk[name] !== 'function') throw new Error('Freebuff SDK is missing ' + name); }"
 # The bundled ripgrep is architecture-specific and is staged into a temp file
 # by the SDK; verify the copy that matches this image can actually execute.

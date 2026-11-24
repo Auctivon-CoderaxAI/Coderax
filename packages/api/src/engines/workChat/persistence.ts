@@ -6,8 +6,18 @@ type EngineWorkChatStoreEngine = 'opencode' | 'freebuff';
 
 /** Engine identity persisted on Work rows, so a reload shows the engine that ran. */
 const ENGINE_LABELS = {
-  opencode: { model: 'opencode', sender: 'OpenCode', label: 'OpenCode' },
-  freebuff: { model: 'freebuff', sender: 'Freebuff', label: 'Freebuff' },
+  opencode: {
+    model: 'opencode',
+    sender: 'OpenCode Agent',
+    label: 'OpenCode Agent',
+    agent: 'opencode',
+  },
+  freebuff: {
+    model: 'freebuff',
+    sender: 'FreeBuff Agent',
+    label: 'FreeBuff Agent',
+    agent: 'freebuff',
+  },
 } as const;
 
 type EngineWorkChatDb = {
@@ -35,6 +45,7 @@ export function createEngineWorkChatPersistence(input: {
     conversationId: string;
     title?: string;
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
   }): Promise<void> {
     const saved = await db.saveConvo(
@@ -43,6 +54,7 @@ export function createEngineWorkChatPersistence(input: {
         conversationId: fields.conversationId,
         isWork: true,
         workModel: labels.model,
+        workAgent: fields.workAgent ?? labels.agent,
         ...(fields.title ? { title: fields.title } : {}),
         ...(fields.workState ? { workState: fields.workState } : {}),
         ...(fields.create && tenantId != null ? { tenantId } : {}),
@@ -70,6 +82,11 @@ export function createEngineWorkChatPersistence(input: {
           ? { tenantId: row.tenantId as string | null }
           : {}),
         ...(row.isWork === true ? { isWork: true } : {}),
+        ...(row.workAgent === 'coderax' ||
+        row.workAgent === 'opencode' ||
+        row.workAgent === 'freebuff'
+          ? { workAgent: row.workAgent }
+          : {}),
       };
     },
     saveConversation,

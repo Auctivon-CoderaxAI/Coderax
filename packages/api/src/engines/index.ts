@@ -44,5 +44,6 @@ export {
   describeFreebuff,
   freebuffCapabilities,
   loadFreebuffSdk,
+  probeFreebuff,
   startFreebuffRun,
 } from './freebuff/adapter';

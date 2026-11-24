@@ -1,5 +1,6 @@
 import { useCallback, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ModuleShell } from '@coderax/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { PermissionBits, QueryKeys, dataService } from 'coderax-data-provider';
 import {
@@ -47,8 +48,8 @@ import {
   useWorkflowTemplatesQuery,
   useWorkflowsQuery,
 } from '~/data-provider';
-import BuildLauncher from './BuildLauncher';
 import { triggerDownload } from '~/utils/downloadFile';
+import BuildLauncher from './BuildLauncher';
 import { useLocalize } from '~/hooks';
 
 const RUN_STATUS_LABELS: Record<WorkflowRunStatus, TranslationKeys> = {
@@ -1474,22 +1475,18 @@ export default function WorkflowsView() {
   };
 
   return (
-    <main className="bg-surface-primary text-text-primary h-full min-h-0 w-full overflow-y-auto px-4 py-6 md:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-text-secondary text-xs font-bold tracking-widest uppercase">
-              {localize('com_ui_workflow_brand')}
-            </p>
-            <h1 className="mt-2 flex items-center gap-2 text-2xl font-extrabold tracking-tight">
-              <WorkflowIcon className="h-6 w-6" aria-hidden />
-              {localize('com_ui_workflows')}
-            </h1>
-            <p className="text-text-secondary mt-1 max-w-2xl text-sm">
-              {localize('com_ui_workflows_subtitle')}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+    <main className="bg-surface-primary h-full min-h-0">
+      <ModuleShell
+        title={localize('com_ui_workflows')}
+        icon={WorkflowIcon}
+        breadcrumb={
+          <p className="text-text-secondary text-xs font-bold tracking-widest uppercase">
+            {localize('com_ui_workflow_brand')}
+          </p>
+        }
+        description={localize('com_ui_workflows_subtitle')}
+        actions={
+          <>
             <button
               type="button"
               className="bg-surface-submit flex items-center gap-1 rounded-lg px-4 py-2 text-sm font-semibold"
@@ -1506,194 +1503,198 @@ export default function WorkflowsView() {
               <Plus className="h-4 w-4" aria-hidden />
               {localize('com_ui_workflow_new')}
             </button>
-          </div>
-        </header>
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-          <section aria-label={localize('com_ui_workflows')}>
-            {isLoading && (
-              <p className="text-text-secondary text-sm">{localize('com_ui_workflow_loading')}</p>
-            )}
-            {!isLoading && isError && (
-              <div className="text-sm">
-                <p className="text-status-error">{localize('com_ui_workflow_error')}</p>
-                <button
-                  type="button"
-                  className="border-border-medium mt-2 rounded-md border px-3 py-1.5"
-                  onClick={() => refetch()}
-                >
-                  {localize('com_ui_workflow_retry')}
-                </button>
-              </div>
-            )}
-            {!isLoading && !isError && workflows.length === 0 && (
-              <p className="text-text-secondary text-sm">{localize('com_ui_workflow_empty')}</p>
-            )}
-            {!isLoading && !isError && workflows.length > 0 && (
-              <ul className="space-y-2">
-                {workflows.map((workflow) => (
-                  <li key={workflow.id}>
-                    <button
-                      type="button"
-                      aria-current={selected?.id === workflow.id ? 'true' : undefined}
-                      className={`w-full rounded-xl border p-3 text-left ${
-                        selected?.id === workflow.id
-                          ? 'border-border-heavy bg-surface-active'
-                          : 'border-border-light bg-surface-secondary hover:bg-surface-active'
-                      }`}
-                      onClick={() => {
-                        setSelectedId(workflow.id);
-                        setEditing(null);
-                        setBuildOpen(false);
-                      }}
-                    >
-                      <span className="block text-sm font-semibold">{workflow.name}</span>
-                      <span className="text-text-secondary mt-1 block text-xs">
-                        {workflow.description || localize('com_ui_workflow_no_description')}
-                      </span>
-                      <span className="text-text-secondary mt-1 block text-xs">
-                        {workflow.steps.length} · {localize('com_ui_workflow_steps')}
-                        {workflow.schedule?.enabled === true && (
-                          <>
-                            {' '}
-                            · {localize('com_ui_workflow_scheduled')}
-                            {workflow.schedule.nextRunAt != null
-                              ? ` ${formatInstant(workflow.schedule.nextRunAt) ?? ''}`
-                              : ''}
-                          </>
-                        )}
-                        {workflow.eventTriggers != null && workflow.eventTriggers.length > 0 && (
-                          <>
-                            {' '}
-                            ·{' '}
-                            {workflow.eventTriggers.map((trigger) => trigger.eventType).join(', ')}
-                          </>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section>
-            {editing !== null && (
-              <WorkflowEditor
-                key={editing === 'new' ? 'new' : editing.id}
-                workflow={editing === 'new' ? undefined : editing}
-                workflows={workflows}
-                agents={agents ?? []}
-                onDone={finishEdit}
-                onCancel={() => setEditing(null)}
-              />
-            )}
-            {buildOpen && (
-              <BuildLauncher
-                agents={agents ?? []}
-                onStarted={finishBuild}
-                onCancel={() => setBuildOpen(false)}
-              />
-            )}
-            {!buildOpen && editing === null && selected == null && (
-              <p className="text-text-secondary text-sm">{localize('com_ui_workflow_select')}</p>
-            )}
-            {!buildOpen && editing === null && selected != null && (
-              <div>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-semibold">{selected.name}</h2>
-                    <p className="text-text-secondary mt-1 text-sm">
-                      {selected.description || localize('com_ui_workflow_no_description')}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="border-border-medium rounded-md border px-3 py-1.5 text-sm"
-                      onClick={() => setEditing(selected)}
-                    >
-                      {localize('com_ui_workflow_edit')}
-                    </button>
-                    <button
-                      type="button"
-                      className="text-status-error hover:bg-surface-active rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
-                      disabled={deleteMutation.isLoading}
-                      onClick={() => {
-                        if (!window.confirm(localize('com_ui_workflow_delete_confirm'))) {
-                          return;
-                        }
-                        deleteMutation.mutate(selected.id, {
-                          onSuccess: () => {
-                            setSelectedId(undefined);
-                            setEditing(null);
-                          },
-                        });
-                      }}
-                    >
-                      <Trash2 className="mr-1 inline h-4 w-4" aria-hidden />
-                      {localize('com_ui_workflow_delete')}
-                    </button>
-                  </div>
+          </>
+        }
+      >
+        <div className="text-text-primary mx-auto max-w-6xl">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+            <section aria-label={localize('com_ui_workflows')}>
+              {isLoading && (
+                <p className="text-text-secondary text-sm">{localize('com_ui_workflow_loading')}</p>
+              )}
+              {!isLoading && isError && (
+                <div className="text-sm">
+                  <p className="text-status-error">{localize('com_ui_workflow_error')}</p>
+                  <button
+                    type="button"
+                    className="border-border-medium mt-2 rounded-md border px-3 py-1.5"
+                    onClick={() => refetch()}
+                  >
+                    {localize('com_ui_workflow_retry')}
+                  </button>
                 </div>
-
-                {selected.schedule?.enabled === true && (
-                  <p className="text-text-secondary mt-2 text-xs">
-                    {localize('com_ui_workflow_schedule_next')}:{' '}
-                    {formatInstant(selected.schedule.nextRunAt) ??
-                      localize('com_ui_workflow_schedule_pending')}
-                  </p>
-                )}
-                {selected.eventTriggers != null && selected.eventTriggers.length > 0 && (
-                  <p className="text-text-secondary mt-1 text-xs">
-                    {localize('com_ui_workflow_event_triggers')}:{' '}
-                    {selected.eventTriggers.map((trigger) => trigger.eventType).join(', ')}
-                  </p>
-                )}
-
-                <ol className="mt-4 space-y-2 text-xs">
-                  {selected.steps.map((step, index) => {
-                    const dependencies = step.dependsOn ?? [];
-                    return (
-                      <li
-                        key={step.id}
-                        className="border-border-light bg-surface-secondary rounded-lg border px-3 py-2"
+              )}
+              {!isLoading && !isError && workflows.length === 0 && (
+                <p className="text-text-secondary text-sm">{localize('com_ui_workflow_empty')}</p>
+              )}
+              {!isLoading && !isError && workflows.length > 0 && (
+                <ul className="space-y-2">
+                  {workflows.map((workflow) => (
+                    <li key={workflow.id}>
+                      <button
+                        type="button"
+                        aria-current={selected?.id === workflow.id ? 'true' : undefined}
+                        className={`w-full rounded-xl border p-3 text-left ${
+                          selected?.id === workflow.id
+                            ? 'border-border-heavy bg-surface-active'
+                            : 'border-border-light bg-surface-secondary hover:bg-surface-active'
+                        }`}
+                        onClick={() => {
+                          setSelectedId(workflow.id);
+                          setEditing(null);
+                          setBuildOpen(false);
+                        }}
                       >
-                        <span className="font-semibold">
-                          {index + 1}. {step.title}
+                        <span className="block text-sm font-semibold">{workflow.name}</span>
+                        <span className="text-text-secondary mt-1 block text-xs">
+                          {workflow.description || localize('com_ui_workflow_no_description')}
                         </span>
-                        {step.agentId != null && (
-                          <span className="text-text-secondary"> · {step.agentId}</span>
-                        )}
-                        {dependencies.length > 0 && (
-                          <span className="text-text-secondary">
-                            {' '}
-                            · {localize('com_ui_workflow_depends_short')}{' '}
-                            {dependencies
-                              .map(
-                                (id) =>
-                                  selected.steps.find((entry) => entry.id === id)?.title ?? id,
-                              )
-                              .join(', ')}
-                          </span>
-                        )}
-                        {step.approvalRequired === true && (
-                          <span className="text-status-warning">
-                            {' '}
-                            · {localize('com_ui_workflow_approval_short')}
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ol>
+                        <span className="text-text-secondary mt-1 block text-xs">
+                          {workflow.steps.length} · {localize('com_ui_workflow_steps')}
+                          {workflow.schedule?.enabled === true && (
+                            <>
+                              {' '}
+                              · {localize('com_ui_workflow_scheduled')}
+                              {workflow.schedule.nextRunAt != null
+                                ? ` ${formatInstant(workflow.schedule.nextRunAt) ?? ''}`
+                                : ''}
+                            </>
+                          )}
+                          {workflow.eventTriggers != null && workflow.eventTriggers.length > 0 && (
+                            <>
+                              {' '}
+                              ·{' '}
+                              {workflow.eventTriggers
+                                .map((trigger) => trigger.eventType)
+                                .join(', ')}
+                            </>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-                <RunPanel workflow={selected} />
-              </div>
-            )}
-          </section>
+            <section>
+              {editing !== null && (
+                <WorkflowEditor
+                  key={editing === 'new' ? 'new' : editing.id}
+                  workflow={editing === 'new' ? undefined : editing}
+                  workflows={workflows}
+                  agents={agents ?? []}
+                  onDone={finishEdit}
+                  onCancel={() => setEditing(null)}
+                />
+              )}
+              {buildOpen && (
+                <BuildLauncher
+                  agents={agents ?? []}
+                  onStarted={finishBuild}
+                  onCancel={() => setBuildOpen(false)}
+                />
+              )}
+              {!buildOpen && editing === null && selected == null && (
+                <p className="text-text-secondary text-sm">{localize('com_ui_workflow_select')}</p>
+              )}
+              {!buildOpen && editing === null && selected != null && (
+                <div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold">{selected.name}</h2>
+                      <p className="text-text-secondary mt-1 text-sm">
+                        {selected.description || localize('com_ui_workflow_no_description')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="border-border-medium rounded-md border px-3 py-1.5 text-sm"
+                        onClick={() => setEditing(selected)}
+                      >
+                        {localize('com_ui_workflow_edit')}
+                      </button>
+                      <button
+                        type="button"
+                        className="text-status-error hover:bg-surface-active rounded-md px-3 py-1.5 text-sm disabled:opacity-50"
+                        disabled={deleteMutation.isLoading}
+                        onClick={() => {
+                          if (!window.confirm(localize('com_ui_workflow_delete_confirm'))) {
+                            return;
+                          }
+                          deleteMutation.mutate(selected.id, {
+                            onSuccess: () => {
+                              setSelectedId(undefined);
+                              setEditing(null);
+                            },
+                          });
+                        }}
+                      >
+                        <Trash2 className="mr-1 inline h-4 w-4" aria-hidden />
+                        {localize('com_ui_workflow_delete')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {selected.schedule?.enabled === true && (
+                    <p className="text-text-secondary mt-2 text-xs">
+                      {localize('com_ui_workflow_schedule_next')}:{' '}
+                      {formatInstant(selected.schedule.nextRunAt) ??
+                        localize('com_ui_workflow_schedule_pending')}
+                    </p>
+                  )}
+                  {selected.eventTriggers != null && selected.eventTriggers.length > 0 && (
+                    <p className="text-text-secondary mt-1 text-xs">
+                      {localize('com_ui_workflow_event_triggers')}:{' '}
+                      {selected.eventTriggers.map((trigger) => trigger.eventType).join(', ')}
+                    </p>
+                  )}
+
+                  <ol className="mt-4 space-y-2 text-xs">
+                    {selected.steps.map((step, index) => {
+                      const dependencies = step.dependsOn ?? [];
+                      return (
+                        <li
+                          key={step.id}
+                          className="border-border-light bg-surface-secondary rounded-lg border px-3 py-2"
+                        >
+                          <span className="font-semibold">
+                            {index + 1}. {step.title}
+                          </span>
+                          {step.agentId != null && (
+                            <span className="text-text-secondary"> · {step.agentId}</span>
+                          )}
+                          {dependencies.length > 0 && (
+                            <span className="text-text-secondary">
+                              {' '}
+                              · {localize('com_ui_workflow_depends_short')}{' '}
+                              {dependencies
+                                .map(
+                                  (id) =>
+                                    selected.steps.find((entry) => entry.id === id)?.title ?? id,
+                                )
+                                .join(', ')}
+                            </span>
+                          )}
+                          {step.approvalRequired === true && (
+                            <span className="text-status-warning">
+                              {' '}
+                              · {localize('com_ui_workflow_approval_short')}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ol>
+
+                  <RunPanel workflow={selected} />
+                </div>
+              )}
+            </section>
+          </div>
         </div>
-      </div>
+      </ModuleShell>
     </main>
   );
 }

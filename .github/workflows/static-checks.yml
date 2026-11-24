@@ -10,6 +10,9 @@ on:
       - 'scripts/**'
       - 'package.json'
       - 'package-lock.json'
+      # The deployed build installs with bun, which refuses a frozen install when
+      # package.json's overrides disagree with the copy bun.lock recorded.
+      - 'bun.lock'
       - 'eslint.config.mjs'
       # Both spellings: the trigger has to start the workflow for the root
       # baseline and for a nested one outside the source trees above, which is
@@ -114,6 +117,17 @@ jobs:
               - 'scripts/i18n*.mts'
               - 'scripts/static-checks.mts'
               - '.github/workflows/static-checks.yml'
+            bun_lock:
+              - 'package.json'
+              - 'api/package.json'
+              - 'client/package.json'
+              - 'packages/*/package.json'
+              - 'bun.lock'
+              - 'scripts/bun-lock.mts'
+              - 'scripts/bun-lock.test.mts'
+              - 'scripts/static-checks.mts'
+              - '.github/workflows/static-checks.yml'
+              - '!**.md'
             unused_packages:
               - 'api/**'
               - 'client/**'
@@ -148,6 +162,21 @@ jobs:
         if: always()
         continue-on-error: true
         run: node --test scripts/verify-workspace-lockfile.test.mjs
+
+      # Cloudflare installs the deployed tree with `bun install
+      # --frozen-lockfile`, and bun aborts that install when package.json's
+      # overrides differ from the copy bun.lock recorded — before it builds
+      # anything. This job installs from package-lock.json with npm, so nothing
+      # else here reads bun.lock, and bun is not installed to run the frozen
+      # install itself; the runner compares the two files instead. The test proves
+      # that comparison still recognizes a mismatch.
+      - name: Validate bun lockfile overrides
+        id: bun_lock
+        if: always() && steps.paths.outputs.bun_lock == 'true'
+        continue-on-error: true
+        run: |
+          node --test scripts/bun-lock.test.mts
+          node scripts/static-checks.mts package.json bun.lock --only bun-lock
 
       # The @shadcn/lint design rules read each primitive's `cva` variants through
       # the @coderax/client entry point, which resolves to packages/client/dist.
@@ -659,6 +688,7 @@ jobs:
         env:
           INSTALL_DEPENDENCIES_OUTCOME: ${{ steps.install_dependencies.outcome }}
           WORKSPACE_LOCKFILE_OUTCOME: ${{ steps.workspace_lockfile.outcome }}
+          BUN_LOCK_OUTCOME: ${{ steps.bun_lock.outcome }}
           ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
           ESLINT_CONFIG_OUTCOME: ${{ steps.eslint_config.outcome }}
           DESIGN_RULES_BUILD_OUTCOME: ${{ steps.design_rules_build.outcome }}
@@ -699,6 +729,7 @@ jobs:
 
           record_failure "Dependency installation" "$INSTALL_DEPENDENCIES_OUTCOME"
           record_failure "Workspace lockfile regression" "$WORKSPACE_LOCKFILE_OUTCOME"
+          record_failure "bun.lock overrides" "$BUN_LOCK_OUTCOME"
           record_failure "ESLint" "$ESLINT_OUTCOME"
           record_failure "ESLint config validation" "$ESLINT_CONFIG_OUTCOME"
           record_failure "Client-package build for the design rules" "$DESIGN_RULES_BUILD_OUTCOME"

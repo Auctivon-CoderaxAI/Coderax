@@ -88,8 +88,14 @@ describe('Work chat persistence adapter', () => {
         isTemporary: true,
         interfaceConfig: { interface: { customWelcome: 'hi' } },
       },
-      { conversationId: 'conversation-1', isWork: true, workModel: 'opencode', title: 'Fix' },
-      { context: 'Work OpenCode chat conversation' },
+      {
+        conversationId: 'conversation-1',
+        isWork: true,
+        workModel: 'opencode',
+        workAgent: 'opencode',
+        title: 'Fix',
+      },
+      { context: 'Work OpenCode Agent chat conversation' },
     );
 
     await store.loadTranscript('conversation-1');
@@ -117,11 +123,12 @@ describe('Work chat persistence adapter', () => {
         conversationId: 'conversation-1',
         isWork: true,
         workModel: 'opencode',
+        workAgent: 'opencode',
         title: 'Fix the build',
         workState: 'running',
         tenantId: 'tenant-1',
       },
-      { context: 'Work OpenCode chat conversation' },
+      { context: 'Work OpenCode Agent chat conversation' },
     );
   });
 
@@ -139,7 +146,7 @@ describe('Work chat persistence adapter', () => {
     expect(db.saveConvo).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'owner' }),
       expect.objectContaining({ workModel: 'freebuff', workState: 'completed' }),
-      { context: 'Work Freebuff chat conversation', noUpsert: true },
+      { context: 'Work FreeBuff Agent chat conversation', noUpsert: true },
     );
 
     await store.saveMessage({
@@ -151,8 +158,12 @@ describe('Work chat persistence adapter', () => {
     });
     expect(db.saveMessage).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'owner' }),
-      expect.objectContaining({ sender: 'Freebuff', model: 'freebuff', endpoint: 'freebuff' }),
-      { context: 'Work Freebuff response' },
+      expect.objectContaining({
+        sender: 'FreeBuff Agent',
+        model: 'freebuff',
+        endpoint: 'freebuff',
+      }),
+      { context: 'Work FreeBuff Agent response' },
     );
   });
 
@@ -168,10 +179,11 @@ describe('Work chat persistence adapter', () => {
         conversationId: 'conversation-1',
         isWork: true,
         workModel: 'opencode',
+        workAgent: 'opencode',
         workState: 'completed',
       },
       {
-        context: 'Work OpenCode chat conversation',
+        context: 'Work OpenCode Agent chat conversation',
         noUpsert: true,
       },
     );
@@ -213,7 +225,7 @@ describe('Work chat persistence adapter', () => {
         model: 'opencode',
         endpoint: 'opencode',
       },
-      { context: 'Work OpenCode user message' },
+      { context: 'Work OpenCode Agent user message' },
     );
 
     await store.saveMessage({
@@ -233,14 +245,14 @@ describe('Work chat persistence adapter', () => {
         parentMessageId: 'message-1',
         conversationId: 'conversation-1',
         text: 'partial',
-        sender: 'OpenCode',
+        sender: 'OpenCode Agent',
         isCreatedByUser: false,
         model: 'opencode',
         endpoint: 'opencode',
         unfinished: true,
         error: 'The run was cancelled.',
       },
-      { context: 'Work OpenCode response' },
+      { context: 'Work OpenCode Agent response' },
     );
   });
 

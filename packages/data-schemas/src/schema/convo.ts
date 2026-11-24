@@ -49,6 +49,12 @@ const convoSchema: Schema<IConversation> = new Schema(
     },
     workModel: { type: String, default: undefined },
     workState: { type: String, default: undefined },
+    /** Explicit agent identity; absent on rows created before identities existed. */
+    workAgent: {
+      type: String,
+      enum: ['coderax', 'opencode', 'freebuff'],
+      default: undefined,
+    },
     ...conversationPreset,
     codeEnvironmentRevision: { type: Number, select: false },
     /** Exact tool names the owner chose to auto-approve for this conversation.

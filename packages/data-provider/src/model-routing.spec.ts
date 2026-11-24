@@ -4,6 +4,7 @@ import {
   isPaidModelTarget,
   rankFreeOrLocalModels,
   selectAutomaticChatModel,
+  selectModelForMode,
 } from './model-routing';
 
 const catalog: ModelRouteSource[] = [
@@ -125,5 +126,127 @@ describe('paid model consent target', () => {
     expect(isPaidModelTarget({ endpoint: 'openAI', model: 'provider/model:free' })).toBe(false);
     expect(isPaidModelTarget({ endpoint: 'agents', model: 'paid-agent-model' })).toBe(false);
     expect(isPaidModelTarget({ endpoint: 'openAI', model: '' })).toBe(false);
+  });
+});
+
+describe('intent-based free model routing', () => {
+  const freeCatalog: ModelRouteSource[] = [
+    {
+      id: 'strong-slow:free',
+      provider: 'openrouter',
+      capability: 0.95,
+      speed: 0.2,
+      reliability: 0.7,
+      context: 1_000_000,
+      tools: true,
+    },
+    {
+      id: 'fast-small:free',
+      provider: 'openrouter',
+      capability: 0.6,
+      speed: 0.95,
+      reliability: 0.8,
+      context: 262_144,
+      tools: true,
+    },
+    {
+      id: 'text-only:free',
+      provider: 'gateway',
+      capability: 0.9,
+      speed: 0.9,
+      reliability: 1,
+      context: 500_000,
+      tools: false,
+    },
+    {
+      id: 'paid-agent-model',
+      provider: 'openAI',
+      capability: 1,
+      speed: 1,
+      reliability: 1,
+      context: 2_000_000,
+      tools: true,
+      promptCost: 5,
+      completionCost: 15,
+    },
+  ];
+
+  it('AUTO keeps the capability-first free ranking', () => {
+    expect(selectModelForMode(freeCatalog, { mode: 'auto' })).toMatchObject({
+      ok: true,
+      mode: 'auto',
+      model: { id: 'strong-slow:free' },
+    });
+  });
+
+  it('FAST prefers the fastest free model over a stronger one', () => {
+    expect(selectModelForMode(freeCatalog, { mode: 'fast' })).toMatchObject({
+      ok: true,
+      mode: 'fast',
+      model: { id: 'fast-small:free' },
+    });
+  });
+
+  it('COMPLEX prefers capability and context among free models', () => {
+    expect(selectModelForMode(freeCatalog, { mode: 'complex' })).toMatchObject({
+      ok: true,
+      mode: 'complex',
+      model: { id: 'strong-slow:free' },
+    });
+  });
+
+  it('AGENT admits only models with verified tool calling', () => {
+    expect(selectModelForMode(freeCatalog, { mode: 'agent' })).toMatchObject({
+      ok: true,
+      mode: 'agent',
+      model: { id: 'strong-slow:free', tools: true },
+      alternatives: [{ id: 'fast-small:free' }],
+    });
+  });
+
+  it('AGENT fails closed instead of offering a paid tool model', () => {
+    const selection = selectModelForMode(
+      freeCatalog.map((source) =>
+        source.id === 'strong-slow:free' || source.id === 'fast-small:free'
+          ? { ...source, tools: false }
+          : source,
+      ),
+      { mode: 'agent' },
+    );
+    expect(selection).toEqual({
+      ok: false,
+      mode: 'agent',
+      reason: 'no_tool_capable_free_model',
+      paid: null,
+    });
+  });
+
+  it('FAST prefers a measured low-latency model when no speed signal exists', () => {
+    const measured: ModelRouteSource[] = [
+      { id: 'slow:free', provider: 'openrouter', tools: true, context: 1_000_000, latencyMs: 900 },
+      { id: 'quick:free', provider: 'openrouter', tools: true, context: 262_144, latencyMs: 180 },
+      { id: 'unmeasured:free', provider: 'openrouter', tools: true, context: 500_000 },
+    ];
+    expect(selectModelForMode(measured, { mode: 'fast' })).toMatchObject({
+      ok: true,
+      model: { id: 'quick:free' },
+    });
+    expect(selectModelForMode(measured, { mode: 'complex' })).toMatchObject({
+      ok: true,
+      model: { id: 'slow:free' },
+    });
+  });
+
+  it('minContext excludes free models with unknown or smaller windows', () => {
+    expect(selectModelForMode(freeCatalog, { mode: 'auto', minContext: 500_000 })).toMatchObject({
+      ok: true,
+      model: { id: 'strong-slow:free' },
+    });
+    expect(selectModelForMode(freeCatalog, { mode: 'auto', minContext: 1_500_000 })).toEqual({
+      ok: false,
+      mode: 'auto',
+      reason: 'no_eligible_free_model',
+      paid: null,
+    });
   });
 });
