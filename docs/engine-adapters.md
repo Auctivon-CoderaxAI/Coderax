@@ -87,8 +87,8 @@ an external engine runs only when the request names it at `POST /api/work/chat`:
   availability reason (owner-only, disabled, cloud required), so an unavailable
   engine is shown as such rather than hidden or faked;
 - external turns require `engines.workChat.mode: cloud` and run in a per-run
-  directory under `engines.workspaces.cloudRoot` named
-  `work-<engine>-<sha256 of tenant, user, conversation and engine>`, created with
+  directory under `engines.workspaces.cloudRoot` named `work-<engine>-<hash>`,
+  where the hash covers the tenant, user and conversation; it is created with
   mode `0700` and refused if it is not a real directory;
 - the handler refuses a non-owner (`403`), a saved agent, spec or attachment, a
   regenerate/compact/edit turn and an added conversation (`400`), and a disabled
