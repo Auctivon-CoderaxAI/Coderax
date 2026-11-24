@@ -16,7 +16,6 @@ const env = {
   APINEX_KEY: 'apinex-secret',
   CLOUDFLARE_TOKEN: 'cloudflare-secret',
   CLOUDFLARE_ACCOUNT_ID: 'account-id',
-  VERCEL_KEY: 'vercel-secret',
   FREEAI_API_KEY: 'freeai-secret',
   '100MILLIONSEEK_API_KEY': 'hundred-million-secret',
 };
@@ -31,7 +30,6 @@ const enabled = (overrides: Partial<NonNullable<ProviderFallbackConfigLike>> = {
       'opencode',
       'apinex',
       'cloudflare',
-      'vercel',
       'freeai',
       '100millionseek',
     ] as const,
@@ -52,13 +50,11 @@ describe('provider fallback config', () => {
       'opencode',
       'apinex',
       'cloudflare',
-      'vercel',
       'freeai',
       '100millionseek',
     ]);
     expect(parsed.providerFallback.models.apinex).toBe('free/deepseek-v4.1-flash');
     expect(parsed.providerFallback.models.cloudflare).toBe('@cf/openai/gpt-oss-120b');
-    expect(parsed.providerFallback.models.vercel).toBe('nvidia/nemotron-3.5-lightning-free');
     expect(parsed.providerFallback.models.freeai).toBe('qwen7b');
     expect(parsed.providerFallback.models['100millionseek']).toBe('deepseek-v4.1-flash-free');
   });
@@ -75,7 +71,6 @@ describe('provider fallback catalog', () => {
       'OpenCode',
       'APInex',
       'Cloudflare',
-      'Vercel',
       'FreeAI',
       '100MillionSeek',
     ]);
@@ -139,7 +134,6 @@ describe('provider fallback catalog', () => {
       'opencode',
       'apinex',
       'cloudflare',
-      'vercel',
       'freeai',
       '100millionseek',
     ]);
@@ -150,7 +144,6 @@ describe('provider fallback catalog', () => {
       'opencode',
       'apinex',
       'cloudflare',
-      'vercel',
       'freeai',
       '100millionseek',
     ]);
@@ -201,7 +194,6 @@ describe('provider fallback configuration merge', () => {
       'OpenCode',
       'APInex',
       'Cloudflare',
-      'Vercel',
       'FreeAI',
       '100MillionSeek',
     ]);

@@ -64,7 +64,6 @@ engines:
     timeoutMs: 900000
   workChat:
     enabled: true
-    engine: opencode
     mode: cloud
 ```
 
@@ -78,23 +77,33 @@ produces text but no terminal event is reported as `protocol_error`.
 
 ### Owner-only Work ingress
 
-`engines.workChat.enabled` is a separate opt-in from `engines.opencode.enabled`.
-When both are on, an authenticated `ADMIN` who starts a turn without a saved
-agent or attachments is routed through OpenCode at `POST /api/work/chat`:
+`engines.workChat.enabled` is a separate opt-in from `engines.opencode.enabled`
+and `engines.freebuff.enabled`. Work turns default to the native Coderax agent;
+an external engine runs only when the request names it at `POST /api/work/chat`:
 
-- private-mode turns use `engines.workspaces.privateRoot`; cloud-mode turns use `engines.workspaces.cloudRoot`;
-- the user and assistant messages are written to the existing Work conversation,
-  and its `workState` becomes `completed`, `failed` or `cancelled`;
+- the client sends `workAgent: 'opencode' | 'freebuff'`; `workAgent: 'coderax'`
+  or no `workAgent` stays on the native runner;
+- `GET /api/work/agent-identities` lists all three identities with a truthful
+  availability reason (owner-only, disabled, cloud required), so an unavailable
+  engine is shown as such rather than hidden or faked;
+- external turns require `engines.workChat.mode: cloud` and run in a per-run
+  directory under `engines.workspaces.cloudRoot` named `work-<engine>-<hash>`,
+  where the hash covers the tenant, user and conversation; it is created with
+  mode `0700` and refused if it is not a real directory;
+- the handler refuses a non-owner (`403`), a saved agent, spec or attachment, a
+  regenerate/compact/edit turn and an added conversation (`400`), and a disabled
+  engine (`503`) instead of falling back to native;
+- the user and assistant messages are written to the existing Work conversation
+  with its `workAgent`, and its `workState` becomes `completed`, `failed` or
+  `cancelled`;
 - the reply streams as the same `created` / text / `final` SSE frames the Work
   client already consumes;
 - `/api/work/tasks/:id/cancel` cancels the live engine run, scoped to the same
   user and tenant;
 - a second run for the same conversation is refused with `WORK_ENGINE_BUSY`.
 
-Every non-owner, every selected-agent turn, and every attachment stays on the
-native runner. If OpenCode requests a tool permission that Work cannot collect,
-the run is cancelled and reported as failed rather than silently approved.
-Attachments, regenerate, compact and edit turns are rejected by this branch.
+If an external engine requests a tool permission that Work cannot collect, the
+run is cancelled and reported as failed rather than silently approved.
 
 ## OpenHands (optional engine)
 
@@ -181,10 +190,10 @@ Example owner configuration:
 engines:
   workspaces:
     privateRoot: /srv/coderax/private
+    cloudRoot: /srv/coderax/cloud
   workChat:
     enabled: true
-    engine: freebuff
-    mode: private
+    mode: cloud
   freebuff:
     enabled: true
     sdkPath: /srv/freebuff/sdk/dist/index.cjs

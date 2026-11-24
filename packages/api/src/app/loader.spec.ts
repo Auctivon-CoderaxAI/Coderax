@@ -210,3 +210,55 @@ describe('createCustomConfigLoader interface.theme', () => {
     });
   });
 });
+
+describe('retired provider fallback config', () => {
+  const load = (providerFallback: unknown, mode: 'startup' | 'reload' = 'reload') =>
+    createCustomConfigLoader({
+      loadLocal: () => ({ version: '1.0', cache: true, providerFallback }),
+      defaultConfigPath: fixture('valid'),
+      redactConfig: (config) => config,
+    })(false, { mode });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['startup', 'reload'] as const)(
+    'keeps the remaining providers during %s',
+    async (mode) => {
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+      await expect(
+        load(
+          {
+            enabled: true,
+            order: ['groq', 'vercel', 'cerebras'],
+            models: { groq: 'custom-model' },
+          },
+          mode,
+        ),
+      ).resolves.toMatchObject({
+        cache: true,
+        providerFallback: {
+          enabled: true,
+          order: ['groq', 'cerebras'],
+          models: { groq: 'custom-model' },
+        },
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ignoring retired provider'));
+    },
+  );
+
+  it('disables fallback when the retired provider was the only one configured', async () => {
+    jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+    await expect(load({ enabled: true, order: ['vercel'] })).resolves.toMatchObject({
+      providerFallback: { enabled: false },
+    });
+  });
+
+  it.each([
+    ['vercel', 'typo'],
+    ['vercel', 'groq', 'groq'],
+  ])('still rejects an invalid order (%s, %s)', async (...order) => {
+    jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+    jest.spyOn(logger, 'error').mockImplementation(() => logger);
+    await expect(load({ enabled: true, order })).rejects.toBeInstanceOf(ConfigReloadError);
+  });
+});

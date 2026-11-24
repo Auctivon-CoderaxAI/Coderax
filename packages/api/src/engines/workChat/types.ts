@@ -11,11 +11,13 @@ export type EngineWorkChatStore = {
     title?: string;
     tenantId?: string | null;
     isWork?: boolean;
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
   } | null>;
   saveConversation: (input: {
     conversationId: string;
     title?: string;
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
+    workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
   }) => Promise<void>;
   saveMessage: (input: {

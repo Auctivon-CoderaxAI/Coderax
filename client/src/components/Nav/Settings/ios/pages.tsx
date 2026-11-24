@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { SettingsTabValues } from 'coderax-data-provider';
 import {
   Activity,
   Bell,
@@ -15,7 +16,6 @@ import {
   Terminal,
   UserRound,
 } from 'lucide-react';
-import { SettingsTabValues } from 'coderax-data-provider';
 import type { ComponentType, ReactNode } from 'react';
 import type { SectionId, SettingsContextValue, SettingsTab, SettingEntry } from '../types';
 import type { TranslationKeys } from '~/hooks';
@@ -137,7 +137,7 @@ export const IOS_PAGES: IosPage[] = [
       { tab: SettingsTabValues.DATA, sections: ['codeExecution'] },
       {
         tab: SettingsTabValues.CHAT,
-        entryIds: ['duringRunAction', 'autoExpandTools', 'showThinking'],
+        entryIds: ['duringRunDefaultAction', 'autoExpandTools', 'showThinking'],
       },
     ],
   },
@@ -165,6 +165,7 @@ export const IOS_PAGES: IosPage[] = [
         ],
       },
       { tab: SettingsTabValues.DATA, sections: ['apiKeys'] },
+      { tab: SettingsTabValues.ACCOUNT, entryIds: ['deleteAccount'] },
     ],
   },
   {

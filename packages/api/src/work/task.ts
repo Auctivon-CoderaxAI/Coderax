@@ -1,3 +1,5 @@
+import type { TWorkAgentId } from 'coderax-data-provider';
+
 /**
  * A Work task is a Coderax conversation, not a parallel task record. These
  * helpers keep that mapping in one place so the router and the client agree on
@@ -52,6 +54,8 @@ export type WorkConversation = {
   isWork?: boolean;
   workModel?: string;
   workState?: string;
+  /** The engine identity bound to the conversation; absent on legacy rows. */
+  workAgent?: TWorkAgentId;
   /** The saved agent the conversation runs; absent for Coderax's default agent. */
   agentId?: string;
 };
@@ -64,6 +68,8 @@ export type WorkTask = {
   updatedAt?: string;
   /** The concrete model the server ran the latest turn on. */
   model?: string;
+  /** The engine identity bound to the task. */
+  workAgent?: TWorkAgentId;
   agentId?: string;
 };
 
@@ -144,6 +150,7 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
     createdAt: toIsoDate(conversation.createdAt),
     updatedAt: toIsoDate(conversation.updatedAt),
     ...(conversation.workModel ? { model: conversation.workModel } : {}),
+    ...(conversation.workAgent ? { workAgent: conversation.workAgent } : {}),
     ...(conversation.agentId ? { agentId: conversation.agentId } : {}),
   };
 }

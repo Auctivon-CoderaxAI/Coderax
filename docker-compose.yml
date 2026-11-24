@@ -11,8 +11,6 @@ services:
         condition: service_started
       rag_api:
         condition: service_started
-      ollama-init:
-        condition: service_completed_successfully
     build:
       context: .
       dockerfile: Dockerfile
@@ -25,14 +23,13 @@ services:
     networks:
       - default
       - model
-    # The image creates this on a fresh data volume; repeat it so an existing
-    # volume also has the private Work workspace root.
+    # The image creates these on a fresh data volume; repeat it so an existing
+    # volume also has both Work workspace roots. Cloud Work uses free hosted
+    # models, so the API no longer waits for a local model download.
     command:
       - sh
       - -c
-      - |
-        mkdir -p /app/data/freebuff-workspace &&
-        exec node api/server/index.js
+      - mkdir -p /app/data/freebuff-workspace /app/data/freebuff-cloud-workspace && exec node api/server/index.js
     restart: always
     user: "${UID}:${GID}"
     extra_hosts:
@@ -65,7 +62,10 @@ services:
       - ./logs:/app/logs
       - ./skill:/app/skill
       - coderax-data:/app/data
+  # Legacy local inference, opt-in only: `docker compose --profile ollama up`.
+  # It is not started by default and is no longer a dependency of the API.
   ollama:
+    profiles: ["ollama"]
     container_name: coderax-ollama
     image: ollama/ollama:0.40.17
     networks:
@@ -90,6 +90,7 @@ services:
       retries: 30
       start_period: 10s
   ollama-init:
+    profiles: ["ollama"]
     # Creates the durable 16k-context variant once the model store is ready.
     # The source model is pulled on first start and reused from ollama-data.
     container_name: coderax-ollama-init
@@ -109,11 +110,8 @@ services:
     command:
       - |
         set -eu
-        model_ready() {
-          ollama show qwen3.5:4b-16k > /tmp/freebuff-show 2>/dev/null &&
-            awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show
-        }
-        if model_ready; then
+        if ollama show qwen3.5:4b-16k >/tmp/freebuff-show 2>/dev/null &&
+          awk '$$1 == "num_ctx" && $$2 ~ /^[0-9]+$$/ && $$2 >= 16384 { ready=1 } END { exit !ready }' /tmp/freebuff-show; then
           exit 0
         fi
         if ! ollama show qwen3.5:4b >/dev/null 2>&1; then
@@ -129,7 +127,6 @@ services:
         fi
         printf 'FROM qwen3.5:4b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
         ollama create qwen3.5:4b-16k -f /tmp/Modelfile
-        model_ready || { echo freebuff_context_too_small >&2; exit 1; }
     # Retry the container itself after an exhausted pull; `api` keeps waiting.
     restart: "on-failure:3"
   admin-panel:

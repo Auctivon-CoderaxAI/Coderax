@@ -11,6 +11,8 @@ export * from './credentials';
 export * from './artifacts';
 /* Admin */
 export * from './admin';
+/* Game Studio */
+export * from './games';
 export * from './cdn';
 export * from './code';
 export * from './pulls';
