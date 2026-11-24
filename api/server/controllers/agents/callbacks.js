@@ -131,6 +131,28 @@ class ModelEndHandler {
   }
 
   /**
+   * Closes this call's latency window. Logged here, at the boundary that knows
+   * the conversation, because the persisted message is only written once the
+   * whole turn (including later tool loops) finishes — a turn that never saves
+   * would otherwise leave no latency record at all.
+   * @param {string | undefined} key
+   * @param {import('@coderax/api').ModelTimingUsage | null} usage
+   * @param {Record<string, unknown> | undefined} metadata
+   */
+  closeModelTiming(key, usage, metadata) {
+    if (!this.modelTiming || key == null) {
+      return;
+    }
+    const timing = this.modelTiming.end(key, usage);
+    if (timing != null) {
+      logger.info('[ModelTiming] model call completed', {
+        conversationId: metadata?.thread_id,
+        ...timing,
+      });
+    }
+  }
+
+  /**
    * @param {string} event
    * @param {ModelEndData | undefined} data
    * @param {Record<string, unknown> | undefined} metadata
@@ -161,8 +183,14 @@ class ModelEndHandler {
         });
       }
 
+      /** Resolved before the usage check: a call that reports no usage has
+       *  still ended, and leaving its window open would make the next call on
+       *  the same run and node inherit this call's anchor and never record
+       *  its own latency. */
+      const timingKey = this.modelTiming ? modelTimingKey(metadata) : undefined;
       const usage = data?.output?.usage_metadata;
       if (!usage) {
+        this.closeModelTiming(timingKey, null, metadata);
         return;
       }
       let taggedUsage = contextualizeModelUsage(usage, metadata, agentContext);
@@ -179,6 +207,12 @@ class ModelEndHandler {
       }
 
       this.collectedUsage.push(taggedUsage);
+
+      /** Closed before the usage emit below: waiting on a stream write or a
+       *  Redis publish is not decode time, and counting it would lengthen
+       *  `decodeMs` and lower `outputTokensPerSecond` for a call that has
+       *  already finished. */
+      this.closeModelTiming(timingKey, taggedUsage, metadata);
 
       if (this.emitUsage) {
         /** Normalize Anthropic/Bedrock top-level and OpenAI GPT-5.6
@@ -216,22 +250,6 @@ class ModelEndHandler {
            *  error) must not abort the handler before the thought-signature
            *  capture below, or resumed tool-call requests lose that metadata */
           logger.warn('[ModelEndHandler] Failed to emit token usage', err);
-        }
-      }
-
-      /**
-       * Close this call's latency window. Logged here, at the boundary that
-       * knows the conversation, because the persisted message is only written
-       * once the whole turn (including later tool loops) finishes — a turn
-       * that never saves would otherwise leave no latency record at all.
-       */
-      if (this.modelTiming) {
-        const timing = this.modelTiming.end(modelTimingKey(metadata), taggedUsage);
-        if (timing != null) {
-          logger.info('[ModelTiming] model call completed', {
-            conversationId: metadata?.thread_id,
-            ...timing,
-          });
         }
       }
 
