@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SystemRoles } from 'coderax-data-provider';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type {
   EngineWorkChatConfig,
@@ -8,10 +9,9 @@ import type {
 } from './types';
 import type { EngineId, EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
 import type { Json } from './json';
-import { SystemRoles } from 'coderax-data-provider';
-import { isEngineWorkChatPath } from './gating';
-import { readWorkAgentId } from '../../work/identities';
 import { isValidWorkTask, workTitle } from '../../work/task';
+import { readWorkAgentId } from '../../work/identities';
+import { isEngineWorkChatPath } from './gating';
 import { isRecord, readString } from './json';
 import { buildEnginePrompt } from './prompt';
 import { engineFailure } from '../types';

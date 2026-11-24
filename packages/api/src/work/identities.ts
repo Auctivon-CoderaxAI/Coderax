@@ -1,8 +1,4 @@
-import type {
-  TWorkAgentId,
-  TWorkAgentIdentity,
-  TWorkEngineId,
-} from 'coderax-data-provider';
+import type { TWorkAgentId, TWorkAgentIdentity, TWorkEngineId } from 'coderax-data-provider';
 import type { EngineStatusSnapshot } from '../engines/registry';
 
 /**
@@ -68,9 +64,7 @@ export function isWorkAgentId(value: unknown): value is TWorkAgentId {
   return readWorkAgentId(value).kind === 'id';
 }
 
-export function isExternalWorkAgentId(
-  value: unknown,
-): value is Exclude<TWorkAgentId, 'coderax'> {
+export function isExternalWorkAgentId(value: unknown): value is Exclude<TWorkAgentId, 'coderax'> {
   const parsed = readWorkAgentId(value);
   return parsed.kind === 'id' && parsed.id !== 'coderax';
 }
@@ -85,9 +79,7 @@ export type WorkAgentIdentityInput = {
  * The three identities are always listed, even when an external engine is
  * unavailable. A disabled agent is a truthful status, not a hidden option.
  */
-export function buildWorkAgentIdentities(
-  input: WorkAgentIdentityInput = {},
-): TWorkAgentIdentity[] {
+export function buildWorkAgentIdentities(input: WorkAgentIdentityInput = {}): TWorkAgentIdentity[] {
   const engines = new Map(
     (input.snapshot?.engines ?? []).map((engine) => [engine.id, engine] as const),
   );
@@ -119,9 +111,7 @@ export function buildWorkAgentIdentities(
       };
     }
 
-    const engine = definition.engine
-      ? engines.get(definition.engine as TWorkEngineId)
-      : undefined;
+    const engine = definition.engine ? engines.get(definition.engine as TWorkEngineId) : undefined;
     if (!engine) {
       return {
         ...definition,

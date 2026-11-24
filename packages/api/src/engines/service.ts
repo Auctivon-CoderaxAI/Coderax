@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { EngineRegistryApi, EngineStatusSnapshot } from './registry';
 import type { OpenHandsTransport } from './openhands/adapter';
 import type { OpenCodeTransport } from './opencode/adapter';
@@ -5,7 +6,6 @@ import type { LoadedFreebuffSdk } from './freebuff/adapter';
 import type { LoadedOpenCodeSdk } from './opencode/sdk';
 import type { WorkspaceRoots } from './workspace';
 import type { EngineLimits } from './types';
-import path from 'node:path';
 import {
   isModelAllowedForMode,
   parseEngineModel,

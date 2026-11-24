@@ -58,7 +58,9 @@ describe('Work routing selection', () => {
   it('falls back to the legacy automatic option when the server sends no modes', () => {
     const options = toWorkOptions(models, []);
     expect(options.routing?.map((option) => option.routingMode)).toEqual(['auto']);
-    expect(nativePreset(resolveWorkSelection({ agentId: 'auto', modelKey: 'auto' }, options))).toEqual({
+    expect(
+      nativePreset(resolveWorkSelection({ agentId: 'auto', modelKey: 'auto' }, options)),
+    ).toEqual({
       endpoint: 'openrouter' as EModelEndpoint,
       model: 'auto',
     });

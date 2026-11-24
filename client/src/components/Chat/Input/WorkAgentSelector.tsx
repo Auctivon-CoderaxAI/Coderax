@@ -9,7 +9,6 @@ import type {
   TWorkAgent,
   TWorkAgentIdentity,
   TWorkAgentId,
-  TWorkModel,
   TWorkReadinessAction,
   TWorkRoutingMode,
 } from 'coderax-data-provider';
@@ -34,9 +33,9 @@ import {
 import { chipClasses, chipMenuClasses, chipMenuHeadingClasses, chipMenuItemClasses } from './chip';
 import { WorkProviderStatus } from './WorkProviderStatus';
 import { createStorageAtom } from '~/store/jotai-utils';
-import { useLocalize } from '~/hooks';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
+import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 export { getWorkModelKey } from './workSelection';
@@ -293,11 +292,12 @@ export function WorkModelSelect({
       ? undefined
       : options.agents.find((option) => option.id === selection.agentId);
   /** A saved agent runs on its own model, so the model is shown, not offered. */
-  const models = (agent
-    ? options.models.filter(
-        (model) => model.id === agent.model && model.provider === agent.provider,
-      )
-    : options.models
+  const models = (
+    agent
+      ? options.models.filter(
+          (model) => model.id === agent.model && model.provider === agent.provider,
+        )
+      : options.models
   ).filter((model) => model.engine == null);
   const showAutomatic = !agent && options.auto?.target != null;
   const routing = !agent
@@ -334,25 +334,23 @@ export function WorkModelSelect({
       label: model.label?.trim() || model.id,
     });
   }
+  let modelTitle: string | undefined;
+  if (externalAgent) {
+    modelTitle = localize('com_work_agent_model_external');
+  } else if (agent) {
+    modelTitle = localize('com_work_model_set_by_agent');
+  }
 
   return (
     <WorkSelect
       id={id}
       label={localize('com_ui_model')}
-      title={
-        externalAgent
-          ? localize('com_work_agent_model_external')
-          : agent
-            ? localize('com_work_model_set_by_agent')
-            : undefined
-      }
+      title={modelTitle}
       details={<WorkProviderStatus />}
       value={selection.modelKey}
       options={selectOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}
-      disabled={
-        disabled || externalAgent || agent != null || !hasSelectableModel
-      }
+      disabled={disabled || externalAgent || agent != null || !hasSelectableModel}
       className={className}
     />
   );

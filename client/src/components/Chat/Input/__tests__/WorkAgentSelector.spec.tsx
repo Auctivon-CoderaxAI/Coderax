@@ -275,7 +275,9 @@ it('offers exactly the three agent identities with native selected by default', 
     'Coderax Personal Agent',
   );
   const { user } = await openSelect('Agent');
-  expect(await screen.findByRole('menuitemradio', { name: /Coderax Personal Agent/ })).toBeInTheDocument();
+  expect(
+    await screen.findByRole('menuitemradio', { name: /Coderax Personal Agent/ }),
+  ).toBeInTheDocument();
   expect(await screen.findByRole('menuitemradio', { name: /OpenCode Agent/ })).toBeInTheDocument();
   expect(await screen.findByRole('menuitemradio', { name: /FreeBuff Agent/ })).toBeInTheDocument();
 
@@ -304,7 +306,11 @@ it('keeps external identities unavailable when the server says so', async () => 
         kind: 'external',
         engine: 'opencode',
         description: 'External OpenCode agent.',
-        availability: { available: false, reason: 'disabled', detail: 'Disabled for this deployment.' },
+        availability: {
+          available: false,
+          reason: 'disabled',
+          detail: 'Disabled for this deployment.',
+        },
       },
       {
         id: 'freebuff',
@@ -312,7 +318,11 @@ it('keeps external identities unavailable when the server says so', async () => 
         kind: 'external',
         engine: 'freebuff',
         description: 'External FreeBuff agent.',
-        availability: { available: false, reason: 'disabled', detail: 'Disabled for this deployment.' },
+        availability: {
+          available: false,
+          reason: 'disabled',
+          detail: 'Disabled for this deployment.',
+        },
       },
     ],
   });

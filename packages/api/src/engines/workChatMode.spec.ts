@@ -1,5 +1,18 @@
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
 import type { EngineRegistryApi } from './registry';
 import { EngineWorkChatRuntime } from './workChat';
+
+let cloudRoot = '';
+
+beforeAll(async () => {
+  cloudRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-mode-'));
+});
+
+afterAll(async () => {
+  await rm(cloudRoot, { recursive: true, force: true });
+});
 
 function runtime() {
   const handle = {
@@ -23,7 +36,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
     const { registry } = runtime();
     const engine = new EngineWorkChatRuntime(
       registry,
-      { private: '/private', cloud: '/cloud' },
+      { private: '/private', cloud: cloudRoot },
       'cloud',
       { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' },
     );
@@ -31,6 +44,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       userId: 'owner',
       tenantId: null,
       conversationId: 'conversation-cloud',
+      engine: 'opencode',
       prompt: 'fix it',
     });
     expect(started.ok).toBe(true);
@@ -38,7 +52,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       engine: 'opencode',
       request: expect.objectContaining({
         mode: 'cloud',
-        workspaceRoot: '/cloud',
+        workspaceRoot: path.join(cloudRoot, 'agents', 'opencode'),
         model: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' },
       }),
     });
@@ -56,6 +70,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       userId: 'owner',
       tenantId: null,
       conversationId: 'conversation-private',
+      engine: 'opencode',
       prompt: 'fix it',
     });
     expect(registry.start).toHaveBeenCalledWith({

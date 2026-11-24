@@ -17,7 +17,7 @@ const enabledConfig = (
 ): EngineWorkChatConfig =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode' },
+      workChat: { enabled: true, engine: 'opencode', mode: 'cloud' },
       opencode: { enabled: true },
       ...overrides,
     },
@@ -170,10 +170,17 @@ type FakeRequestOptions = {
 };
 
 function fakeRequest(options: FakeRequestOptions = {}): Request {
+  let body = options.body;
+  if (body === undefined) {
+    body = { text: 'Fix it', conversationId: 'new' };
+  }
+  if (body != null && typeof body === 'object' && !Array.isArray(body)) {
+    body = { workAgent: 'opencode', ...body };
+  }
   return {
     method: options.method ?? 'POST',
     path: options.path ?? '/chat',
-    body: options.body === undefined ? { text: 'Fix it', conversationId: 'new' } : options.body,
+    body,
     user:
       options.user === undefined
         ? { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' }
@@ -241,7 +248,10 @@ describe('createEngineWorkChatHandler', () => {
       storeFor: () => fakeStore().store,
       runtimeFor: () => runner,
     })(
-      fakeRequest({ user: { id: 'member', role: 'USER', tenantId: 'tenant-1' } }),
+      fakeRequest({
+        user: { id: 'member', role: 'USER', tenantId: 'tenant-1' },
+        body: { text: 'Fix it', conversationId: 'new', workAgent: null },
+      }),
       response as unknown as Response,
       next,
     );

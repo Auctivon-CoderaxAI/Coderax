@@ -1,9 +1,9 @@
+import path from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -82,9 +82,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       return engineFailure('workspace_denied', 'The cloud workspace root is not configured.');
     }
     const workspaceRoot =
-      this.mode === 'cloud'
-        ? path.join(this.roots.cloud, 'agents', engine)
-        : this.roots.private;
+      this.mode === 'cloud' ? path.join(this.roots.cloud, 'agents', engine) : this.roots.private;
     if (!workspaceRoot) {
       return engineFailure(
         'workspace_denied',

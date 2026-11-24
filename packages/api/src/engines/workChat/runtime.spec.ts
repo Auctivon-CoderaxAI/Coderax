@@ -1,8 +1,25 @@
+import os from 'node:os';
+import path from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
 import type { EngineRegistryApi } from '../registry';
 import type { EngineRunHandle } from '../types';
 import { EngineWorkChatRuntime } from './runtime';
 
-const roots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
+let cloudRoot = '';
+const roots = {
+  private: '/srv/coderax/private',
+  get cloud() {
+    return cloudRoot;
+  },
+};
+
+beforeAll(async () => {
+  cloudRoot = await mkdtemp(path.join(os.tmpdir(), 'coderax-runtime-'));
+});
+
+afterAll(async () => {
+  await rm(cloudRoot, { recursive: true, force: true });
+});
 
 function handle(sessionId: string): EngineRunHandle {
   return {
@@ -31,6 +48,7 @@ const scope = (
   userId: overrides.userId ?? 'owner',
   tenantId: overrides.tenantId === undefined ? 'tenant-1' : overrides.tenantId,
   conversationId,
+  engine: 'opencode' as const,
 });
 
 describe('EngineWorkChatRuntime', () => {
@@ -73,7 +91,7 @@ describe('EngineWorkChatRuntime', () => {
         conversationId: 'conversation-b',
         prompt: 'Fix it',
         mode: 'cloud',
-        workspaceRoot: '/srv/coderax/cloud',
+        workspaceRoot: path.join(cloudRoot, 'agents', 'opencode'),
         model: { providerId: 'ollama', modelId: 'qwen3.5:4b' },
       },
     });

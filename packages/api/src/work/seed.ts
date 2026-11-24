@@ -14,7 +14,10 @@ export type WorkSeedStore = {
   getConvo: (userId: string, conversationId: string) => Promise<SeedConversation | null>;
   saveConvo: (
     context: { userId: string; isTemporary?: boolean },
-    fields: SeedConversation & { workModel: string; workAgent?: 'coderax' | 'opencode' | 'freebuff' },
+    fields: SeedConversation & {
+      workModel: string;
+      workAgent?: 'coderax' | 'opencode' | 'freebuff';
+    },
     options: { context: string; noUpsert?: boolean; appendMessageIds: [] },
   ) => Promise<SeedConversation | null>;
 };

@@ -272,20 +272,31 @@ export function resolveWorkSelection(
       ? undefined
       : options.routing?.find((option) => option.routingMode === selection.modelKey);
   const target = route?.target ?? options.auto?.target;
-  const model =
-    selection.modelKey === WORK_AUTOMATIC
-      ? (options.models.find(
-          (option) => option.id === target?.id && option.provider === target?.provider,
-        ) ?? soleEngineModel(options))
-      : route
-        ? options.models.find(
-            (option) => option.id === target?.id && option.provider === target?.provider,
-          )
-        : options.models.find((option) => getWorkModelKey(option) === selection.modelKey);
+  let model: TWorkModel | undefined;
+  if (selection.modelKey === WORK_AUTOMATIC) {
+    model =
+      options.models.find(
+        (option) => option.id === target?.id && option.provider === target?.provider,
+      ) ??
+      soleEngineModel(options) ??
+      undefined;
+  } else if (route) {
+    model = options.models.find(
+      (option) => option.id === target?.id && option.provider === target?.provider,
+    );
+  } else {
+    model = options.models.find((option) => getWorkModelKey(option) === selection.modelKey);
+  }
   if (!model?.provider) {
     return null;
   }
   const automatic = selection.modelKey === WORK_AUTOMATIC || route != null;
+  let wireModel = model.id;
+  if (route) {
+    wireModel = selection.modelKey;
+  } else if (automatic) {
+    wireModel = WORK_AUTOMATIC;
+  }
   return {
     workAgent: 'coderax',
     agent: null,
@@ -298,7 +309,7 @@ export function resolveWorkSelection(
      *  concrete model is only the endpoint choice for the automatic target. */
     preset: {
       endpoint: model.provider as EModelEndpoint,
-      model: route ? selection.modelKey : automatic ? WORK_AUTOMATIC : model.id,
+      model: wireModel,
     },
   };
 }
