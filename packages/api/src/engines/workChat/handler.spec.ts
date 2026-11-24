@@ -648,7 +648,7 @@ describe('createEngineWorkChatHandler', () => {
       conversationId: CONVERSATION_ID,
       text: 'Listed it.',
       content,
-      sender: 'OpenCode',
+      sender: 'OpenCode Agent',
       isCreatedByUser: false,
       unfinished: false,
     });

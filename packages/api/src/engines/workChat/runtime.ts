@@ -314,7 +314,7 @@ export function getEngineWorkChatRuntime(
   };
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
-  const workEngine = config?.engines?.workChat?.engine ?? 'opencode';
+  const workEngine = engines?.defaultEngine ?? 'opencode';
   const modelConfig =
     workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
   const runtime = new EngineWorkChatRuntime(

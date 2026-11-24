@@ -80,11 +80,13 @@ test('auto resolves through the configured default when it is offered', () => {
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
   });
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'free/alpha'), {
     isWork: true,
     workModel: 'free/alpha',
     workProvider: 'custom',
+    workAgent: 'coderax',
   });
 });
 
@@ -94,6 +96,7 @@ test('auto ranks a free/local model when no default is configured', () => {
       isWork: true,
       workModel: 'llama3:latest',
       workProvider: 'ollama',
+      workAgent: 'coderax',
     });
   }
 });
@@ -103,6 +106,7 @@ test('falls back to a free/local model when the configured default is not eligib
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
   });
 });
 
@@ -117,6 +121,7 @@ test('an allowed pick is kept even when a different default exists', () => {
     isWork: true,
     workModel: 'free/alpha',
     workProvider: 'custom',
+    workAgent: 'coderax',
   });
 });
 
@@ -159,6 +164,7 @@ test('the alias middleware sets server-owned context and strips client claims', 
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
     allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.isWork, undefined);
@@ -778,6 +784,7 @@ test('keeps the selected native agent and its own model on the Work path', async
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
     allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.model, 'llama3:latest');

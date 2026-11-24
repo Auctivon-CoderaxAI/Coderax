@@ -182,7 +182,7 @@ describe('Work engine turn end-to-end', () => {
             workspaceRoot: privateRoot,
           },
         ),
-      state: () => null,
+      state: async () => null,
       cancel: async () => false,
       snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
     };
@@ -192,14 +192,14 @@ describe('Work engine turn end-to-end', () => {
     });
     const config = {
       engines: {
-        workChat: { enabled: true, engine: 'opencode' },
+        workChat: { enabled: true, mode: 'cloud' },
         opencode: { enabled: true },
       },
     } as unknown as EngineWorkChatConfig;
     const request = {
       method: 'POST',
       path: '/chat',
-      body: { text: PROMPT, conversationId: 'new' },
+      body: { text: PROMPT, conversationId: 'new', workAgent: 'opencode' },
       user: { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' },
       config: { config },
     } as unknown as Request;
@@ -240,7 +240,7 @@ describe('Work engine turn end-to-end', () => {
     expect(final?.edits).toBe(1);
     expect(final?.responseMessage).toMatchObject({
       text: 'Checked the workspace. The hash is 9f2c1d3e.',
-      sender: 'OpenCode',
+      sender: 'OpenCode Agent',
       isCreatedByUser: false,
       content: [
         { type: 'text', text: 'Checked the workspace. The hash is 9f2c1d3e.' },

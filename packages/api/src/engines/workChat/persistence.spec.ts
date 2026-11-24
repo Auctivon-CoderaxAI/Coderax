@@ -288,7 +288,7 @@ describe('Work chat persistence adapter', () => {
       messageId: 'message-2',
       text: 'Listed it.',
       content,
-      sender: 'OpenCode',
+      sender: 'OpenCode Agent',
     });
 
     /* A turn that streamed no parts keeps the row it always wrote. */
