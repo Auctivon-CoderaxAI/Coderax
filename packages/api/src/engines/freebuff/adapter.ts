@@ -362,7 +362,7 @@ export async function probeFreebuff(
   if (!configured.available) {
     return configured;
   }
-  const baseURL = privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined);
   const model = options.model;
   if (!baseURL || !model) {
     return configured;
