@@ -253,6 +253,57 @@ export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, ap
   }
 }
 
+
+/** Validate installed workspace build tools rather than declaring untraced root
+ * versions. A root tsdown range without a root lockfile package breaks npm ci.
+ */
+export function verifyWorkspaceBuildTooling(rootPackage, lock, clientPackage, apiPackage, services) {
+  for (const name of ['tsdown', 'typescript']) {
+    if (rootPackage.devDependencies?.[name] !== undefined) {
+      assert.equal(
+        lock.packages?.['']?.devDependencies?.[name],
+        rootPackage.devDependencies[name],
+        `root ${name} manifest and lockfile must match for npm ci`,
+      );
+      assert.ok(
+        lock.packages?.[`node_modules/${name}`]?.version,
+        `root ${name} is not resolved: pin and regenerate the lockfile or use workspace dependencies`,
+      );
+    }
+  }
+
+  for (const [workspace, pkg] of [
+    ['packages/client', clientPackage],
+    ['packages/api', apiPackage],
+  ]) {
+    assert.equal(
+      typeof pkg.devDependencies?.tsdown, 'string',
+      `${workspace} must declare tsdown`,
+    );
+    assert.equal(
+      lock.packages?.[workspace]?.devDependencies?.tsdown,
+      pkg.devDependencies.tsdown,
+      `${workspace} tsdown must match the npm lockfile`,
+    );
+    assert.ok(
+      lock.packages?.[`${workspace}/node_modules/tsdown`]?.version ||
+      lock.packages?.['node_modules/tsdown']?.version,
+      `${workspace} tsdown package must be resolved in the npm lockfile`,
+    );
+  }
+
+  for (const [name, service] of Object.entries({
+    frontend: services.services?.frontend,
+    backend: services.services?.backend,
+  })) {
+    assert.match(
+      service?.installCommand ?? '',
+      /npm ci --include=dev/,
+      `${name} service must install workspace development build tools`,
+    );
+  }
+}
+
 export async function verifyRepositoryContracts(root = repoRoot) {
   const rootPackage = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const clientPackage = JSON.parse(await readFile(path.join(root, 'client/package.json'), 'utf8'));
