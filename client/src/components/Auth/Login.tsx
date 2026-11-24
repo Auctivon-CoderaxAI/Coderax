@@ -26,6 +26,8 @@ function Login({ manual = false }: { manual?: boolean }) {
   const disableAutoRedirect = searchParams.get('redirect') === 'false';
 
   const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
+  const [guestAttemptPending, setGuestAttemptPending] = useState(true);
+  const manualSignIn = searchParams.get('manual') === '1';
 
   useEffect(() => {
     const redirectTo = searchParams.get('redirect_to');
@@ -72,6 +74,44 @@ function Login({ manual = false }: { manual?: boolean }) {
       window.location.href = `${startupConfig.serverDomain}/oauth/openid`;
     }
   }, [shouldAutoRedirect, startupConfig]);
+
+  // Sign in without a form when the backend explicitly permits isolated guest sessions.
+  // Keep a manual login escape hatch for existing account holders.
+  useEffect(() => {
+    if (!isAuthReady || isAuthenticated || manualSignIn || shouldAutoRedirect) {
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(`${apiBaseUrl()}/api/auth/guest`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error('Guest sessions are unavailable');
+        }
+        return response.json();
+      })
+      .then((session) => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (!session?.token || !session?.user) {
+          throw new Error('Invalid guest session response');
+        }
+        completeAuthentication(session.token, session.user);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setGuestAttemptPending(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [isAuthReady, isAuthenticated, manualSignIn, shouldAutoRedirect, completeAuthentication]);
 
   if (shouldAutoRedirect) {
     return (
