@@ -169,6 +169,8 @@ export default function GamesView() {
               type="button"
               variant="outline"
               onClick={() => {
+                /* A background refresh would be cancelled by the next page fetch
+                   and its new rows lost, so only paginate an idle query. */
                 if (!query.isFetching) {
                   query.fetchNextPage();
                 }

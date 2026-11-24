@@ -34,6 +34,15 @@ const STATUS_CLASS: Record<SaveStatus, string> = {
 const responseStatus = (error: unknown): number | undefined =>
   (error as { response?: { status?: number } } | null)?.response?.status;
 
+const sameSpec = (a: TGameSpec, b: TGameSpec): boolean =>
+  a.prompt === b.prompt &&
+  a.genre === b.genre &&
+  a.camera === b.camera &&
+  a.players === b.players &&
+  a.coreLoop === b.coreLoop &&
+  a.winCondition === b.winCondition &&
+  a.artDirection === b.artDirection;
+
 const textFieldClass =
   'border-border-light bg-surface-primary text-text-primary placeholder:text-text-tertiary focus-visible:ring-ring-primary mt-1.5 w-full rounded-xl border px-3 py-2 text-sm leading-6 focus-visible:ring-2 focus-visible:outline-none';
 
@@ -48,13 +57,17 @@ export default function GameSpecForm({ project }: { project: TGameProject }) {
   const artDirectionId = useId();
   const saveSpec = useSaveGameSpecMutation();
   const [draft, setDraft] = useState<TGameSpec>(project.spec ?? DEFAULT_SPEC);
+  /**
+   * The revision this draft was written against. It follows the draft, not the
+   * query: advancing it on an unrelated refetch would let a stale draft
+   * overwrite whichever session saved in between.
+   */
   const [baseRevision, setBaseRevision] = useState(project.revision);
   const [status, setStatus] = useState<SaveStatus>('idle');
-  // A save in flight must not claim edits the user made after submitting it.
-  const draftVersion = useRef(0);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const update = <Key extends keyof TGameSpec>(key: Key, value: TGameSpec[Key]) => {
-    draftVersion.current += 1;
     setDraft((current) => ({ ...current, [key]: value }));
     if (status !== 'idle') {
       setStatus('idle');
@@ -82,21 +95,18 @@ export default function GameSpecForm({ project }: { project: TGameProject }) {
       setStatus('invalid');
       return;
     }
-    const submittedVersion = draftVersion.current;
+    const submitted = { ...draft, prompt: draft.prompt.trim() };
     saveSpec.mutate(
       {
         gameId: project._id,
-        spec: { ...draft, prompt: draft.prompt.trim() },
-        // The revision this draft was built from. Refreshing the project after
-        // another session's save must not let this draft overwrite it.
+        spec: submitted,
         expectedRevision: baseRevision,
       },
       {
         onSuccess: (saved) => {
           setBaseRevision(saved.revision);
-          if (draftVersion.current === submittedVersion) {
-            setStatus('saved');
-          }
+          /** Edits typed while the request was in flight are still unsaved. */
+          setStatus(sameSpec(draftRef.current, submitted) ? 'saved' : 'idle');
         },
         onError: (error) => setStatus(responseStatus(error) === 409 ? 'conflict' : 'error'),
       },

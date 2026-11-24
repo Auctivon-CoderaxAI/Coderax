@@ -74,7 +74,7 @@ export default function GameNew() {
               value={name}
               onChange={(event) => {
                 setName(event.target.value);
-                if (error) {
+                if (error != null) {
                   setError(null);
                 }
               }}
