@@ -1,11 +1,11 @@
 import { memo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useSetAtom } from 'jotai';
-import { Compass, FolderKanban, SlidersHorizontal, Sparkles } from 'lucide-react';
-import { SettingsTabValues } from 'coderax-data-provider';
-import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
-import { useLocalize } from '~/hooks';
+import { useNavigate } from 'react-router-dom';
+import { SettingsTabValues, SystemRoles } from 'coderax-data-provider';
+import { Compass, FolderKanban, Gamepad2, SlidersHorizontal, Sparkles } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
+import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
+import { useAuthContext, useLocalize } from '~/hooks';
 
 interface QuickLink {
   id: string;
@@ -24,6 +24,14 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
   const navigate = useNavigate();
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSettingsTab = useSetAtom(settingsTabAtom);
+  const { user } = useAuthContext();
+  const isOwner = user?.role === SystemRoles.ADMIN;
+  const gamesLink: QuickLink = {
+    id: 'games',
+    labelKey: 'com_games_title',
+    icon: Gamepad2,
+    onSelect: () => navigate('/games'),
+  };
 
   const links: QuickLink[] = [
     {
@@ -32,6 +40,7 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
       icon: FolderKanban,
       onSelect: () => navigate('/projects'),
     },
+    ...(isOwner ? [gamesLink] : []),
     {
       id: 'skills',
       labelKey: 'com_ui_skills',
