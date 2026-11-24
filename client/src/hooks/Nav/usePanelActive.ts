@@ -1,7 +1,7 @@
 import { useContext } from 'react';
 import { useRecoilValue } from 'recoil';
 import { ActivePanelContext, useActivePanel } from '~/Providers/ActivePanelContext';
-import useRouteActiveId from './useRouteActiveId';
+import { useIsWorkspaceRoute } from './useRouteActiveId';
 import store from '~/store';
 
 /**
@@ -10,16 +10,17 @@ import store from '~/store';
  * Panels stay mounted while the sidebar is hidden (collapsed, mobile drawer
  * closed, or a workspace route such as insights / cyvox-* collapsing it), so
  * selection alone is not enough. This mirrors UnifiedSidebar's
- * `panelExpanded`: atom AND not a workspace route.
+ * `panelExpanded`: atom AND not a workspace route. Route-backed links that keep
+ * the ordinary shell (games) leave the panel visible.
  *
  * Must be used within an ActivePanelProvider.
  */
 export default function usePanelActive(panelId: string): boolean {
   const { active } = useActivePanel();
   const sidebarExpanded = useRecoilValue(store.sidebarExpanded);
-  const routeActiveId = useRouteActiveId();
+  const isWorkspaceRoute = useIsWorkspaceRoute();
 
-  return active === panelId && sidebarExpanded && routeActiveId == null;
+  return active === panelId && sidebarExpanded && !isWorkspaceRoute;
 }
 
 /** Returns the active panel id, or `undefined` when no ActivePanelProvider is mounted. */
@@ -37,10 +38,10 @@ function useOptionalActivePanelId(): string | undefined {
 export function useOptionalPanelActive(panelId: string): boolean {
   const active = useOptionalActivePanelId();
   const sidebarExpanded = useRecoilValue(store.sidebarExpanded);
-  const routeActiveId = useRouteActiveId();
+  const isWorkspaceRoute = useIsWorkspaceRoute();
 
   if (active === undefined) {
     return true;
   }
-  return active === panelId && sidebarExpanded && routeActiveId == null;
+  return active === panelId && sidebarExpanded && !isWorkspaceRoute;
 }
