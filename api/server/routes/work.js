@@ -120,7 +120,9 @@ const depsFor = (req) => {
 };
 
 const engineChat = createEngineWorkChatHandler({
-  runtimeFor: getEngineWorkChatRuntime,
+  /** The same durable store the read and cancel routes consult: a run started
+   *  here must be the row every replica reads. */
+  runtimeFor: (config) => getEngineWorkChatRuntime(config, workRunLeases),
   reserveRun: reserveWorkRun,
   releaseRun: releaseWorkRun,
   storeFor: (req, engine) =>
