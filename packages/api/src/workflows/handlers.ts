@@ -75,6 +75,7 @@ interface WorkflowRunRecordView {
   steps: WorkflowStepRunRecord[];
   error?: string;
   trigger?: WorkflowRunView['trigger'];
+  buildVerification?: WorkflowRunView['buildVerification'];
   events?: Array<{
     at: Date | string;
     type: WorkflowRunView['events'][number]['type'];
@@ -193,6 +194,7 @@ export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
     })),
     ...(run.conversationId == null ? {} : { conversationId: run.conversationId }),
     ...(run.input == null ? {} : { input: run.input }),
+    ...(run.buildVerification == null ? {} : { buildVerification: run.buildVerification }),
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.trigger == null ? {} : { trigger: run.trigger }),
     events: (run.events ?? []).map((entry) => ({
@@ -467,6 +469,10 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
           ...(runDefinition.settings == null ? {} : { settings: runDefinition.settings }),
           trigger: { type: 'manual' },
           input: parsed.value.request,
+          buildVerification: {
+            mode: prepared.value.decision.mode,
+            requiredGates: prepared.value.compiled.requiredGates,
+          },
         });
         deps.wake();
         res.status(202).json({
@@ -481,7 +487,8 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
               ? {}
               : { reason: prepared.value.decision.reason }),
             taskCount: prepared.value.plan.tasks.length,
-            requiredGates: prepared.value.compiled.requiredGates,
+            requiredGates:
+              run.buildVerification?.requiredGates ?? prepared.value.compiled.requiredGates,
             unresolvedRoles: prepared.value.compiled.unresolvedRoles,
           },
         });

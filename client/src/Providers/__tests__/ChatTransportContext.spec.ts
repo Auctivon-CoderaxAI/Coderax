@@ -133,14 +133,22 @@ describe('createWorkChatTransport', () => {
       { agentId: 'auto', modelKey: '["opencode","opencode"]' },
       'https://work.example',
     );
-    const request = transport.prepareStreamingStart?.(chatRequest.payload)?.();
+    const payload = {
+      ...chatRequest.payload,
+      agentId: 'legacy-agent',
+      agent_id: 'saved-agent',
+      ephemeralAgent: { mcp: ['tools'] },
+    };
+    const request = transport.prepareStreamingStart?.(payload)?.();
     expect(request?.server).toBe('https://work.example/api/work/chat');
     expect(request?.payload).toMatchObject({
       conversationId: 'same-conversation',
       model: 'opencode',
       endpoint: undefined,
       endpointType: undefined,
+      agentId: undefined,
       agent_id: undefined,
+      ephemeralAgent: undefined,
     });
     expect(() => transport.start(chatRequest)).toThrow('requires a streaming POST');
     expect(start).not.toHaveBeenCalled();

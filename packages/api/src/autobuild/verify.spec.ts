@@ -71,6 +71,41 @@ describe('spawn cleanup', () => {
 });
 
 describe('runBuildVerification', () => {
+  it('redacts display evidence even for commands cancelled before they run', async () => {
+    const signal = new AbortController();
+    const secret = 'example" quoted secret';
+    const commands = [
+      {
+        gate: 'tests' as const,
+        command: 'node',
+        args: ['--token=second-secret', secret],
+        label: secret,
+      },
+    ];
+    const runner = jest.fn(fakeRunner({ node: 0 }));
+    const input = { workspaceRoot: process.cwd(), commands, runner, secrets: [secret] };
+    const result = await runBuildVerification(input);
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        commands: [{ display: 'node --token=[redacted] [redacted]', label: '[redacted]' }],
+      },
+    });
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({ args: commands[0].args }));
+    signal.abort();
+    const cancelled = await runBuildVerification({ ...input, signal: signal.signal });
+    expect(cancelled).toMatchObject({
+      ok: true,
+      value: {
+        commands: [],
+        gates: expect.arrayContaining([
+          expect.objectContaining({ gate: 'tests', command: 'node --token=[redacted] [redacted]' }),
+        ]),
+      },
+    });
+    expect(runner).toHaveBeenCalledTimes(1);
+  });
+
   it('uses only the explicit job environment', async () => {
     const workspace = makeWorkspace();
     const prior = process.env.VERIFICATION_PARENT_ONLY;

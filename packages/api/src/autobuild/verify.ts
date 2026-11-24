@@ -152,7 +152,6 @@ interface NormalizedCommand {
   cwd: string;
   timeoutMs: number;
   label: string;
-  display: string;
 }
 
 function fail(code: VerificationErrorCode, message: string): VerificationResult {
@@ -287,7 +286,6 @@ function normalizeCommand(
       cwd,
       timeoutMs,
       label: input.label?.trim() || command,
-      display: displayCommand(command, args),
     },
   };
 }
@@ -501,6 +499,14 @@ export async function runBuildVerification(
     ...(input.secrets ?? sensitiveEnvironmentValues()),
     ...sensitiveEnvironmentValues(input.env ?? {}),
   ];
+  const display = (command: NormalizedCommand): string =>
+    redactSecrets(
+      displayCommand(
+        command.command,
+        command.args.map((arg) => redactSecrets(arg, secrets)),
+      ),
+      secrets,
+    );
   const now = input.now ?? (() => new Date());
   const startedAt = now().toISOString();
   const results: VerificationCommandResult[] = [];
@@ -547,8 +553,8 @@ export async function runBuildVerification(
       stdout: redactSecrets(result.stdout, secrets),
       stderr: redactSecrets(result.stderr, secrets),
       gate: command.gate,
-      label: command.label,
-      display: command.display,
+      label: redactSecrets(command.label, secrets),
+      display: display(command),
       status: passed ? 'passed' : 'failed',
       output: boundedOutput(redactSecrets(rawOutput, secrets), DEFAULT_MAX_OUTPUT_BYTES),
     });
@@ -575,7 +581,7 @@ export async function runBuildVerification(
       status,
       command: normalized
         .filter((command) => command.gate === gate)
-        .map((command) => command.display)
+        .map(display)
         .join('; '),
       summary: `${entries.length - failed.length}/${configured} command(s) passed${
         cancelled ? ' before cancellation' : ''

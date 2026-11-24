@@ -100,12 +100,11 @@ export function createAgentTitleService({
             }, 45_000);
           });
           generatedTitle = await Promise.race([
-            client.titleConvo({ text, abortController, immediate }).catch((error) => {
-              logger.error('[addTitle] Client title error', getSafeErrorMetadata(error));
-              return undefined;
-            }),
+            client.titleConvo({ text, abortController, immediate }),
             timeout,
           ]);
+        } catch (error) {
+          logger.error('[addTitle] Client title error', getSafeErrorMetadata(error));
         } finally {
           clearTimeout(timeoutId);
           signal?.removeEventListener('abort', abort);
@@ -113,11 +112,12 @@ export function createAgentTitleService({
         }
       }
 
+      const candidate = generatedTitle?.trim() ? generatedTitle : null;
       const title = resolveConversationTitle({
         filters: req.config?.filters,
-        candidate: generatedTitle || fallbackTitleFromText(text),
+        candidate: candidate ?? fallbackTitleFromText(text),
       });
-      if (title == null || (!generatedTitle && title === SAFE_CONVERSATION_TITLE)) return;
+      if (title == null || (candidate == null && title === SAFE_CONVERSATION_TITLE)) return;
       await publishConversationTitle(
         { saveConvo, getConvo, titleCache: getTitleCache() },
         {

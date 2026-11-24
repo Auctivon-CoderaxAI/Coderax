@@ -143,6 +143,7 @@ export default function useSSE(
 
     const handleFinal = (data: ChatFinalFrame) => {
       clearDirectStop();
+      if (streamingStart) setShowStopButton(false);
       /** A queued delta flush reading the older streaming copy must never
        * land on top of the server-final write. */
       cancelPendingDeltaFlush();
@@ -184,6 +185,7 @@ export default function useSSE(
 
     const handleAbort = async () => {
       clearDirectStop();
+      if (streamingStart) setShowStopButton(false);
       /** FLUSH (not cancel): the abort below synthesizes the partial response
        * from the cache, so the last queued tokens must land first. */
       flushPendingDeltas();
@@ -264,7 +266,10 @@ export default function useSSE(
               userMessage,
             }),
           );
-          if (streamingStart) jotaiStore.set(directStop, () => stopStream);
+          if (streamingStart) {
+            jotaiStore.set(directStop, () => stopStream);
+            setShowStopButton(true);
+          }
           createdHandler(event.data, currentSubmission);
           return;
         }
@@ -349,6 +354,7 @@ export default function useSSE(
       if (streamingStart) {
         retired = true;
         clearDirectStop();
+        setShowStopButton(false);
       }
       controller.abort();
     };

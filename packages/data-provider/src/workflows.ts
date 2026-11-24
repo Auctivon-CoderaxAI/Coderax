@@ -204,6 +204,7 @@ export interface WorkflowView {
 }
 
 export interface WorkflowRunView {
+  buildVerification?: WorkflowBuildVerification;
   id: string;
   workflowId: string;
   workflowName: string;
@@ -393,8 +394,15 @@ export function isTerminalWorkflowRunStatus(status: WorkflowRunStatus): boolean 
 }
 
 /** Resolves the effective dependencies of a step list. */
-export type WorkflowBuildMode = 'turbo15' | 'autonomous' | 'verified';
-export type WorkflowBuildGate = 'tests' | 'build' | 'review' | 'security';
+export const WORKFLOW_BUILD_MODES = ['turbo15', 'autonomous', 'verified'] as const;
+export const WORKFLOW_BUILD_GATES = ['tests', 'build', 'review', 'security'] as const;
+export type WorkflowBuildMode = (typeof WORKFLOW_BUILD_MODES)[number];
+export type WorkflowBuildGate = (typeof WORKFLOW_BUILD_GATES)[number];
+
+export interface WorkflowBuildVerification {
+  mode: WorkflowBuildMode;
+  requiredGates: WorkflowBuildGate[];
+}
 
 /** Launch input: a request and saved agents, never a caller-supplied step list. */
 export interface StartWorkflowBuildRequest {

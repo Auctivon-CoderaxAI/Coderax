@@ -1,5 +1,5 @@
 import { isTerminalWorkflowRunStatus } from 'coderax-data-provider';
-import type { WorkflowRunStatus, WorkflowStepStatus } from 'coderax-data-provider';
+import type { WorkflowRunStatus, WorkflowRunView, WorkflowStepStatus } from 'coderax-data-provider';
 import type { BuildGate, BuildMode } from './modes';
 import type { BuildRole } from './plan';
 import { getBuildModePolicy } from './modes';
@@ -359,4 +359,25 @@ export function summarizeBuild(
     turbo: turboReport(snapshot, policy.deadlineMs, outcome),
     summary: buildSummary(snapshot, outcome, finished, blocked, unfinished, gates),
   };
+}
+
+/**
+ * Report on a persisted build run. A completed workflow only means its steps
+ * settled; this report verifies the run against the gates captured at launch.
+ * Runs without a recorded build policy have no build verification report.
+ */
+export function summarizeWorkflowBuild(
+  run: WorkflowRunView,
+  evidence: Pick<BuildSnapshot, 'gates' | 'pullRequest' | 'deployment'> = {},
+): BuildReport | null {
+  if (run.buildVerification == null) return null;
+  return summarizeBuild({
+    ...evidence,
+    mode: run.buildVerification.mode,
+    requiredGates: run.buildVerification.requiredGates,
+    status: run.status,
+    steps: run.steps,
+    startedAt: run.startedAt,
+    settledAt: run.settledAt,
+  });
 }

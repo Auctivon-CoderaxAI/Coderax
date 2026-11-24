@@ -73,6 +73,8 @@ export function createWorkChatTransport(
           ...payload,
           model: selected.model.id,
           agent_id: undefined,
+          agentId: undefined,
+          ephemeralAgent: undefined,
           assistant_id: undefined,
           endpoint: undefined,
           endpointType: undefined,

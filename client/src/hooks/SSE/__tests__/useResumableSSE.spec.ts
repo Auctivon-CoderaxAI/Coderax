@@ -557,6 +557,7 @@ describe('useResumableSSE', () => {
     );
     const sse = getLastSSE();
     expect(sse._url).toBe(server);
+    expect(mockSetShowStopButton).toHaveBeenLastCalledWith(false);
     expect(request.post).not.toHaveBeenCalled();
     await act(async () => {
       sse._emit('message', {
@@ -578,9 +579,11 @@ describe('useResumableSSE', () => {
       }),
     );
     expect(getDefaultStore().get(directStreamStopByIndex(0))).toEqual(expect.any(Function));
+    expect(mockSetShowStopButton).toHaveBeenLastCalledWith(true);
     unmount();
     expect(sse.close).toHaveBeenCalledTimes(1);
     expect(getDefaultStore().get(directStreamStopByIndex(0))).toBeNull();
+    expect(mockSetShowStopButton).toHaveBeenLastCalledWith(false);
   });
 
   it.each(['final', 'cancel', 'error'])(

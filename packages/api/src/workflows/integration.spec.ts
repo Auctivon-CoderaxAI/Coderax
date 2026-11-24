@@ -7,9 +7,10 @@ import { InMemoryEventTransport } from '../stream/implementations/InMemoryEventT
 import { InMemoryJobStore } from '../stream/implementations/InMemoryJobStore';
 import { GenerationJobManagerClass } from '../stream/GenerationJobManager';
 import { createWorkflowSchedules, createWorkflowStore } from './store';
+import { createWorkflowHandlers, toRunView } from './handlers';
+import { summarizeWorkflowBuild } from '../autobuild/report';
 import { computeNextRunAt } from '../schedules/cadence';
 import { createWorkflowEventStarter } from './events';
-import { createWorkflowHandlers } from './handlers';
 import { createWorkflowEngine } from './engine';
 
 /**
@@ -71,6 +72,11 @@ describe('workflow engine with Mongo persistence', () => {
       mongoose.model('Workflow').syncIndexes(),
       mongoose.model('WorkflowRun').syncIndexes(),
     ]);
+    for (const name of ['Workflow', 'WorkflowRun']) {
+      const collection = mongoose.model(name).collection;
+      await collection.dropIndexes();
+      expect((await collection.indexes()).map((index) => index.name)).toEqual(['_id_']);
+    }
     const userId = owner();
     const createRun = jest
       .spyOn(methods, 'createWorkflowRun')
@@ -82,7 +88,7 @@ describe('workflow engine with Mongo persistence', () => {
         wake: jest.fn(),
       });
       const launch = {
-        request: 'Add a settings page',
+        request: 'Add authentication to the settings page',
         agentId: 'agent-1',
         mode: 'autonomous',
         launchKey: '392ec373-86a5-4ac6-8dbb-ec7aa4d49bd2',
@@ -112,6 +118,30 @@ describe('workflow engine with Mongo persistence', () => {
       expect(
         (await submit({ ...launch, request: 'A different build' })).status,
       ).toHaveBeenCalledWith(409);
+      const stored = await methods.getWorkflowRun(first.run.id, userId);
+      expect(stored?.buildVerification?.requiredGates).toContain('security');
+      expect(first.run.buildVerification).toEqual(stored?.buildVerification);
+      if (stored == null) throw new Error('Expected the launch run to be persisted');
+      const report = summarizeWorkflowBuild(
+        toRunView({
+          ...stored,
+          status: 'completed',
+          steps: stored.steps.map((step) => ({
+            ...step,
+            status: 'completed',
+            result: 'Recorded evidence',
+          })),
+        }),
+        {
+          gates: [
+            { gate: 'tests', status: 'passed' },
+            { gate: 'build', status: 'passed' },
+            { gate: 'review', status: 'passed' },
+          ],
+          pullRequest: { url: 'https://example.test/pr/1', state: 'open', checks: 'passed' },
+        },
+      );
+      expect(report).toMatchObject({ outcome: 'complete_unverified', missingGates: ['security'] });
       const other = await submit(launch, owner());
       expect(other.status).toHaveBeenCalledWith(202);
       expect(other.json.mock.calls[0][0].workflow.id).not.toBe(persisted.id);

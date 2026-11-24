@@ -468,6 +468,25 @@ describe('agents addTitle', () => {
     expect(mockCacheStore.has('user-1-seeded-chat')).toBe(false);
   });
 
+  it.each([
+    () => {
+      throw new Error('provider setup failed');
+    },
+    () => Promise.reject(new Error('provider request failed')),
+    async () => ' \n ',
+  ])('falls back for a failed or blank generator result (%p)', async (titleConvo) => {
+    await addTitle(makeReq(), {
+      text: 'Plan   the release',
+      client: { ...makeClient(), titleConvo },
+      conversationId: 'cid-fallback',
+    });
+    expect(mockSaveConvo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ title: 'Plan the release' }),
+      expect.anything(),
+    );
+  });
+
   it('falls back to the first message when title generation returns nothing', async () => {
     await addTitle(makeReq(), {
       text: 'Plan the release checklist',

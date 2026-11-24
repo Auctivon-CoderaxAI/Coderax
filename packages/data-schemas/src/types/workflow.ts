@@ -10,6 +10,7 @@ import type {
   WorkflowStepJoin,
   WorkflowStepStatus,
 } from 'coderax-data-provider';
+import type { WorkflowBuildVerification } from 'coderax-data-provider';
 import type { Document, Types } from 'mongoose';
 
 export interface IWorkflowSchedule {
@@ -89,6 +90,7 @@ export interface IWorkflowRunEvent {
 }
 
 export interface IWorkflowRun {
+  buildVerification?: WorkflowBuildVerification;
   _id?: Types.ObjectId;
   id: string;
   workflowId: string;

@@ -165,11 +165,25 @@ rejects the launch before persistence if an instruction exceeds the workflow lim
 
 <!-- /coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:eb8ff3c4323415cd33cf54b63b97c83cbe6d53835e4ac2fe317b9d4830e4e855 -->
+
+## Verification of persisted runs
+
+New build runs store the effective mode and required gates captured when they are launched.
+`summarizeWorkflowBuild(run, evidence)` reads those stored requirements from the run view.
+The workflow engine's `completed` status means the steps settled; the report is the enforcement
+point for verified completion and rejects missing gate evidence. Older runs without a stored build
+policy do not have a persisted build verification report.
+
 ## Not implemented in this change
 
-- **Automatic verification invocation is not wired into the workflow runner.** Agents can run tests
-  in their turns, but a completed run does not itself call `runBuildVerification`; a caller must
-  invoke the runner with the commands and attach its evidence to the run.
+- **Automatic verification invocation is not wired into the workflow runner.** A caller must
+  collect the gate evidence and pass it to the report. Step completion does not supply that
+  evidence automatically.
+
+<!-- /coderabbit-ai-generated:v1 -->
 - **The launch route uses the deterministic planner.** The model adapter is available for a free or
   local completion, but no server-side free-model provider is configured yet.
 - **No agent auto-provisioning.** Specialist roles bind to saved agents supplied by the caller.

@@ -29,8 +29,12 @@ try {
   console.error('CODERAX_BASE_URL must be an absolute URL');
   process.exit(2);
 }
-if (!['http:', 'https:'].includes(origin.protocol)) {
-  console.error('CODERAX_BASE_URL must use http or https');
+const loopback =
+  origin.hostname === 'localhost' ||
+  origin.hostname === '[::1]' ||
+  /^127(?:\.\d{1,3}){3}$/.test(origin.hostname);
+if (origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopback)) {
+  console.error('CODERAX_BASE_URL must use HTTPS unless the host is loopback');
   process.exit(2);
 }
 origin.pathname = origin.pathname.replace(/\/?$/, '/');
@@ -51,7 +55,9 @@ function urlFor(path) {
   return new URL(path.replace(/^\//, ''), origin).toString();
 }
 
-async function request(path, { method = 'GET', body, bearer = token, allow = [200] } = {}) {
+let sessionToken = token;
+
+async function request(path, { method = 'GET', body, bearer = sessionToken, allow = [200] } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -108,7 +114,6 @@ async function check(name, operation, { optional = false } = {}) {
   }
 }
 
-let sessionToken = token;
 async function resolveToken() {
   if (sessionToken) return 'provided';
   const response = await request('/api/auth/login', {
@@ -151,9 +156,18 @@ await check('authenticated user', async () => {
 
 await check('models catalog', async () => {
   const response = await request('/api/models', { allow: [200] });
-  const models = Array.isArray(response.body) ? response.body : response.body?.models;
-  if (!Array.isArray(models) || models.length === 0) throw new Error('models catalog is empty');
-  const ids = models.map((model) => model?.id ?? model?.name ?? model?.model).filter(Boolean);
+  const catalog = response.body;
+  const entries = Array.isArray(catalog)
+    ? catalog
+    : Object.values(catalog ?? {})
+        .filter(Array.isArray)
+        .flat();
+  const ids = entries
+    .map((model) =>
+      typeof model === 'string' ? model : (model?.id ?? model?.name ?? model?.model),
+    )
+    .filter((id) => typeof id === 'string' && id.trim() !== '');
+  if (ids.length === 0) throw new Error('models catalog is empty');
   if (requiredModel && !ids.includes(requiredModel)) {
     throw new Error(`configured model ${requiredModel} is not offered`);
   }

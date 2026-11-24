@@ -58,6 +58,7 @@ import { composerShapeClass, composerWidthClass, landingComposerClearance } from
 import { useChatModelRouting } from '~/Providers/ChatModelRoutingContext';
 import useComposerRestore from '~/hooks/Input/useComposerRestore';
 import { useChatSettings } from '~/Providers/ChatSettingsContext';
+import { directStreamStopByIndex } from '~/hooks/SSE/directStop';
 import usePastedTextEdit from '~/hooks/Files/usePastedTextEdit';
 import useAskAnswerMode from '~/hooks/Input/useAskAnswerMode';
 import AskUserQuestionPopover from './AskUserQuestionPopover';
@@ -288,10 +289,7 @@ const ChatForm = memo(function ChatForm({
     [conversation?.assistant_id, endpoint, assistantMap, workMode],
   );
   const disableInputs = useMemo(
-    () =>
-      workMode
-        ? !workCanSubmit
-        : requiresKey || invalidAssistant || modelUnavailable,
+    () => (workMode ? !workCanSubmit : requiresKey || invalidAssistant || modelUnavailable),
     [workMode, workCanSubmit, requiresKey, invalidAssistant, modelUnavailable],
   );
 
@@ -651,7 +649,9 @@ const ChatForm = memo(function ChatForm({
 
   /* The abort is generation-scoped and inert until the start POST installs the
      epoch; assistants abort through their own path and need no epoch. */
-  const canStop = steering.canControlGeneration || isAssistantsEndpoint(endpoint);
+  const directStreamStop = useAtomValue(directStreamStopByIndex(index));
+  const canStop =
+    directStreamStop != null || steering.canControlGeneration || isAssistantsEndpoint(endpoint);
 
   /** One button slot while a run is generating: with composer text the send
    *  button takes over (Enter steers/queues; hover reveals all actions);

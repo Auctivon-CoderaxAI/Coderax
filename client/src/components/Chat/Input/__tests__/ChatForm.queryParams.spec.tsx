@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
+import { getDefaultStore } from 'jotai';
 import { DndProvider } from 'react-dnd';
 import { useForm } from 'react-hook-form';
-import { RecoilRoot, useRecoilState } from 'recoil';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { QueryKeys, EModelEndpoint } from 'coderax-data-provider';
+import { RecoilRoot, useRecoilState, useSetRecoilState } from 'recoil';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, useNavigate, useLocation } from 'react-router-dom';
@@ -12,6 +13,7 @@ import type { Transport } from '~/hooks/Chat/contract';
 import type { ChatFormValues } from '~/common';
 import { ChatTransportContext, defaultChatTransport } from '~/Providers/ChatTransportContext';
 import { getNewConversationDraftId, getDraft, setDraft } from '~/utils/drafts';
+import { directStreamStopByIndex } from '~/hooks/SSE/directStop';
 import { ChatContext, ChatFormProvider } from '~/Providers';
 import { AuthContextProvider } from '~/hooks/AuthContext';
 import { startupConfigKey } from '~/data-provider';
@@ -116,6 +118,7 @@ function mountComposer(
     routePending = false,
     speechSettingsInitialized = false,
     liveRun = false,
+    directRun = false,
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -156,7 +159,9 @@ function mountComposer(
   });
   let navigate: ReturnType<typeof useNavigate>;
   let location: ReturnType<typeof useLocation>;
+  let setShowStop: (visible: boolean) => void;
   function NavigationBridge() {
+    setShowStop = useSetRecoilState(store.showStopButtonByIndex(0));
     navigate = useNavigate();
     location = useLocation();
     return null;
@@ -165,6 +170,7 @@ function mountComposer(
     <QueryClientProvider client={queryClient}>
       <RecoilRoot
         initializeState={({ set }) => {
+          if (directRun) set(store.isSubmittingFamily(0), true);
           if (liveRun) {
             set(store.isSubmittingFamily(0), true);
             set(store.showStopButtonByIndex(0), true);
@@ -201,7 +207,12 @@ function mountComposer(
       wrapper,
     },
   );
-  return { ...view, navigate: (to: string) => navigate(to), getLocation: () => location };
+  return {
+    ...view,
+    navigate: (to: string) => navigate(to),
+    getLocation: () => location,
+    showStop: (visible: boolean) => setShowStop(visible),
+  };
 }
 
 describe('ChatForm URL submission', () => {
@@ -397,6 +408,26 @@ describe('ChatForm URL submission', () => {
       expect(ask).toHaveBeenCalledTimes(outcome === 'refusal' ? 1 : 0);
     },
   );
+
+  it('renders an enabled Stop control for an acknowledged direct run without a native epoch', () => {
+    const view = mountComposer(
+      { ...initialConversation, conversationId: 'direct-work-chat' },
+      { query: '', directRun: true },
+    );
+    const atom = directStreamStopByIndex(0);
+    try {
+      expect(screen.queryByRole('button', { name: 'Stop generating' })).not.toBeInTheDocument();
+      act(() => {
+        getDefaultStore().set(atom, () => jest.fn());
+        view.showStop(true);
+      });
+      expect(screen.getByRole('button', { name: 'Stop generating' })).toBeEnabled();
+      act(() => view.showStop(false));
+      expect(screen.queryByRole('button', { name: 'Stop generating' })).not.toBeInTheDocument();
+    } finally {
+      act(() => getDefaultStore().set(atom, null));
+    }
+  });
 
   it('holds live-run composer actions during URL preparation while leaving Stop available', async () => {
     mountComposer(

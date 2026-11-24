@@ -1,6 +1,8 @@
 import { Schema } from 'mongoose';
 import {
   WORKFLOW_DESCRIPTION_MAX_LENGTH,
+  WORKFLOW_BUILD_MODES,
+  WORKFLOW_BUILD_GATES,
   WORKFLOW_INSTRUCTION_MAX_LENGTH,
   WORKFLOW_MAX_PARALLEL,
   WORKFLOW_NAME_MAX_LENGTH,
@@ -164,6 +166,20 @@ const workflowRunSchema: Schema<IWorkflowRunDocument> = new Schema(
     settings: { type: workflowSettingsSchema },
     conversationId: { type: String },
     input: { type: String, maxlength: WORKFLOW_RUN_INPUT_MAX_LENGTH },
+    buildVerification: {
+      type: new Schema(
+        {
+          mode: { type: String, enum: WORKFLOW_BUILD_MODES, required: true },
+          requiredGates: {
+            type: [String],
+            enum: WORKFLOW_BUILD_GATES,
+            required: true,
+            default: undefined,
+          },
+        },
+        { _id: false },
+      ),
+    },
     trigger: {
       type: new Schema(
         {

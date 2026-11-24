@@ -68,6 +68,7 @@ export interface CreateWorkflowRunInput {
   workflowAncestry?: string[];
   onCompleteWorkflowId?: string;
   dedupeKey?: string;
+  buildVerification?: IWorkflowRun['buildVerification'];
 }
 
 export interface WorkflowEventLookupInput {
@@ -309,6 +310,15 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
     return model;
   };
 
+  // MongoDB enforces _id uniqueness even when optional indexes are disabled or still building.
+  const occurrenceId = (domain: string, key: string): Types.ObjectId =>
+    objectId(
+      createHash('sha256')
+        .update(JSON.stringify([domain, key]))
+        .digest('hex')
+        .slice(0, 24),
+    );
+
   const objectId = (value: string): Types.ObjectId => new mongoose.Types.ObjectId(value);
 
   return {
@@ -347,11 +357,13 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       };
       if (input.launch != null) {
         const filter = { id, user, tenantId: input.tenantId ?? null };
+        const existing = await workflowModel().findOne(filter).lean<IWorkflow | null>();
+        if (existing != null) return existing;
         const now = new Date();
         try {
           return await workflowModel()
             .findOneAndUpdate(
-              filter,
+              { ...filter, _id: occurrenceId('build-workflow', id) },
               { $setOnInsert: { ...fields, createdAt: now, updatedAt: now } },
               {
                 upsert: true,
@@ -465,10 +477,18 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
     },
 
     createWorkflowRun: async (input) => {
-      if (input.dedupeKey != null) {
-        const existing = await runModel()
-          .findOne({ dedupeKey: input.dedupeKey })
-          .lean<IWorkflowRun | null>();
+      const user = objectId(input.userId);
+      const occurrence =
+        input.dedupeKey == null
+          ? null
+          : {
+              dedupeKey: input.dedupeKey,
+              user,
+              workflowId: input.workflowId,
+              tenantId: input.tenantId ?? null,
+            };
+      if (occurrence != null) {
+        const existing = await runModel().findOne(occurrence).lean<IWorkflowRun | null>();
         if (existing != null) {
           return existing;
         }
@@ -479,7 +499,10 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         created = await runModel().create({
           id: randomUUID(),
           workflowId: input.workflowId,
-          user: objectId(input.userId),
+          user,
+          ...(occurrence == null
+            ? {}
+            : { _id: occurrenceId('workflow-run', occurrence.dedupeKey) }),
           ...(input.tenantId == null ? {} : { tenantId: input.tenantId }),
           workflowName: input.workflowName,
           agentId: input.agentId,
@@ -488,6 +511,9 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           steps: input.steps.map((step, index) => normalizeStep(step, index, input.steps)),
           conversationId: input.conversationId,
           ...(input.input == null ? {} : { input: input.input }),
+          ...(input.buildVerification == null
+            ? {}
+            : { buildVerification: input.buildVerification }),
           ...(input.settings == null ? {} : { settings: input.settings }),
           ...(input.trigger == null ? {} : { trigger: input.trigger }),
           workflowAncestry: input.workflowAncestry ?? [input.workflowId],
@@ -502,10 +528,8 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
           ],
         });
       } catch (error) {
-        if (input.dedupeKey != null && isDuplicateKey(error)) {
-          const existing = await runModel()
-            .findOne({ dedupeKey: input.dedupeKey })
-            .lean<IWorkflowRun | null>();
+        if (occurrence != null && isDuplicateKey(error)) {
+          const existing = await runModel().findOne(occurrence).lean<IWorkflowRun | null>();
           if (existing != null) {
             return existing;
           }
