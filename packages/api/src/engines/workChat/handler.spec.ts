@@ -75,9 +75,10 @@ function fakeHandle(
 
 function fakeRunner(events: EngineEvent[] = [{ type: 'text_delta', text: 'hello' }]) {
   const handle = fakeHandle(events);
-  const start = jest.fn(
-    async (_input: StartScope): Promise<StartResult> => ({ ok: true, value: handle }),
-  );
+  const start = jest.fn(async (input: StartScope): Promise<StartResult> => {
+    await input.beforeDispatch?.();
+    return { ok: true, value: handle };
+  });
   const state = jest.fn(async (_input: RunScope): Promise<string | null> => null);
   const release = jest.fn(async (_input: ReleaseScope): Promise<boolean> => true);
   const runner: EngineWorkChatRunner = {
@@ -459,6 +460,8 @@ describe('createEngineWorkChatHandler', () => {
     });
     expect(store.saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
+      title: 'Fix it',
+      create: true,
       workState: 'failed',
     });
   });
@@ -812,7 +815,7 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
-  it('cancels and releases when the running-state conversation save fails', async () => {
+  it('prevents dispatch and releases when the running-state conversation save fails', async () => {
     const { store, saveConversation } = fakeStore();
     saveConversation.mockImplementation(async (input) => {
       if (input.workState === 'running') throw new Error('database offline');
@@ -832,10 +835,8 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.body).toMatchObject({ code: 'WORK_ENGINE_STORE_UNAVAILABLE' });
     expect(response.chunks).toHaveLength(0);
     expect(saveConversation).toHaveBeenCalledTimes(1);
-    expect(handle.cancel).toHaveBeenCalled();
-    expect(release).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
-    );
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
     expect(releaseRun).toHaveBeenCalledWith({
       userId: 'owner',
       tenantId: 'tenant-1',
@@ -1056,6 +1057,23 @@ describe('createEngineWorkChatHandler', () => {
       releaseStream?.();
       await pending.catch(() => undefined);
     }
+  });
+
+  it('does not dispatch after disconnect during transcript loading', async () => {
+    const response = fakeResponse();
+    const { store, loadTranscript } = fakeStore();
+    const { runner, start } = fakeRunner();
+    loadTranscript.mockImplementationOnce(async () => {
+      response.listeners.close.forEach((listener) => listener());
+      return [];
+    });
+    await createEngineWorkChatHandler({ storeFor: () => store, runtimeFor: () => runner })(
+      fakeRequest({ body: { text: 'Fix it', conversationId: CONVERSATION_ID } }),
+      response as unknown as Response,
+      jest.fn(),
+    );
+    expect(start).not.toHaveBeenCalled();
+    expect(store.saveConversation).not.toHaveBeenCalled();
   });
 
   it('cancels a run when the client disconnects before startup finishes', async () => {

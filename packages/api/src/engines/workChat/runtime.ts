@@ -115,7 +115,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   async start(
-    input: RunScope & { prompt: string; engine?: EngineId },
+    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
   ): Promise<EngineResult<EngineRunHandle>> {
     const engine = input.engine ?? this.defaultEngine;
     if (engine !== 'opencode' && engine !== 'freebuff') {
@@ -167,6 +167,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
 
     const started = await this.registry.start({
       engine,
+      beforeDispatch: input.beforeDispatch,
       request: {
         taskKey: this.mode === 'cloud' ? key : input.conversationId,
         conversationId: input.conversationId,

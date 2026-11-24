@@ -285,7 +285,29 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       } catch {
         // The current request is still enough to start; history is an enhancement.
       }
+      if (closed) return;
+      let recorded = false;
       const started = await runtime.start({
+        beforeDispatch: async () => {
+          if (closed) throw new Error('Work request closed');
+          try {
+            await store.saveConversation({
+              conversationId,
+              title,
+              workAgent: engine,
+              workState: 'running',
+              create: existing == null,
+            });
+            recorded = true;
+            if (closed) {
+              await store.saveConversation({ conversationId, workState: 'cancelled' });
+            }
+          } catch (error) {
+            storeUnavailable = true;
+            throw error;
+          }
+          if (closed) throw new Error('Work request closed');
+        },
         userId,
         tenantId,
         conversationId,
@@ -296,7 +318,11 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
           try {
-            await store.saveConversation({ conversationId, workState: 'failed' });
+            await store.saveConversation({
+              conversationId,
+              workState: 'failed',
+              ...(!recorded && existing == null ? { title, create: true } : {}),
+            });
           } catch (error) {
             storeUnavailable = true;
             throw error;
@@ -314,18 +340,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       activeHandle = started.value;
-      try {
-        await store.saveConversation({
-          conversationId,
-          title,
-          workAgent: engine,
-          workState: 'running',
-          create: existing == null,
-        });
-      } catch (error) {
-        storeUnavailable = true;
-        throw error;
-      }
       if (closed) {
         await started.value.cancel();
         await store.saveConversation({ conversationId, workState: 'cancelled' });

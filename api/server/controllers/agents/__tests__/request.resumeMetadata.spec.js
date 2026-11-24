@@ -266,6 +266,9 @@ jest.mock('@coderax/api', () => ({
   getAgentErrorMetadata: (...args) =>
     jest.requireActual('@coderax/api').getAgentErrorMetadata(...args),
   applyForcedTemporaryRequest: jest.fn(),
+  workflowStepGenerationMetadata: jest.requireActual('@coderax/api').workflowStepGenerationMetadata,
+  assertWorkflowStepDeliveryActive:
+    jest.requireActual('@coderax/api').assertWorkflowStepDeliveryActive,
   resolveResumableRetention: jest.requireActual('@coderax/api').resolveResumableRetention,
   markAbortedCompactionContent: (...args) =>
     jest.requireActual('@coderax/api').markAbortedCompactionContent(...args),
@@ -4705,7 +4708,9 @@ describe('ResumableAgentController resume metadata', () => {
       sendMessage: jest.fn().mockRejectedValue(generationError),
     };
     const initializeClient = jest.fn().mockResolvedValue({ client });
+    const releaseWorkRun = jest.fn();
     const req = {
+      claimWorkRun: jest.fn(() => releaseWorkRun),
       user: { id: 'user-123' },
       body: {
         text: 'Fail after initialization.',
@@ -4719,6 +4724,8 @@ describe('ResumableAgentController resume metadata', () => {
 
     await AgentController(req, res, jest.fn(), initializeClient, null);
     await completionStarted;
+    expect(req.claimWorkRun).toHaveBeenCalledWith('conversation-123');
+    expect(releaseWorkRun).not.toHaveBeenCalled();
 
     // completeJob owns both the terminal CAS and error publication; the
     // controller must not publish before terminal ownership is established.
@@ -4740,6 +4747,7 @@ describe('ResumableAgentController resume metadata', () => {
     );
     expect(mockDecrementPendingRequest).toHaveBeenCalledWith('user-123');
     expect(mockDisposeClient).toHaveBeenCalledWith(client);
+    expect(releaseWorkRun).toHaveBeenCalledTimes(1);
   });
 
   it('claims terminal ownership before FINAL and always finishes the winning claim', async () => {
