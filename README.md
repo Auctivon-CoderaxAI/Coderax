@@ -125,8 +125,11 @@ durable lease adapter 5/5, in-memory lease contract 17/17, Work dependency guard
 18/18, conversation turn saves 24/24, conversation storage 352/352, Work chat
 route 48/48 and Work model projection 8/8. The three lease suites counted here
 covered the swarm code removed on 2026-11-20 and no longer exist. GitHub Actions
-is still blocked before any job step (#141), and `tsc --noEmit` still reports
-unrelated existing errors, so this is not CI or deployment evidence.
+is still blocked before any job step (#141), so this is not CI or deployment evidence.
+On 2026-11-24 `npx tsc --noEmit` in `packages/api` reports no errors once `data-provider`
+and `data-schemas` are built, and the `src/routing`, Work router and config-loader suites
+pass 102 tests across 5 suites; the `packages/api` errors recorded earlier no longer
+reproduce.
 
 See [multi-agent certification](docs/MULTI_AGENT_CERTIFICATION.md) for evidence
 and acceptance tests. No swarm adapter ships in this tree; a future one would
