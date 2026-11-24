@@ -70,6 +70,7 @@ export function isExternalWorkAgentId(value: unknown): value is Exclude<TWorkAge
 }
 
 export type WorkAgentIdentityInput = {
+  owner?: boolean;
   snapshot?: EngineStatusSnapshot | null;
   workChatEnabled?: boolean;
   mode?: 'private' | 'cloud';
@@ -96,6 +97,17 @@ export function buildWorkAgentIdentities(input: WorkAgentIdentityInput = {}): TW
           available: false,
           reason: 'disabled',
           detail: 'External agent execution is disabled in engines.workChat.enabled.',
+        },
+      };
+    }
+
+    if (input.owner !== true) {
+      return {
+        ...definition,
+        availability: {
+          available: false,
+          reason: 'owner_only',
+          detail: 'External agents are available to the Coderax owner only.',
         },
       };
     }

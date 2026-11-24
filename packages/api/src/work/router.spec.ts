@@ -164,6 +164,25 @@ describe('native Work router', () => {
     expect(res.body.agents[2].availability).toMatchObject({ available: true });
   });
 
+  it('does not offer external identities to a non-admin or probe their engines', async () => {
+    const engines = jest.fn();
+    const res = await request(
+      app({
+        role: 'USER',
+        workChat: { enabled: true, mode: 'cloud' },
+        engines,
+      }),
+    ).get('/api/work/agent-identities');
+
+    expect(res.status).toBe(200);
+    expect(res.body.agents.map((agent: { availability: unknown }) => agent.availability)).toEqual([
+      { available: true },
+      expect.objectContaining({ available: false, reason: 'owner_only' }),
+      expect.objectContaining({ available: false, reason: 'owner_only' }),
+    ]);
+    expect(engines).not.toHaveBeenCalled();
+  });
+
   it('keeps native available while external identities report why they cannot run', async () => {
     const res = await request(app({ role: 'ADMIN', workChatEnabled: true })).get(
       '/api/work/agent-identities',

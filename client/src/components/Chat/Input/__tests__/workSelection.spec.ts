@@ -1,6 +1,13 @@
 import { EModelEndpoint } from 'coderax-data-provider';
 import type { TWorkModel } from 'coderax-data-provider';
-import { resolveWorkSelection, sanitizeWorkSelection, toWorkOptions } from '../workSelection';
+import {
+  getWorkModelKey,
+  resolveWorkSelection,
+  sanitizeWorkSelection,
+  selectWorkAgentIdentity,
+  selectWorkMode,
+  toWorkOptions,
+} from '../workSelection';
 
 const target = { id: 'quick:free', label: 'Quick', provider: 'openrouter' };
 const models: TWorkModel[] = [
@@ -80,5 +87,53 @@ describe('Work routing selection', () => {
     const options = toWorkOptions(models, [], routingModes);
     const withoutTarget = { ...options, models: [] };
     expect(resolveWorkSelection({ agentId: 'auto', modelKey: 'fast' }, withoutTarget)).toBeNull();
+  });
+});
+
+describe('Work identity and mode transitions', () => {
+  it.each(['opencode', 'freebuff'] as const)(
+    'restores a remembered native model after %s',
+    (identity) => {
+      const options = toWorkOptions(models, []);
+      const native = { agentId: 'auto', modelKey: getWorkModelKey(models[2]) };
+      const external = sanitizeWorkSelection(
+        selectWorkAgentIdentity(native, identity, options),
+        options,
+      );
+      expect(
+        nativePreset(
+          resolveWorkSelection(selectWorkAgentIdentity(external, 'coderax', options), options),
+        ).model,
+      ).toBe('strong:free');
+    },
+  );
+
+  it.each([true, false])(
+    'switches back to a runnable native model (automatic offered: %s)',
+    (automatic) => {
+      const options = toWorkOptions(automatic ? models : models.slice(1), []);
+      const external = sanitizeWorkSelection(
+        { workAgent: 'opencode', modelKey: 'no-longer-offered' },
+        options,
+      );
+      const next = selectWorkAgentIdentity(external, 'coderax', options);
+      expect(nativePreset(resolveWorkSelection(next, options)).model).toBe(
+        automatic ? 'auto' : 'quick:free',
+      );
+    },
+  );
+
+  it('runs the built-in Plan mode instead of the previously selected saved agent', () => {
+    const options = toWorkOptions(models, []);
+    const saved = {
+      agentId: 'saved',
+      modelKey: getWorkModelKey(models[1]),
+      workAgent: 'coderax' as const,
+    };
+    expect(resolveWorkSelection(selectWorkMode(saved, 'plan'), options)).toMatchObject({
+      agent: null,
+      mode: 'plan',
+      promptPrefix: expect.stringContaining('Do not edit files'),
+    });
   });
 });

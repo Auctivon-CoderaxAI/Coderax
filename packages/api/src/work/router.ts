@@ -2,6 +2,7 @@ import express from 'express';
 import {
   DEFAULT_WORK_AGENT_GRAPH_CONCURRENCY,
   DEFAULT_WORK_AGENT_GRAPH_LIMIT,
+  SystemRoles,
 } from 'coderax-data-provider';
 import type { FreeInferenceCatalogState } from 'coderax-data-provider';
 import type { NextFunction, Request, Response, Router } from 'express';
@@ -208,9 +209,10 @@ export function createWorkRouter(deps: WorkDeps): Router {
    * Native Coderax is always first and available; external identities carry a
    * truthful unavailable reason instead of disappearing or being faked.
    */
-  router.get('/agent-identities', async (_req: Request, res: Response) => {
+  router.get('/agent-identities', async (req: Request, res: Response) => {
+    const owner = (req.user as { role?: string } | undefined)?.role === SystemRoles.ADMIN;
     let snapshot: EngineStatusSnapshot | null = null;
-    if (deps.engines) {
+    if (owner && deps.engines) {
       try {
         snapshot = await deps.engines();
       } catch {
@@ -218,6 +220,7 @@ export function createWorkRouter(deps: WorkDeps): Router {
       }
     }
     const agents = buildWorkAgentIdentities({
+      owner,
       snapshot,
       workChatEnabled: deps.workChat?.enabled === true,
       mode: deps.workChat?.mode === 'cloud' ? 'cloud' : 'private',
