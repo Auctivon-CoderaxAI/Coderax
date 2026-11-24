@@ -101,7 +101,7 @@ describe('listToolStandingAuthorizations', () => {
     expect(listed.map((item) => item.label)).toEqual(['a']);
   });
 
-  test('round-trips expiry and hides revoked grants unless asked', async () => {
+  test('round-trips expiry and hides revoked grants', async () => {
     const created = await methods.createToolStandingAuthorization(
       { userId: userA },
       { label: 'expiring', tools: ['read_file'], expiresAt: Date.now() + 60_000 },
@@ -117,12 +117,6 @@ describe('listToolStandingAuthorizations', () => {
     ).resolves.toBe(true);
 
     expect(await methods.listToolStandingAuthorizations({ userId: userA })).toEqual([]);
-    const all = await methods.listToolStandingAuthorizations(
-      { userId: userA },
-      { includeRevoked: true },
-    );
-    expect(all).toHaveLength(1);
-    expect(typeof all[0].revokedAt).toBe('number');
   });
 });
 

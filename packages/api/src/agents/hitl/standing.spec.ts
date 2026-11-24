@@ -145,8 +145,6 @@ describe('resolveStandingAuthorizationRun', () => {
     });
 
     expect(run.patterns).toEqual(['read_*']);
-    expect(run.guard.covers('read_file')).toBe(true);
-    expect(run.guard.covers('write_file')).toBe(false);
 
     await expect(run.guard.assert('read_file')).resolves.toBeUndefined();
     // An uncovered tool never triggers a second read.
@@ -180,10 +178,7 @@ describe('resolveStandingAuthorizationRun', () => {
 
 describe('run pause path', () => {
   test('re-checks a standing grant before an agent-mode-less tool executes', async () => {
-    const standing = {
-      covers: () => true,
-      assert: jest.fn().mockRejectedValue(new Error('standing revoked')),
-    };
+    const standing = { assert: jest.fn().mockRejectedValue(new Error('standing revoked')) };
     const session = createAgentToolApprovalSession({
       agents: [{ id: 'agent-1' }],
       standing,
@@ -194,11 +189,11 @@ describe('run pause path', () => {
     expect(standing.assert).toHaveBeenCalledWith('read_file');
   });
 
-  test('leaves an uncovered tool untouched', async () => {
+  test('delegates every mode-less tool to the guard', async () => {
     const assert = jest.fn().mockResolvedValue(undefined);
     const session = createAgentToolApprovalSession({
       agents: [{ id: 'agent-1' }],
-      standing: { covers: () => false, assert },
+      standing: { assert },
     });
     await expect(
       session.validateExecution({ name: 'read_file' }, { agentId: 'agent-1', toolCallId: 'c1' }),

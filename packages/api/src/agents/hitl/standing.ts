@@ -1,18 +1,14 @@
-import {
-  isStandingAuthorizationActive,
-  matchesToolPattern,
-  selectStandingAuthorization,
-} from 'coderax-data-provider';
+import { isStandingAuthorizationActive, matchesToolPattern } from 'coderax-data-provider';
 import type {
   TToolApprovalPolicy,
   ToolStandingAuthorization,
   ToolStandingAuthorizationScope,
 } from 'coderax-data-provider';
 import type { StandingAuthorizationGate } from '~/tools/standing';
-import { loadStandingAuthorizations } from '~/tools/standing';
+import { authorizeStandingWork, loadStandingAuthorizations } from '~/tools/standing';
 
 /** Bounds how much of the approval policy a large set of grants can inflate. */
-export const MAX_STANDING_AUTHORIZATION_PATTERNS = 256;
+const MAX_STANDING_AUTHORIZATION_PATTERNS = 256;
 
 /**
  * Tool patterns this run may treat as already approved.
@@ -62,8 +58,6 @@ export function applyStandingToolAllows(
 }
 
 export interface StandingAuthorizationGuard {
-  /** Whether this run folded a pattern covering the tool. */
-  covers: (toolName: string) => boolean;
   /** Re-reads the owner's grants before the call; throws when none still allow it. */
   assert: (toolName: string) => Promise<void>;
 }
@@ -73,10 +67,7 @@ export interface StandingAuthorizationRun {
   guard: StandingAuthorizationGuard;
 }
 
-const unguarded: StandingAuthorizationGuard = {
-  covers: () => false,
-  assert: async () => undefined,
-};
+const unguarded: StandingAuthorizationGuard = { assert: async () => undefined };
 
 /**
  * Resolves the grants a run may honor before it starts, and builds the guard
@@ -110,21 +101,15 @@ export async function resolveStandingAuthorizationRun(options: {
   return {
     patterns,
     guard: {
-      covers,
       async assert(toolName) {
         if (!covers(toolName)) return;
-        const current = await loadStandingAuthorizations(gate);
-        if (current == null) {
-          throw new Error(
-            'The standing authorization could not be verified. Request approval again.',
-          );
-        }
-        const decision = selectStandingAuthorization(current, { toolName, costUsd: 0 });
-        if (!decision.allowed) {
-          throw new Error(
-            'The standing authorization expired or was revoked. Request approval again.',
-          );
-        }
+        const decision = await authorizeStandingWork({ toolName, costUsd: 0 }, gate);
+        if (decision.allowed) return;
+        throw new Error(
+          decision.reason === 'unavailable'
+            ? 'The standing authorization could not be verified. Request approval again.'
+            : 'The standing authorization expired or was revoked. Request approval again.',
+        );
       },
     },
   };
