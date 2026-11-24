@@ -125,7 +125,7 @@ export function createCyvoxAddonRouter(
     const target = getTarget(res);
     if (!target) {
       res.status(503).json({ code: 'CYVOX_NOT_CONFIGURED' });
-      return;
+      return false;
     }
     try {
       const response = await fetch(new URL(path, target.url), {

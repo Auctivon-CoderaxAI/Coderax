@@ -17,6 +17,8 @@ import { useBadgeRowContext } from '~/Providers';
 import TokenUsage from '../TokenUsage';
 import { useLocalize } from '~/hooks';
 import Thinking from './Thinking';
+import ModelSelector from '~/components/Chat/Menus/Endpoints/ModelSelector';
+import { useGetStartupConfig } from '~/data-provider';
 import Palette from './Palette';
 import { cn } from '~/utils';
 import Chip from './Chip';
@@ -246,6 +248,7 @@ function Bar({
   dictation,
 }: BarProps) {
   const localize = useLocalize();
+  const { data: startupConfig } = useGetStartupConfig();
   const context = useBadgeRowContext();
   /* Latched on the palette's first open and never released: the skills catalog
      is only walked for composers whose palette was actually used, and closing
@@ -429,6 +432,12 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
+        {/* The provider picker belongs with the message it configures, not in the page header. */}
+        {index === 0 && (
+          <div className="min-w-0 max-w-36 shrink overflow-hidden sm:max-w-52" data-testid="composer-model-selection">
+            <ModelSelector startupConfig={startupConfig} />
+          </div>
+        )}
         {/* A box rather than `contents` so it has something to move: the split
             only puts chips here when they all fit on this line, so wrapping as
             one unit and wrapping as siblings come to the same layout. */}
