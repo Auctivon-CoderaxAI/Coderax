@@ -1,8 +1,8 @@
 // client/src/hooks/Nav/__tests__/useOptionalPanelActive.spec.tsx
-import type { ReactNode } from 'react';
 import { RecoilRoot } from 'recoil';
 import { MemoryRouter } from 'react-router-dom';
 import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { ActivePanelProvider, useActivePanel } from '~/Providers/ActivePanelContext';
 import { useOptionalPanelActive } from '../usePanelActive';
 import store from '~/store';
@@ -31,10 +31,9 @@ const render = (options: Parameters<typeof makeWrapper>[0] = {}) =>
 
 /** Renders the hook alongside the panel context so tests can switch panels. */
 const renderWithPanel = (options: Parameters<typeof makeWrapper>[0] = {}) =>
-  renderHook(
-    () => ({ isActive: useOptionalPanelActive('prompts'), panel: useActivePanel() }),
-    { wrapper: makeWrapper(options) },
-  );
+  renderHook(() => ({ isActive: useOptionalPanelActive('prompts'), panel: useActivePanel() }), {
+    wrapper: makeWrapper(options),
+  });
 
 describe('useOptionalPanelActive', () => {
   beforeEach(() => localStorage.clear());
@@ -60,6 +59,11 @@ describe('useOptionalPanelActive', () => {
       expect(render({ path })).toBe(false);
     },
   );
+
+  // Game Studio is route-backed but keeps the ordinary shell, so the panel stays visible.
+  it.each(['/games', '/games/lantern-run'])('is true inside a provider on %s', (path) => {
+    expect(render({ path })).toBe(true);
+  });
 
   // Without a provider the panel is the page itself, so route visibility is ignored.
   it.each(['/insights', '/cyvox/robot'])(

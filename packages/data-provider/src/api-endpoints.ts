@@ -222,6 +222,17 @@ export const projectFile = (projectId: string, fileId: string) =>
 export const projectConversation = (conversationId: string) =>
   `${projectsRoot}/conversations/${encodeURIComponent(conversationId)}`;
 
+export const gamesRoot = `${BASE_URL}/api/games`;
+
+export const gameProjects = (params: q.GameProjectListParams = {}) =>
+  `${gamesRoot}/projects${buildQuery(params)}`;
+
+export const gameProjectById = (id: string) => `${gameProjects()}/${encodeURIComponent(id)}`;
+
+export const gameProjectSpec = (id: string) => `${gameProjectById(id)}/spec`;
+
+export const gameCapabilities = () => `${gamesRoot}/capabilities`;
+
 export const search = (q: string, cursor?: string | null) =>
   `${BASE_URL}/api/search?q=${q}${cursor ? `&cursor=${cursor}` : ''}`;
 
