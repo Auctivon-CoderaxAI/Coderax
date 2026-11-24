@@ -18,8 +18,12 @@ jest.mock('~/server/middleware/config/app', () => ({
   }),
 }));
 
+let mockLeaseStore;
+let mockHandlerOptions;
+
 jest.mock('@coderax/api', () => {
   const express = require('express');
+  const leaseStore = (mockLeaseStore = {});
   return {
     createWorkDepsFactory: jest.fn(() => () => ({ listModels: async () => [] })),
     createWorkRouter: jest.fn((deps) => {
@@ -38,9 +42,12 @@ jest.mock('@coderax/api', () => {
     persistTerminalWorkState: jest.fn(),
     workStateForJobStatus: jest.fn(),
     getFreeRouterForConfig: jest.fn(() => ({ snapshot: () => ({}) })),
-    createEngineWorkChatHandler: jest.fn(() => (_req, _res, next) => next()),
+    createEngineWorkChatHandler: jest.fn((options) => {
+      mockHandlerOptions = options;
+      return (_req, _res, next) => next();
+    }),
     createEngineWorkChatPersistence: jest.fn(),
-    createWorkRunLeaseStore: jest.fn(() => ({})),
+    createWorkRunLeaseStore: jest.fn(() => leaseStore),
     readEngineWorkState: jest.fn(async (scope, runtime) => runtime.state(scope)),
     getEngineWorkChatRuntime: jest.fn(() => ({
       state: async () => null,
@@ -108,6 +115,14 @@ describe('Work configuration-backed read routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ enabled: true });
+  });
+
+  it('starts chat runs on the same durable lease store the read routes consult', () => {
+    const { getEngineWorkChatRuntime } = jest.requireMock('@coderax/api');
+    const config = { engines: { workChat: { enabled: true } } };
+
+    expect(mockHandlerOptions.runtimeFor(config)).toBeTruthy();
+    expect(getEngineWorkChatRuntime).toHaveBeenCalledWith(config, mockLeaseStore);
   });
 
   it('loads strict config before the chat admission reads hosted free models', async () => {

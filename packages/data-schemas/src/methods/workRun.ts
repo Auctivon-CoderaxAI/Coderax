@@ -182,7 +182,11 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
     if (stale.length === 0) {
       return 0;
     }
-    const result = await workRuns().deleteMany({ _id: { $in: stale.map((row) => row._id) } });
+    /** Re-check the expiry: a row reclaimed after the select must survive. */
+    const result = await workRuns().deleteMany({
+      _id: { $in: stale.map((row) => row._id) },
+      expiresAt: { $lte: input.before },
+    });
     return result.deletedCount ?? 0;
   }
 
