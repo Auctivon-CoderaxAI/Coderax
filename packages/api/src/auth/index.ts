@@ -33,6 +33,7 @@ export * from './passwordResetUpdate';
 export * from './login';
 export * from './enrollment';
 export * from './gates';
+export * from './guestAccess';
 export * from './share';
 export * from './limiter';
 export * from './tempuser';

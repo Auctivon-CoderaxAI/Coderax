@@ -1,5 +1,5 @@
 /* eslint-disable i18next/no-literal-string */
-import React from 'react';
+import React, { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router-dom';
 import { useAuthContext } from '~/hooks/AuthContext';
@@ -44,20 +44,37 @@ function renderEntry(
   passwordLoginEnabled = false,
   initialEntry = '/connect',
   startupConfig: Record<string, unknown> | null = {},
-  query: { isFetching?: boolean; startupConfigError?: Error } = {},
+  query: {
+    isFetching?: boolean;
+    startupConfigError?: Error;
+    loadConfig?: () => Promise<Record<string, unknown>>;
+  } = {},
 ) {
+  function Layout() {
+    const [config, setConfig] = useState(startupConfig);
+    const [fetching, setFetching] = useState(query.isFetching ?? false);
+    return (
+      <Outlet
+        context={{
+          startupConfig: config === null ? null : { passwordLoginEnabled, ...config },
+          startupConfigError: query.startupConfigError ?? null,
+          isFetching: fetching,
+          refetchStartupConfig: async () => {
+            setFetching(true);
+            try {
+              setConfig((await query.loadConfig?.()) ?? null);
+            } finally {
+              setFetching(false);
+            }
+          },
+        }}
+      />
+    );
+  }
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <Outlet
-            context={{
-              startupConfig: startupConfig && { passwordLoginEnabled, ...startupConfig },
-              isFetching: false,
-              ...query,
-            }}
-          />
-        ),
+        element: <Layout />,
         children: [
           { path: '/connect', element: <GuestEntry /> },
           { path: '/c/new', element: <div>Chat workspace</div> },
@@ -257,5 +274,28 @@ describe('guest and password entry', () => {
     renderEntry(true);
     expect(screen.getByLabelText('com_auth_password')).toBeInTheDocument();
     expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
+  });
+
+  it('does not admit an authenticated guest when startup config failed to load', () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const router = renderEntry(false, '/connect', null);
+    expect(screen.getByLabelText('com_auth_password')).toBeInTheDocument();
+    expect(screen.queryByText('Coderax is unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('Chat workspace')).not.toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/connect');
+  });
+
+  it('retries failed startup configuration before opening the workspace', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue(
+      auth({ isAuthenticated: true, user: { provider: 'guest' } }),
+    );
+    const loadConfig = jest.fn(async () => ({}));
+    const router = renderEntry(false, '/connect?redirect_to=%2Fwork%2Fnew', null, { loadConfig });
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_retry' }));
+    expect(loadConfig).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Work workspace')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/work/new');
   });
 });
