@@ -52,7 +52,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       engine: 'opencode',
       request: expect.objectContaining({
         mode: 'cloud',
-        workspaceRoot: path.join(cloudRoot, 'agents', 'opencode'),
+        workspaceRoot: expect.stringMatching(/work-opencode-[a-f0-9]{64}$/),
         model: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' },
       }),
     });

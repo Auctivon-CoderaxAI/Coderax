@@ -333,10 +333,16 @@ export function sanitizeWorkSelection(stored: unknown, options: WorkOptions): Wo
       ? requestedIdentity
       : 'coderax';
   const identity = workIdentities(options).find((option) => option.id === knownIdentity);
+  const modelKey =
+    typeof value.modelKey === 'string' &&
+    (options.models.some((option) => getWorkModelKey(option) === value.modelKey) ||
+      options.routing?.some((option) => option.routingMode === value.modelKey) === true)
+      ? value.modelKey
+      : WORK_AUTOMATIC;
   if (knownIdentity !== 'coderax' && identity) {
     return {
       agentId: WORK_AUTOMATIC,
-      modelKey: WORK_AUTOMATIC,
+      modelKey,
       workAgent: knownIdentity,
       mode,
     };
@@ -354,14 +360,10 @@ export function sanitizeWorkSelection(stored: unknown, options: WorkOptions): Wo
       mode,
     };
   }
-  const modelOffered =
-    typeof value.modelKey === 'string' &&
-    (options.models.some((option) => getWorkModelKey(option) === value.modelKey) ||
-      options.routing?.some((option) => option.routingMode === value.modelKey) === true);
   return (
     soleEngineSelection(options, mode) ?? {
       agentId: WORK_AUTOMATIC,
-      modelKey: modelOffered ? (value.modelKey as string) : WORK_AUTOMATIC,
+      modelKey,
       workAgent: 'coderax',
       mode,
     }
@@ -389,10 +391,10 @@ export function selectWorkAgent(selection: WorkSelection, agent: TWorkAgent | nu
   };
 }
 
-/** A built-in mode keeps the current model and agent identity. */
+/** Built-in modes use the automatic agent while keeping the model and identity. */
 export function selectWorkMode(selection: WorkSelection, mode: WorkMode): WorkSelection {
   return {
-    agentId: selection.agentId,
+    agentId: WORK_AUTOMATIC,
     modelKey: selection.modelKey,
     workAgent: workAgentOf(selection),
     mode,
@@ -402,13 +404,23 @@ export function selectWorkMode(selection: WorkSelection, mode: WorkMode): WorkSe
 export function selectWorkAgentIdentity(
   selection: WorkSelection,
   workAgent: TWorkAgentId,
+  options: WorkOptions,
 ): WorkSelection {
-  return {
+  const next: WorkSelection = {
     agentId: workAgent === 'coderax' ? selection.agentId : WORK_AUTOMATIC,
     modelKey: selection.modelKey,
     workAgent,
     mode: selection.mode ?? DEFAULT_WORK_MODE,
   };
+  if (workAgent !== 'coderax' || workAgentOf(selection) === 'coderax') {
+    return next;
+  }
+  const native = sanitizeWorkSelection(next, options);
+  if (resolveWorkSelection(native, options)) {
+    return native;
+  }
+  const fallback = options.models.find((model) => model.provider && model.engine == null);
+  return fallback ? { ...native, modelKey: getWorkModelKey(fallback) } : native;
 }
 
 /** A conversation's current fields read back as a selection, for the in-task composer. */

@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
 import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
@@ -78,11 +79,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     if (activeRuns.has(key)) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
-    if (this.mode === 'cloud' && !this.roots.cloud) {
-      return engineFailure('workspace_denied', 'The cloud workspace root is not configured.');
-    }
-    const workspaceRoot =
-      this.mode === 'cloud' ? path.join(this.roots.cloud, 'agents', engine) : this.roots.private;
+    let workspaceRoot = this.roots[this.mode];
     if (!workspaceRoot) {
       return engineFailure(
         'workspace_denied',
@@ -92,6 +89,13 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     if (this.mode === 'cloud') {
       try {
         await mkdir(workspaceRoot, { recursive: true });
+        const cloudRoot = await realpath(workspaceRoot);
+        const scope = createHash('sha256').update(key).digest('hex');
+        workspaceRoot = path.join(cloudRoot, `work-${engine}-${scope}`);
+        await mkdir(workspaceRoot, { recursive: true, mode: 0o700 });
+        if (!(await lstat(workspaceRoot)).isDirectory()) {
+          return engineFailure('workspace_denied', 'The agent workspace is not a directory.');
+        }
       } catch {
         return engineFailure('workspace_denied', 'The agent workspace could not be created.');
       }
@@ -99,7 +103,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     const started = await this.registry.start({
       engine,
       request: {
-        taskKey: input.conversationId,
+        taskKey: this.mode === 'cloud' ? key : input.conversationId,
         conversationId: input.conversationId,
         prompt: input.prompt,
         mode: this.mode,

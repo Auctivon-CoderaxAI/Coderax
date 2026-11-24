@@ -8,7 +8,6 @@ import { QueryKeys, dataService } from 'coderax-data-provider';
 import type {
   TWorkAgent,
   TWorkAgentIdentity,
-  TWorkAgentId,
   TWorkReadinessAction,
   TWorkRoutingMode,
 } from 'coderax-data-provider';
@@ -421,7 +420,7 @@ export function WorkAgentIdentitySelect({
       options={selectOptions}
       onChange={(value) => {
         if (value === 'coderax' || value === 'opencode' || value === 'freebuff') {
-          onChange(selectWorkAgentIdentity(selection, value as TWorkAgentId));
+          onChange(selectWorkAgentIdentity(selection, value, options));
         }
       }}
       disabled={disabled}

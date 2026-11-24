@@ -114,6 +114,9 @@ export function createWorkChatTransport(
           return payload;
         }
         if (selected.workAgent !== 'coderax') {
+          if (payload.spec != null) {
+            throw new Error('WORK_AGENT_COMBINATION_UNSUPPORTED');
+          }
           return {
             ...payload,
             ...modePayload,

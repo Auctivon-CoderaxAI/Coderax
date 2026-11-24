@@ -25,6 +25,7 @@ describe('Work admission', () => {
       ok: true,
       context: {
         isWork: true,
+        workAgent: 'coderax',
         workModel: 'local-model',
         workProvider: 'ollama',
         allowedModels: [{ id: 'local-model', provider: 'ollama' }],
@@ -76,6 +77,7 @@ describe('Work admission', () => {
       ok: true,
       context: {
         isWork: true,
+        workAgent: 'coderax',
         workModel: 'local-model',
         workProvider: 'ollama',
         allowedModels: [{ id: 'local-model', provider: 'ollama' }],

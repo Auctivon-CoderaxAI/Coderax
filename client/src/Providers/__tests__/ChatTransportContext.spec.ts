@@ -290,6 +290,23 @@ describe('createWorkChatTransport', () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it('rejects an external spec before starting either transport', () => {
+    const start = jest.fn();
+    const transport = createWorkChatTransport({ start } as never, options, {
+      agentId: 'auto',
+      modelKey: 'auto',
+      workAgent: 'opencode',
+    });
+    expect(() =>
+      transport.start({
+        ...chatRequest,
+        payload: { ...chatRequest.payload, spec: 'spec-1' },
+      }),
+    ).toThrow('WORK_AGENT_COMBINATION_UNSUPPORTED');
+    expect(startEngine).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it('keeps a resumable engine attachment on the direct origin after an engine start', async () => {
     const reconnectToStream = jest.fn().mockReturnValue({ closed: false });
     const stream = jest.fn().mockReturnValue({ send: jest.fn(), reconnectToStream });
