@@ -14,13 +14,15 @@ const grant = (overrides: Partial<ToolStandingAuthorization> = {}): ToolStanding
 
 describe('authorizeStandingWork', () => {
   test('denies when no store or scope is injected', async () => {
-    await expect(authorizeStandingWork({ toolName: 'read_file' }, {})).resolves.toEqual({
-      allowed: false,
-      reason: 'unavailable',
-    });
+    await expect(authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, {})).resolves.toEqual(
+      {
+        allowed: false,
+        reason: 'unavailable',
+      },
+    );
     await expect(
       authorizeStandingWork(
-        { toolName: 'read_file' },
+        { toolName: 'read_file', costUsd: 0 },
         { storage: { listToolStandingAuthorizations: jest.fn() } },
       ),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
@@ -29,9 +31,19 @@ describe('authorizeStandingWork', () => {
   test('allows a call covered by an active authorization', async () => {
     const storage = { listToolStandingAuthorizations: jest.fn().mockResolvedValue([grant()]) };
     await expect(
-      authorizeStandingWork({ toolName: 'read_file', projectId: 'proj-1' }, { storage, scope }),
+      authorizeStandingWork(
+        { toolName: 'read_file', projectId: 'proj-1', costUsd: 0 },
+        { storage, scope },
+      ),
     ).resolves.toEqual({ allowed: true, authorizationId: 'standing-1' });
     expect(storage.listToolStandingAuthorizations).toHaveBeenCalledWith(scope);
+  });
+
+  test('denies a call that carries a cost', async () => {
+    const storage = { listToolStandingAuthorizations: jest.fn().mockResolvedValue([grant()]) };
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0.5 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: false, reason: 'cost' });
   });
 
   test('denies when the store rejects instead of approving by default', async () => {
@@ -39,7 +51,18 @@ describe('authorizeStandingWork', () => {
       listToolStandingAuthorizations: jest.fn().mockRejectedValue(new Error('db down')),
     };
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope }),
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
+  });
+
+  test('denies when the lookup throws synchronously', async () => {
+    const storage = {
+      listToolStandingAuthorizations: jest.fn(() => {
+        throw new Error('sync failure');
+      }),
+    };
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
@@ -50,7 +73,10 @@ describe('authorizeStandingWork', () => {
       ),
     };
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope, timeoutMs: 5 }),
+      authorizeStandingWork(
+        { toolName: 'read_file', costUsd: 0 },
+        { storage, scope, timeoutMs: 5 },
+      ),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
@@ -61,11 +87,15 @@ describe('authorizeStandingWork', () => {
       .mockResolvedValueOnce([grant({ revokedAt: 2 })]);
     const gate = { storage: { listToolStandingAuthorizations: list }, scope };
 
-    await expect(authorizeStandingWork({ toolName: 'read_file' }, gate)).resolves.toEqual({
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, gate),
+    ).resolves.toEqual({
       allowed: true,
       authorizationId: 'standing-1',
     });
-    await expect(authorizeStandingWork({ toolName: 'read_file' }, gate)).resolves.toEqual({
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, gate),
+    ).resolves.toEqual({
       allowed: false,
       reason: 'revoked',
     });

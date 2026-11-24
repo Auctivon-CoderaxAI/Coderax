@@ -2887,7 +2887,7 @@ export async function createRun({
     policy: toolApprovalPolicy,
     storage: toolApprovalStorage,
     scope: user?.id != null ? { userId: user.id, tenantId: tenantId ?? user.tenantId } : undefined,
-    timeoutMs: toolApprovalPolicy?.grantLookupTimeoutMs,
+    timeoutMs: toolApprovalPolicy?.standingAuthorizationLookupTimeoutMs,
   });
   const effectiveToolApprovalPolicy = () => {
     const policy = baselineToolApprovalPolicy();
