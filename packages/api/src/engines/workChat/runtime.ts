@@ -67,8 +67,12 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
    * cancellation flag is a run that is being stopped on request.
    */
   async state(input: RunScope): Promise<string | null> {
-    this.sweepDeadLeases();
     const lease = await this.leases.read(input, new Date());
+    /**
+     * Sweep after reading: a dead row is the only evidence of the interruption,
+     * so cleanup must never remove one before the caller has observed it.
+     */
+    this.sweepDeadLeases();
     if (!lease) {
       return null;
     }

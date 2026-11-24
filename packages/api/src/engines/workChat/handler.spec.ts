@@ -380,6 +380,18 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
+  it('retries a task whose interrupted run reports failed instead of busy', async () => {
+    const { runner, start, state } = fakeRunner();
+    state.mockResolvedValueOnce('failed');
+    const { response } = await runHandler({
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(200);
+  });
+
   it('keeps a conversation owned by another tenant invisible', async () => {
     const { store, getConversation } = fakeStore();
     getConversation.mockResolvedValueOnce({

@@ -218,7 +218,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
         reserved = true;
       }
-      if (await runtime.state({ userId, tenantId, conversationId })) {
+      /**
+       * Only a run that is still executing blocks. An interrupted run reports
+       * `failed`, and a cancelled one is settling; the claim below is what fences
+       * those, so treating them as busy would make a crashed task unretryable.
+       */
+      if ((await runtime.state({ userId, tenantId, conversationId })) === 'running') {
         res.status(409).json({
           code: 'WORK_ENGINE_BUSY',
           message: 'Another engine run is already active for this task.',
