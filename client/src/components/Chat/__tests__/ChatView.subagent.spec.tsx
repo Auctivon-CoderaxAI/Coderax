@@ -24,6 +24,11 @@ jest.mock('@coderax/client', () => ({
 
 jest.mock('coderax-data-provider', () => ({
   Constants: { NEW_CONVO: 'new', SEARCH: 'search' },
+  ErrorTypes: {
+    AUTH_FAILED: 'auth_failed',
+    AUTH_RATE_LIMITED: 'auth_rate_limited',
+    AUTH_BANNED: 'auth_banned',
+  },
   buildTree: ({ messages }: { messages: unknown[] }) => messages,
 }));
 

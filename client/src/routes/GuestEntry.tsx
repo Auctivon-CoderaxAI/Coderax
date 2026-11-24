@@ -1,11 +1,18 @@
 /* eslint-disable i18next/no-literal-string */
-import { useEffect } from 'react';
+import { useEffect, type MouseEventHandler } from 'react';
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
+import {
+  clearPostLoginRedirect,
+  getPostLoginRedirect,
+  isSafeRedirect,
+  persistRedirectToSession,
+  REDIRECT_PARAM,
+} from '~/utils';
 import PasswordLoginForm from '~/components/Auth/PasswordLoginForm';
 import SocialLoginRender from '~/components/Auth/SocialLoginRender';
+import { getOAuthErrorKey } from '~/components/Auth/oauthError';
 import { useAuthContext } from '~/hooks/AuthContext';
-import { getPostLoginRedirect } from '~/utils';
 import { useLocalize } from '~/hooks';
 
 /**
@@ -24,6 +31,27 @@ export default function GuestEntry() {
   const isOwner = isAuthenticated && !!user && user.provider !== 'guest';
   const shouldEnterWorkspace =
     configReady && isAuthReady && isAuthenticated && (!passwordLoginEnabled || isOwner);
+
+  const searchParams = new URLSearchParams(search);
+  const oauthErrorKey = getOAuthErrorKey(searchParams.get('error'));
+  const prepareSocialSignIn: MouseEventHandler<HTMLAnchorElement> = (event) => {
+    // A modified click opens a separate tab and does not start a handoff in this tab.
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+    const destination = searchParams.get(REDIRECT_PARAM);
+    if (destination && isSafeRedirect(destination)) {
+      persistRedirectToSession(destination);
+    } else {
+      clearPostLoginRedirect();
+    }
+  };
 
   useEffect(() => {
     if (shouldEnterWorkspace) {
@@ -47,14 +75,23 @@ export default function GuestEntry() {
 
   return (
     <div role="alert" className="text-text-secondary space-y-4 text-center">
-      <p className="text-text-primary text-lg font-semibold">Coderax is unavailable</p>
+      <p className="text-text-primary text-lg font-semibold">
+        {oauthErrorKey ? localize(oauthErrorKey) : 'Coderax is unavailable'}
+      </p>
       {configReady ? (
         <>
-          <p>
-            We could not establish a guest session with the server. Your workspace is protected; no
-            sign-in is required when guest access is available.
-          </p>
-          <SocialLoginRender startupConfig={startupConfig} showPasskey showEmailDivider={false} />
+          {!oauthErrorKey && (
+            <p>
+              We could not establish a guest session with the server. Your workspace is protected;
+              no sign-in is required when guest access is available.
+            </p>
+          )}
+          <SocialLoginRender
+            startupConfig={startupConfig}
+            showPasskey
+            showEmailDivider={false}
+            onSocialSignIn={prepareSocialSignIn}
+          />
         </>
       ) : (
         <p>{localize('com_auth_error_login_server')}</p>

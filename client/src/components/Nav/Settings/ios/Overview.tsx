@@ -1,9 +1,9 @@
 import { LogOut } from 'lucide-react';
 import { Avatar } from '@coderax/client';
-import type { IosPageId } from './pages';
 import type { SettingsContextValue } from '../types';
-import { IOS_PAGES, pageVisible } from './pages';
+import type { IosPageId } from './pages';
 import { useAuthContext, useLocalize } from '~/hooks';
+import { IOS_PAGES, pageVisible } from './pages';
 import { Group, NavRow } from './Rows';
 
 const ACCOUNT_PAGE: IosPageId = 'account';

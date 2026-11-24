@@ -13,9 +13,11 @@ export const OPEN_SIDEBAR_ID = 'open-sidebar-button';
  */
 export default function OpenSidebar({
   className,
+  shape,
   testId = OPEN_SIDEBAR_ID,
 }: {
   className?: string;
+  shape?: React.ComponentProps<typeof Button>['shape'];
   testId?: string;
 }) {
   const localize = useLocalize();
@@ -44,6 +46,7 @@ export default function OpenSidebar({
           id={OPEN_SIDEBAR_ID}
           size="icon"
           variant="header-action"
+          shape={shape}
           data-testid={testId}
           aria-label={localize('com_nav_open_sidebar')}
           aria-expanded={false}

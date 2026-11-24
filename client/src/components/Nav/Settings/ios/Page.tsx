@@ -1,9 +1,9 @@
-import type { IosPage } from './pages';
 import type { SettingsContextValue } from '../types';
+import type { IosPage } from './pages';
+import { Group, SettingRow } from './Rows';
 import { pageEntries } from './pages';
 import { useLocalize } from '~/hooks';
 import { TABS } from '../types';
-import { Group, SettingRow } from './Rows';
 
 interface EntryGroup {
   key: string;
