@@ -1,8 +1,8 @@
-import { render, screen, within } from '@testing-library/react';
 import { SettingsTabValues } from 'coderax-data-provider';
+import { render, screen, within } from '@testing-library/react';
+import type { SectionId, SettingEntry, SettingsContextValue, SettingsTab } from '../../types';
 import type { IosPage } from '../pages';
 import { registry } from '../../registry';
-import type { SectionId, SettingEntry, SettingsContextValue, SettingsTab } from '../../types';
 import PageContent from '../Page';
 
 jest.mock('~/hooks', () => ({

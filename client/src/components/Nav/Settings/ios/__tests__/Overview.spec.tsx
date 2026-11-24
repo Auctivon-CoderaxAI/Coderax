@@ -1,7 +1,7 @@
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@testing-library/react';
-import type { SettingsContextValue } from '../../types';
 import type { TUser } from 'coderax-data-provider';
+import type { SettingsContextValue } from '../../types';
 import Overview from '../Overview';
 
 const mockLogout = jest.fn();

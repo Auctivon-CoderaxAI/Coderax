@@ -1,8 +1,8 @@
 import { SettingsTabValues } from 'coderax-data-provider';
 import type { SettingsContextValue } from '../../types';
 import type { IosPageId } from '../pages';
-import en from '~/locales/en/translation.json';
 import { IOS_PAGES, findPage, pageEntries, pageVisible } from '../pages';
+import en from '~/locales/en/translation.json';
 
 const ctx: SettingsContextValue = {
   balanceEnabled: false,
