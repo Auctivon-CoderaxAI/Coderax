@@ -60,15 +60,6 @@ export function readWorkAgentId(value: unknown): ReadWorkAgentId {
   return { kind: 'invalid', value };
 }
 
-export function isWorkAgentId(value: unknown): value is TWorkAgentId {
-  return readWorkAgentId(value).kind === 'id';
-}
-
-export function isExternalWorkAgentId(value: unknown): value is Exclude<TWorkAgentId, 'coderax'> {
-  const parsed = readWorkAgentId(value);
-  return parsed.kind === 'id' && parsed.id !== 'coderax';
-}
-
 export type WorkAgentIdentityInput = {
   snapshot?: EngineStatusSnapshot | null;
   workChatEnabled?: boolean;

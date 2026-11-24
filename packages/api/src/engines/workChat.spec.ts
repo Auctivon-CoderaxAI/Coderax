@@ -17,7 +17,7 @@ const USER_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';
 const enabledConfig = (overrides: Partial<EngineWorkChatConfig['engines']> = {}) =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode' as const, mode: 'cloud' as const },
+      workChat: { enabled: true, mode: 'cloud' as const },
       opencode: { enabled: true },
       workspaces: { privateRoot: '/srv/coderax/private' },
       ...overrides,

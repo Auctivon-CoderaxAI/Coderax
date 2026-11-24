@@ -33,7 +33,6 @@ export type ExecutionEnginesConfig =
         defaultEngine?: 'opencode' | 'openhands' | 'freebuff';
         workChat?: {
           enabled?: boolean;
-          engine?: 'coderax' | 'opencode' | 'freebuff';
           mode?: 'private' | 'cloud';
         } | null;
         workspaces?: {
@@ -145,8 +144,6 @@ export function createExecutionEngines(
     }
   }
 
-  const freebuffModel = parseEngineModel(freebuff?.model);
-
   let loadedFreebuff: LoadedFreebuffSdk | null = null;
   let freebuffUnavailableDetail: string | undefined;
   if (freebuff?.enabled === true) {
@@ -182,7 +179,7 @@ export function createExecutionEngines(
             enabled: true,
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
             ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
-            model: freebuffModel,
+            model: parseEngineModel(freebuff.model),
             ...(freebuff.minContextTokens != null
               ? { minContextTokens: freebuff.minContextTokens }
               : {}),

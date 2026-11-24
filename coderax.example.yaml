@@ -1736,7 +1736,6 @@ endpoints:
 #     timeoutMs: 900000
 #   workChat:
 #     enabled: true
-#     engine: opencode
 #     mode: cloud
 
 # Freebuff engine: runs Freebuff's own agent loop from a source-built SDK.
@@ -1748,10 +1747,10 @@ endpoints:
 # engines:
 #   workspaces:
 #     privateRoot: /srv/coderax/private
+#     cloudRoot: /srv/coderax/cloud
 #   workChat:
 #     enabled: true
-#     engine: freebuff
-#     mode: private
+#     mode: cloud
 #   freebuff:
 #     enabled: true
 #     sdkPath: /srv/freebuff/sdk/dist/index.cjs

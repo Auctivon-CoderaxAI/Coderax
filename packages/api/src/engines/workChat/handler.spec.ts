@@ -17,7 +17,7 @@ const enabledConfig = (
 ): EngineWorkChatConfig =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode', mode: 'cloud' },
+      workChat: { enabled: true, mode: 'cloud' },
       opencode: { enabled: true },
       ...overrides,
     },

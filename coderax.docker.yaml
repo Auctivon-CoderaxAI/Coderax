@@ -16,7 +16,6 @@ engines:
     cloudRoot: /app/data/freebuff-cloud-workspace
   workChat:
     enabled: true
-    engine: coderax
     mode: cloud
   freebuff:
     enabled: true

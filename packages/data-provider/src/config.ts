@@ -3912,15 +3912,13 @@ export const enginesConfigSchema = z
     /**
      * Owner-gated external agent execution. The native Coderax agent is always
      * the default and does not require this flag. When enabled, an ADMIN may
-     * explicitly select OpenCode Agent or FreeBuff Agent for a Work turn.
-     * `engine` is retained as a compatibility hint only; a request must name an
-     * external identity for external execution, so no engine is ever switched
-     * silently. Disabled by default.
+     * explicitly select OpenCode Agent or FreeBuff Agent for a Work turn; the
+     * request names the identity, so no engine is ever switched silently.
+     * Disabled by default.
      */
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.enum(['coderax', 'opencode', 'freebuff']).default('coderax'),
         /** External agents are cloud-only; native Work is governed separately. */
         mode: z.enum(['private', 'cloud']).default('private'),
       })
