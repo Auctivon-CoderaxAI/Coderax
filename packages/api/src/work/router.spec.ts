@@ -1,8 +1,12 @@
 import express from 'express';
 import request from 'supertest';
 import type { Application } from 'express';
+import type { EngineRegistryApi } from '../engines/registry';
 import type { WorkConversation } from './task';
 import type { WorkDeps } from './router';
+import { createMemoryWorkRunLeaseStore } from '../engines/workChat/leases';
+import { EngineWorkChatRuntime } from '../engines/workChat/runtime';
+import { readEngineWorkState } from './state';
 import { createWorkRouter } from './router';
 
 type Stored = WorkConversation & { userId: string };
@@ -411,6 +415,70 @@ describe('native Work router', () => {
     const res = await request(server).get('/api/work/tasks/c-1');
     expect(res.status).toBe(200);
     expect(res.body.task.state).toBe('completed');
+  });
+
+  it('keeps reporting failed after the interrupted run’s lease row is pruned', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const task = {
+      conversationId: 'c-9',
+      title: 'Crashed run',
+      isWork: true,
+      workState: 'running',
+    };
+    const scope = { userId: 'user-a', tenantId: null, conversationId: 'c-9' };
+    /** The process that started this run died two days ago and never released it. */
+    const deadAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    await leases.claim(scope, {
+      token: 'dead-token',
+      owner: 'previous-boot',
+      now: deadAt,
+      expiresAt: deadAt,
+    });
+    const runtime = new EngineWorkChatRuntime(
+      {
+        start: jest.fn(),
+        select: jest.fn(),
+        snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
+        arbiter: {},
+      } as unknown as EngineRegistryApi,
+      { private: '/private', cloud: '/cloud' },
+      'private',
+      undefined,
+      'opencode',
+      leases,
+    );
+    const server = app({
+      getConversation: async ({ userId, conversationId }) =>
+        userId === 'user-a' && conversationId === 'c-9' ? task : null,
+      getRunState: (input) =>
+        readEngineWorkState(
+          { userId: input.userId, tenantId: null, conversationId: input.conversationId },
+          runtime,
+          {
+            getConvo: async () => task,
+            saveConvo: async (_context, fields) => {
+              task.workState = fields.workState;
+            },
+          },
+        ),
+    });
+
+    const interrupted = await request(server).get('/api/work/tasks/c-9');
+    expect(interrupted.body.task.state).toBe('failed');
+    expect(task.workState).toBe('failed');
+
+    /** Cleanup happens long after the fact: the lease row goes, the outcome stays. */
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if ((await leases.read(scope, new Date())) == null) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await expect(leases.read(scope, new Date())).resolves.toBeNull();
+    await expect(runtime.state(scope)).resolves.toBeNull();
+
+    const afterCleanup = await request(server).get('/api/work/tasks/c-9');
+    expect(afterCleanup.body.task.state).toBe('failed');
   });
 
   it('reports a task store failure instead of disguising it as not found', async () => {

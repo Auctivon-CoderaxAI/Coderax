@@ -17,7 +17,9 @@ const {
   getFreeRouterForConfig,
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
+  createWorkRunLeaseStore,
   getEngineWorkChatRuntime,
+  readEngineWorkState,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
@@ -83,7 +85,10 @@ const baseDepsFor = createWorkDepsFactory({
 const freeSourcesFor = (req) =>
   buildFreeInferenceWorkSources(req.config?.config ?? null, process.env);
 
-const engineRuntimeFor = (req) => getEngineWorkChatRuntime(req.config?.config);
+/** Run state and cancellation are durable, so a restart or another replica
+ *  still sees the run the conversation is executing. */
+const workRunLeases = createWorkRunLeaseStore(db);
+const engineRuntimeFor = (req) => getEngineWorkChatRuntime(req.config?.config, workRunLeases);
 
 const depsFor = (req) => {
   const deps = baseDepsFor(req);
@@ -91,14 +96,20 @@ const depsFor = (req) => {
   deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
   deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
   deps.workChat = req.config?.config?.engines?.workChat ?? null;
-  /** An engine run is live state too; fall back to the native job registry. */
+  /** An engine run is live state too; fall back to the native job registry.
+   *  Observing an interrupted engine run persists its outcome, so it survives
+   *  the lease row being reclaimed. */
   const nativeGetRunState = deps.getRunState;
   deps.getRunState = async (input) =>
-    engineRuntimeFor(req).state({
-      userId: input.userId,
-      tenantId: req.user?.tenantId ?? null,
-      conversationId: input.conversationId,
-    }) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
+    (await readEngineWorkState(
+      {
+        userId: input.userId,
+        tenantId: req.user?.tenantId ?? null,
+        conversationId: input.conversationId,
+      },
+      engineRuntimeFor(req),
+      db,
+    )) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
   const nativeCancelRun = deps.cancelRun;
   deps.cancelRun = async (input) =>
     (await engineRuntimeFor(req).cancel({

@@ -85,7 +85,7 @@ function fakeRunner(
   const start = jest.fn(async () => ({ ok: true as const, value: handle }));
   const runner: EngineWorkChatRunner = {
     start,
-    state: jest.fn(() => null),
+    state: jest.fn(async () => null),
     cancel: jest.fn(async () => false),
     snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
   };
@@ -362,7 +362,7 @@ describe('owner-gated OpenCode Work ingress', () => {
             resolveStart = resolve;
           }),
       ),
-      state: jest.fn(() => null),
+      state: jest.fn(async () => null),
       cancel: jest.fn(async () => false),
       snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
     };
@@ -499,12 +499,12 @@ describe('EngineWorkChatRuntime', () => {
       prompt: 'Fix it',
     });
     expect(first.ok).toBe(true);
-    expect(
+    await expect(
       runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId: CONVERSATION_ID }),
-    ).toBe('running');
-    expect(
+    ).resolves.toBe('running');
+    await expect(
       runtime.state({ userId: 'other', tenantId: 'tenant-1', conversationId: CONVERSATION_ID }),
-    ).toBeNull();
+    ).resolves.toBeNull();
     expect(
       await runtime.cancel({
         userId: 'other',
@@ -520,7 +520,7 @@ describe('EngineWorkChatRuntime', () => {
       }),
     ).toBe(true);
     expect(cancel).toHaveBeenCalled();
-    runtime.release({
+    await runtime.release({
       userId: 'owner',
       tenantId: 'tenant-1',
       conversationId: CONVERSATION_ID,
@@ -561,17 +561,19 @@ describe('EngineWorkChatRuntime', () => {
       throw new Error('expected a run');
     }
     await started.value.result;
-    expect(runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId })).toBe(
-      'running',
-    );
-    expect(
+    await expect(
+      runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId }),
+    ).resolves.toBe('running');
+    await expect(
       runtime.release({
         userId: 'owner',
         tenantId: 'tenant-1',
         conversationId,
         handle: started.value,
       }),
-    ).toBe(true);
-    expect(runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId })).toBeNull();
+    ).resolves.toBe(true);
+    await expect(
+      runtime.state({ userId: 'owner', tenantId: 'tenant-1', conversationId }),
+    ).resolves.toBeNull();
   });
 });

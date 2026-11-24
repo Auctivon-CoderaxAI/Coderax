@@ -78,8 +78,8 @@ function fakeRunner(events: EngineEvent[] = [{ type: 'text_delta', text: 'hello'
   const start = jest.fn(
     async (_input: StartScope): Promise<StartResult> => ({ ok: true, value: handle }),
   );
-  const state = jest.fn((_input: RunScope): string | null => null);
-  const release = jest.fn((_input: ReleaseScope): boolean => true);
+  const state = jest.fn(async (_input: RunScope): Promise<string | null> => null);
+  const release = jest.fn(async (_input: ReleaseScope): Promise<boolean> => true);
   const runner: EngineWorkChatRunner = {
     start,
     state,
@@ -371,7 +371,7 @@ describe('createEngineWorkChatHandler', () => {
 
   it('refuses an active runtime and releases the reservation', async () => {
     const { runner, start, state } = fakeRunner();
-    state.mockReturnValueOnce('running');
+    state.mockResolvedValueOnce('running');
     const releaseRun = jest.fn(() => true);
     const { response } = await runHandler({
       runner,
@@ -388,6 +388,18 @@ describe('createEngineWorkChatHandler', () => {
       tenantId: 'tenant-1',
       conversationId: CONVERSATION_ID,
     });
+  });
+
+  it('retries a task whose interrupted run reports failed instead of busy', async () => {
+    const { runner, start, state } = fakeRunner();
+    state.mockResolvedValueOnce('failed');
+    const { response } = await runHandler({
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(200);
   });
 
   it('keeps a conversation owned by another tenant invisible', async () => {
@@ -982,10 +994,10 @@ describe('createEngineWorkChatHandler', () => {
       }),
       close: jest.fn(async () => undefined),
     };
-    const release = jest.fn(() => true);
+    const release = jest.fn(async () => true);
     const runner: EngineWorkChatRunner = {
       start: jest.fn(async () => ({ ok: true as const, value: handle })),
-      state: jest.fn(() => null),
+      state: jest.fn(async () => null),
       cancel: jest.fn(async () => false),
       release,
       snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
@@ -1063,7 +1075,7 @@ describe('createEngineWorkChatHandler', () => {
     );
     const runner: EngineWorkChatRunner = {
       start,
-      state: jest.fn(() => null),
+      state: jest.fn(async () => null),
       cancel: jest.fn(async () => false),
       snapshot: () => ({ defaultEngine: 'opencode', engines: [] }),
     };

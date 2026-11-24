@@ -30,6 +30,7 @@ import { createConversationModel } from './convo';
 import { createToolCallModel } from './toolCall';
 import { createAclEntryModel } from './aclEntry';
 import { createAuditLogModel } from './auditLog';
+import { createWorkRunModel } from './workRun';
 import { createSessionModel } from './session';
 import { createPasskeyModel } from './passkey';
 import { createBalanceModel } from './balance';
@@ -87,6 +88,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
   ConversationTag: ReturnType<typeof createConversationTagModel>;
   SharedLink: ReturnType<typeof createSharedLinkModel>;
   ToolCall: ReturnType<typeof createToolCallModel>;
+  WorkRun: ReturnType<typeof createWorkRunModel>;
   MemoryEntry: ReturnType<typeof createMemoryModel>;
   ToolFavorite: ReturnType<typeof createToolFavoriteModel>;
   AccessRole: ReturnType<typeof createAccessRoleModel>;
@@ -141,6 +143,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
     ConversationTag: createConversationTagModel(mongoose),
     SharedLink: createSharedLinkModel(mongoose),
     ToolCall: createToolCallModel(mongoose),
+    WorkRun: createWorkRunModel(mongoose),
     MemoryEntry: createMemoryModel(mongoose),
     ToolFavorite: createToolFavoriteModel(mongoose),
     AccessRole: createAccessRoleModel(mongoose),

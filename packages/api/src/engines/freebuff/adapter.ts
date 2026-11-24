@@ -174,6 +174,7 @@ export type FreebuffAdapterOptions = {
 
 /** Configuration/SDK readiness; runtime endpoint state is added by probeFreebuff. */
 export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailability {
+  const mode = options.mode ?? 'private';
   if (!options.enabled) {
     return {
       available: false,
@@ -181,12 +182,11 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
       detail: 'Freebuff is disabled in engines.freebuff.enabled.',
     };
   }
-  if (!options.baseURL || !options.model || !options.roots[options.mode ?? 'private']) {
+  if (!options.baseURL || !options.model || !options.roots[mode]) {
     return {
       available: false,
       reason: 'not_configured',
-      detail:
-        'engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.privateRoot must be configured.',
+      detail: `engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.${mode}Root must be configured.`,
     };
   }
   if (!privateBaseUrl(options.baseURL)) {
@@ -196,11 +196,14 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
       detail: nonLoopbackEndpointDetail(options.baseURL, options.allowedHosts),
     };
   }
-  if (!isModelAllowedForMode(options.model, 'private')) {
+  if (!isModelAllowedForMode(options.model, mode)) {
     return {
       available: false,
       reason: 'not_configured',
-      detail: 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
+      detail:
+        mode === 'cloud'
+          ? 'Freebuff Work in cloud mode requires a zero-cost model: an allowlisted free OpenCode model or local ollama or lmstudio weights.'
+          : 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
     };
   }
   if (!options.sdk) {
