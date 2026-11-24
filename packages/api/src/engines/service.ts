@@ -56,10 +56,8 @@ export type ExecutionEnginesConfig =
           /** Absolute path to a source-built Freebuff SDK CommonJS entrypoint. */
           sdkPath?: string;
           baseURL?: string;
-          /** Explicitly trusted non-loopback endpoint hostnames. */
+          /** Retained for diagnostics; the pinned SDK rejects non-loopback HTTP. */
           allowedHosts?: string[];
-          /** Server env var holding the cloud endpoint credential. */
-          apiKeyEnv?: string;
           model?: string;
           minContextTokens?: number;
           probeTimeoutMs?: number;
@@ -148,14 +146,6 @@ export function createExecutionEngines(
   }
 
   const freebuffModel = parseEngineModel(freebuff?.model);
-  const freebuffCloud =
-    workMode === 'cloud' && freebuff?.baseURL && freebuffModel
-      ? {
-          baseURL: freebuff.baseURL,
-          model: freebuffModel,
-          apiKeyEnv: freebuff.apiKeyEnv ?? 'OPENROUTER_API_KEY',
-        }
-      : null;
 
   let loadedFreebuff: LoadedFreebuffSdk | null = null;
   let freebuffUnavailableDetail: string | undefined;
@@ -192,7 +182,6 @@ export function createExecutionEngines(
             enabled: true,
             ...(freebuff.baseURL ? { baseURL: freebuff.baseURL } : {}),
             ...(freebuff.allowedHosts ? { allowedHosts: freebuff.allowedHosts } : {}),
-            ...(freebuffCloud ? { cloud: freebuffCloud } : {}),
             model: freebuffModel,
             ...(freebuff.minContextTokens != null
               ? { minContextTokens: freebuff.minContextTokens }

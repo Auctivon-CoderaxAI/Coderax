@@ -3956,30 +3956,16 @@ export const enginesConfigSchema = z
          */
         sdkPath: z.string().trim().optional(),
         /**
-         * OpenAI-compatible endpoint. In private mode loopback is implicit and
-         * any other host must be listed in allowedHosts. In cloud mode the URL
-         * must be HTTPS and match a verified $0 catalog endpoint.
+         * OpenAI-compatible loopback endpoint. The pinned SDK rejects plain HTTP
+         * for every other host. Coderax never calls a hosted Freebuff API.
          */
         baseURL: z.string().trim().url().optional(),
         /**
-         * Server environment variable holding the cloud endpoint credential.
-         * Never a credential value, and never sent to a browser bundle.
-         */
-        apiKeyEnv: z
-          .string()
-          .trim()
-          .regex(/^[A-Z][A-Z0-9_]*$/)
-          .default('OPENROUTER_API_KEY'),
-        /**
-         * Explicitly trusted non-loopback endpoint hostnames, e.g.
-         * host.docker.internal or a Compose service name. Bare hostnames only.
+         * Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+         * only on loopback, so these entries do not make a host available.
          */
         allowedHosts: z.array(z.string().trim().min(1)).max(16).default([]),
-        /**
-         * Pinned model in provider/model form. Cloud mode accepts only catalogued
-         * $0 models that advertise native tool calling, e.g.
-         * openrouter/nvidia/nemotron-3.5-lightning:free.
-         */
+        /** Local model in provider/model form, e.g. ollama/qwen2.5-coder:7b. */
         model: z.string().trim().optional(),
         /** Minimum declared Ollama num_ctx accepted for a Work run. */
         minContextTokens: z
@@ -4146,7 +4132,29 @@ export const providerFallbackConfigSchema = z
 
 export type TProviderFallbackConfig = z.infer<typeof providerFallbackConfigSchema>;
 
+/** Deployment-local TCP forwarder. Disabled unless the deployment opts in. */
+export const ollamaLoopbackConfigSchema = z.strictObject({
+  enabled: z.boolean().default(false),
+  listenHost: z
+    .string()
+    .trim()
+    .refine(
+      (host) =>
+        host.toLowerCase() === 'localhost' ||
+        host === '::1' ||
+        /^127(?:\.(?:0|[1-9]\d?|1\d{2}|2[0-4]\d|25[0-5])){3}$/.test(host),
+      'The listener host must be a loopback address',
+    )
+    .transform((host) => (host.toLowerCase() === 'localhost' ? '127.0.0.1' : host))
+    .default('127.0.0.1'),
+  listenPort: z.number().int().min(1).max(65_535).default(11_434),
+  upstreamHost: z.string().trim().min(1).default('ollama'),
+  upstreamPort: z.number().int().min(1).max(65_535).default(11_434),
+  connectTimeoutMs: z.number().int().min(1).max(2_147_483_647).default(10_000),
+});
+
 export const configSchema = z.object({
+  ollamaLoopback: ollamaLoopbackConfigSchema.optional(),
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,

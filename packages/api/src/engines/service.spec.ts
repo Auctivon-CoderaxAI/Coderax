@@ -122,7 +122,7 @@ describe('config-driven execution engines', () => {
     expect(serialized).not.toMatch(/api[_-]?key|token|secret/i);
   });
 
-  it('forwards Freebuff allowed hosts to the adapter', () => {
+  it('keeps an allowlisted non-loopback Freebuff endpoint unavailable', () => {
     const loadFreebuff = jest.fn(() => ({
       ok: true as const,
       value: {
@@ -150,16 +150,19 @@ describe('config-driven execution engines', () => {
       expect.objectContaining({ available: false, reason: 'not_configured' }),
     );
 
-    const allowed = describeExecutionEngines(
+    const allowlisted = describeExecutionEngines(
       config({ engines: { freebuff: { ...freebuff, allowedHosts: ['ollama'] } } }),
       undefined,
       null,
       loadFreebuff,
     );
-    expect(allowed.engines.find((engine) => engine.id === 'freebuff')?.availability).toEqual({
-      available: true,
-      reason: 'ready',
-    });
+    expect(allowlisted.engines.find((engine) => engine.id === 'freebuff')?.availability).toEqual(
+      expect.objectContaining({
+        available: false,
+        reason: 'not_configured',
+        detail: expect.stringContaining('allowedHosts'),
+      }),
+    );
   });
 
   it('fails closed on the selected engine instead of using the other one', async () => {

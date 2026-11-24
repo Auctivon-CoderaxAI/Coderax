@@ -29,6 +29,7 @@ import LangfuseConnection from '../SettingsTabs/Integrations/LangfuseConnection'
 import ClockFormatSelector from '../SettingsTabs/General/ClockFormatSelector';
 import CyVoxConnection from '../SettingsTabs/Integrations/CyVoxConnection';
 import ImportConversations from '../SettingsTabs/Data/ImportConversations';
+import { ArchivedChats } from '../SettingsTabs/Data/ArchivedChats';
 import WeekStartSelector from '../SettingsTabs/General/WeekStartSelector';
 import { ArchiveAllChats } from '../SettingsTabs/Data/ArchiveAllChats';
 import { toggleControl, ThemeSetting, LangSetting } from './controls';
@@ -702,6 +703,14 @@ export const registry: SettingEntry[] = [
     labelKey: 'com_ui_settings_label_manage_files',
     keywords: ['file', 'files', 'upload', 'uploads', 'storage', 'attachments'],
     Component: ManageFiles,
+  },
+  {
+    id: 'archivedChats',
+    tab: DATA,
+    section: 'data',
+    labelKey: 'com_nav_archived_chats',
+    keywords: ['archive', 'archived', 'chats', 'conversations'],
+    Component: ArchivedChats,
   },
   {
     id: 'archiveAllChats',

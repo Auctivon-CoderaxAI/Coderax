@@ -36,8 +36,9 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     return this.registry.snapshot();
   }
 
-  async probe(): Promise<void> {
+  async refreshSnapshot(): Promise<EngineStatusSnapshot> {
     await this.registry.probe();
+    return this.snapshot();
   }
 
   state(input: RunScope): string | null {

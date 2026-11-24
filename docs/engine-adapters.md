@@ -18,7 +18,7 @@ Power Mode are disabled by default.
 | Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
 | OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
 | OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
-| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, local BYOK or verified $0 cloud BYOK, workspace-confined filesystem; presented as unavailable unless a compatible SDK and a matching endpoint are supplied |
+| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint (`allowedHosts` cannot make a non-loopback host usable), and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
 | Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
 | Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
 | Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
@@ -112,19 +112,34 @@ returns `not_configured` until an owner supplies `agentServerUrl` and a client
 transport. This is a genuine blocker, not simulated support: the API process
 must not silently start a Python agent on a 24 GB ARM instance.
 
-## Freebuff (optional execution engine)
+## Freebuff (optional local engine)
 
 The adapter integrates Freebuff as an owner-only Work engine once a compatible
-source-built SDK is supplied. It uses Freebuff's direct BYOK runtime either with
-a local Ollama or LM Studio endpoint — loopback by default, or a host the owner
-names in `engines.freebuff.allowedHosts` — or, in cloud mode, with a verified $0
-catalogued endpoint, and the same run lifecycle, stream,
-cancellation, and workspace-root checks as the other adapters. Allowlisting a
-host does not relax the rest of the endpoint contract: it must still be `http`,
-with no credentials, query, or fragment, and the entry matches the bare
-hostname exactly. Plain HTTP does not encrypt prompts or the inference API key
-(`FREEBUFF_LOCAL_API_KEY`); anyone who can observe the traffic can read them.
-Allowlist only hosts on a network path you trust.
+source-built SDK is supplied. It uses Freebuff's direct BYOK runtime with a
+local Ollama or LM Studio endpoint and the same run lifecycle, stream,
+cancellation, and workspace-root checks as the other adapters. The endpoint
+must be plain `http` on loopback (`localhost`, `127.0.0.1`, `::1`) and must not
+carry credentials, a query, or a fragment.
+
+The pinned SDK enforces that rule: a plain-HTTP provider endpoint is accepted
+only on loopback. `engines.freebuff.allowedHosts` is retained for diagnostics
+and future SDK compatibility, but it cannot make a non-loopback host usable;
+Coderax reports such an endpoint as `not_configured` instead of ready, and the
+SDK would reject it before a request is sent. This adapter rejects `https`
+outright, so an operator cannot use a TLS endpoint either. Reach a model server
+in another container through a loopback forwarder. The shipped Compose stack
+sets `ollamaLoopback.enabled: true` in `coderax.docker.yaml` and points
+`engines.freebuff.baseURL` at `http://127.0.0.1:11434/v1`. The API binds the
+listener before serving requests and forwards TCP to `ollama:11434`.
+A fatal listener failure exits the process so Compose can restart the container.
+
+The listener is disabled by default outside the shipped Compose configuration.
+Set `listenHost`, `listenPort`, `upstreamHost`, `upstreamPort` or
+`connectTimeoutMs` under `ollamaLoopback` to override the defaults at restart.
+The 10-second default covers DNS and TCP connection setup; established streams
+have no forwarder idle timeout. When the corresponding YAML settings are
+omitted, the legacy `OLLAMA_LOOPBACK_HOST`, `OLLAMA_LOOPBACK_PORT`,
+`OLLAMA_UPSTREAM_HOST` and `OLLAMA_UPSTREAM_PORT` variables still work.
 Freebuff does not call hosted Freebuff inference, load repository or home
 agents, or enable shell execution. File operations are wrapped to stay inside
 the selected workspace.
@@ -174,41 +189,19 @@ engines:
     enabled: true
     sdkPath: /srv/freebuff/sdk/dist/index.cjs
     baseURL: http://127.0.0.1:11434/v1
-    # Only needed for a non-loopback endpoint, e.g. a Compose service name or
-    # host.docker.internal. Bare hostnames, up to 16.
-    # allowedHosts: [ollama]
+    # Reserved for a future SDK allowlist. The pinned SDK rejects plain HTTP
+    # off loopback, so a non-loopback host is reported as not configured.
+    # allowedHosts: [model-gateway.internal]
     model: ollama/qwen2.5-coder:7b
     timeoutMs: 900000
     maxAgentSteps: 24
 ```
 
-Cloud mode uses the same BYOK runtime without a local model server. The endpoint
-and model must match an entry in the verified $0 catalog that advertises native
-tool calling; the credential is named by `engines.freebuff.apiKeyEnv` (default
-`OPENROUTER_API_KEY`) and never stored in YAML:
-
-```yaml
-engines:
-  workspaces:
-    privateRoot: /srv/coderax/private
-    cloudRoot: /srv/coderax/cloud
-  workChat:
-    enabled: true
-    engine: freebuff
-    mode: cloud
-  freebuff:
-    enabled: true
-    sdkPath: /srv/freebuff/sdk/dist/index.cjs
-    baseURL: https://openrouter.ai/api/v1
-    apiKeyEnv: OPENROUTER_API_KEY
-    model: openrouter/nvidia/nemotron-3.5-lightning:free
-```
-
 This is not a turnkey hosted deployment: the API process must be able to load a
-current SDK build from `FREEBUFF_SDK_PATH`. The older npm SDK is deliberately
-rejected when it lacks the required BYOK and trust-gate exports. A live cloud
-run can be checked with `FREEBUFF_SDK_PATH=... node scripts/probe-freebuff-agent.mjs`;
-production verification still belongs in the deployment environment.
+current SDK build from `FREEBUFF_SDK_PATH`, and the local model server must be
+reachable from that process. The older npm SDK is deliberately rejected when it
+lacks the required BYOK and trust-gate exports. A live Freebuff model run still
+needs verification in the deployment environment.
 
 ## GroqCloud (inference only)
 

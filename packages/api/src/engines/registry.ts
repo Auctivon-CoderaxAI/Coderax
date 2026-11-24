@@ -36,10 +36,11 @@ export type EngineRegistryOptions = {
   arbiter?: EngineRunArbiter;
 };
 
-function statusFor(id: EngineId, adapter: EngineAdapter): EngineStatus {
+function statusFor(id: EngineId, adapter: EngineAdapter, forStart = false): EngineStatus {
   let availability: EngineAvailability;
   try {
-    availability = adapter.describe();
+    availability =
+      forStart && adapter.describeForStart ? adapter.describeForStart() : adapter.describe();
   } catch {
     availability = {
       available: false,
@@ -85,19 +86,20 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
 
   function select(
     engine?: EngineId | null,
+    forStart = false,
   ): EngineResult<{ id: EngineId; adapter: EngineAdapter }> {
     const id = engine ?? options.defaultEngine;
     const adapter = options.adapters[id];
     if (!adapter) {
       return engineFailure('disabled', `The ${id} execution engine is not registered.`);
     }
-    const status = statusFor(id, adapter);
+    const status = statusFor(id, adapter, forStart);
     const failure = failureFor(status.availability);
     return failure ?? { ok: true, value: { id, adapter } };
   }
 
   async function start(input: EngineRunInput): Promise<EngineResult<EngineRunHandle>> {
-    const selection = select(input.engine);
+    const selection = select(input.engine, true);
     if (!selection.ok) {
       return selection;
     }
@@ -183,7 +185,7 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     await Promise.all(Object.values(options.adapters).map((adapter) => adapter?.probe?.()));
   }
 
-  return { start, select, snapshot, probe, arbiter };
+  return { start, select: (engine) => select(engine), snapshot, probe, arbiter };
 }
 
 export type EngineRegistry = EngineRegistryApi;

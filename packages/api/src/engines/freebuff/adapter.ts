@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS,
   DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS,
-  FREE_ENDPOINTS,
 } from 'coderax-data-provider';
-import type { FreeEndpoint } from 'coderax-data-provider';
 import type {
   EngineAdapter,
   EngineAvailability,
@@ -105,29 +103,23 @@ function normalizedHost(value: string): string {
     .replace(/\.$/, '');
 }
 
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
 /**
- * Private endpoints are loopback by default. A non-loopback host is accepted
- * only when the owner explicitly allowlists its bare hostname, e.g.
- * host.docker.internal or a Compose service name.
+ * The pinned SDK accepts plain HTTP only on loopback. Non-loopback hosts are
+ * rejected even when listed in `engines.freebuff.allowedHosts`, so the adapter
+ * must not report them as ready.
  */
-function privateBaseUrl(
-  value: string | undefined,
-  allowedHosts: readonly string[] = [],
-): string | null {
+function privateBaseUrl(value: string | undefined): string | null {
   if (!value) {
     return null;
   }
   try {
     const url = new URL(value);
     const host = normalizedHost(url.hostname);
-    const loopback = ['localhost', '127.0.0.1', '::1'].includes(host);
-    const explicitlyAllowed = allowedHosts.some((entry) => {
-      const allowed = normalizedHost(entry);
-      return allowed.length > 0 && allowed === host;
-    });
     if (
       url.protocol !== 'http:' ||
-      (!loopback && !explicitlyAllowed) ||
+      !LOOPBACK_HOSTS.has(host) ||
       url.username ||
       url.password ||
       url.search ||
@@ -141,25 +133,31 @@ function privateBaseUrl(
   }
 }
 
-export type FreebuffCloudEndpoint = {
-  /** HTTPS OpenAI-compatible root of a catalogued $0 endpoint. */
-  baseURL: string;
-  /** Provider/model pair; must match a catalogued endpoint that supports tools. */
-  model: EngineModelRef;
-  /** Server environment variable name, never its value. */
-  apiKeyEnv: string;
-};
+function nonLoopbackEndpointDetail(
+  value: string | undefined,
+  allowedHosts: readonly string[] = [],
+): string {
+  try {
+    const url = new URL(value ?? '');
+    const host = normalizedHost(url.hostname);
+    if (host && !LOOPBACK_HOSTS.has(host)) {
+      const allowlisted = allowedHosts.some((entry) => normalizedHost(entry) === host);
+      return allowlisted
+        ? `The pinned Freebuff SDK accepts plain HTTP only on loopback; non-loopback endpoints are rejected even when listed in engines.freebuff.allowedHosts. Use a loopback forwarder.`
+        : `The pinned Freebuff SDK accepts plain HTTP only on loopback; the configured host is not on loopback. Use a loopback forwarder.`;
+    }
+  } catch {
+    // Fall through to the generic configuration message.
+  }
+  return 'Freebuff Work requires an OpenAI-compatible loopback endpoint (the pinned SDK rejects plain HTTP for any other host), plus a local ollama or lmstudio model.';
+}
 
 export type FreebuffAdapterOptions = {
   enabled: boolean;
   baseURL?: string | null;
-  /** Explicitly trusted non-loopback endpoint hostnames. */
+  /** Retained for diagnostics; the pinned SDK rejects non-loopback HTTP. */
   allowedHosts?: readonly string[];
   model?: EngineModelRef | null;
-  /** Free hosted endpoint used when mode is cloud. */
-  cloud?: FreebuffCloudEndpoint | null;
-  /** Server environment, injectable for tests; never returned or logged. */
-  env?: Record<string, string | undefined>;
   sdk?: LoadedFreebuffSdk | null;
   unavailableDetail?: string;
   roots: WorkspaceRoots;
@@ -174,69 +172,6 @@ export type FreebuffAdapterOptions = {
   fetchImpl?: ProbeFetch;
 };
 
-type ResolvedFreebuffCloud =
-  | { ok: true; endpoint: FreeEndpoint; baseURL: string; modelId: string; apiKey: string }
-  | { ok: false; detail: string };
-
-function cloudBaseUrl(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
-      return null;
-    }
-    return url.toString().replace(/\/+$/, '');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Cloud Freebuff runs only on a catalogued $0 endpoint with verified native
- * tool calling. The credential is read from the server environment and is never
- * included in a status, event or error.
- */
-function resolveFreebuffCloud(options: FreebuffAdapterOptions): ResolvedFreebuffCloud {
-  const cloud = options.cloud;
-  const baseURL = cloudBaseUrl(cloud?.baseURL);
-  if (!cloud || !baseURL) {
-    return {
-      ok: false,
-      detail: 'Cloud Freebuff requires an HTTPS OpenAI-compatible baseURL.',
-    };
-  }
-  if (!/^[A-Z][A-Z0-9_]*$/.test(cloud.apiKeyEnv)) {
-    return {
-      ok: false,
-      detail: 'Cloud Freebuff requires a server environment variable name for its credential.',
-    };
-  }
-  const endpoint = FREE_ENDPOINTS.find(
-    (entry) =>
-      entry.capabilities.tools &&
-      entry.provider === cloud.model.providerId &&
-      entry.modelId === cloud.model.modelId &&
-      entry.baseURL.replace(/\/+$/, '') === baseURL,
-  );
-  if (!endpoint) {
-    return {
-      ok: false,
-      detail:
-        'Cloud Freebuff requires a verified $0 model with native tool calling from the free inference catalog.',
-    };
-  }
-  const apiKey = (options.env ?? process.env)[cloud.apiKeyEnv];
-  if (!apiKey) {
-    return {
-      ok: false,
-      detail: `Cloud Freebuff credential ${cloud.apiKeyEnv} is not set on the server.`,
-    };
-  }
-  return { ok: true, endpoint, baseURL, modelId: endpoint.modelId, apiKey };
-}
-
 /** Configuration/SDK readiness; runtime endpoint state is added by probeFreebuff. */
 export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailability {
   if (!options.enabled) {
@@ -246,29 +181,7 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
       detail: 'Freebuff is disabled in engines.freebuff.enabled.',
     };
   }
-  const mode = options.mode ?? 'private';
-  if (!options.roots[mode]) {
-    return {
-      available: false,
-      reason: 'not_configured',
-      detail: `engines.workspaces.${mode}Root must be configured for ${mode} Work.`,
-    };
-  }
-  if (mode === 'cloud') {
-    const cloud = resolveFreebuffCloud(options);
-    if (!cloud.ok) {
-      return { available: false, reason: 'not_configured', detail: cloud.detail };
-    }
-    if (!options.sdk) {
-      return {
-        available: false,
-        reason: 'sdk_unavailable',
-        detail: options.unavailableDetail ?? 'The Freebuff SDK could not be loaded.',
-      };
-    }
-    return { available: true, reason: 'ready' };
-  }
-  if (!options.baseURL || !options.model) {
+  if (!options.baseURL || !options.model || !options.roots[options.mode ?? 'private']) {
     return {
       available: false,
       reason: 'not_configured',
@@ -276,15 +189,18 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
         'engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.privateRoot must be configured.',
     };
   }
-  if (
-    !privateBaseUrl(options.baseURL, options.allowedHosts) ||
-    !isModelAllowedForMode(options.model, 'private')
-  ) {
+  if (!privateBaseUrl(options.baseURL)) {
     return {
       available: false,
       reason: 'not_configured',
-      detail:
-        'Freebuff Work requires an OpenAI-compatible loopback endpoint or a host listed in engines.freebuff.allowedHosts, plus a local ollama or lmstudio model.',
+      detail: nonLoopbackEndpointDetail(options.baseURL, options.allowedHosts),
+    };
+  }
+  if (!isModelAllowedForMode(options.model, 'private')) {
+    return {
+      available: false,
+      reason: 'not_configured',
+      detail: 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
     };
   }
   if (!options.sdk) {
@@ -303,6 +219,12 @@ type ProbeResponse = {
   json: () => Promise<unknown>;
 };
 
+type ProbeRequest = {
+  signal: AbortSignal;
+  headers: Record<string, string>;
+  redirect: RequestRedirect;
+};
+
 type ProbeFetch = (
   input: string,
   init?: {
@@ -310,6 +232,7 @@ type ProbeFetch = (
     headers?: Record<string, string>;
     body?: string;
     signal?: AbortSignal;
+    redirect?: RequestRedirect;
   },
 ) => Promise<ProbeResponse>;
 
@@ -345,10 +268,10 @@ async function probeOllama(
   baseURL: string,
   modelId: string,
   minContextTokens: number,
-  signal: AbortSignal,
+  init: ProbeRequest,
 ): Promise<EngineAvailability> {
   const origin = new URL(baseURL).origin;
-  const tags = await fetcher(`${origin}/api/tags`, { signal });
+  const tags = await fetcher(`${origin}/api/tags`, init);
   if (!tags.ok) {
     return unavailable(
       'server_unavailable',
@@ -373,10 +296,10 @@ async function probeOllama(
   }
 
   const shown = await fetcher(`${origin}/api/show`, {
+    ...init,
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...init.headers, 'content-type': 'application/json' },
     body: JSON.stringify({ name: modelId }),
-    signal,
   });
   if (!shown.ok) {
     return shown.status === 404
@@ -403,9 +326,9 @@ async function probeLmStudio(
   fetcher: ProbeFetch,
   baseURL: string,
   modelId: string,
-  signal: AbortSignal,
+  init: ProbeRequest,
 ): Promise<EngineAvailability> {
-  const response = await fetcher(`${baseURL}/models`, { signal });
+  const response = await fetcher(`${baseURL}/models`, init);
   if (!response.ok) {
     return unavailable(
       'server_unavailable',
@@ -422,161 +345,49 @@ async function probeLmStudio(
     : unavailable('model_missing', 'The configured local model is not installed on the endpoint.');
 }
 
-async function probeCloudModel(
-  fetcher: ProbeFetch,
-  cloud: Extract<ResolvedFreebuffCloud, { ok: true }>,
-  signal: AbortSignal,
-  timeoutMs: number,
-): Promise<EngineAvailability> {
-  try {
-    const request = { headers: { Authorization: `Bearer ${cloud.apiKey}` }, signal };
-    const keyStatus = await fetcher(`${cloud.baseURL}/key`, request);
-    if (keyStatus.status === 401 || keyStatus.status === 403) {
-      return unavailable('not_configured', 'The cloud model credential was rejected.');
-    }
-    if (!keyStatus.ok) {
-      return unavailable('server_unavailable', 'The cloud model credential could not be verified.');
-    }
-    const response = await fetcher(`${cloud.baseURL}/models`, request);
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        return unavailable('not_configured', 'The cloud model credential was rejected.');
-      }
-      return unavailable(
-        'server_unavailable',
-        'The cloud model endpoint did not return its model list.',
-      );
-    }
-    const body = await response.json();
-    const data = isRecord(body) && Array.isArray(body.data) ? body.data : [];
-    const ids = data.flatMap((entry): string[] =>
-      isRecord(entry) && typeof entry.id === 'string' ? [entry.id] : [],
-    );
-    return ids.includes(cloud.modelId)
-      ? { available: true, reason: 'ready' }
-      : unavailable(
-          'model_missing',
-          'The configured free cloud model is not available from the endpoint.',
-        );
-  } catch {
-    return unavailable(
-      'server_unavailable',
-      `The cloud model endpoint could not be reached within ${timeoutMs} ms.`,
-    );
-  }
+function configuredLocalApiKey(): string | undefined {
+  return process.env.FREEBUFF_LOCAL_API_KEY?.trim() || undefined;
 }
 
 /**
- * Probe the configured runtime within a fixed deadline. Cloud mode checks the
- * credential and model availability. Local Ollama also reports its
- * active num_ctx; LM Studio exposes model presence only, so its context
- * requirement is not asserted here.
+ * Probe the configured local runtime within a fixed deadline. Ollama reports
+ * both the installed model and its active num_ctx; LM Studio exposes model
+ * presence only, so its context requirement is not asserted here.
  */
-export async function probeFreebuff(options: FreebuffAdapterOptions): Promise<EngineAvailability> {
+export async function probeFreebuff(
+  options: FreebuffAdapterOptions,
+  requestSignal?: AbortSignal,
+): Promise<EngineAvailability> {
   const configured = describeFreebuff(options);
   if (!configured.available) {
     return configured;
   }
-  const mode = options.mode ?? 'private';
-  const timeoutMs = options.probeTimeoutMs ?? DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS;
-  const fetcher: ProbeFetch = options.fetchImpl ?? fetch;
-  const signal = AbortSignal.timeout(timeoutMs);
-  if (mode === 'cloud') {
-    const cloud = resolveFreebuffCloud(options);
-    if (!cloud.ok) {
-      return unavailable('not_configured', cloud.detail);
-    }
-    return probeCloudModel(fetcher, cloud, signal, timeoutMs);
-  }
-  const baseURL = privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined);
   const model = options.model;
   if (!baseURL || !model) {
     return configured;
   }
+  const timeoutMs = options.probeTimeoutMs ?? DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS;
   const minContextTokens = options.minContextTokens ?? DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS;
+  const fetcher: ProbeFetch = options.fetchImpl ?? fetch;
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const signal = requestSignal ? AbortSignal.any([requestSignal, deadline]) : deadline;
+  const apiKey = configuredLocalApiKey();
+  const headers: Record<string, string> = apiKey ? { authorization: `Bearer ${apiKey}` } : {};
+  const init: ProbeRequest = { signal, headers, redirect: 'error' };
   try {
+    signal.throwIfAborted();
     if (model.providerId === 'ollama') {
-      return await probeOllama(fetcher, baseURL, model.modelId, minContextTokens, signal);
+      return await probeOllama(fetcher, baseURL, model.modelId, minContextTokens, init);
     }
     if (model.providerId === 'lmstudio') {
-      return await probeLmStudio(fetcher, baseURL, model.modelId, signal);
+      return await probeLmStudio(fetcher, baseURL, model.modelId, init);
     }
     return configured;
   } catch {
     return unavailable(
       'server_unavailable',
       `The local model endpoint could not be reached within ${timeoutMs} ms.`,
-    );
-  }
-}
-
-export type FreebuffToolProbeOptions = {
-  fetchImpl?: ProbeFetch;
-  timeoutMs?: number;
-};
-
-/**
- * Prove that the configured cloud model actually emits a native tool call.
- * Readiness checks model presence; this probe is the execution evidence a
- * catalog claim alone cannot supply. It sends no workspace content.
- */
-export async function probeFreebuffTools(
-  options: FreebuffAdapterOptions,
-  probe: FreebuffToolProbeOptions = {},
-): Promise<EngineAvailability> {
-  if ((options.mode ?? 'private') !== 'cloud') {
-    return unavailable('not_configured', 'Tool probing is available only for cloud Freebuff.');
-  }
-  const cloud = resolveFreebuffCloud(options);
-  if (!cloud.ok) {
-    return unavailable('not_configured', cloud.detail);
-  }
-  const timeoutMs = probe.timeoutMs ?? options.probeTimeoutMs ?? DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS;
-  const fetcher: ProbeFetch = probe.fetchImpl ?? options.fetchImpl ?? fetch;
-  try {
-    const response = await fetcher(`${cloud.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${cloud.apiKey}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: cloud.modelId,
-        max_tokens: 128,
-        stream: false,
-        messages: [{ role: 'user', content: 'Call coderax_probe with an empty object now.' }],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'coderax_probe',
-              description: 'Confirm native tool calling.',
-              parameters: { type: 'object', properties: {}, additionalProperties: false },
-            },
-          },
-        ],
-        tool_choice: 'auto',
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        return unavailable('not_configured', 'The cloud model credential was rejected.');
-      }
-      return unavailable('server_unavailable', 'The cloud model did not accept the tool probe.');
-    }
-    const body = await response.json();
-    const choices = isRecord(body) && Array.isArray(body.choices) ? body.choices : [];
-    const first = choices[0];
-    const message = isRecord(first) && isRecord(first.message) ? first.message : null;
-    const toolCalls = message && Array.isArray(message.tool_calls) ? message.tool_calls : [];
-    return toolCalls.length > 0
-      ? { available: true, reason: 'ready' }
-      : unavailable('not_configured', 'The cloud model did not emit a native tool call.');
-  } catch {
-    return unavailable(
-      'server_unavailable',
-      `The cloud model tool probe did not finish within ${timeoutMs} ms.`,
     );
   }
 }
@@ -814,32 +625,24 @@ async function waitForRunCleanup(run: Promise<void>): Promise<void> {
 export async function startFreebuffRun(
   options: FreebuffAdapterOptions,
   request: EngineRunRequest,
+  probe: (signal?: AbortSignal) => Promise<EngineAvailability> = (signal) =>
+    probeFreebuff(options, signal),
 ): Promise<EngineResult<EngineRunHandle>> {
+  if (request.signal?.aborted) {
+    return engineFailure('cancelled', 'The run was cancelled before it started.');
+  }
   if (!request.prompt.trim()) {
     return engineFailure('protocol_error', 'A task prompt is required.');
   }
-  const mode = options.mode ?? 'private';
-  if (request.mode !== mode) {
-    return engineFailure(
-      'not_configured',
-      'The run data mode does not match the configured Work mode.',
-    );
+  const availability = await probe(request.signal);
+  if (request.signal?.aborted) {
+    return engineFailure('cancelled', 'The run was cancelled before it started.');
   }
-  const availability = await probeFreebuff(options);
   if (!availability.available) {
     return engineFailure(failureReason(availability), availability.detail);
   }
-  if (!options.sdk) {
+  if (!options.sdk || !options.model) {
     return engineFailure('sdk_unavailable', 'The Freebuff SDK is unavailable.');
-  }
-  const cloudResolution = mode === 'cloud' ? resolveFreebuffCloud(options) : null;
-  if (cloudResolution && !cloudResolution.ok) {
-    return engineFailure('not_configured', cloudResolution.detail);
-  }
-  const cloud = cloudResolution?.ok ? cloudResolution : null;
-  const privateModel = options.model;
-  if (!cloud && !privateModel) {
-    return engineFailure('not_configured', 'A local model must be configured for private Work.');
   }
 
   const resolved = await resolveEngineWorkspace({
@@ -855,13 +658,11 @@ export async function startFreebuffRun(
   }
 
   const workspaceRoot = resolved.value.root;
-  const privateBaseURL = cloud
-    ? null
-    : privateBaseUrl(options.baseURL ?? undefined, options.allowedHosts);
-  if (!cloud && !privateBaseURL) {
+  const baseURL = privateBaseUrl(options.baseURL ?? undefined);
+  if (!baseURL) {
     return engineFailure(
       'not_configured',
-      'Freebuff requires a loopback model endpoint or a host listed in engines.freebuff.allowedHosts.',
+      nonLoopbackEndpointDetail(options.baseURL ?? undefined, options.allowedHosts),
     );
   }
 
@@ -873,35 +674,19 @@ export async function startFreebuffRun(
   queue.push({ type: 'started', sessionId });
 
   const timestamp = new Date().toISOString();
-  const localApiKey = process.env.FREEBUFF_LOCAL_API_KEY?.trim() || 'local';
-  const activeModel = cloud
-    ? { providerId: cloud.endpoint.provider, modelId: cloud.modelId }
-    : privateModel!;
-  const byok = cloud
-    ? {
-        id: randomUUID(),
-        revision: 1,
-        name: 'Coderax free cloud model',
-        provider: 'openrouter',
-        model: cloud.modelId,
-        baseUrl: cloud.baseURL,
-        credentialRef: `env:${options.cloud?.apiKeyEnv ?? 'OPENROUTER_API_KEY'}`,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        apiKey: cloud.apiKey,
-      }
-    : {
-        id: randomUUID(),
-        revision: 1,
-        name: 'Coderax local model',
-        provider: 'openai-compatible',
-        model: privateModel!.modelId,
-        baseUrl: privateBaseURL!,
-        credentialRef: 'env:FREEBUFF_LOCAL_API_KEY',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        apiKey: localApiKey,
-      };
+  const localApiKey = configuredLocalApiKey() ?? 'local';
+  const byok = {
+    id: randomUUID(),
+    revision: 1,
+    name: 'Coderax local model',
+    provider: 'openai-compatible',
+    model: options.model.modelId,
+    baseUrl: baseURL,
+    credentialRef: 'env:FREEBUFF_LOCAL_API_KEY',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    apiKey: localApiKey,
+  };
   const scopedFs = createWorkspaceFileSystem(workspaceRoot);
   const client = new options.sdk.module.CodebuffClient({
     byok,
@@ -920,7 +705,7 @@ export async function startFreebuffRun(
   const agent = {
     id: 'coderax-freebuff',
     displayName: 'Freebuff Work Agent',
-    model: `${activeModel.providerId}/${activeModel.modelId}`,
+    model: `${options.model.providerId}/${options.model.modelId}`,
     outputMode: 'last_message',
     toolNames: [
       'read_files',
@@ -1062,13 +847,32 @@ export const freebuffCapabilities = {
 
 export function createFreebuffAdapter(options: FreebuffAdapterOptions): EngineAdapter {
   let runtimeAvailability: EngineAvailability | null = null;
+  let statusProbe: Promise<void> | undefined;
+  let sequence = 0;
+  let published = 0;
+
+  async function refresh(signal?: AbortSignal): Promise<EngineAvailability> {
+    const id = ++sequence;
+    const availability = await probeFreebuff(options, signal);
+    // An older request finishing late must not replace a newer observation.
+    if (!signal?.aborted && id > published) {
+      runtimeAvailability = availability;
+      published = id;
+    }
+    return availability;
+  }
+
   return {
     id: 'freebuff',
     capabilities: freebuffCapabilities,
     describe: () => runtimeAvailability ?? describeFreebuff(options),
-    probe: async () => {
-      runtimeAvailability = await probeFreebuff(options);
-    },
-    start: (request) => startFreebuffRun(options, request),
+    describeForStart: () => describeFreebuff(options),
+    probe: () =>
+      (statusProbe ??= refresh()
+        .then(() => undefined)
+        .finally(() => {
+          statusProbe = undefined;
+        })),
+    start: (request) => startFreebuffRun(options, request, refresh),
   };
 }
