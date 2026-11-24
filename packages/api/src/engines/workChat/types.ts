@@ -23,6 +23,8 @@ export type EngineWorkChatStore = {
     parentMessageId: string;
     conversationId: string;
     text: string;
+    /** Content parts the turn streamed, so a reload renders the same message. */
+    content?: Array<Record<string, unknown>>;
     isCreatedByUser: boolean;
     unfinished?: boolean;
     error?: boolean | string;

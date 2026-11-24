@@ -568,12 +568,27 @@ describe('createEngineWorkChatHandler', () => {
   });
 
   it('streams each tool call with its arguments and replaces it with its result', async () => {
-    const { store } = fakeStore();
+    const { store, saveMessage } = fakeStore();
     const { runner } = fakeRunner([
       { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'ls' } },
       { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'a.txt' },
       { type: 'text_delta', text: 'Listed it.' },
     ]);
+    const content = [
+      { type: 'text', text: 'Listed it.' },
+      {
+        type: 'tool_call',
+        tool_call: {
+          id: 'call-1',
+          name: 'bash',
+          type: 'tool_call',
+          progress: 1,
+          args: { command: 'ls' },
+          runStepStatus: 'completed',
+          output: 'a.txt',
+        },
+      },
+    ];
 
     const { response } = await runHandler({
       store,
@@ -607,25 +622,21 @@ describe('createEngineWorkChatHandler', () => {
       parentMessageId: USER_MESSAGE_ID,
       conversationId: CONVERSATION_ID,
       text: 'Listed it.',
-      content: [
-        { type: 'text', text: 'Listed it.' },
-        {
-          type: 'tool_call',
-          tool_call: {
-            id: 'call-1',
-            name: 'bash',
-            type: 'tool_call',
-            progress: 1,
-            args: { command: 'ls' },
-            runStepStatus: 'completed',
-            output: 'a.txt',
-          },
-        },
-      ],
+      content,
       sender: 'OpenCode',
       isCreatedByUser: false,
       unfinished: false,
     });
+    /* The stored reply keeps those parts, so a reload renders the same turn. */
+    expect(saveMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        messageId: `${USER_MESSAGE_ID}_`,
+        text: 'Listed it.',
+        content,
+        isCreatedByUser: false,
+      }),
+    );
   });
 
   it('generates a message id and defaults a missing parent to 0', async () => {

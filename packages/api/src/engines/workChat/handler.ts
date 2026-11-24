@@ -431,6 +431,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
       }
 
+      const content = parts.filter((part) => part !== undefined);
       let result: EngineResult<EngineRunSummary>;
       try {
         result = await started.value.result;
@@ -461,6 +462,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
@@ -479,7 +481,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
       }
       finished = true;
-      const content = parts.filter((part) => part !== undefined);
       let terminalStatus: 'aborted' | 'error' | 'complete' = 'complete';
       if (cancelled) {
         terminalStatus = 'aborted';
