@@ -168,8 +168,12 @@ export default function GamesView() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => query.fetchNextPage()}
-              disabled={query.isFetchingNextPage}
+              onClick={() => {
+                if (!query.isFetching) {
+                  query.fetchNextPage();
+                }
+              }}
+              disabled={query.isFetching}
             >
               {query.isFetchingNextPage
                 ? localize('com_games_loading_more')

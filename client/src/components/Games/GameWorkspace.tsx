@@ -299,7 +299,8 @@ export default function GameWorkspace() {
             </div>
           ) : null}
 
-          {tab === 'spec' ? (
+          {/* Mounted on every tab so switching away keeps the unsaved draft. */}
+          <div className={tab === 'spec' ? '' : 'hidden'}>
             <section className="border-border-light bg-surface-secondary rounded-2xl border p-5">
               <h2 className="text-text-primary text-sm font-semibold">
                 {localize('com_games_spec_edit_title')}
@@ -309,7 +310,7 @@ export default function GameWorkspace() {
               </p>
               <GameSpecForm project={project} />
             </section>
-          ) : null}
+          </div>
 
           {tab === 'builds' ? (
             <GameUnavailable

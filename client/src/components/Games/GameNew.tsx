@@ -72,7 +72,12 @@ export default function GameNew() {
             <input
               id={nameId}
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                if (error) {
+                  setError(null);
+                }
+              }}
               maxLength={MAX_GAME_NAME_LENGTH}
               placeholder={localize('com_games_name_placeholder')}
               className="border-border-light bg-surface-primary text-text-primary placeholder:text-text-tertiary focus-visible:ring-ring-primary mt-1.5 h-10 w-full rounded-xl border px-3 text-sm focus-visible:ring-2 focus-visible:outline-none"
