@@ -13,9 +13,10 @@ cache: true
 # The credentials are read from the server environment; never put them
 # in this file. The selected endpoint is tried first, then `order`.
 # Cloudflare is account-scoped, so it also needs CLOUDFLARE_ACCOUNT_ID (not a secret).
+# Legacy orders listing vercel skip it; a Vercel-only order disables fallback.
 # providerFallback:
 #   enabled: true
-#   order: [gemini, cerebras, groq, opencode, apinex, cloudflare, vercel, freeai, 100millionseek]
+#   order: [gemini, cerebras, groq, opencode, apinex, cloudflare, freeai, 100millionseek]
 #   models:
 #     gemini: gemini-3.5-flash-lite
 #     cerebras: gpt-oss-120b
@@ -23,7 +24,6 @@ cache: true
 #     opencode: deepseek-v4.1-flash-free
 #     apinex: free/deepseek-v4.1-flash
 #     cloudflare: '@cf/openai/gpt-oss-120b'
-#     vercel: nvidia/nemotron-3.5-lightning-free
 #     freeai: qwen7b
 #     100millionseek: deepseek-v4.1-flash-free
 #   # Optional OpenAI-compatible gateway roots; defaults are the provider APIs.
@@ -31,7 +31,6 @@ cache: true
 #   #   opencode: https://opencode.ai/zen/v1
 #   #   apinex: https://api.apinex.bond/v1
 #   #   cloudflare: https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1
-#   #   vercel: https://ai-gateway.vercel.sh/v1
 #   #   freeai: https://api.free.ai/v1
 #   #   100millionseek: https://100milionseek.top/v1
 
@@ -1737,30 +1736,39 @@ endpoints:
 #     timeoutMs: 900000
 #   workChat:
 #     enabled: true
-#     engine: opencode
 #     mode: cloud
 
 # Freebuff engine: runs Freebuff's own agent loop from a source-built SDK.
 # Build it once from the Freebuff checkout (`bun install && bun run build:sdk`),
 # then point sdkPath at the absolute CommonJS entrypoint (or set
 # FREEBUFF_SDK_PATH). Freebuff runs local weights only, through an
-# OpenAI-compatible endpoint that is loopback unless its bare hostname is listed
-# in allowedHosts.
+# OpenAI-compatible loopback endpoint. allowedHosts is reserved for a future SDK
+# allowlist and cannot make a non-loopback host available.
 # engines:
 #   workspaces:
 #     privateRoot: /srv/coderax/private
+#     cloudRoot: /srv/coderax/cloud
 #   workChat:
 #     enabled: true
-#     engine: freebuff
-#     mode: private
+#     mode: cloud
 #   freebuff:
 #     enabled: true
 #     sdkPath: /srv/freebuff/sdk/dist/index.cjs
 #     baseURL: http://127.0.0.1:11434/v1
-#     # Non-loopback endpoints only: a Compose service name or host.docker.internal.
-#     # HTTP sends prompts and FREEBUFF_LOCAL_API_KEY without encryption.
-#     # Allowlist only hosts on a trusted network path.
-#     # allowedHosts: [ollama]
+#     # Reserved for a future SDK allowlist. The pinned SDK accepts plain HTTP
+#     # only on loopback, so a non-loopback host is reported as not configured.
+#     # Use a loopback forwarder for a model server in another container.
+#     # allowedHosts: [model-gateway.internal]
 #     model: ollama/qwen2.5-coder:7b
 #     timeoutMs: 900000
 #     maxAgentSteps: 24
+
+# Optional API startup listener for an Ollama server in another container.
+# Keep engines.freebuff.baseURL on the same loopback address and port.
+# ollamaLoopback:
+#   enabled: false
+#   listenHost: 127.0.0.1
+#   listenPort: 11434
+#   upstreamHost: ollama
+#   upstreamPort: 11434
+#   connectTimeoutMs: 10000

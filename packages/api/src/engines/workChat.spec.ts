@@ -17,7 +17,7 @@ const USER_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';
 const enabledConfig = (overrides: Partial<EngineWorkChatConfig['engines']> = {}) =>
   ({
     engines: {
-      workChat: { enabled: true, engine: 'opencode' as const },
+      workChat: { enabled: true, mode: 'cloud' as const },
       opencode: { enabled: true },
       workspaces: { privateRoot: '/srv/coderax/private' },
       ...overrides,
@@ -27,7 +27,13 @@ const enabledConfig = (overrides: Partial<EngineWorkChatConfig['engines']> = {})
 function fakeStore(overrides: Partial<EngineWorkChatStore> = {}) {
   const conversations = new Map<
     string,
-    { conversationId: string; title?: string; tenantId?: string | null; isWork?: boolean }
+    {
+      conversationId: string;
+      title?: string;
+      tenantId?: string | null;
+      isWork?: boolean;
+      workAgent?: 'coderax' | 'opencode' | 'freebuff';
+    }
   >();
   const messages: Array<Record<string, unknown>> = [];
   const store: EngineWorkChatStore = {
@@ -39,6 +45,7 @@ function fakeStore(overrides: Partial<EngineWorkChatStore> = {}) {
         conversationId: input.conversationId,
         ...(input.title ? { title: input.title } : {}),
         ...(input.workState ? { workState: input.workState } : {}),
+        ...(input.workAgent ? { workAgent: input.workAgent } : {}),
         isWork: true,
       } as never);
     },
@@ -102,6 +109,22 @@ function app(options: {
       typed.user = options.user ?? { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' };
     }
     typed.config = { config: options.config ?? enabledConfig(), interfaceConfig: {} };
+    /** Existing engine tests predate the explicit native default; make their
+     *  intent explicit without weakening the production request contract. */
+    const config = typed.config.config;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (
+      req.method === 'POST' &&
+      config?.engines?.workChat?.enabled === true &&
+      typed.user?.role === 'ADMIN' &&
+      body.workAgent == null &&
+      body.agent_id == null &&
+      body.agentId == null &&
+      body.ephemeralAgent == null &&
+      body.spec == null
+    ) {
+      body.workAgent = 'opencode';
+    }
     next();
   });
   server.use(
@@ -172,6 +195,19 @@ describe('owner-gated OpenCode Work ingress', () => {
     );
     expect(Array.from(conversations.values())).toEqual(
       expect.arrayContaining([expect.objectContaining({ workState: 'completed', isWork: true })]),
+    );
+  });
+
+  it('persists the selected external identity on the Work conversation', async () => {
+    const { store, conversations } = fakeStore();
+    const { runner } = fakeRunner();
+    const res = await request(app({ store, runner }))
+      .post('/api/work/chat')
+      .send({ text: 'Fix it', conversationId: 'new', workAgent: 'opencode' });
+
+    expect(res.status).toBe(200);
+    expect(Array.from(conversations.values())).toEqual(
+      expect.arrayContaining([expect.objectContaining({ workAgent: 'opencode' })]),
     );
   });
 
@@ -295,11 +331,21 @@ describe('owner-gated OpenCode Work ingress', () => {
     expect(conversations.size).toBe(0);
   });
 
-  it('keeps attachment turns on the native runner', async () => {
+  it('rejects an external identity combined with attachments instead of switching engines', async () => {
     const { runner } = fakeRunner();
     const res = await request(app({ runner }))
       .post('/api/work/chat')
       .send({ text: 'Fix it', conversationId: 'new', files: [{ id: 'file-1' }] });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('WORK_AGENT_COMBINATION_UNSUPPORTED');
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit native turn on the native runner even when engines are enabled', async () => {
+    const { runner } = fakeRunner();
+    const res = await request(app({ runner }))
+      .post('/api/work/chat')
+      .send({ text: 'Fix it', conversationId: 'new', workAgent: 'coderax' });
     expect(res.status).toBe(418);
     expect(res.body.code).toBe('NATIVE');
     expect(runner.start).not.toHaveBeenCalled();
@@ -346,7 +392,7 @@ describe('owner-gated OpenCode Work ingress', () => {
       {
         method: 'POST',
         path: '/chat',
-        body: { text: 'Fix it', conversationId: 'new' },
+        body: { text: 'Fix it', conversationId: 'new', workAgent: 'opencode' },
         user: { id: 'owner', role: 'ADMIN', tenantId: 'tenant-1' },
         config: { config: enabledConfig(), interfaceConfig: {} },
       },
@@ -449,6 +495,7 @@ describe('EngineWorkChatRuntime', () => {
       userId: 'owner',
       tenantId: 'tenant-1',
       conversationId: CONVERSATION_ID,
+      engine: 'opencode',
       prompt: 'Fix it',
     });
     expect(first.ok).toBe(true);
@@ -506,6 +553,7 @@ describe('EngineWorkChatRuntime', () => {
       userId: 'owner',
       tenantId: 'tenant-1',
       conversationId,
+      engine: 'opencode',
       prompt: 'Fix it',
     });
     expect(started.ok).toBe(true);

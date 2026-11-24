@@ -2,14 +2,14 @@ import { useRef } from 'react';
 import * as Ariakit from '@ariakit/react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown } from 'lucide-react';
-import { QueryKeys, dataService } from 'coderax-data-provider';
+import { QueryKeys, SystemRoles, dataService } from 'coderax-data-provider';
 import {
   workActiveEndpoint,
   workPrimaryAvailability,
   workProviderRequestsRemaining,
 } from './workProviderState';
 import { WorkProviderStatusDetails } from './WorkProviderStatus';
-import { useLocalize } from '~/hooks';
+import { useAuthContext, useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 /**
@@ -18,14 +18,16 @@ import { cn } from '~/utils';
  *
  * Rendered only when the deployment opted into zero-cost routing, so the
  * existing composer is untouched everywhere else. The preferred model's
- * unavailability is named next to the active route instead of being hidden,
- * because "DeepSeek-R1" on a distilled model would be a lie. When the server
- * has no routable endpoint left, the badge says so and never implies a paid
- * fallback exists. Opening the badge shows the same provider rows as the model
- * menu, using the snapshot this component already fetched.
+ * unavailability is an operator diagnostic, so only admins see it next to the
+ * active route; everyone else sees the route the turn will take. When the
+ * server has no routable endpoint left, the badge says so and never implies a
+ * paid fallback exists. Opening the badge shows the same provider rows as the
+ * model menu, using the snapshot this component already fetched.
  */
 export function WorkRoutingBadge() {
   const localize = useLocalize();
+  const { user } = useAuthContext();
+  const isAdmin = user?.role === SystemRoles.ADMIN;
   const disclosureRef = useRef<HTMLButtonElement>(null);
   const popover = Ariakit.usePopoverStore({ placement: 'top-start' });
   const open = popover.useState('open');
@@ -70,7 +72,7 @@ export function WorkRoutingBadge() {
                 {localize('com_work_routing_requests_left', { 0: String(remaining) })}
               </span>
             )}
-            {primary !== 'available' && (
+            {isAdmin && primary !== 'available' && (
               <span className="truncate">
                 {primary === 'unconfigured'
                   ? localize('com_work_routing_primary_unconfigured', {

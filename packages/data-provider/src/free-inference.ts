@@ -59,6 +59,10 @@ export type FreeEndpoint = {
   /** A non-zero rate here would make the endpoint chargeable and is rejected. */
   promptCostPerMillion?: number;
   completionCostPerMillion?: number;
+  /** Last measured latency of an authenticated minimal turn, when one exists. */
+  observedLatencyMs?: number;
+  /** ISO date observedLatencyMs was measured. */
+  observedLatencyAt?: string;
 };
 
 export type FreeEndpointRejection =
@@ -176,6 +180,8 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 10,
+    observedLatencyMs: 1_801,
+    observedLatencyAt: '2026-11-23',
     dailyRequestLimit: 50,
     requestsPerMinuteLimit: 20,
     quotaGroup: 'openrouter-free-account',
@@ -216,6 +222,8 @@ export const FREE_ENDPOINTS: readonly FreeEndpoint[] = [
     capabilities: { streaming: true, tools: true, reasoning: true },
     contextTokens: 1_000_000,
     routingPriority: 30,
+    observedLatencyMs: 715,
+    observedLatencyAt: '2026-11-23',
     dailyRequestLimit: 50,
     requestsPerMinuteLimit: 20,
     quotaGroup: 'openrouter-free-account',
@@ -421,6 +429,14 @@ export type FreeInferenceEndpointState = {
   credentialEnv: string;
   credentialPresent: boolean;
   tools: boolean;
+  /** Verified native reasoning support from the catalog entry. */
+  reasoning?: boolean;
+  /** Verified context window in tokens. */
+  contextTokens?: number;
+  /** Last measured latency of an authenticated minimal turn, when one exists. */
+  observedLatencyMs?: number;
+  /** ISO date observedLatencyMs was measured. */
+  observedLatencyAt?: string;
   /** True only when opt-in, a server credential, policy and transport all agree. */
   executable: boolean;
   blocked: FreeInferenceBlockReason | null;
@@ -560,6 +576,12 @@ export function describeFreeInferenceCatalog(
       credentialEnv: endpoint.apiKeyEnv,
       credentialPresent,
       tools: endpoint.capabilities.tools,
+      reasoning: endpoint.capabilities.reasoning,
+      contextTokens: endpoint.contextTokens,
+      ...(endpoint.observedLatencyMs != null
+        ? { observedLatencyMs: endpoint.observedLatencyMs }
+        : {}),
+      ...(endpoint.observedLatencyAt ? { observedLatencyAt: endpoint.observedLatencyAt } : {}),
       executable: blocked === null,
       blocked,
     };
@@ -616,6 +638,10 @@ export type FreeInferenceWorkSource = {
   label: string;
   provider: string;
   free: true;
+  tools: boolean;
+  reasoning: boolean;
+  contextTokens: number;
+  latencyMs?: number;
 };
 
 /**
@@ -638,6 +664,10 @@ export function buildFreeInferenceWorkSources(
         label: endpoint.label,
         provider: group.name,
         free: true,
+        tools: endpoint.tools,
+        reasoning: endpoint.reasoning === true,
+        contextTokens: endpoint.contextTokens ?? 0,
+        ...(endpoint.observedLatencyMs != null ? { latencyMs: endpoint.observedLatencyMs } : {}),
       });
     }
   }

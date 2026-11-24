@@ -18,7 +18,7 @@ Power Mode are disabled by default.
 | Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
 | OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
 | OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
-| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint or hosts named in `allowedHosts`, and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
+| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint (`allowedHosts` cannot make a non-loopback host usable), and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
 | Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
 | Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
 | Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
@@ -64,7 +64,6 @@ engines:
     timeoutMs: 900000
   workChat:
     enabled: true
-    engine: opencode
     mode: cloud
 ```
 
@@ -78,23 +77,33 @@ produces text but no terminal event is reported as `protocol_error`.
 
 ### Owner-only Work ingress
 
-`engines.workChat.enabled` is a separate opt-in from `engines.opencode.enabled`.
-When both are on, an authenticated `ADMIN` who starts a turn without a saved
-agent or attachments is routed through OpenCode at `POST /api/work/chat`:
+`engines.workChat.enabled` is a separate opt-in from `engines.opencode.enabled`
+and `engines.freebuff.enabled`. Work turns default to the native Coderax agent;
+an external engine runs only when the request names it at `POST /api/work/chat`:
 
-- private-mode turns use `engines.workspaces.privateRoot`; cloud-mode turns use `engines.workspaces.cloudRoot`;
-- the user and assistant messages are written to the existing Work conversation,
-  and its `workState` becomes `completed`, `failed` or `cancelled`;
+- the client sends `workAgent: 'opencode' | 'freebuff'`; `workAgent: 'coderax'`
+  or no `workAgent` stays on the native runner;
+- `GET /api/work/agent-identities` lists all three identities with a truthful
+  availability reason (owner-only, disabled, cloud required), so an unavailable
+  engine is shown as such rather than hidden or faked;
+- external turns require `engines.workChat.mode: cloud` and run in a per-run
+  directory under `engines.workspaces.cloudRoot` named `work-<engine>-<hash>`,
+  where the hash covers the tenant, user and conversation; it is created with
+  mode `0700` and refused if it is not a real directory;
+- the handler refuses a non-owner (`403`), a saved agent, spec or attachment, a
+  regenerate/compact/edit turn and an added conversation (`400`), and a disabled
+  engine (`503`) instead of falling back to native;
+- the user and assistant messages are written to the existing Work conversation
+  with its `workAgent`, and its `workState` becomes `completed`, `failed` or
+  `cancelled`;
 - the reply streams as the same `created` / text / `final` SSE frames the Work
   client already consumes;
 - `/api/work/tasks/:id/cancel` cancels the live engine run, scoped to the same
   user and tenant;
 - a second run for the same conversation is refused with `WORK_ENGINE_BUSY`.
 
-Every non-owner, every selected-agent turn, and every attachment stays on the
-native runner. If OpenCode requests a tool permission that Work cannot collect,
-the run is cancelled and reported as failed rather than silently approved.
-Attachments, regenerate, compact and edit turns are rejected by this branch.
+If an external engine requests a tool permission that Work cannot collect, the
+run is cancelled and reported as failed rather than silently approved.
 
 ## OpenHands (optional engine)
 
@@ -116,14 +125,30 @@ must not silently start a Python agent on a 24 GB ARM instance.
 
 The adapter integrates Freebuff as an owner-only Work engine once a compatible
 source-built SDK is supplied. It uses Freebuff's direct BYOK runtime with a
-local Ollama or LM Studio endpoint — loopback by default, or a host the owner
-names in `engines.freebuff.allowedHosts` — and the same run lifecycle, stream,
-cancellation, and workspace-root checks as the other adapters. Allowlisting a
-host does not relax the rest of the endpoint contract: it must still be `http`,
-with no credentials, query, or fragment, and the entry matches the bare
-hostname exactly. Plain HTTP does not encrypt prompts or the inference API key
-(`FREEBUFF_LOCAL_API_KEY`); anyone who can observe the traffic can read them.
-Allowlist only hosts on a network path you trust.
+local Ollama or LM Studio endpoint and the same run lifecycle, stream,
+cancellation, and workspace-root checks as the other adapters. The endpoint
+must be plain `http` on loopback (`localhost`, `127.0.0.1`, `::1`) and must not
+carry credentials, a query, or a fragment.
+
+The pinned SDK enforces that rule: a plain-HTTP provider endpoint is accepted
+only on loopback. `engines.freebuff.allowedHosts` is retained for diagnostics
+and future SDK compatibility, but it cannot make a non-loopback host usable;
+Coderax reports such an endpoint as `not_configured` instead of ready, and the
+SDK would reject it before a request is sent. This adapter rejects `https`
+outright, so an operator cannot use a TLS endpoint either. Reach a model server
+in another container through a loopback forwarder. The shipped Compose stack
+sets `ollamaLoopback.enabled: true` in `coderax.docker.yaml` and points
+`engines.freebuff.baseURL` at `http://127.0.0.1:11434/v1`. The API binds the
+listener before serving requests and forwards TCP to `ollama:11434`.
+A fatal listener failure exits the process so Compose can restart the container.
+
+The listener is disabled by default outside the shipped Compose configuration.
+Set `listenHost`, `listenPort`, `upstreamHost`, `upstreamPort` or
+`connectTimeoutMs` under `ollamaLoopback` to override the defaults at restart.
+The 10-second default covers DNS and TCP connection setup; established streams
+have no forwarder idle timeout. When the corresponding YAML settings are
+omitted, the legacy `OLLAMA_LOOPBACK_HOST`, `OLLAMA_LOOPBACK_PORT`,
+`OLLAMA_UPSTREAM_HOST` and `OLLAMA_UPSTREAM_PORT` variables still work.
 Freebuff does not call hosted Freebuff inference, load repository or home
 agents, or enable shell execution. File operations are wrapped to stay inside
 the selected workspace.
@@ -165,17 +190,17 @@ Example owner configuration:
 engines:
   workspaces:
     privateRoot: /srv/coderax/private
+    cloudRoot: /srv/coderax/cloud
   workChat:
     enabled: true
-    engine: freebuff
-    mode: private
+    mode: cloud
   freebuff:
     enabled: true
     sdkPath: /srv/freebuff/sdk/dist/index.cjs
     baseURL: http://127.0.0.1:11434/v1
-    # Only needed for a non-loopback endpoint, e.g. a Compose service name or
-    # host.docker.internal. Bare hostnames, up to 16.
-    # allowedHosts: [ollama]
+    # Reserved for a future SDK allowlist. The pinned SDK rejects plain HTTP
+    # off loopback, so a non-loopback host is reported as not configured.
+    # allowedHosts: [model-gateway.internal]
     model: ollama/qwen2.5-coder:7b
     timeoutMs: 900000
     maxAgentSteps: 24

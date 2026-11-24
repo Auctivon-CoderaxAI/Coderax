@@ -10,7 +10,6 @@ const env = {
   APINEX_KEY: 'apinex-secret',
   CLOUDFLARE_TOKEN: 'cloudflare-secret',
   CLOUDFLARE_ACCOUNT_ID: 'account-id',
-  VERCEL_KEY: 'vercel-secret',
   FREEAI_API_KEY: 'freeai-secret',
   '100MILLIONSEEK_API_KEY': 'hundred-million-secret',
 };
@@ -25,7 +24,6 @@ const config: ProviderFallbackConfigLike = {
       'opencode',
       'apinex',
       'cloudflare',
-      'vercel',
       'freeai',
       '100millionseek',
     ],
@@ -125,19 +123,6 @@ describe('buildProviderFallbackOptions', () => {
       },
       {
         provider: 'openAI',
-        maxContextTokens: 1_000_000,
-        clientOptions: {
-          model: 'nvidia/nemotron-3.5-lightning-free',
-          apiKey: 'vercel-secret',
-          configuration: { baseURL: 'https://ai-gateway.vercel.sh/v1' },
-          temperature: 0.2,
-          topP: 0.9,
-          maxTokens: 1_024,
-          stop: ['END'],
-        },
-      },
-      {
-        provider: 'openAI',
         maxContextTokens: 32_768,
         clientOptions: {
           model: 'qwen7b',
@@ -177,7 +162,6 @@ describe('buildProviderFallbackOptions', () => {
           'opencode',
           'apinex',
           'cloudflare',
-          'vercel',
           'freeai',
           '100millionseek',
         ],
@@ -196,7 +180,6 @@ describe('buildProviderFallbackOptions', () => {
       'deepseek-v4.1-flash-free',
       'free/deepseek-v4.1-flash',
       '@cf/openai/gpt-oss-120b',
-      'nvidia/nemotron-3.5-lightning-free',
       'qwen7b',
       'deepseek-v4.1-flash-free',
     ]);

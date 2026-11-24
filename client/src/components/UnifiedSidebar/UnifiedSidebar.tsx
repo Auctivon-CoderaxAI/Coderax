@@ -16,12 +16,12 @@ import {
   MOBILE_DRAWER_WIDTH,
   DRAWER_UNPAINTED,
 } from './constants';
+import { MobileHeader, MobileBottomBar, MobileShortcutTargets, MobileQuickLinks } from './mobile';
+import useRouteActiveId, { useIsWorkspaceRoute } from '~/hooks/Nav/useRouteActiveId';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
 import { ChatContext, ChatFormProvider, ActivePanelProvider } from '~/Providers';
-import { MobileHeader, MobileBottomBar, MobileShortcutTargets } from './mobile';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
 import useUnifiedSidebarLinks from '~/hooks/Nav/useUnifiedSidebarLinks';
-import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import { useChatHelpers, useLocalize } from '~/hooks';
@@ -74,7 +74,7 @@ function UnifiedSidebar({
 
   const links = useUnifiedSidebarLinks();
   const routeActiveId = useRouteActiveId();
-  const isWorkspaceRoute = routeActiveId != null;
+  const isWorkspaceRoute = useIsWorkspaceRoute();
   const panelExpanded = expanded && !isWorkspaceRoute;
 
   /** The aside's max width is a viewport percentage, so the announced range has to track
@@ -266,6 +266,7 @@ function UnifiedSidebar({
             onLeaveInsights={handleLeaveInsights}
             routeActiveId={routeActiveId}
           />
+          <MobileQuickLinks onNavigate={handleCollapse} />
           <nav
             id="chat-history-nav"
             className="bg-surface-primary-alt min-h-0 flex-1 overflow-hidden"
