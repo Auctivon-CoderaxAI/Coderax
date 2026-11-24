@@ -8,6 +8,7 @@ import type {
 } from './types/traces';
 import type { TInsightsAccessResponse, TInsightsParams, TInsightsResponse } from './types/insights';
 import type { ScheduleMCPConsentView, ConfirmScheduleMCPConsent } from './types/scheduleConsent';
+import type { ToolStandingAuthorization, ToolStandingAuthorizationInput } from './standing';
 import type { TFileConfig } from './file-config';
 import type * as tl from './types/tools';
 import type * as t from './types';
@@ -593,6 +594,20 @@ export const resetToolApprovalGrants = (params: {
   agentId: string;
   toolName?: string;
 }): Promise<{ reset: true }> => request.post(endpoints.resetToolApprovalGrants(), params);
+
+export const getToolStandingAuthorizations = (): Promise<{
+  authorizations: ToolStandingAuthorization[];
+}> => request.get(endpoints.toolStandingAuthorizations());
+
+export const createToolStandingAuthorization = (
+  params: ToolStandingAuthorizationInput,
+): Promise<{ authorization: ToolStandingAuthorization }> =>
+  request.post(endpoints.toolStandingAuthorizations(), params);
+
+export const revokeToolStandingAuthorization = (
+  authorizationId: string,
+): Promise<{ revoked: true }> =>
+  request.delete(endpoints.toolStandingAuthorizationById(authorizationId));
 
 export const getToolCalls = (params: q.GetToolCallParams): Promise<q.ToolCallResults> => {
   return request.get(

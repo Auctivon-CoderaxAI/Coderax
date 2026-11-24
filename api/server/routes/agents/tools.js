@@ -2,6 +2,7 @@ const express = require('express');
 const {
   reportLocatorTraversalFailure,
   createResetToolApprovalController,
+  createToolStandingAuthorizationControllers,
   createContentFilter,
   extractToolArgumentContent,
 } = require('@coderax/api');
@@ -15,6 +16,9 @@ const { getAvailableTools } = require('~/server/controllers/PluginController');
 const { toolCallLimiter } = require('~/server/middleware');
 
 const approvalStorage = require('~/models');
+const standingAuthorizations = createToolStandingAuthorizationControllers({
+  storage: approvalStorage,
+});
 const router = express.Router();
 router.post(
   '/approvals/reset',
@@ -35,6 +39,10 @@ router.post(
       }),
   }),
 );
+router.get('/authorizations', toolCallLimiter, standingAuthorizations.list);
+router.post('/authorizations', toolCallLimiter, standingAuthorizations.create);
+router.delete('/authorizations/:authorizationId', toolCallLimiter, standingAuthorizations.revoke);
+
 const filterToolArguments = createContentFilter({
   onTraversalFailure: reportLocatorTraversalFailure,
   getFilters: (req) => req.config?.filters,

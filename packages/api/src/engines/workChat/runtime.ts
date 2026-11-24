@@ -38,6 +38,12 @@ function activeRunKey(input: RunScope): string {
 }
 
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
+  private readonly registry: EngineRegistryApi;
+  private readonly roots: { private: string; cloud: string };
+  private readonly mode: DataMode;
+  private readonly model: EngineModelRef | undefined;
+  private readonly defaultEngine: EngineId;
+  private readonly leases: WorkRunLeaseStore;
   private readonly instanceId = randomUUID();
   private readonly leaseTtlMs: number;
   private readonly heartbeatMs: number;
@@ -46,14 +52,20 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private sweeping = false;
 
   constructor(
-    private readonly registry: EngineRegistryApi,
-    private readonly roots: { private: string; cloud: string },
-    private readonly mode: DataMode = 'private',
-    private readonly model?: EngineModelRef,
-    private readonly defaultEngine: EngineId = 'opencode',
-    private readonly leases: WorkRunLeaseStore = memoryWorkRunLeases,
+    registry: EngineRegistryApi,
+    roots: { private: string; cloud: string },
+    mode: DataMode = 'private',
+    model?: EngineModelRef,
+    defaultEngine: EngineId = 'opencode',
+    leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
   ) {
+    this.registry = registry;
+    this.roots = roots;
+    this.mode = mode;
+    this.model = model;
+    this.defaultEngine = defaultEngine;
+    this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
     this.heartbeatMs = Math.max(5, Math.floor(leaseTtlMs / 3));
   }

@@ -712,3 +712,9 @@ export const graphToken = (scopes: string) =>
   `${BASE_URL}/api/auth/graph-token?scopes=${encodeURIComponent(scopes)}`;
 
 export const resetToolApprovalGrants = (): string => `${BASE_URL}/api/agents/tools/approvals/reset`;
+
+export const toolStandingAuthorizations = (): string =>
+  `${BASE_URL}/api/agents/tools/authorizations`;
+
+export const toolStandingAuthorizationById = (authorizationId: string): string =>
+  `${toolStandingAuthorizations()}/${encodeURIComponent(authorizationId)}`;
