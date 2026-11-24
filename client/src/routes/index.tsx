@@ -24,6 +24,7 @@ import StartupLayout from './Layouts/Startup';
 import MarketplaceRoute from './Marketplace';
 import Login from '~/components/Auth/Login';
 import LoginLayout from './Layouts/Login';
+import GuestEntry from './GuestEntry';
 import dashboardRoutes from './Dashboard';
 import WithRum from '~/lib/rum/WithRum';
 import GuestEntry from './GuestEntry';
