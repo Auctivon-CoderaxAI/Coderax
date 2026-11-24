@@ -46,11 +46,15 @@ export interface CapabilityBadgeProps {
   /** The status word, localized by the caller — a badge never invents copy. */
   label: string;
   /**
-   * Why the capability is in this state. Rendered as an inline sentence, not only as
-   * a tooltip: a control the owner cannot use has to say why in the same breath.
+   * Why the capability is in this state. Always the badge's tooltip, and rendered as
+   * an inline sentence only when `showReason` opts in.
    */
   reason?: string;
-  /** Set false where the surrounding screen already states the reason. */
+  /**
+   * Render `reason` inline beside the badge. Off by default: the caller knows whether
+   * its layout has room for a sentence, and a screen that already states the blocker
+   * should not say it twice.
+   */
   showReason?: boolean;
   size?: 'sm' | 'md';
   className?: string;
@@ -60,7 +64,7 @@ export default function CapabilityBadge({
   status,
   label,
   reason,
-  showReason = true,
+  showReason = false,
   size = 'sm',
   className,
 }: CapabilityBadgeProps): JSX.Element {

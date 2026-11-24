@@ -29,19 +29,18 @@ describe('CapabilityBadge', () => {
     expect(container.firstElementChild).toHaveClass('text-status-warning');
   });
 
-  it('states the reason inline, not only as a tooltip', () => {
-    render(
-      <CapabilityBadge status="blocked" label="Blocked" reason="Requires a connected repository" />,
-    );
-
-    expect(screen.getByText('Requires a connected repository')).toBeInTheDocument();
-    expect(screen.getByTitle('Requires a connected repository')).toHaveTextContent('Blocked');
-  });
-
-  it('drops the inline reason where the screen already states it', () => {
-    const reason = 'Requires video generation capacity';
-    render(<CapabilityBadge status="blocked" label="Blocked" reason={reason} showReason={false} />);
+  it('keeps the reason out of the layout until the caller asks for it', () => {
+    const reason = 'Requires a connected repository';
+    render(<CapabilityBadge status="blocked" label="Blocked" reason={reason} />);
 
     expect(screen.queryByText(reason)).not.toBeInTheDocument();
+    expect(screen.getByTitle(reason)).toHaveTextContent('Blocked');
+  });
+
+  it('states the reason inline when the caller opts in', () => {
+    const reason = 'Requires video generation capacity';
+    render(<CapabilityBadge status="blocked" label="Blocked" reason={reason} showReason={true} />);
+
+    expect(screen.getByText(reason)).toBeInTheDocument();
   });
 });

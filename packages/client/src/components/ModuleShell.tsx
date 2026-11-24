@@ -73,7 +73,7 @@ export default function ModuleShell({
         {breadcrumb != null && <div className="mb-2 min-w-0">{breadcrumb}</div>}
 
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2.5">
+          <div className="flex min-w-0 flex-1 items-start gap-2.5">
             {Icon != null && (
               <Icon className="text-text-secondary mt-0.5 size-5 shrink-0" aria-hidden={true} />
             )}
