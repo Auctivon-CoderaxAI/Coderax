@@ -61,6 +61,7 @@ jest.mock('../mobile', () => ({
   MobileHeader: () => <div data-testid="mobile-header" />,
   MobileBottomBar: () => <div data-testid="mobile-bottom-bar" />,
   MobileShortcutTargets: () => <div data-testid="mobile-shortcut-targets" />,
+  MobileQuickLinks: () => <div data-testid="mobile-quick-links" />,
 }));
 
 jest.mock('../Sidebar', () => ({
