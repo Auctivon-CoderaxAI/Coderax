@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSetAtom } from 'jotai';
 import { Button } from '@coderax/client';
-import { RefreshCw } from 'lucide-react';
+import { ArrowUp, RefreshCw } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { QueryKeys, SettingsTabValues } from 'coderax-data-provider';
@@ -474,6 +474,26 @@ function TaskApprovals({ taskId }: { taskId: string }) {
   );
 }
 
+const terminalTaskStates = new Set([
+  'complete',
+  'completed',
+  'done',
+  'error',
+  'failed',
+  'success',
+  'succeeded',
+  'canceled',
+  'cancelled',
+]);
+
+function canCancelTask(state: string) {
+  return !terminalTaskStates.has(state.trim().toLowerCase());
+}
+
+function getTaskLabel(item: CyVoxTask) {
+  return item.task || item.goal || item.id;
+}
+
 function WorkView() {
   const localize = useLocalize();
   const [task, setTask] = useState('');
@@ -483,9 +503,38 @@ function WorkView() {
   const action = useCyVoxAction();
   const models = useCyVox<CyVoxModelList>('models');
   const tasks = useCyVox<CyVoxTaskList>('tasks');
+  const taskItems = tasks.data?.tasks ?? [];
+  const recentTasks = taskItems.slice(-12).reverse();
+  const selectedTask = taskItems.find((item) => item.id === activeTaskId);
   const choices = (models.data?.models ?? []).filter(
     (item) => item.compatible_now !== false && isCyvoxFreeOrLocalModel(item.name),
   );
+
+  const startTask = async () => {
+    const description = task.trim();
+    if (!description || action.busy) return;
+
+    const previousTaskIds = new Set(taskItems.map((item) => item.id));
+    const started = await action.send(
+      'actions/startTask',
+      { task: description, mode },
+      localize('com_cyvox_start_work_confirmation'),
+    );
+    if (!started) return;
+
+    setTask('');
+    const refreshed = await tasks.refetch();
+    const createdTask = refreshed.data?.tasks?.find((item) => !previousTaskIds.has(item.id));
+    if (createdTask) setActiveTaskId(createdTask.id);
+  };
+
+  const cancelTask = (item: CyVoxTask) =>
+    void action.send(
+      'tasks/' + item.id + '/cancel',
+      {},
+      localize('com_cyvox_cancel_task_confirmation'),
+    );
+
   return (
     <div className="space-y-5">
       <div className="border-border-light bg-surface-primary-alt rounded-lg border p-4">
@@ -602,13 +651,211 @@ function WorkView() {
                 {localize('com_cyvox_cancel')}
               </button>
             </div>
-          ))}
-        {activeTaskId && <TaskApprovals taskId={activeTaskId} />}
+            <section
+              aria-label={localize('com_cyvox_work_task_status')}
+              className="flex items-start gap-3"
+            >
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-medium">{localize('com_cyvox_work_task_status')}</h2>
+                  <span className="bg-surface-secondary text-text-secondary rounded-full px-2.5 py-1 text-xs">
+                    {selectedTask.state}
+                  </span>
+                </div>
+                <p className="text-text-secondary text-sm">
+                  {localize('com_cyvox_work_progress_note')}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canCancelTask(selectedTask.state) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={action.busy}
+                      aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(selectedTask))}
+                      onClick={() => void cancelTask(selectedTask)}
+                    >
+                      {localize('com_cyvox_cancel')}
+                    </Button>
+                  )}
+                </div>
+                {tasks.isError && (
+                  <p role="alert" className="text-sm">
+                    {localize('com_cyvox_tasks_unavailable')}
+                  </p>
+                )}
+                <TaskApprovals taskId={selectedTask.id} />
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 py-8">
+            <div className="flex flex-1 flex-col items-center justify-center py-10 text-center">
+              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                {localize('com_cyvox_work_welcome_title')}
+              </h1>
+              <p className="text-text-secondary mt-3 max-w-xl text-sm sm:text-base">
+                {localize('com_cyvox_work_welcome_description')}
+              </p>
+            </div>
+            {tasks.isLoading && (
+              <p role="status" className="text-text-secondary py-4 text-center text-sm">
+                {localize('com_cyvox_work_history_loading')}
+              </p>
+            )}
+            {tasks.isError && (
+              <p role="alert" className="text-text-secondary py-4 text-center text-sm">
+                {localize('com_cyvox_tasks_unavailable')}
+              </p>
+            )}
+            {recentTasks.length > 0 && !tasks.isError && (
+              <section
+                aria-label={localize('com_cyvox_work_recent_heading')}
+                className="mt-8 space-y-3"
+              >
+                <h2 className="text-text-secondary text-sm font-medium">
+                  {localize('com_cyvox_work_recent_heading')}
+                </h2>
+                <ul className="border-border-light divide-border-light rounded-2xl border p-1">
+                  {recentTasks.map((item) => (
+                    <li key={item.id} className="flex items-center gap-1">
+                      <Button
+                        variant="card"
+                        size="row"
+                        className="min-w-0 flex-1 justify-between gap-4"
+                        onClick={() => setActiveTaskId(item.id)}
+                      >
+                        <span className="min-w-0 flex-1 truncate text-sm">
+                          {getTaskLabel(item)}
+                        </span>
+                        <span className="text-text-secondary shrink-0 text-xs">{item.state}</span>
+                      </Button>
+                      {canCancelTask(item.state) && (
+                        <Button
+                          variant="row-action"
+                          size="xs"
+                          disabled={action.busy}
+                          aria-label={localize('com_cyvox_cancel') + ' ' + (getTaskLabel(item))}
+                          onClick={() => cancelTask(item)}
+                        >
+                          {localize('com_cyvox_cancel')}
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="bg-surface-primary shrink-0 px-4 pt-3 pb-4">
+        <form
+          className="mx-auto w-full max-w-3xl"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void startTask();
+          }}
+        >
+          <div className="border-border-medium bg-surface-primary focus-within:border-border-heavy rounded-3xl border p-3 shadow-sm">
+            <label htmlFor="cyvox-work-task" className="sr-only">
+              {localize('com_cyvox_work_description_label')}
+            </label>
+            <textarea
+              id="cyvox-work-task"
+              className="text-text-primary placeholder:text-text-secondary min-h-20 max-h-48 w-full resize-y bg-transparent px-2 py-2 text-base focus:outline-hidden"
+              rows={3}
+              maxLength={4000}
+              value={task}
+              onChange={(event) => setTask(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void startTask();
+                }
+              }}
+              placeholder={localize('com_cyvox_work_description_placeholder')}
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <label htmlFor="cyvox-work-mode" className="sr-only">
+                  {localize('com_cyvox_execution')}
+                </label>
+                <select
+                  id="cyvox-work-mode"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-40 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
+                  value={mode}
+                  onChange={(event) => setMode(event.target.value as typeof mode)}
+                >
+                  <option value="Autonomous Run">{localize('com_cyvox_autonomous_run')}</option>
+                  <option value="Coding Team">{localize('com_cyvox_ai_team')}</option>
+                </select>
+                <label htmlFor="cyvox-work-model" className="sr-only">
+                  {localize('com_cyvox_model')}
+                </label>
+                <select
+                  id="cyvox-work-model"
+                  className="border-border-light bg-surface-secondary hover:bg-surface-hover text-text-primary focus-visible:ring-focus-control max-w-56 min-w-0 rounded-full border px-3 py-2 text-xs focus-visible:outline-hidden focus-visible:ring-2"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                >
+                  <option value="cyvox/auto">{localize('com_cyvox_auto_model')}</option>
+                  {choices
+                    .filter((item) => item.name !== 'cyvox/auto')
+                    .map((item) => (
+                      <option key={item.name} value={item.name}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+                {model !== 'cyvox/auto' && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={action.busy}
+                    onClick={() =>
+                      void action.send(
+                        'actions/selectModel',
+                        { model },
+                        localize('com_cyvox_select_model_confirmation', { model }),
+                      )
+                    }
+                  >
+                    {localize('com_cyvox_apply_model')}
+                  </Button>
+                )}
+              </div>
+              <Button
+                type="submit"
+                variant="default"
+                size="icon-sm"
+                shape="round"
+                aria-label={localize('com_cyvox_work_start_task_aria')}
+                disabled={action.busy || !task.trim()}
+              >
+                <ArrowUp className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {models.isError && (
+              <p role="alert" className="text-text-secondary mt-2 px-3 text-xs">
+                {localize('com_cyvox_models_unavailable')}
+              </p>
+            )}
+            {action.message && (
+              <p role="status" className="text-text-secondary mt-2 px-3 text-xs">
+                {action.message}
+              </p>
+            )}
+            <p className="text-text-secondary mt-2 px-3 text-center text-xs">
+              {localize('com_cyvox_work_policy_note')}
+            </p>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
-
 function RobotControls() {
   const action = useCyVoxAction();
   const localize = useLocalize();
