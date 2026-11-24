@@ -1,5 +1,6 @@
 import { selectStandingAuthorization } from 'coderax-data-provider';
 import type {
+  ToolStandingAuthorization,
   ToolStandingAuthorizationDecision,
   ToolStandingAuthorizationRequest,
   ToolStandingAuthorizationScope,
@@ -10,9 +11,42 @@ import type {
 export const DEFAULT_STANDING_AUTHORIZATION_LOOKUP_TIMEOUT_MS = 3000;
 
 export interface StandingAuthorizationGate {
-  storage?: Pick<ToolStandingAuthorizationStorage, 'listToolStandingAuthorizations'>;
+  /** Optional because older wiring passes only the approval-grant methods. */
+  storage?: {
+    listToolStandingAuthorizations?: ToolStandingAuthorizationStorage['listToolStandingAuthorizations'];
+  };
   scope?: ToolStandingAuthorizationScope;
   timeoutMs?: number;
+}
+
+/**
+ * Reads the owner's authorizations for this call, bounded and never cached.
+ *
+ * `null` means the check could not run — missing storage, no scope, a read
+ * error or a timeout. Callers must treat that as "no authorization", never as
+ * "no restrictions".
+ */
+export async function loadStandingAuthorizations(
+  gate: StandingAuthorizationGate,
+): Promise<ToolStandingAuthorization[] | null> {
+  const list = gate.storage?.listToolStandingAuthorizations;
+  const scope = gate.scope;
+  if (typeof list !== 'function' || scope == null) return null;
+  const timeoutMs = gate.timeoutMs ?? DEFAULT_STANDING_AUTHORIZATION_LOOKUP_TIMEOUT_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve()
+        .then(() => list(scope))
+        .catch(() => null),
+      timedOut,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -20,27 +54,13 @@ export interface StandingAuthorizationGate {
  *
  * The store is read on every invocation, never cached, so revocation and expiry
  * affect the next call and an approval captured earlier cannot revive a grant
- * revoked afterwards. Every failure path denies: missing storage, a slow read
- * and a rejected read all leave the call needing ordinary review.
+ * revoked afterwards. Every failure path denies.
  */
 export async function authorizeStandingWork(
   request: ToolStandingAuthorizationRequest,
   gate: StandingAuthorizationGate,
 ): Promise<ToolStandingAuthorizationDecision> {
-  if (!gate.storage || !gate.scope) return { allowed: false, reason: 'unavailable' };
-  const timeoutMs = gate.timeoutMs ?? DEFAULT_STANDING_AUTHORIZATION_LOOKUP_TIMEOUT_MS;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
-  });
-  try {
-    const authorizations = await Promise.race([
-      gate.storage.listToolStandingAuthorizations(gate.scope).catch(() => null),
-      timedOut,
-    ]);
-    if (authorizations == null) return { allowed: false, reason: 'unavailable' };
-    return selectStandingAuthorization(authorizations, request);
-  } finally {
-    clearTimeout(timer);
-  }
+  const authorizations = await loadStandingAuthorizations(gate);
+  if (authorizations == null) return { allowed: false, reason: 'unavailable' };
+  return selectStandingAuthorization(authorizations, request);
 }

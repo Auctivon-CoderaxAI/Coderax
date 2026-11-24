@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { logger, createModels } from '..';
 import { MongoMemoryServer } from 'mongodb-memory-server';
+import { selectStandingAuthorization } from 'coderax-data-provider';
 import { createToolStandingAuthorizationMethods } from './toolStandingAuthorization';
 
 logger.silent = true;
@@ -58,6 +59,32 @@ describe('createToolStandingAuthorization', () => {
     if (created.ok) return;
     expect(created.error.code).toBe('cost');
     expect(await ToolStandingAuthorization.countDocuments({})).toBe(0);
+  });
+});
+
+describe('the stored lifecycle', () => {
+  test('create, authorize, revoke and deny against real storage', async () => {
+    const created = await methods.createToolStandingAuthorization(
+      { userId: userA },
+      { label: 'Zero-cost reads', tools: ['read_*'] },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const active = await methods.listToolStandingAuthorizations({ userId: userA });
+    expect(selectStandingAuthorization(active, { toolName: 'read_file', costUsd: 0 })).toEqual({
+      allowed: true,
+      authorizationId: created.value.id,
+    });
+
+    await methods.revokeToolStandingAuthorization({ userId: userA }, created.value.id);
+
+    /** Active listing omits revoked rows, so the same call must now miss entirely. */
+    const after = await methods.listToolStandingAuthorizations({ userId: userA });
+    expect(selectStandingAuthorization(after, { toolName: 'read_file', costUsd: 0 })).toEqual({
+      allowed: false,
+      reason: 'no-match',
+    });
   });
 });
 

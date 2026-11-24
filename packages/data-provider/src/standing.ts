@@ -9,6 +9,9 @@ export const STANDING_AUTHORIZATION_MAX_LABEL_LENGTH = 200;
 /** Most tool patterns one authorization may carry. */
 export const STANDING_AUTHORIZATION_MAX_TOOLS = 64;
 
+/** Longest accepted pattern; longer than any tool name and pointless to evaluate. */
+export const STANDING_AUTHORIZATION_MAX_PATTERN_LENGTH = 256;
+
 /**
  * Owner-declared, pre-reviewed consent for a class of tool calls, so an action
  * the owner already authorized does not need a fresh prompt per step.
@@ -40,8 +43,11 @@ export interface ToolStandingAuthorizationRequest {
   toolName: string;
   destination?: string;
   projectId?: string;
-  /** Expected spend for the call. Unset means "no charge known". */
-  costUsd?: number;
+  /**
+   * Spend this call would incur. Required: an omitted cost is an unproven zero, and a
+   * caller that cannot state one must not be treated as free by accident.
+   */
+  costUsd: number;
   /** Injectable clock, so expiry is testable and deterministic. */
   now?: number;
 }
@@ -139,6 +145,12 @@ export function validateToolStandingAuthorization(
       error: { code: 'tools', message: 'Too many tool patterns in one authorization.' },
     };
   }
+  if (tools.some((tool) => tool.length > STANDING_AUTHORIZATION_MAX_PATTERN_LENGTH)) {
+    return {
+      ok: false,
+      error: { code: 'tools', message: 'A tool pattern is too long.' },
+    };
+  }
 
   const destinations = normalizeList(input.destinations);
   if ((input.destinations?.length ?? 0) > 0 && destinations.length === 0) {
@@ -182,6 +194,20 @@ export function validateToolStandingAuthorization(
 }
 
 /**
+ * Whether a grant may still authorize anything at all, before any scope is
+ * consulted. Revocation and expiry are checked here so every consumer — the
+ * execution gate and the run's policy fold — agrees on one definition.
+ */
+export function isStandingAuthorizationActive(
+  authorization: ToolStandingAuthorization,
+  now: number = Date.now(),
+): boolean {
+  if (authorization.revokedAt != null) return false;
+  if (authorization.expiresAt != null && now >= authorization.expiresAt) return false;
+  return authorization.maxCostUsd === STANDING_AUTHORIZATION_MAX_COST_USD;
+}
+
+/**
  * Evaluates one grant against one call. Denials are ordered so the most
  * fundamental reason wins: a revoked or expired grant is never described as a
  * mere scope miss, and spend is refused before any pattern is consulted.
@@ -198,7 +224,7 @@ export function evaluateStandingAuthorization(
   if (authorization.maxCostUsd !== STANDING_AUTHORIZATION_MAX_COST_USD) {
     return { allowed: false, reason: 'cost' };
   }
-  if ((request.costUsd ?? 0) > STANDING_AUTHORIZATION_MAX_COST_USD) {
+  if (!Number.isFinite(request.costUsd) || request.costUsd > STANDING_AUTHORIZATION_MAX_COST_USD) {
     return { allowed: false, reason: 'cost' };
   }
   if (authorization.projectId != null && authorization.projectId !== request.projectId) {

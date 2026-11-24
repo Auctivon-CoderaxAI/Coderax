@@ -28,6 +28,15 @@ beforeEach(async () => {
   await mongoose.models.ToolStandingAuthorization.deleteMany({});
 });
 
+const grant = (overrides: Partial<ToolStandingAuthorization> = {}): ToolStandingAuthorization => ({
+  id: 'standing-1',
+  label: 'Zero-cost reads',
+  tools: ['read_*'],
+  createdAt: 1,
+  maxCostUsd: 0,
+  ...overrides,
+});
+
 /** The normal path runs through the real storage methods, not a double. */
 const createGrant = async (): Promise<string> => {
   const created = await storage.createToolStandingAuthorization(scope, {
@@ -42,13 +51,15 @@ const createGrant = async (): Promise<string> => {
 
 describe('authorizeStandingWork', () => {
   test('denies when no store or scope is injected', async () => {
-    await expect(authorizeStandingWork({ toolName: 'read_file' }, {})).resolves.toEqual({
-      allowed: false,
-      reason: 'unavailable',
-    });
+    await expect(authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, {})).resolves.toEqual(
+      {
+        allowed: false,
+        reason: 'unavailable',
+      },
+    );
     await expect(
       authorizeStandingWork(
-        { toolName: 'read_file' },
+        { toolName: 'read_file', costUsd: 0 },
         { storage: { listToolStandingAuthorizations: jest.fn() } },
       ),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
@@ -57,8 +68,18 @@ describe('authorizeStandingWork', () => {
   test('allows a call covered by a stored authorization', async () => {
     const id = await createGrant();
     await expect(
-      authorizeStandingWork({ toolName: 'read_file', projectId: 'proj-1' }, { storage, scope }),
+      authorizeStandingWork(
+        { toolName: 'read_file', projectId: 'proj-1', costUsd: 0 },
+        { storage, scope },
+      ),
     ).resolves.toEqual({ allowed: true, authorizationId: id });
+  });
+
+  test('denies a call that carries a cost', async () => {
+    const storage = { listToolStandingAuthorizations: jest.fn().mockResolvedValue([grant()]) };
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0.5 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: false, reason: 'cost' });
   });
 
   test('denies when the store rejects instead of approving by default', async () => {
@@ -66,7 +87,18 @@ describe('authorizeStandingWork', () => {
       listToolStandingAuthorizations: jest.fn().mockRejectedValue(new Error('db down')),
     };
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope }),
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
+  });
+
+  test('denies when the lookup throws synchronously', async () => {
+    const storage = {
+      listToolStandingAuthorizations: jest.fn(() => {
+        throw new Error('sync failure');
+      }),
+    };
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
@@ -77,21 +109,24 @@ describe('authorizeStandingWork', () => {
       ),
     };
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope, timeoutMs: 5 }),
+      authorizeStandingWork(
+        { toolName: 'read_file', costUsd: 0 },
+        { storage, scope, timeoutMs: 5 },
+      ),
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
   test('a revocation binds the next call, read through real storage', async () => {
     const id = await createGrant();
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope }),
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
     ).resolves.toEqual({ allowed: true, authorizationId: id });
 
     await expect(storage.revokeToolStandingAuthorization(scope, id)).resolves.toBe(true);
 
     /* Storage hides revoked grants, so the next lookup misses rather than reusing one. */
     await expect(
-      authorizeStandingWork({ toolName: 'read_file' }, { storage, scope }),
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
     ).resolves.toEqual({ allowed: false, reason: 'no-match' });
   });
 });
