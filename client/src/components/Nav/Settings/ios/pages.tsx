@@ -137,7 +137,7 @@ export const IOS_PAGES: IosPage[] = [
       { tab: SettingsTabValues.DATA, sections: ['codeExecution'] },
       {
         tab: SettingsTabValues.CHAT,
-        entryIds: ['duringRunAction', 'autoExpandTools', 'showThinking'],
+        entryIds: ['duringRunDefaultAction', 'autoExpandTools', 'showThinking'],
       },
     ],
   },
@@ -165,6 +165,7 @@ export const IOS_PAGES: IosPage[] = [
         ],
       },
       { tab: SettingsTabValues.DATA, sections: ['apiKeys'] },
+      { tab: SettingsTabValues.ACCOUNT, entryIds: ['deleteAccount'] },
     ],
   },
   {
