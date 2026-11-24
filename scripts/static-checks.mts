@@ -35,7 +35,7 @@
  *
  * With --against, add --include-worktree to also select local edits and untracked files.
  * Flags: --staged, --full, --fast, --only <ids>, --skip <ids>, --verbose,
- * --list. Check ids: eslint, prettier, imports, eslint-config, json,
+ * --list. Check ids: eslint, prettier, imports, eslint-config, json, bun-lock,
  * suppressions, circular-deps, typecheck, config-tests, i18n, depcheck.
  */
 
@@ -58,6 +58,7 @@ import {
 } from 'node:fs';
 
 import type { Dirent } from 'node:fs';
+import { bunLockProblems, parseBunLock } from './bun-lock.mts';
 import { isTranslationReferenced } from './i18n.mts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -154,6 +155,22 @@ const FILTERS = {
     'packages/data-schemas/package.json',
     'package.json',
     'package-lock.json',
+    '.github/workflows/static-checks.yml',
+    '!**.md',
+  ],
+  // Bun, not npm, installs the deployed tree: Cloudflare runs
+  // `bun install --frozen-lockfile`, which refuses to build when package.json's
+  // overrides disagree with the copy bun.lock recorded. Nothing else reads
+  // bun.lock, and no install in the npm-based lanes would notice it drifting.
+  bun_lock: [
+    'package.json',
+    'api/package.json',
+    'client/package.json',
+    'packages/*/package.json',
+    'bun.lock',
+    'scripts/bun-lock.mts',
+    'scripts/bun-lock.test.mts',
+    'scripts/static-checks.mts',
     '.github/workflows/static-checks.yml',
     '!**.md',
   ],
@@ -807,6 +824,45 @@ async function validatePackageJson(): Promise<CheckOutcome> {
     }
   }
   return { ok: invalid.length === 0, output: invalid.join('\n') };
+}
+
+/**
+ * Bun records `overrides` inside bun.lock and compares them on install, so an
+ * overrides edit that ships without a regenerated lockfile aborts
+ * `bun install --frozen-lockfile` — the deploy's install — before anything is
+ * compiled. Reading the two files catches the same disagreement offline, which
+ * matters here: the lanes that gate a pull request install with npm and have no
+ * bun binary to run a frozen install with.
+ */
+async function validateBunLockOverrides(): Promise<CheckOutcome> {
+  const lockPath = resolve(ROOT, 'bun.lock');
+  if (!existsSync(lockPath)) {
+    return {
+      ok: false,
+      output:
+        'bun.lock is missing: the deployed build installs with `bun install --frozen-lockfile`, which cannot run without it',
+      hints: ['Regenerate it with: bun install'],
+    };
+  }
+  let problems: string[];
+  try {
+    const manifest = JSON.parse(await readFile(resolve(ROOT, 'package.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    const lock = parseBunLock(await readFile(lockPath, 'utf8'));
+    problems = bunLockProblems(manifest, lock, ROOT);
+  } catch (error) {
+    return { ok: false, output: `the overrides could not be read: ${(error as Error).message}` };
+  }
+  return {
+    ok: problems.length === 0,
+    output: problems.join('\n'),
+    hints: [
+      'Regenerate the lockfile with: bun install',
+      'Commit bun.lock with the package.json edit; its overrides block is bun’s to write.',
+    ],
+  };
 }
 
 /**
@@ -2165,6 +2221,13 @@ const CHECKS: Check[] = [
     tier: 'fast',
     group: 'unused_packages',
     run: validatePackageJson,
+  },
+  {
+    id: 'bun-lock',
+    title: 'bun.lock overrides',
+    tier: 'fast',
+    group: 'bun_lock',
+    run: validateBunLockOverrides,
   },
   {
     id: 'suppressions',

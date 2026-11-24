@@ -60,6 +60,7 @@ jest.mock('../mobile', () => ({
   MobileHeader: () => null,
   MobileBottomBar: () => null,
   MobileShortcutTargets: () => null,
+  MobileQuickLinks: () => null,
 }));
 
 jest.mock('../Sidebar', () => ({

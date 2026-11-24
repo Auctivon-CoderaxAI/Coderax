@@ -42,6 +42,7 @@ import { MobileDrawerScrim } from '~/components/UnifiedSidebar/mobile';
 import useKeyboardShortcuts from '~/hooks/useKeyboardShortcuts';
 import useDrawerDismiss from '~/hooks/Nav/useDrawerDismiss';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
+import ModulePalette from '~/components/Nav/ModulePalette';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import useDrawerSwipe from '~/hooks/Nav/useDrawerSwipe';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
@@ -253,6 +254,7 @@ function RootLayout() {
               </PromptGroupsProvider>
               <Settings />
               <KeyboardShortcutsProvider />
+              <ModulePalette />
               <ReplyNotifications />
               <MessagesRetention />
             </AgentsMapContext.Provider>
