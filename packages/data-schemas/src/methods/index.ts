@@ -83,6 +83,12 @@ import { createCategoriesMethods, type CategoriesMethods } from './categories';
 import { createPresetMethods, type PresetMethods } from './preset';
 /* Tier 2 — Moderate (service deps injected) */
 import { createConversationTagMethods, type ConversationTagMethods } from './conversationTag';
+import {
+  createWorkRunMethods,
+  type WorkRunMethods,
+  type WorkRunCancelOutcome,
+  type WorkRunLeaseSnapshot,
+} from './workRun';
 import { createConversationImportMethods, type ConversationImportMethods } from './import';
 import {
   createMessageMethods,
@@ -284,6 +290,7 @@ export type AllMethods = ToolApprovalGrantStorage &
   CategoriesMethods &
   PresetMethods &
   ConversationTagMethods &
+  WorkRunMethods &
   ConversationImportMethods &
   MessageMethods &
   ConversationMethods &
@@ -525,6 +532,7 @@ export function createMethods(
     ...createPresetMethods(mongoose),
     /* Tier 2 */
     ...createConversationTagMethods(mongoose),
+    ...createWorkRunMethods(mongoose),
     ...createConversationImportMethods(mongoose),
     ...messageMethods,
     ...conversationMethods,
@@ -595,6 +603,9 @@ export type {
   CategoriesMethods,
   PresetMethods,
   ConversationTagMethods,
+  WorkRunMethods,
+  WorkRunCancelOutcome,
+  WorkRunLeaseSnapshot,
   ConversationImportMethods,
   MessageMethods,
   ParentSubagentTaskRecord,

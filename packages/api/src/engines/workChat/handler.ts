@@ -218,7 +218,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
         reserved = true;
       }
-      if (runtime.state({ userId, tenantId, conversationId })) {
+      if (await runtime.state({ userId, tenantId, conversationId })) {
         res.status(409).json({
           code: 'WORK_ENGINE_BUSY',
           message: 'Another engine run is already active for this task.',
@@ -506,7 +506,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
     } finally {
       if (activeHandle) {
-        runtime.release?.({ ...reservation, handle: activeHandle });
+        await runtime.release?.({ ...reservation, handle: activeHandle });
       }
       if (reserved) {
         options.releaseRun?.(reservation);

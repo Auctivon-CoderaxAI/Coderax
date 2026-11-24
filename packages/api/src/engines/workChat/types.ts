@@ -42,9 +42,10 @@ export type EngineWorkChatRunner = {
   start: (
     input: RunScope & { prompt: string; engine?: EngineId },
   ) => Promise<EngineResult<EngineRunHandle>>;
-  state: (input: RunScope) => string | null;
+  /** Durable: a run outlives the process that started it, so this reads the lease store. */
+  state: (input: RunScope) => Promise<string | null>;
   cancel: (input: RunScope) => Promise<boolean>;
   /** The handler owns the lease until terminal persistence has finished. */
-  release?: (input: RunScope & { handle?: EngineRunHandle }) => boolean;
+  release?: (input: RunScope & { handle?: EngineRunHandle }) => Promise<boolean>;
   snapshot: () => EngineStatusSnapshot;
 };

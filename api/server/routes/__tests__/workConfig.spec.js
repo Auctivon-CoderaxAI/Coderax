@@ -40,8 +40,9 @@ jest.mock('@coderax/api', () => {
     getFreeRouterForConfig: jest.fn(() => ({ snapshot: () => ({}) })),
     createEngineWorkChatHandler: jest.fn(() => (_req, _res, next) => next()),
     createEngineWorkChatPersistence: jest.fn(),
+    createWorkRunLeaseStore: jest.fn(() => ({})),
     getEngineWorkChatRuntime: jest.fn(() => ({
-      state: () => null,
+      state: async () => null,
       cancel: async () => false,
       snapshot: () => ({}),
     })),

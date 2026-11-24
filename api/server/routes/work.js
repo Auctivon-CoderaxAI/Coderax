@@ -17,6 +17,7 @@ const {
   getFreeRouterForConfig,
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
+  createWorkRunLeaseStore,
   getEngineWorkChatRuntime,
 } = require('@coderax/api');
 const db = require('~/models');
@@ -83,7 +84,10 @@ const baseDepsFor = createWorkDepsFactory({
 const freeSourcesFor = (req) =>
   buildFreeInferenceWorkSources(req.config?.config ?? null, process.env);
 
-const engineRuntimeFor = (req) => getEngineWorkChatRuntime(req.config?.config);
+/** Run state and cancellation are durable, so a restart or another replica
+ *  still sees the run the conversation is executing. */
+const workRunLeases = createWorkRunLeaseStore(db);
+const engineRuntimeFor = (req) => getEngineWorkChatRuntime(req.config?.config, workRunLeases);
 
 const depsFor = (req) => {
   const deps = baseDepsFor(req);
@@ -93,11 +97,11 @@ const depsFor = (req) => {
   /** An engine run is live state too; fall back to the native job registry. */
   const nativeGetRunState = deps.getRunState;
   deps.getRunState = async (input) =>
-    engineRuntimeFor(req).state({
+    (await engineRuntimeFor(req).state({
       userId: input.userId,
       tenantId: req.user?.tenantId ?? null,
       conversationId: input.conversationId,
-    }) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
+    })) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
   const nativeCancelRun = deps.cancelRun;
   deps.cancelRun = async (input) =>
     (await engineRuntimeFor(req).cancel({

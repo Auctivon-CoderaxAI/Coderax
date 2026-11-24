@@ -14,5 +14,21 @@ export type {
   EngineWorkChatStore,
 } from './workChat/types';
 export { EngineWorkChatRuntime, getEngineWorkChatRuntime } from './workChat/runtime';
+export {
+  createMemoryWorkRunLeaseStore,
+  createWorkRunLeaseStore,
+  DEFAULT_WORK_RUN_LEASE_TTL_MS,
+  DEFAULT_WORK_RUN_RETENTION_MS,
+  memoryWorkRunLeases,
+  WORK_RUN_SWEEP_LIMIT,
+  workRunKey,
+} from './workChat/leases';
+export type {
+  WorkRunCancelOutcome,
+  WorkRunDb,
+  WorkRunLeaseClaim,
+  WorkRunLeaseSnapshot,
+  WorkRunLeaseStore,
+} from './workChat/leases';
 export { createEngineWorkChatPersistence } from './workChat/persistence';
 export { createEngineWorkChatHandler } from './workChat/handler';

@@ -21,6 +21,7 @@ export { createExecutionEngines, describeExecutionEngines } from './service';
 export {
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
+  createWorkRunLeaseStore,
   getEngineWorkChatRuntime,
 } from './workChat';
 export type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
