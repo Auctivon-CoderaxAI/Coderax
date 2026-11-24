@@ -1,9 +1,9 @@
 import { LogOut } from 'lucide-react';
 import { Avatar } from '@coderax/client';
-import type { IosPageId } from './pages';
 import type { SettingsContextValue } from '../types';
-import { IOS_PAGES, pageVisible } from './pages';
+import type { IosPageId } from './pages';
 import { useAuthContext, useLocalize } from '~/hooks';
+import { IOS_PAGES, pageVisible } from './pages';
 import { Group, NavRow } from './Rows';
 
 const ACCOUNT_PAGE: IosPageId = 'account';
@@ -13,6 +13,7 @@ const ABOUT_PAGE: IosPageId = 'about';
 /** Pages in the main group, in the order the iOS app lists them. */
 const MAIN_PAGES: IosPageId[] = [
   'general',
+  'chat',
   'usage',
   'notifications',
   'voice',
@@ -20,6 +21,8 @@ const MAIN_PAGES: IosPageId[] = [
   'code',
   'storage',
   'dataControls',
+  'langfuse',
+  'cyvox',
 ];
 
 export default function Overview({

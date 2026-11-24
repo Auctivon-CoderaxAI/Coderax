@@ -8,7 +8,7 @@ import {
   AppleIcon,
   SamlIcon,
 } from '@coderax/client';
-
+import type { MouseEventHandler } from 'react';
 import PasskeySignIn from './PasskeySignIn';
 import SocialButton from './SocialButton';
 import { useLocalize } from '~/hooks';
@@ -19,10 +19,12 @@ function SocialLoginRender({
   showPasskey = false,
   /** Suppresses the divider when the host page does not render the email form. */
   showEmailDivider = true,
+  onSocialSignIn,
 }: {
   startupConfig: TStartupConfig | null | undefined;
   showPasskey?: boolean;
   showEmailDivider?: boolean;
+  onSocialSignIn?: MouseEventHandler<HTMLAnchorElement>;
 }) {
   const localize = useLocalize();
 
@@ -36,6 +38,7 @@ function SocialLoginRender({
         key="discord"
         enabled={startupConfig.discordLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="discord"
         Icon={DiscordIcon}
         label={localize('com_auth_discord_login')}
@@ -47,6 +50,7 @@ function SocialLoginRender({
         key="facebook"
         enabled={startupConfig.facebookLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="facebook"
         Icon={FacebookIcon}
         label={localize('com_auth_facebook_login')}
@@ -58,6 +62,7 @@ function SocialLoginRender({
         key="github"
         enabled={startupConfig.githubLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="github"
         Icon={GithubIcon}
         label={localize('com_auth_github_login')}
@@ -69,6 +74,7 @@ function SocialLoginRender({
         key="google"
         enabled={startupConfig.googleLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="google"
         Icon={GoogleIcon}
         label={localize('com_auth_google_login')}
@@ -80,6 +86,7 @@ function SocialLoginRender({
         key="apple"
         enabled={startupConfig.appleLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="apple"
         Icon={AppleIcon}
         label={localize('com_auth_apple_login')}
@@ -91,6 +98,7 @@ function SocialLoginRender({
         key="openid"
         enabled={startupConfig.openidLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="openid"
         Icon={() =>
           startupConfig.openidImageUrl ? (
@@ -108,6 +116,7 @@ function SocialLoginRender({
         key="saml"
         enabled={startupConfig.samlLoginEnabled}
         serverDomain={startupConfig.serverDomain}
+        onClick={onSocialSignIn}
         oauthPath="saml"
         Icon={() =>
           startupConfig.samlImageUrl ? (

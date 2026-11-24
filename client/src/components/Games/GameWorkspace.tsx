@@ -299,17 +299,20 @@ export default function GameWorkspace() {
             </div>
           ) : null}
 
-          {tab === 'spec' ? (
-            <section className="border-border-light bg-surface-secondary rounded-2xl border p-5">
-              <h2 className="text-text-primary text-sm font-semibold">
-                {localize('com_games_spec_edit_title')}
-              </h2>
-              <p className="text-text-secondary mt-1 mb-4 text-sm leading-6">
-                {localize('com_games_spec_edit_body')}
-              </p>
-              <GameSpecForm project={project} />
-            </section>
-          ) : null}
+          {/* Kept mounted while another tab is active: unmounting would discard
+              the form's unsaved draft. */}
+          <section
+            className="border-border-light bg-surface-secondary rounded-2xl border p-5"
+            hidden={tab !== 'spec'}
+          >
+            <h2 className="text-text-primary text-sm font-semibold">
+              {localize('com_games_spec_edit_title')}
+            </h2>
+            <p className="text-text-secondary mt-1 mb-4 text-sm leading-6">
+              {localize('com_games_spec_edit_body')}
+            </p>
+            <GameSpecForm project={project} />
+          </section>
 
           {tab === 'builds' ? (
             <GameUnavailable

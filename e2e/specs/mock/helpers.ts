@@ -75,16 +75,11 @@ export async function selectModelSpec(page: Page, label: string) {
   if (!(await trigger.isVisible({ timeout: 1_000 }).catch(() => false))) {
     /** Chat no longer exposes a model picker. Model specs remain addressable through the
      *  supported `?spec=` route, which keeps these behavior tests on the configured preset. */
-    const specName = await page.evaluate(async (targetLabel) => {
-      const response = await fetch('/api/config', { credentials: 'include' });
-      if (!response.ok) {
-        return null;
-      }
-      const config = (await response.json()) as {
-        modelSpecs?: { list?: Array<{ label?: string; name?: string }> };
-      };
-      return config.modelSpecs?.list?.find((spec) => spec.label === targetLabel)?.name ?? null;
-    }, label);
+    // Startup config exposes model specs only to authenticated requests.
+    const config = await requestJson<{
+      modelSpecs?: { list?: Array<{ label?: string; name?: string }> };
+    }>(page, { path: '/api/config', token: await getAccessToken(page) });
+    const specName = config.modelSpecs?.list?.find((spec) => spec.label === label)?.name;
     if (specName == null) {
       throw new Error('Configured model spec was not found for label: ' + label);
     }

@@ -54,6 +54,16 @@ export function NavRow({
   );
 }
 
+/** A read-only row that reports a value without offering a destination. */
+export function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex min-h-12 items-center gap-3 px-4 py-3 text-base">
+      <span className="text-text-primary flex-1">{label}</span>
+      <span className="text-text-secondary shrink-0">{value}</span>
+    </div>
+  );
+}
+
 /** A non-navigating row holding a preference control in place of the chevron. */
 export function SettingRow({ children }: { children: ReactNode }) {
   return <div className="flex min-h-12 items-center px-4 py-3 text-base">{children}</div>;

@@ -12,6 +12,7 @@ import type { TToolApprovalPolicy } from 'coderax-data-provider';
 import type { HookCallback } from '@librechat/agents';
 import type { Run, IState } from '@librechat/agents';
 import type { ToolApprovalExecution } from '~/tools/approval';
+import type { StandingAuthorizationGuard } from './standing';
 import type { ParsedServerConfig } from '~/mcp/types';
 import { bindToolApproval, getToolApprovalBinding, getToolApprovalName } from '~/tools/approval';
 import { withToolApprovalExecution, getToolApprovalIdentity } from '~/tools/approval';
@@ -176,10 +177,13 @@ export function createAgentToolApprovalSession({
   lookupTimeoutMs = 3000,
   reviewed,
   policy,
+  standing,
 }: {
   lookupTimeoutMs?: number;
   reviewed?: ReviewedToolApprovals;
   policy?: () => TToolApprovalPolicy;
+  /** Re-verifies a standing authorization before a run that folded it in executes. */
+  standing?: StandingAuthorizationGuard;
   agents: readonly AgentApprovalSource[];
   scope?: ToolApprovalGrantScope;
   storage?: ToolApprovalGrantStorage;
@@ -416,6 +420,8 @@ export function createAgentToolApprovalSession({
             'The reviewed tool approval configuration changed. Request approval again.',
           );
         }
+        /** The run folded this tool in from a grant; the grant must still hold now. */
+        await standing?.assert(tool.name);
         return;
       }
       const check = callId && policyChecks.get(key);

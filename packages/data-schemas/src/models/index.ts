@@ -1,4 +1,5 @@
 import { createAgentQueuedTurnModel, createAgentQueuedTurnSequenceModel } from './queuedTurn';
+import { createToolStandingAuthorizationModel } from './toolStandingAuthorization';
 import { createAgentTriggerLaneSequenceModel } from './triggerLaneSequence';
 import { createScheduleModel, createScheduleRunModel } from './schedule';
 import { createWorkflowModel, createWorkflowRunModel } from './workflow';
@@ -56,6 +57,7 @@ import logger from '~/config/winston';
 export function createModels(mongoose: typeof import('mongoose')): {
   User: ReturnType<typeof createUserModel>;
   ToolApprovalGrant: ReturnType<typeof createToolApprovalGrantModel>;
+  ToolStandingAuthorization: ReturnType<typeof createToolStandingAuthorizationModel>;
   Token: ReturnType<typeof createTokenModel>;
   Session: ReturnType<typeof createSessionModel>;
   Passkey: ReturnType<typeof createPasskeyModel>;
@@ -110,6 +112,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
   const models = {
     User: createUserModel(mongoose),
     ToolApprovalGrant: createToolApprovalGrantModel(mongoose),
+    ToolStandingAuthorization: createToolStandingAuthorizationModel(mongoose),
     Token: createTokenModel(mongoose),
     Session: createSessionModel(mongoose),
     Passkey: createPasskeyModel(mongoose),
