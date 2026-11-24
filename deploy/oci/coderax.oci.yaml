@@ -24,6 +24,24 @@ modelSpecs:
       preset:
         endpoint: FreeOpenRouter
         model: nvidia/nemotron-3-ultra-550b-a55b:free
+# Owner-only Work execution. OpenCode attaches to the `opencode` Compose
+# service, and the model below is the only zero-cost path this VM can answer:
+# local Ollama weights. Hosted OpenCode free ids need an OpenCode account, and
+# the zero-cost guard refuses every provider outside `opencode` and the local
+# runtimes. See the README's "Work engine" section before changing a value.
+engines:
+  defaultEngine: opencode
+  workChat:
+    enabled: true
+    engine: opencode
+    mode: private
+  workspaces:
+    privateRoot: /app/data/engine/private
+    cloudRoot: /app/data/engine/cloud
+  opencode:
+    enabled: true
+    baseURL: http://opencode:4096
+    model: ollama/qwen3.5:9b
 endpoints:
   custom:
     - name: Ollama

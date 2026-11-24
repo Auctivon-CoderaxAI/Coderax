@@ -52,6 +52,26 @@ services:
     networks:
       - model
 
+  # The owner-only Work engine attaches to this server; Coderax never spawns
+  # it. No port is published, so it is reachable only from the private model
+  # network and needs no server password. It shares the data volume at the same
+  # path the API passes as the workspace directory.
+  opencode:
+    image: ghcr.io/anomalyco/opencode:1.19.6
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mkdir -p /app/data/engine/private /app/data/engine/cloud &&
+        exec opencode serve --hostname 0.0.0.0 --port 4096
+    volumes:
+      - ./opencode.json:/root/.config/opencode/opencode.json:ro
+      - coderax-data:/app/data
+      - opencode-state:/root/.local/share/opencode
+    networks:
+      - internet
+      - model
+
   app:
     build:
       context: ../..
@@ -122,6 +142,7 @@ networks:
 
 volumes:
   coderax-data: {}
+  opencode-state: {}
   ollama-models: {}
   uploads: {}
   images: {}

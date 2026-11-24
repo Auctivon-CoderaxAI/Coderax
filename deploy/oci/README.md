@@ -40,6 +40,30 @@ Never commit or paste that key anywhere else.
 
 The guest endpoint creates isolated expiring user accounts; open registration stays disabled. The app's registration limiter receives the client IP supplied by Vercel. Local Qwen inference has no provider charge, but public guests can still consume the free VM's CPU and memory. Disable `ENABLE_GUEST_ACCESS` if abuse or capacity pressure appears.
 
+## Work engine (OpenCode)
+
+`engines.workChat` is enabled in `coderax.oci.yaml`, so an ADMIN's Work turns run through the OpenCode engine in a confined workspace instead of the native runner. Every other user, and every turn that selects an agent or attachment, still takes the native path.
+
+The engine pins `ollama/qwen3.5:9b` in `engines.opencode.model`, which is the only zero-cost tool-capable model this VM can answer. The zero-cost guard in `packages/api/src/engines/opencode/models.ts` admits an allowlisted free OpenCode model id or a local `ollama`/`lmstudio` model, and the hosted free ids need an OpenCode account: during verification `opencode/deepseek-v4.1-flash-free` answered `Free usage limit reached`. The local model needs no account, is already pulled by `model-setup`, and calls tools through Ollama's OpenAI-compatible API. Expect about a minute per tool-using turn on 2 ARM OCPUs; `engines.opencode.timeoutMs` (default 15 minutes) is the ceiling for a multi-step turn.
+
+The `opencode` Compose service runs the official `ghcr.io/anomalyco/opencode` image at the version `@opencode-ai/sdk` pins (1.19.6). Coderax never spawns the server: it attaches to `http://opencode:4096` over the private `model` network, and no container port is published, so OpenCode is not reachable from the Internet and needs no server password. The service mounts:
+
+- `deploy/oci/opencode.json` at `/root/.config/opencode/opencode.json`. It declares the `ollama` provider against `http://ollama:11434/v1` and marks both Qwen models tool-capable. Without it OpenCode has no `ollama` provider and the pinned model does not resolve.
+- the shared `coderax-data` volume at `/app/data`, so the absolute workspace paths the API passes (`/app/data/engine/private`, `/app/data/engine/cloud`) name the same directory inside both containers. On start it creates both roots, which must exist before an engine run resolves its workspace.
+- `opencode-state` at `/root/.local/share/opencode`, so sessions and any provider login survive a restart.
+
+OpenCode executes tools without asking for approval on each call, and a private run works inside the root itself, so that volume is the only thing it can reach: never point `engines.workspaces` at `/app/data` or at a host path that holds anything else.
+
+Verify after `docker compose -f deploy/oci/compose.yaml up -d --build --wait`:
+
+1. As the signed-in owner, `GET /api/work/engines` reports `defaultEngine: "opencode"` and an `opencode` entry whose availability is `{ "available": true, "reason": "ready" }`. Any other result carries a `detail` naming the missing prerequisite, for example `engines.opencode.baseURL and engines.workspaces.privateRoot must both be configured.` or the allowlisted-model message.
+2. `GET /api/work/models` lists an `OpenCode` row with `engine: "opencode"`. That row needs both the deployment flag and the owner role, so its absence means one of those two is false.
+3. Send one Work turn that needs a shell, for example `head -c 16 /dev/urandom | md5sum`. The streamed answer contains the hash the command printed and never repeats the prompt, and the turn's final frame reports `toolCalls` and `edits` above zero.
+
+If a turn fails with a provider error, read `docker compose -f deploy/oci/compose.yaml logs opencode` for the model id it tried to load: a model that is neither in `deploy/oci/opencode.json` nor pulled by `model-setup` cannot answer. Keep the server image and `@opencode-ai/sdk` on the same version, because the API speaks the server's event protocol directly.
+
+To move Work to a hosted free OpenCode model, log the VM into an OpenCode account (`opencode providers login`), set `engines.workChat.mode: cloud` and `engines.opencode.model: opencode/<free id>` with an id from `OPENCODE_FREE_MODEL_IDS`, then recreate the app container. That account's quota is then the limit, and the allowlist is what keeps a run away from a paid model.
+
 ## Vercel environment
 
 Set the following only on the Vercel project that owns the canonical `coderaxai.vercel.app` domain, in **Production**:
