@@ -1,7 +1,32 @@
-import type { ToolStandingAuthorization } from 'coderax-data-provider';
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { createMethods, createModels } from '@coderax/data-schemas';
+import type {
+  ToolStandingAuthorization,
+  ToolStandingAuthorizationStorage,
+} from 'coderax-data-provider';
 import { authorizeStandingWork } from './standing';
 
-const scope = { userId: 'user-1' };
+const scope = { userId: new mongoose.Types.ObjectId().toString() };
+
+let mongoServer: MongoMemoryServer;
+let storage: ToolStandingAuthorizationStorage;
+
+beforeAll(async () => {
+  mongoServer = await MongoMemoryServer.create();
+  await mongoose.connect(mongoServer.getUri());
+  createModels(mongoose);
+  storage = createMethods(mongoose);
+});
+
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongoServer.stop();
+});
+
+beforeEach(async () => {
+  await mongoose.models.ToolStandingAuthorization.deleteMany({});
+});
 
 const grant = (overrides: Partial<ToolStandingAuthorization> = {}): ToolStandingAuthorization => ({
   id: 'standing-1',
@@ -11,6 +36,18 @@ const grant = (overrides: Partial<ToolStandingAuthorization> = {}): ToolStanding
   maxCostUsd: 0,
   ...overrides,
 });
+
+/** The normal path runs through the real storage methods, not a double. */
+const createGrant = async (): Promise<string> => {
+  const created = await storage.createToolStandingAuthorization(scope, {
+    label: 'Zero-cost reads',
+    tools: ['read_*'],
+  });
+  if (!created.ok) {
+    throw new Error(`grant rejected: ${created.error.code}`);
+  }
+  return created.value.id;
+};
 
 describe('authorizeStandingWork', () => {
   test('denies when no store or scope is injected', async () => {
@@ -28,15 +65,14 @@ describe('authorizeStandingWork', () => {
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
-  test('allows a call covered by an active authorization', async () => {
-    const storage = { listToolStandingAuthorizations: jest.fn().mockResolvedValue([grant()]) };
+  test('allows a call covered by a stored authorization', async () => {
+    const id = await createGrant();
     await expect(
       authorizeStandingWork(
         { toolName: 'read_file', projectId: 'proj-1', costUsd: 0 },
         { storage, scope },
       ),
-    ).resolves.toEqual({ allowed: true, authorizationId: 'standing-1' });
-    expect(storage.listToolStandingAuthorizations).toHaveBeenCalledWith(scope);
+    ).resolves.toEqual({ allowed: true, authorizationId: id });
   });
 
   test('denies a call that carries a cost', async () => {
@@ -80,25 +116,17 @@ describe('authorizeStandingWork', () => {
     ).resolves.toEqual({ allowed: false, reason: 'unavailable' });
   });
 
-  test('re-reads on every call, so a revocation binds the next invocation', async () => {
-    const list = jest
-      .fn()
-      .mockResolvedValueOnce([grant()])
-      .mockResolvedValueOnce([grant({ revokedAt: 2 })]);
-    const gate = { storage: { listToolStandingAuthorizations: list }, scope };
+  test('a revocation binds the next call, read through real storage', async () => {
+    const id = await createGrant();
+    await expect(
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: true, authorizationId: id });
 
+    await expect(storage.revokeToolStandingAuthorization(scope, id)).resolves.toBe(true);
+
+    /* Storage hides revoked grants, so the next lookup misses rather than reusing one. */
     await expect(
-      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, gate),
-    ).resolves.toEqual({
-      allowed: true,
-      authorizationId: 'standing-1',
-    });
-    await expect(
-      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, gate),
-    ).resolves.toEqual({
-      allowed: false,
-      reason: 'revoked',
-    });
-    expect(list).toHaveBeenCalledTimes(2);
+      authorizeStandingWork({ toolName: 'read_file', costUsd: 0 }, { storage, scope }),
+    ).resolves.toEqual({ allowed: false, reason: 'no-match' });
   });
 });

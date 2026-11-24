@@ -1,4 +1,13 @@
-import { rankFreeOrLocalModels } from 'coderax-data-provider';
+import {
+  isWorkRoutingMode,
+  rankFreeOrLocalModels,
+  selectModelForMode,
+  WORK_AUTO_MODEL_ID,
+  WORK_ROUTING_MODES,
+} from 'coderax-data-provider';
+import type { ModelRouteSource, TWorkRoutingMode } from 'coderax-data-provider';
+
+export { WORK_AUTO_MODEL_ID, WORK_ROUTING_MODES };
 
 /**
  * Work model options come from Coderax's own configuration. Nothing here reads
@@ -15,6 +24,17 @@ export type WorkModelSource = {
   /** Coderax marks models it can run without an external paid endpoint. */
   free?: boolean;
   local?: boolean;
+  /** Verified provider capability signals; absent means unknown, not unsupported. */
+  tools?: boolean;
+  reasoning?: boolean;
+  /** Verified context window in tokens, when the provider publishes one. */
+  contextTokens?: number;
+  /** Last measured minimal-turn latency, when a probe produced one. */
+  latencyMs?: number;
+  /** Normalized 0..1 routing signals; absent values stay neutral. */
+  capability?: number;
+  speed?: number;
+  reliability?: number;
 };
 
 export type WorkModelTarget = {
@@ -52,7 +72,7 @@ function readConfiguredDefault(input: WorkConfiguredDefaultInput): {
 
 /**
  * Accepts a resolver result of unknown shape (the route layer passes its
-dependency through) and keeps only a usable default.
+ * dependency through) and keeps only a usable default.
  */
 export function normalizeConfiguredDefault(input: unknown): WorkConfiguredDefaultInput {
   if (typeof input === 'string') {
@@ -74,19 +94,29 @@ export type WorkModel = {
   provider?: string;
   /** Set on the single option that lets Coderax choose among the listed models. */
   auto?: true;
-  /** What the automatic option runs on, so the picker can name it before a task starts. */
+  /** The routing intent this option sends back to the server. */
+  routingMode?: TWorkRoutingMode;
+  /** What the option runs on, so the picker can name it before a task starts. */
   target?: WorkModelTarget;
+  /** Verified capability metadata copied from the catalog for routing. */
+  tools?: boolean;
+  reasoning?: boolean;
+  contextTokens?: number;
+  latencyMs?: number;
+  capability?: number;
+  speed?: number;
+  reliability?: number;
 };
 
-/**
- * Sentinel for "let Coderax pick among the offered models".
- *
- * This is a UI choice only. It is never a provider or model id: a submission
- * must resolve to a concrete model before it reaches the runner or storage.
- */
-export const WORK_AUTO_MODEL_ID = 'auto';
-
+/** The routing intents Work offers; `auto` remains the default sentinel. */
 export const WORK_AUTO_MODEL_LABEL = 'Automatic';
+
+const WORK_ROUTING_LABELS: Record<TWorkRoutingMode, string> = {
+  auto: WORK_AUTO_MODEL_LABEL,
+  fast: 'Fast',
+  complex: 'Complex',
+  agent: 'Agent',
+};
 
 /** Local runtimes report a bare tag; these prefixes identify them explicitly. */
 const LOCAL_PREFIXES = ['ollama/', 'ollama:', 'local/', 'lmstudio/', 'llamacpp/'];
@@ -98,14 +128,31 @@ export function isLocalModelId(id: string): boolean {
 
 /**
  * A model identifier alone cannot establish where inference runs. Work accepts
- * only sources explicitly marked free or local by the server's model catalog.
+ * only sources explicitly marked free or local. The managed catalog marks its
+ * sources free after validating the endpoint and credential configuration.
  */
 export function isWorkSupportedModel(source: WorkModelSource): boolean {
   const id = (source.id ?? source.name ?? '').trim();
-  if (!id || id === WORK_AUTO_MODEL_ID) {
+  if (!id || isWorkRoutingMode(id)) {
     return false;
   }
   return source.free === true || source.local === true;
+}
+
+function routingMetadata(source: WorkModelSource): Partial<WorkModel> {
+  return {
+    ...(typeof source.tools === 'boolean' ? { tools: source.tools } : {}),
+    ...(typeof source.reasoning === 'boolean' ? { reasoning: source.reasoning } : {}),
+    ...(Number.isFinite(source.contextTokens) && source.contextTokens! > 0
+      ? { contextTokens: source.contextTokens }
+      : {}),
+    ...(Number.isFinite(source.latencyMs) && source.latencyMs! >= 0
+      ? { latencyMs: source.latencyMs }
+      : {}),
+    ...(Number.isFinite(source.capability) ? { capability: source.capability } : {}),
+    ...(Number.isFinite(source.speed) ? { speed: source.speed } : {}),
+    ...(Number.isFinite(source.reliability) ? { reliability: source.reliability } : {}),
+  };
 }
 
 /**
@@ -133,12 +180,88 @@ export function buildWorkModels(sources: WorkModelSource[]): WorkModel[] {
         id,
         label: (source.label ?? id).trim() || id,
         ...(provider ? { provider } : {}),
+        ...routingMetadata(source),
       });
     }
   }
   return [...byId.values()]
     .filter((model) => !ambiguous.has(model.id))
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function toRoutingSource(model: WorkModel): ModelRouteSource {
+  return {
+    id: model.id,
+    label: model.label,
+    provider: model.provider,
+    free: true,
+    ...(model.contextTokens != null ? { context: model.contextTokens } : {}),
+    ...(typeof model.tools === 'boolean' ? { tools: model.tools } : {}),
+    ...(typeof model.reasoning === 'boolean' ? { reasoning: model.reasoning } : {}),
+    ...(model.latencyMs != null ? { latencyMs: model.latencyMs } : {}),
+    ...(model.capability != null ? { capability: model.capability } : {}),
+    ...(model.speed != null ? { speed: model.speed } : {}),
+    ...(model.reliability != null ? { reliability: model.reliability } : {}),
+  };
+}
+
+/**
+ * The model an intent resolves to. AUTO keeps the operator's configured
+ * default when it is offered; every other intent ranks the offered free/local
+ * models by its own signal, so a latency or context preference is not
+ * overridden by a deployment default.
+ */
+function resolveRoutingTarget(
+  models: WorkModel[],
+  mode: TWorkRoutingMode,
+  configuredDefault?: WorkConfiguredDefaultInput,
+): WorkModel | null {
+  if (mode === 'auto') {
+    return resolveWorkAutoModel(models, configuredDefault);
+  }
+  const selection = selectModelForMode(models.map(toRoutingSource), { mode });
+  if (!selection.ok) {
+    return null;
+  }
+  const candidate = selection.model;
+  return (
+    models.find((model) => model.id === candidate.id && model.provider === candidate.provider) ??
+    null
+  );
+}
+
+/**
+ * The routing intents Work offers, each naming the concrete model it resolves
+ * to right now. Every target comes from the offered free/local list, so a mode
+ * can never introduce a paid model or an unadvertised one.
+ */
+export function buildWorkRoutingOptions(
+  models: WorkModel[],
+  configuredDefault?: WorkConfiguredDefaultInput,
+): WorkModel[] {
+  const concrete = workConcreteModels(models);
+  if (concrete.length === 0) {
+    return [];
+  }
+  const options: WorkModel[] = [];
+  for (const mode of WORK_ROUTING_MODES) {
+    const target = resolveRoutingTarget(concrete, mode, configuredDefault);
+    if (!target) {
+      continue;
+    }
+    options.push({
+      id: mode,
+      label: WORK_ROUTING_LABELS[mode],
+      auto: true,
+      routingMode: mode,
+      target: {
+        id: target.id,
+        label: target.label,
+        ...(target.provider ? { provider: target.provider } : {}),
+      },
+    });
+  }
+  return options;
 }
 
 /**
@@ -162,14 +285,7 @@ export function resolveWorkAutoModel(
   if (configured) {
     return configured;
   }
-  const [best] = rankFreeOrLocalModels(
-    concrete.map((model) => ({
-      id: model.id,
-      label: model.label,
-      provider: model.provider,
-      free: true,
-    })),
-  );
+  const [best] = rankFreeOrLocalModels(concrete.map(toRoutingSource));
   if (!best) {
     return null;
   }
@@ -208,19 +324,19 @@ export function buildWorkModelOptions(
 
 /** The concrete models a submission may actually run on. */
 export function workConcreteModels(models: WorkModel[]): WorkModel[] {
-  return models.filter((model) => model.id !== WORK_AUTO_MODEL_ID);
+  return models.filter((model) => !isWorkRoutingMode(model.id));
 }
 
 /**
  * A concrete selection is honoured only when it is still offered. Returning
  * `null` tells the caller to resolve explicitly instead of silently swapping
- * the user's choice. The automatic sentinel is never returned as a model.
+ * the user's choice. A routing sentinel is never returned as a model.
  */
 export function resolveWorkModel(
   models: WorkModel[],
   selected: string | null | undefined,
 ): WorkModel | null {
-  if (!selected || selected === WORK_AUTO_MODEL_ID) {
+  if (!selected || isWorkRoutingMode(selected)) {
     return null;
   }
   return workConcreteModels(models).find((model) => model.id === selected) ?? null;
@@ -261,17 +377,17 @@ export function resolveWorkAgentModel(
 export type WorkModelSelectionFailure = 'model_unavailable' | 'auto_unresolved';
 
 export type WorkModelSelection =
-  | { ok: true; model: WorkModel; auto: boolean }
+  | { ok: true; model: WorkModel; auto: boolean; routingMode?: TWorkRoutingMode }
   | { ok: false; reason: WorkModelSelectionFailure };
 
 /**
  * Resolve the concrete model a Work submission will store and invoke with.
  *
- * `auto` resolves through `resolveWorkAutoModel`: the configured default when
- * it is offered, otherwise the top-ranked free/local model, which the picker
- * names before the task starts. It fails with `auto_unresolved` only when
- * nothing is offered. A paid gateway default is never selected, and an omitted
- * model never routes to one.
+ * A routing sentinel resolves through its own intent: AUTO keeps the configured
+ * default when offered, FAST prefers the lowest measured latency, COMPLEX the
+ * largest verified context, and AGENT requires tool calling. A concrete id is
+ * honoured only when it is still offered. When nothing is offered the selection
+ * fails closed; no mode reaches a paid model.
  */
 export function resolveWorkSelection(
   models: WorkModel[],
@@ -279,6 +395,13 @@ export function resolveWorkSelection(
   configuredDefault?: WorkConfiguredDefaultInput,
 ): WorkModelSelection {
   const concrete = workConcreteModels(models);
+
+  if (selected && isWorkRoutingMode(selected)) {
+    const model = resolveRoutingTarget(concrete, selected, configuredDefault);
+    return model
+      ? { ok: true, model, auto: true, routingMode: selected }
+      : { ok: false, reason: 'auto_unresolved' };
+  }
 
   if (selected && selected !== WORK_AUTO_MODEL_ID) {
     const match = concrete.find((model) => model.id === selected);
@@ -290,6 +413,6 @@ export function resolveWorkSelection(
   /** Only server-catalogued free/local models enter this option list. */
   const fallback = resolveWorkAutoModel(concrete, configuredDefault);
   return fallback
-    ? { ok: true, model: fallback, auto: true }
+    ? { ok: true, model: fallback, auto: true, routingMode: 'auto' }
     : { ok: false, reason: 'auto_unresolved' };
 }

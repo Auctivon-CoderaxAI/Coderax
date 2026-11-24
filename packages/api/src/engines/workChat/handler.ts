@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SystemRoles } from 'coderax-data-provider';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type {
   EngineWorkChatConfig,
@@ -8,8 +9,9 @@ import type {
 } from './types';
 import type { EngineId, EngineResult, EngineRunHandle, EngineRunSummary } from '../types';
 import type { Json } from './json';
-import { isEngineWorkChatPath, isOwnerEngineWorkChat } from './gating';
 import { isValidWorkTask, workTitle } from '../../work/task';
+import { readWorkAgentId } from '../../work/identities';
+import { isEngineWorkChatPath } from './gating';
 import { isRecord, readString } from './json';
 import { buildEnginePrompt } from './prompt';
 import { engineFailure } from '../types';
@@ -49,15 +51,7 @@ function failureMessage(code: string): string {
 }
 
 function engineLabel(engine: EngineId): string {
-  return engine === 'freebuff' ? 'Freebuff' : 'OpenCode';
-}
-
-function selectedEngine(body: Json, config: EngineWorkChatConfig): 'opencode' | 'freebuff' | null {
-  const requested = readString(body.model);
-  if (requested == null) {
-    return config.engines?.workChat?.engine ?? 'opencode';
-  }
-  return requested === 'opencode' || requested === 'freebuff' ? requested : null;
+  return engine === 'freebuff' ? 'FreeBuff Agent' : 'OpenCode Agent';
 }
 
 function isEngineEnabled(config: EngineWorkChatConfig, engine: EngineId): boolean {
@@ -93,22 +87,67 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
     ).user;
     const body = (isRecord(req.body) ? req.body : {}) as Json;
-    if (!isOwnerEngineWorkChat({ config, user, body })) {
+    const requestedAgent = readWorkAgentId(body.workAgent ?? body.workAgentId);
+    if (
+      requestedAgent.kind === 'absent' ||
+      (requestedAgent.kind === 'id' && requestedAgent.id === 'coderax')
+    ) {
       next();
       return;
     }
-    const engine = config ? selectedEngine(body, config) : null;
-    if (!engine) {
+    if (requestedAgent.kind === 'invalid') {
       res.status(400).json({
-        code: 'WORK_ENGINE_UNSUPPORTED',
-        message: 'The selected Work execution engine is not supported.',
+        code: 'WORK_AGENT_UNSUPPORTED',
+        message: 'The selected Work agent identity is not supported.',
       });
       return;
     }
-    if (!config || !isEngineEnabled(config, engine)) {
+    const engine =
+      requestedAgent.id === 'opencode' || requestedAgent.id === 'freebuff'
+        ? requestedAgent.id
+        : null;
+    if (!engine) {
+      next();
+      return;
+    }
+    if (!config || config.engines?.workChat?.enabled !== true) {
+      res.status(503).json({
+        code: 'WORK_AGENT_DISABLED',
+        message: 'External agents are not enabled for this deployment.',
+      });
+      return;
+    }
+    if (user?.role !== SystemRoles.ADMIN) {
+      res.status(403).json({
+        code: 'WORK_AGENT_OWNER_ONLY',
+        message: 'External agents are available to the Coderax owner only.',
+      });
+      return;
+    }
+    if (
+      body.agent_id != null ||
+      body.agentId != null ||
+      body.ephemeralAgent != null ||
+      body.spec != null ||
+      (Array.isArray(body.files) && body.files.length > 0)
+    ) {
+      res.status(400).json({
+        code: 'WORK_AGENT_COMBINATION_UNSUPPORTED',
+        message: 'External agents cannot run Coderax saved agents, specs or attachments.',
+      });
+      return;
+    }
+    if (config.engines?.workChat?.mode !== 'cloud') {
+      res.status(503).json({
+        code: 'WORK_AGENT_CLOUD_REQUIRED',
+        message: 'External agents require cloud execution.',
+      });
+      return;
+    }
+    if (!isEngineEnabled(config, engine)) {
       res.status(503).json({
         code: 'WORK_ENGINE_DISABLED',
-        message: 'The selected execution engine is not enabled for the deployment.',
+        message: 'The selected agent engine is not enabled for the deployment.',
       });
       return;
     }
@@ -117,11 +156,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         code: 'WORK_ENGINE_ADDED_CONVERSATION_UNSUPPORTED',
         message: 'Work engines run one task at a time.',
       });
-      return;
-    }
-    if (Array.isArray(body.files) && body.files.length > 0) {
-      // Attachments stay on the native runner; the engine has no file UI yet.
-      next();
       return;
     }
     if (body.isRegenerate === true || body.compact === true || body.isEdited === true) {
@@ -279,6 +313,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({
           conversationId,
           title,
+          workAgent: engine,
           workState: 'running',
           create: existing == null,
         });
@@ -466,7 +501,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
             ? { error: error ?? 'The engine reply could not be saved.' }
             : {}),
         },
-        conversation: { conversationId, title },
+        conversation: { conversationId, title, workAgent: engine },
         title,
         ...(cancelled ? { aborted: true } : {}),
         ...(error || !persisted

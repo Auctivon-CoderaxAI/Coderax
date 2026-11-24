@@ -4,9 +4,9 @@ import { isAgentsEndpoint, isAssistantsEndpoint } from './schemas';
  * Model routing for surfaces that must pick a model without offering a picker.
  *
  * A route candidate is any model the deployment actually configured. Free and
- * local candidates are ranked by capability, speed and reliability; paid models
- * are never selected automatically, they are only offered to the caller so it
- * can ask for explicit consent before a request.
+ * local candidates are ranked by the intent's signals; paid models are never
+ * selected automatically, they are only offered to the caller so it can ask for
+ * explicit consent before a request.
  */
 
 export type ModelRouteSource = {
@@ -23,6 +23,25 @@ export type ModelRouteSource = {
   context?: number;
   promptCost?: number;
   completionCost?: number;
+  /** Only an explicit catalog claim counts as proof of native tool calling. */
+  tools?: boolean;
+  /** Only an explicit catalog claim counts as proof of reasoning support. */
+  reasoning?: boolean;
+  /** Last measured minimal-turn latency, when a probe produced one. */
+  latencyMs?: number;
+};
+
+/** Routing intents a caller may ask for without naming a model. */
+export const MODEL_ROUTING_MODES = ['auto', 'fast', 'complex', 'agent'] as const;
+
+export type ModelRoutingMode = (typeof MODEL_ROUTING_MODES)[number];
+
+export type ModelRouteRequest = {
+  mode?: ModelRoutingMode;
+  /** AGENT mode always sets this; other modes may opt in explicitly. */
+  requireTools?: boolean;
+  /** A model with no declared context is excluded when this is set. */
+  minContext?: number;
 };
 
 export type ModelRouteCandidate = {
@@ -35,6 +54,10 @@ export type ModelRouteCandidate = {
   speed: number;
   reliability: number;
   context?: number;
+  /** Verified native tool-calling support, not an inference from the name. */
+  tools: boolean;
+  reasoning?: boolean;
+  latencyMs?: number;
   promptCost?: number;
   completionCost?: number;
   /** Sum of the known prompt and completion rates per million tokens. */
@@ -112,6 +135,11 @@ export function toModelRouteCandidate(source: ModelRouteSource): ModelRouteCandi
     speed: normalizeSignal(source.speed),
     reliability: normalizeSignal(source.reliability),
     ...(Number.isFinite(source.context) && source.context! > 0 ? { context: source.context } : {}),
+    tools: source.tools === true,
+    ...(typeof source.reasoning === 'boolean' ? { reasoning: source.reasoning } : {}),
+    ...(Number.isFinite(source.latencyMs) && source.latencyMs! >= 0
+      ? { latencyMs: source.latencyMs }
+      : {}),
     ...(promptCost != null ? { promptCost } : {}),
     ...(completionCost != null ? { completionCost } : {}),
     ...(costPerMillion !== undefined ? { costPerMillion } : {}),
@@ -217,6 +245,115 @@ function rankPaidModels(
     ...candidates.slice(0, index),
     ...candidates.slice(index + 1),
   ];
+}
+
+/** Known latency sorts first; an unmeasured endpoint never wins on a guess. */
+function compareLatency(a: ModelRouteCandidate, b: ModelRouteCandidate): number {
+  if (a.latencyMs == null && b.latencyMs == null) {
+    return 0;
+  }
+  if (a.latencyMs == null) {
+    return 1;
+  }
+  if (b.latencyMs == null) {
+    return -1;
+  }
+  return a.latencyMs - b.latencyMs;
+}
+
+/** Larger verified context sorts first; unknown context sorts last. */
+function compareContext(a: ModelRouteCandidate, b: ModelRouteCandidate): number {
+  if (a.context == null && b.context == null) {
+    return 0;
+  }
+  if (a.context == null) {
+    return 1;
+  }
+  if (b.context == null) {
+    return -1;
+  }
+  return b.context - a.context;
+}
+
+/**
+ * FAST prefers a measured low-latency model; COMPLEX trades latency for
+ * capability and context. Both keep the automatic ranking's tie-breakers so the
+ * order stays stable across catalog responses.
+ */
+function rankForMode(
+  candidates: ModelRouteCandidate[],
+  mode: ModelRoutingMode,
+): ModelRouteCandidate[] {
+  const ranked = [...candidates];
+  if (mode === 'fast') {
+    ranked.sort(
+      (a, b) =>
+        compareLatency(a, b) ||
+        b.speed - a.speed ||
+        b.reliability - a.reliability ||
+        b.capability - a.capability ||
+        compareModelRoutes(a, b),
+    );
+  } else if (mode === 'complex') {
+    ranked.sort(
+      (a, b) =>
+        b.capability - a.capability ||
+        compareContext(a, b) ||
+        b.reliability - a.reliability ||
+        compareModelRoutes(a, b),
+    );
+  } else {
+    ranked.sort(compareModelRoutes);
+  }
+  return ranked;
+}
+
+export type ModeModelSelection =
+  | {
+      ok: true;
+      mode: ModelRoutingMode;
+      model: ModelRouteCandidate;
+      alternatives: ModelRouteCandidate[];
+    }
+  | {
+      ok: false;
+      mode: ModelRoutingMode;
+      reason: 'no_eligible_free_model' | 'no_tool_capable_free_model';
+      paid: ModelRouteCandidate | null;
+    };
+
+/**
+ * Select a concrete free/local model for an intent. AGENT (or an explicit
+ * requireTools) admits only models whose catalog entry proves native tool
+ * calling; a text-only model is never offered for an agent run. Paid models are
+ * excluded before ranking, so no mode can reach one by ordering.
+ */
+export function selectModelForMode(
+  sources: ModelRouteSource[],
+  request: ModelRouteRequest = {},
+): ModeModelSelection {
+  const mode = request.mode ?? 'auto';
+  const requireTools = request.requireTools === true || mode === 'agent';
+  const ranked = rankFreeOrLocalModels(sources).filter(
+    (candidate) => !requireTools || candidate.tools,
+  );
+  const eligible =
+    request.minContext == null
+      ? ranked
+      : ranked.filter(
+          (candidate) => candidate.context != null && candidate.context >= request.minContext!,
+        );
+  if (eligible.length > 0) {
+    const [model, ...alternatives] = rankForMode(eligible, mode);
+    return { ok: true, mode, model: model as ModelRouteCandidate, alternatives };
+  }
+  return {
+    ok: false,
+    mode,
+    reason:
+      requireTools && ranked.length === 0 ? 'no_tool_capable_free_model' : 'no_eligible_free_model',
+    paid: null,
+  };
 }
 
 /**

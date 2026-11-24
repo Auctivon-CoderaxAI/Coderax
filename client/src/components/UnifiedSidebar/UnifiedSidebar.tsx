@@ -16,9 +16,9 @@ import {
   MOBILE_DRAWER_WIDTH,
   DRAWER_UNPAINTED,
 } from './constants';
+import { MobileHeader, MobileBottomBar, MobileShortcutTargets, MobileQuickLinks } from './mobile';
 import { filesDialogTriggerAtom, showFilesDialogAtom } from '~/store/filesDialog';
 import { ChatContext, ChatFormProvider, ActivePanelProvider } from '~/Providers';
-import { MobileHeader, MobileBottomBar, MobileShortcutTargets, MobileQuickLinks } from './mobile';
 import { MyFilesModal } from '~/components/Chat/Input/Files/MyFilesModal';
 import useUnifiedSidebarLinks from '~/hooks/Nav/useUnifiedSidebarLinks';
 import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';

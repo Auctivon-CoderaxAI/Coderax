@@ -85,7 +85,6 @@ const {
 const {
   loadAgentTools,
   loadToolsForExecution,
-  getAccessibleMcpServerNames,
   isFatalAgentInitializationError,
 } = require('~/server/services/ToolService');
 const {
@@ -108,7 +107,7 @@ const {
   getLinkedInstructionsResolver,
 } = require('~/server/services/Endpoints/agents/linkedInstructions');
 const { getModelsConfig } = require('~/server/controllers/ModelController');
-const { filterFilesByAgentAccess: filterFilesByRemoteAgentAccess } = require('~/server/services/Files/permissions');
+const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPManager } = require('~/config');
 const { logViolation } = require('~/cache');
@@ -534,7 +533,8 @@ const executeOpenAIChatCompletion = async (envelope, { req, res }) => {
       const skillDbMethods = getSkillDbMethods();
 
       const dbMethods = buildAgentDbMethods({
-        filterFilesByAgentAccess: filterFilesByRemoteAgentAccess,
+        filterFilesByAgentAccess: (params) =>
+          filterFilesByAgentAccess({ ...params, resourceType: ResourceType.REMOTE_AGENT }),
         checkSessionsAlive,
         loadCodeApiKey,
         listSkillsByAccess: skillDbMethods.listSkillsByAccess,

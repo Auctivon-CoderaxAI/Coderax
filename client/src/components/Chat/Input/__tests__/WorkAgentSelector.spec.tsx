@@ -11,6 +11,7 @@ jest.mock('coderax-data-provider', () => ({
   dataService: {
     getWorkModels: jest.fn(),
     getWorkAgents: jest.fn(),
+    getWorkAgentIdentities: jest.fn(),
     getWorkReadiness: jest.fn(),
     getWorkRouting: jest.fn(),
   },
@@ -28,8 +29,22 @@ jest.mock('~/hooks', () => ({
     ({
       com_ui_model: 'Model',
       com_work_agent: 'Work agent',
+      com_work_agent_identity: 'Agent',
+      com_work_agent_coderax: 'Coderax Personal Agent',
+      com_work_agent_opencode: 'OpenCode Agent',
+      com_work_agent_freebuff: 'FreeBuff Agent',
+      com_work_agent_coderax_description: 'Coderax native agent.',
+      com_work_agent_opencode_description: 'External OpenCode agent.',
+      com_work_agent_freebuff_description: 'External FreeBuff agent.',
+      com_work_agent_model_external: 'Model is configured by the selected external agent.',
+      com_work_agent_unavailable: 'This agent is unavailable.',
+      com_work_agent_identities_unavailable: 'Agent identities could not be loaded.',
       com_work_automatic_model: 'Auto',
       com_work_automatic_model_description: 'Chooses the best model for each task.',
+      com_work_routing_fast: 'Fast',
+      com_work_routing_complex: 'Complex',
+      com_work_routing_agent: 'Agent',
+      com_work_routing_target: `Runs on ${values?.[0]} now.`,
       com_work_automatic_agent: 'Automatic agent',
       com_work_mode_build: 'Build',
       com_work_mode_build_description: 'Implement the request end to end.',
@@ -74,7 +89,7 @@ function setup() {
   );
 }
 
-async function openSelect(name: 'Model' | 'Work agent') {
+async function openSelect(name: 'Model' | 'Work agent' | 'Agent') {
   const user = userEvent.setup();
   const button = await screen.findByRole('button', { name });
   await waitFor(() => expect(button).not.toBeDisabled());
@@ -105,6 +120,35 @@ beforeEach(() => {
   jest.mocked(dataService.getWorkAgents).mockResolvedValue({
     agents: [{ id: 'reviewer', name: 'Reviewer', model: 'free', provider: 'Ollama', members: [] }],
   });
+  jest.mocked(dataService.getWorkAgentIdentities).mockResolvedValue({
+    defaultAgent: 'coderax',
+    agents: [
+      {
+        id: 'coderax',
+        label: 'Coderax Personal Agent',
+        kind: 'native',
+        engine: null,
+        description: 'Coderax native agent.',
+        availability: { available: true },
+      },
+      {
+        id: 'opencode',
+        label: 'OpenCode Agent',
+        kind: 'external',
+        engine: 'opencode',
+        description: 'External OpenCode agent.',
+        availability: { available: true },
+      },
+      {
+        id: 'freebuff',
+        label: 'FreeBuff Agent',
+        kind: 'external',
+        engine: 'freebuff',
+        description: 'External FreeBuff agent.',
+        availability: { available: true },
+      },
+    ],
+  });
   jest.mocked(dataService.getWorkReadiness).mockResolvedValue({
     readiness: { ready: true, checks: [], nextAction: null, nextActionDescriptor: null },
   });
@@ -127,6 +171,61 @@ beforeEach(() => {
 });
 
 afterEach(() => jest.restoreAllMocks());
+
+it('offers Fast, Complex, and Agent routes and selects the chosen intent', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [
+      {
+        id: 'auto',
+        label: 'Automatic',
+        auto: true,
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      { id: 'free', label: 'Free model', provider: 'Ollama' },
+    ],
+    routingModes: [
+      {
+        id: 'auto',
+        label: 'Automatic',
+        auto: true,
+        routingMode: 'auto',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'fast',
+        label: 'Fast',
+        auto: true,
+        routingMode: 'fast',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'complex',
+        label: 'Complex',
+        auto: true,
+        routingMode: 'complex',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+      {
+        id: 'agent',
+        label: 'Agent',
+        auto: true,
+        routingMode: 'agent',
+        target: { id: 'free', label: 'Free model', provider: 'Ollama' },
+      },
+    ],
+  });
+  setup();
+  const { user } = await openSelect('Model');
+
+  await user.click(await screen.findByRole('menuitemradio', { name: /^Fast/ }));
+
+  expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Fast');
+  await user.click(screen.getByRole('button', { name: 'Model' }));
+  expect(await screen.findByRole('menuitemradio', { name: /^Fast/ })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+});
 
 it('keeps Auto in the model menu and selects the automatic route', async () => {
   setup();
@@ -170,48 +269,78 @@ it('selects an eligible agent and pins its model without resetting Chat settings
   expect(screen.queryByRole('menuitemradio', { name: 'paid' })).not.toBeInTheDocument();
 });
 
-it('offers the owner-only OpenCode engine as a selectable Work model', async () => {
+it('offers exactly the three agent identities with native selected by default', async () => {
   setup();
-  const { user } = await openSelect('Model');
-  await user.click(await screen.findByRole('menuitemradio', { name: 'OpenCode' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('OpenCode'),
+  expect(await screen.findByRole('button', { name: 'Agent' })).toHaveTextContent(
+    'Coderax Personal Agent',
   );
+  const { user } = await openSelect('Agent');
+  expect(
+    await screen.findByRole('menuitemradio', { name: /Coderax Personal Agent/ }),
+  ).toBeInTheDocument();
+  expect(await screen.findByRole('menuitemradio', { name: /OpenCode Agent/ })).toBeInTheDocument();
+  expect(await screen.findByRole('menuitemradio', { name: /FreeBuff Agent/ })).toBeInTheDocument();
+
+  await user.click(await screen.findByRole('menuitemradio', { name: /OpenCode Agent/ }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Agent' })).toHaveTextContent('OpenCode Agent'),
+  );
+  expect(screen.getByRole('button', { name: 'Model' })).toBeDisabled();
 });
 
-it('offers the Freebuff engine the server reports as available', async () => {
-  jest.mocked(dataService.getWorkModels).mockResolvedValue({
-    models: [
-      { id: 'free', label: 'Free model', provider: 'Ollama' },
-      { id: 'freebuff', label: 'Freebuff', provider: 'freebuff', engine: 'freebuff' },
+it('keeps external identities unavailable when the server says so', async () => {
+  jest.mocked(dataService.getWorkAgentIdentities).mockResolvedValue({
+    defaultAgent: 'coderax',
+    agents: [
+      {
+        id: 'coderax',
+        label: 'Coderax Personal Agent',
+        kind: 'native',
+        engine: null,
+        description: 'Coderax native agent.',
+        availability: { available: true },
+      },
+      {
+        id: 'opencode',
+        label: 'OpenCode Agent',
+        kind: 'external',
+        engine: 'opencode',
+        description: 'External OpenCode agent.',
+        availability: {
+          available: false,
+          reason: 'disabled',
+          detail: 'Disabled for this deployment.',
+        },
+      },
+      {
+        id: 'freebuff',
+        label: 'FreeBuff Agent',
+        kind: 'external',
+        engine: 'freebuff',
+        description: 'External FreeBuff agent.',
+        availability: {
+          available: false,
+          reason: 'disabled',
+          detail: 'Disabled for this deployment.',
+        },
+      },
     ],
   });
   setup();
-
-  const { user } = await openSelect('Model');
-  await user.click(await screen.findByRole('menuitemradio', { name: 'Freebuff' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('Freebuff'),
+  await openSelect('Agent');
+  expect(await screen.findByRole('menuitemradio', { name: /OpenCode Agent/ })).toHaveAttribute(
+    'aria-disabled',
+    'true',
   );
 });
 
-it('does not offer the OpenCode engine to non-owners', async () => {
+it('does not treat an engine entry as a native model choice', async () => {
   mockRole = 'USER';
   setup();
   const { user } = await openSelect('Model');
   expect(await screen.findByRole('menuitemradio', { name: 'Free model' })).toBeInTheDocument();
-  expect(screen.queryByRole('menuitemradio', { name: 'OpenCode' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('menuitemradio', { name: 'OpenCode Agent' })).not.toBeInTheDocument();
   await user.keyboard('{Escape}');
-});
-
-it('selects the sole OpenCode engine when there is no automatic target', async () => {
-  jest.mocked(dataService.getWorkModels).mockResolvedValue({ models: [] });
-  jest.mocked(dataService.getWorkAgents).mockResolvedValue({ agents: [] });
-  setup();
-
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Model' })).toHaveTextContent('OpenCode'),
-  );
 });
 
 it('does not offer an engine model without a provider', async () => {

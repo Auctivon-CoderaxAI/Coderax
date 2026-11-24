@@ -12,14 +12,14 @@ import {
   DIALOG_SCRIM_CLASS,
 } from '@coderax/client';
 import type { TDialogProps } from '~/common';
-import type { SettingsTab } from './types';
 import type { IosPageId } from './ios/pages';
+import type { SettingsTab } from './types';
 import { IOS_PAGES, findPage, pageVisible } from './ios/pages';
 import { useSettingsContext } from './context';
 import { settingsTabAtom } from './state';
 import { useLocalize } from '~/hooks';
-import PageContent from './ios/Page';
 import Overview from './ios/Overview';
+import PageContent from './ios/Page';
 import Sidebar from './Sidebar';
 import Content from './Content';
 import { TABS } from './types';

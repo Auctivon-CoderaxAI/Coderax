@@ -90,6 +90,7 @@ const depsFor = (req) => {
   const configuredListModels = deps.listModels;
   deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
   deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
+  deps.workChat = req.config?.config?.engines?.workChat ?? null;
   /** An engine run is live state too; fall back to the native job registry. */
   const nativeGetRunState = deps.getRunState;
   deps.getRunState = async (input) =>

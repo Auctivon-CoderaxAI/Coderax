@@ -1,4 +1,7 @@
-import type { ToolApprovalGrantStorage } from 'coderax-data-provider';
+import type {
+  ToolApprovalGrantStorage,
+  ToolStandingAuthorizationStorage,
+} from 'coderax-data-provider';
 import type { ScheduleMCPConsentStorage } from './scheduleConsent';
 import { createToolStandingAuthorizationMethods } from './toolStandingAuthorization';
 import { createToolApprovalGrantMethods } from './toolApprovalGrant';
@@ -256,6 +259,7 @@ export {
 };
 
 export type AllMethods = ToolApprovalGrantStorage &
+  ToolStandingAuthorizationStorage &
   UserMethods &
   SessionMethods &
   TokenMethods &

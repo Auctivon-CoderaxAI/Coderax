@@ -9,6 +9,7 @@ export enum QueryKeys {
   allConversations = 'allConversations',
   workModels = 'workModels',
   workAgents = 'workAgents',
+  workAgentIdentities = 'workAgentIdentities',
   workReadiness = 'workReadiness',
   workRouting = 'workRouting',
   workTasks = 'workTasks',

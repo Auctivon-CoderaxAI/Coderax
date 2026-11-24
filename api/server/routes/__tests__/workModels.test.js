@@ -24,9 +24,9 @@ test('leaves gateway models untagged so the free/local filter excludes them', ()
   assert.deepEqual(models, [{ id: 'gpt-4o', label: 'gpt-4o', provider: 'openAI' }]);
 });
 
-test('carries an explicit free flag through', () => {
-  assert.deepEqual(flattenModelConfig({ custom: [{ id: 'free/alpha', free: true }] }), [
-    { id: 'free/alpha', label: 'free/alpha', provider: 'custom', free: true },
+test('does not trust a configured endpoint to mark its models as free', () => {
+  assert.deepEqual(flattenModelConfig({ FreeOpenRouter: [{ id: 'free/alpha', free: true }] }), [
+    { id: 'free/alpha', label: 'free/alpha', provider: 'FreeOpenRouter' },
   ]);
 });
 

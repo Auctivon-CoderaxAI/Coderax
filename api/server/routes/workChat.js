@@ -88,6 +88,8 @@ function stripClientWorkFields(body) {
   const {
     isWork: _isWork,
     workModel: _workModel,
+    workAgent: _workAgent,
+    workAgentId: _workAgentId,
     workContext: _workContext,
     spec: _spec,
     ...rest
