@@ -1287,16 +1287,6 @@
       "count": 3
     }
   },
-  "client/src/components/Projects/ProjectResources.tsx": {
-    "shadcn/no-restyle": {
-      "count": 1
-    }
-  },
-  "client/src/components/Projects/ProjectWorkspace.tsx": {
-    "shadcn/no-restyle": {
-      "count": 2
-    }
-  },
   "client/src/components/Projects/ProjectsView.tsx": {
     "shadcn/no-restyle": {
       "count": 1
@@ -1455,14 +1445,6 @@
     },
     "shadcn/require-static-classes": {
       "count": 2
-    }
-  },
-  "client/src/components/Sharing/PeoplePicker/SearchPicker.tsx": {
-    "shadcn/no-restyle": {
-      "count": 3
-    },
-    "shadcn/require-static-classes": {
-      "count": 1
     }
   },
   "client/src/components/Sharing/PeoplePicker/SelectedPrincipalsList.tsx": {
