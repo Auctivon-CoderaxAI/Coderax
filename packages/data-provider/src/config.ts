@@ -3912,16 +3912,16 @@ export const enginesConfigSchema = z
       })
       .prefault({}),
     /**
-     * Owner-only Work chat execution. When enabled, an ADMIN's Work turns run
-     * through the configured engine instead of the native agent runner; every
-     * other user, and every turn with a selected agent or attachment, still
-     * takes the native path. Disabled by default.
+     * Owner-gated external agent execution. The native Coderax agent is always
+     * the default and does not require this flag. When enabled, an ADMIN may
+     * explicitly select OpenCode Agent or FreeBuff Agent for a Work turn; the
+     * request names the identity, so no engine is ever switched silently.
+     * Disabled by default.
      */
     workChat: z
       .object({
         enabled: z.boolean().default(false),
-        engine: z.enum(['opencode', 'freebuff']).default('opencode'),
-        /** Private runs use local weights; cloud runs may use free hosted models. */
+        /** External agents are cloud-only; native Work is governed separately. */
         mode: z.enum(['private', 'cloud']).default('private'),
       })
       .prefault({}),
@@ -4110,7 +4110,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
         apinex: z.string().trim().min(1).default('free/deepseek-v4.1-flash'),
         cloudflare: z.string().trim().min(1).default('@cf/openai/gpt-oss-120b'),
-        vercel: z.string().trim().min(1).default('nvidia/nemotron-3.5-lightning-free'),
         freeai: z.string().trim().min(1).default('qwen7b'),
         '100millionseek': z.string().trim().min(1).default('deepseek-v4.1-flash-free'),
       })
@@ -4124,7 +4123,6 @@ export const providerFallbackConfigSchema = z
         opencode: z.string().trim().url().optional(),
         apinex: z.string().trim().url().optional(),
         cloudflare: z.string().trim().url().optional(),
-        vercel: z.string().trim().url().optional(),
         freeai: z.string().trim().url().optional(),
         '100millionseek': z.string().trim().url().optional(),
       })

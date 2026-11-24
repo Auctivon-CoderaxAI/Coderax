@@ -957,6 +957,7 @@ export const tMessageSchema = z.object({
   isWork: z.boolean().optional(),
   workModel: z.string().optional(),
   workState: z.string().optional(),
+  workAgent: z.enum(['coderax', 'opencode', 'freebuff']).optional(),
   expiredAt: z.string().nullable().optional(),
   error: z.boolean().optional(),
   clientTimestamp: z.string().optional(),
@@ -1171,7 +1172,10 @@ const DocumentType: z.ZodType<DocumentTypeValue> = z.lazy(() =>
     z.number(),
     z.string(),
     z.array(z.lazy(() => DocumentType)),
-    z.record(z.string(), z.lazy(() => DocumentType)),
+    z.record(
+      z.string(),
+      z.lazy(() => DocumentType),
+    ),
   ]),
 );
 
@@ -1319,6 +1323,8 @@ export const tConversationSchema = z.object({
   /** Concrete free or locally served model selected for the Work conversation. */
   workModel: z.string().optional(),
   workState: z.string().optional(),
+  /** Engine identity bound to this Work conversation. */
+  workAgent: z.enum(['coderax', 'opencode', 'freebuff']).optional(),
   /* file token limits */
   fileTokenLimit: coerceNumber.optional(),
   /** @deprecated */

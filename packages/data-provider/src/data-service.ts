@@ -1050,6 +1050,10 @@ export function getWorkAgents(): Promise<t.TWorkAgentsResponse> {
   return request.get(endpoints.workAgents());
 }
 
+export function getWorkAgentIdentities(): Promise<t.TWorkAgentIdentitiesResponse> {
+  return request.get(endpoints.workAgentIdentities());
+}
+
 export function getWorkReadiness(): Promise<t.TWorkReadinessResponse> {
   return request.get(endpoints.workReadiness());
 }

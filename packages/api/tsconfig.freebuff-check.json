@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": [
+    "src/engines/freebuff/adapter.ts",
+    "src/engines/freebuff/adapter.spec.ts",
+    "src/engines/service.ts",
+    "src/engines/service.spec.ts",
+    "src/endpoints/custom/providerFallback.spec.ts",
+    "src/work/models.ts",
+    "src/work/models.spec.ts",
+    "src/work/admission.ts",
+    "src/work/admission.spec.ts",
+    "src/work/router.ts",
+    "src/work/router.spec.ts"
+  ],
+  "exclude": ["node_modules", "dist", "types"]
+}
