@@ -108,6 +108,47 @@ describe('Freebuff engine adapter', () => {
     ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
   });
 
+  it('applies the private model gate only in private mode', () => {
+    const hostedFreeModel = { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' };
+    const bothRoots = { private: '/srv/coderax/private', cloud: '/srv/coderax/cloud' };
+
+    expect(
+      describeFreebuff({ ...base, roots: bothRoots, model: hostedFreeModel, mode: 'private' }),
+    ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
+    expect(
+      describeFreebuff({ ...base, roots: bothRoots, model: hostedFreeModel, mode: 'cloud' }),
+    ).toEqual({ available: true, reason: 'ready' });
+  });
+
+  it('requires the workspace root for the configured mode', () => {
+    expect(
+      describeFreebuff({
+        ...base,
+        mode: 'cloud',
+        roots: { private: '/srv/coderax/private', cloud: '' },
+      }),
+    ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
+    expect(
+      describeFreebuff({
+        ...base,
+        mode: 'private',
+        roots: { private: '', cloud: '/srv/coderax/cloud' },
+      }),
+    ).toEqual(expect.objectContaining({ available: false, reason: 'not_configured' }));
+  });
+
+  it('names the configured mode in the message that reports a missing root', () => {
+    const unavailable = describeFreebuff({
+      ...base,
+      mode: 'cloud',
+      roots: { private: '/srv/coderax/private', cloud: '' },
+    });
+    expect(unavailable.available).toBe(false);
+    if (!unavailable.available) {
+      expect(unavailable.detail).toContain('engines.workspaces.cloudRoot');
+    }
+  });
+
   it('reports the SDK as unavailable instead of running without it', () => {
     expect(describeFreebuff({ ...base, sdk: null })).toEqual(
       expect.objectContaining({ available: false, reason: 'sdk_unavailable' }),

@@ -150,6 +150,7 @@ export type FreebuffAdapterOptions = {
 };
 
 export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailability {
+  const mode = options.mode ?? 'private';
   if (!options.enabled) {
     return {
       available: false,
@@ -157,23 +158,25 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
       detail: 'Freebuff is disabled in engines.freebuff.enabled.',
     };
   }
-  if (!options.baseURL || !options.model || !options.roots[options.mode ?? 'private']) {
+  if (!options.baseURL || !options.model || !options.roots[mode]) {
     return {
       available: false,
       reason: 'not_configured',
-      detail:
-        'engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.privateRoot must be configured.',
+      detail: `engines.freebuff.baseURL, engines.freebuff.model, and engines.workspaces.${mode}Root must be configured.`,
     };
   }
   if (
     !privateBaseUrl(options.baseURL, options.allowedHosts) ||
-    !isModelAllowedForMode(options.model, 'private')
+    !isModelAllowedForMode(options.model, mode)
   ) {
     return {
       available: false,
       reason: 'not_configured',
       detail:
-        'Freebuff Work requires an OpenAI-compatible loopback endpoint or a host listed in engines.freebuff.allowedHosts, plus a local ollama or lmstudio model.',
+        'Freebuff Work requires an OpenAI-compatible loopback endpoint or a host listed in engines.freebuff.allowedHosts, plus ' +
+        (mode === 'cloud'
+          ? 'a zero-cost model: an allowlisted free OpenCode model or local ollama or lmstudio weights.'
+          : 'a local ollama or lmstudio model.'),
     };
   }
   if (!options.sdk) {
