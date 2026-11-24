@@ -19,6 +19,44 @@ describe('OpenCode event mapping', () => {
     expect(mapper.map(textPart('p1', 'Hello'))).toEqual([]);
   });
 
+  it('never echoes the prompt the user sent back as assistant text', () => {
+    /* OpenCode streams parts for every message in the session. Mapping a user
+     * text part as reply text made Work answer with its own prompt instead of
+     * the engine's output, which looked like fabricated text. */
+    const mapper = new OpenCodeEventMapper(sessionId);
+    const message = (id: string, role: string) => ({
+      type: 'message.updated',
+      properties: { sessionID: sessionId, info: { id, sessionID: sessionId, role } },
+    });
+    const part = (id: string, messageID: string, text: string) => ({
+      type: 'message.part.updated',
+      properties: {
+        sessionID: sessionId,
+        part: { id, sessionID: sessionId, messageID, type: 'text', text },
+      },
+    });
+
+    mapper.map(message('m-user', 'user'));
+    mapper.map(message('m-assistant', 'assistant'));
+
+    const prompt =
+      'Earlier in this Work conversation:\nUser: hi\n\nCurrent request:\nhead -c 16 /dev/urandom';
+    expect(mapper.map(part('p-user', 'm-user', prompt))).toEqual([]);
+    expect(
+      mapper.map({
+        type: 'message.part.delta',
+        properties: { sessionID: sessionId, partID: 'p-user', delta: ' tail' },
+      }),
+    ).toEqual([]);
+
+    expect(mapper.map(part('p-assistant', 'm-assistant', '2a6b0392'))).toEqual([
+      { type: 'text_delta', text: '2a6b0392' },
+    ]);
+    expect(mapper.map(part('p-assistant', 'm-assistant', '2a6b0392 done'))).toEqual([
+      { type: 'text_delta', text: ' done' },
+    ]);
+  });
+
   it('emits a full snapshot when cumulative text replaces earlier text', () => {
     const mapper = new OpenCodeEventMapper(sessionId);
     expect(mapper.map(textPart('p1', 'Hello'))).toEqual([{ type: 'text_delta', text: 'Hello' }]);

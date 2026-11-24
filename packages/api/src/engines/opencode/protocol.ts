@@ -50,6 +50,10 @@ export class OpenCodeEventMapper {
   private readonly textOrder: string[] = [];
   private readonly toolStatus = new Map<string, string>();
   private readonly filePaths = new Set<string>();
+  /** Roles reported by message.updated: a session streams every part, including
+   *  the prompt the user sent, and only assistant text may reach the reply. */
+  private readonly messageRoles = new Map<string, string>();
+  private readonly userTextParts = new Set<string>();
   private terminal: 'completed' | 'failed' | 'cancelled' | null = null;
 
   constructor(sessionId: string) {
@@ -71,6 +75,8 @@ export class OpenCodeEventMapper {
     }
 
     switch (type) {
+      case 'message.updated':
+        return this.mapMessageUpdate(properties);
       case 'message.part.updated':
         return this.mapPartUpdate(properties);
       case 'message.part.delta':
@@ -99,6 +105,19 @@ export class OpenCodeEventMapper {
     return this.textOrder.map((id) => this.emittedText.get(id) ?? '').join('');
   }
 
+  private mapMessageUpdate(properties: Json): EngineEvent[] {
+    const info = isRecord(properties.info) ? properties.info : null;
+    if (!info || readString(info.sessionID) !== this.sessionId) {
+      return [];
+    }
+    const id = readString(info.id);
+    const role = readString(info.role);
+    if (id && role) {
+      this.messageRoles.set(id, role);
+    }
+    return [];
+  }
+
   private mapPartUpdate(properties: Json): EngineEvent[] {
     const part = isRecord(properties.part) ? properties.part : null;
     if (!part || readString(part.sessionID) !== this.sessionId) {
@@ -109,6 +128,11 @@ export class OpenCodeEventMapper {
       const id = readString(part.id);
       const text = readString(part.text);
       if (!id || text === undefined) {
+        return [];
+      }
+      const messageId = readString(part.messageID) ?? readString(properties.messageID);
+      if (messageId && this.messageRoles.get(messageId) === 'user') {
+        this.userTextParts.add(id);
         return [];
       }
       const emitted = this.emittedText.get(id) ?? '';
@@ -160,6 +184,13 @@ export class OpenCodeEventMapper {
     const partId = readString(properties.partID);
     const delta = readString(properties.delta);
     if (!partId || delta === undefined) {
+      return [];
+    }
+    const messageId = readString(properties.messageID);
+    if (
+      this.userTextParts.has(partId) ||
+      (messageId && this.messageRoles.get(messageId) === 'user')
+    ) {
       return [];
     }
     if (!this.emittedText.has(partId)) {

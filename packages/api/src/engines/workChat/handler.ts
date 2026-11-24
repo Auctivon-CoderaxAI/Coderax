@@ -468,6 +468,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         },
         conversation: { conversationId, title },
         title,
+        /** What the engine actually ran, so a turn's tool activity is observable. */
+        ...(result.ok ? { toolCalls: result.value.toolCalls, edits: result.value.edits } : {}),
         ...(cancelled ? { aborted: true } : {}),
         ...(error || !persisted
           ? { error: { message: error ?? 'The engine reply could not be saved.' } }

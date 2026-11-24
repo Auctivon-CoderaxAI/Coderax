@@ -170,7 +170,13 @@ it('selects an eligible agent and pins its model without resetting Chat settings
   expect(screen.queryByRole('menuitemradio', { name: 'paid' })).not.toBeInTheDocument();
 });
 
-it('offers the owner-only OpenCode engine as a selectable Work model', async () => {
+it('offers the OpenCode engine the server reports as available', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [
+      { id: 'free', label: 'Free model', provider: 'Ollama' },
+      { id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' },
+    ],
+  });
   setup();
   const { user } = await openSelect('Model');
   await user.click(await screen.findByRole('menuitemradio', { name: 'OpenCode' }));
@@ -195,8 +201,11 @@ it('offers the Freebuff engine the server reports as available', async () => {
   );
 });
 
-it('does not offer the OpenCode engine to non-owners', async () => {
-  mockRole = 'USER';
+it('does not offer an engine the server catalog omits, even to the owner', async () => {
+  /* Regression: the picker used to add OpenCode on its own whenever the owner was
+   * signed in, so a deployment whose /api/work/models listed only local models
+   * still accepted a `model: "opencode"` task that the server never offered — the
+   * run then answered as plain chat with no tool execution. */
   setup();
   const { user } = await openSelect('Model');
   expect(await screen.findByRole('menuitemradio', { name: 'Free model' })).toBeInTheDocument();
@@ -204,8 +213,10 @@ it('does not offer the OpenCode engine to non-owners', async () => {
   await user.keyboard('{Escape}');
 });
 
-it('selects the sole OpenCode engine when there is no automatic target', async () => {
-  jest.mocked(dataService.getWorkModels).mockResolvedValue({ models: [] });
+it('selects the sole engine the server lists when there is no automatic target', async () => {
+  jest.mocked(dataService.getWorkModels).mockResolvedValue({
+    models: [{ id: 'opencode', label: 'OpenCode', provider: 'opencode', engine: 'opencode' }],
+  });
   jest.mocked(dataService.getWorkAgents).mockResolvedValue({ agents: [] });
   setup();
 

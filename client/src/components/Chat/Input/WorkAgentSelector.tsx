@@ -4,8 +4,8 @@ import { atomFamily } from 'jotai/utils';
 import * as Ariakit from '@ariakit/react';
 import { useQuery } from '@tanstack/react-query';
 import { Check, ChevronDown } from 'lucide-react';
-import { QueryKeys, SystemRoles, dataService } from 'coderax-data-provider';
-import type { TWorkAgent, TWorkModel, TWorkReadinessAction } from 'coderax-data-provider';
+import { QueryKeys, dataService } from 'coderax-data-provider';
+import type { TWorkAgent, TWorkReadinessAction } from 'coderax-data-provider';
 import type { ReactNode } from 'react';
 import type { WorkOptions, WorkSelection } from './workSelection';
 import type { WorkMode } from './workSelection';
@@ -19,15 +19,14 @@ import {
   isWorkMode,
   WORK_AUTOMATIC,
   WORK_MODES,
-  WORK_OPENCODE_ENGINE,
   toWorkOptions,
 } from './workSelection';
 import { chipClasses, chipMenuClasses, chipMenuHeadingClasses, chipMenuItemClasses } from './chip';
 import { WorkProviderStatus } from './WorkProviderStatus';
 import { createStorageAtom } from '~/store/jotai-utils';
-import { useAuthContext, useLocalize } from '~/hooks';
 import { useConversationMode } from '../mode';
 import { useChatContext } from '~/Providers';
+import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
 export { getWorkModelKey } from './workSelection';
@@ -37,18 +36,8 @@ export const workSelectionFamily = atomFamily((key: string) =>
   createStorageAtom<WorkSelection | null>(`workSelection:${key}`, null),
 );
 
-/** The server exposes the OpenCode engine only to the owner; the picker mirrors that gate. */
-const openCodeEngine: TWorkModel = {
-  id: WORK_OPENCODE_ENGINE,
-  label: 'OpenCode',
-  provider: WORK_OPENCODE_ENGINE,
-  engine: WORK_OPENCODE_ENGINE,
-};
-
 /** Work's own catalog: free/local models, available engines, and agents whose graph runs on them. */
 export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
-  const { user } = useAuthContext();
-  const canUseOpenCode = user?.role === SystemRoles.ADMIN;
   const modelsQuery = useQuery({
     queryKey: [QueryKeys.workModels],
     queryFn: () => dataService.getWorkModels(),
@@ -70,13 +59,12 @@ export function useWorkOptions({ enabled = true }: { enabled?: boolean } = {}) {
     staleTime: 30_000,
     enabled,
   });
-  const options = useMemo(() => {
-    const base = toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents);
-    if (!canUseOpenCode || base.models.some((model) => model.engine != null)) {
-      return base;
-    }
-    return { ...base, models: [...base.models, openCodeEngine] };
-  }, [modelsQuery.data, agentsQuery.data, canUseOpenCode]);
+  /** The server's catalog is the contract: an engine it does not list is not offered,
+   *  so a task can never be submitted to a run the server would refuse or degrade. */
+  const options = useMemo(
+    () => toWorkOptions(modelsQuery.data?.models, agentsQuery.data?.agents),
+    [modelsQuery.data, agentsQuery.data],
+  );
 
   return {
     options,
