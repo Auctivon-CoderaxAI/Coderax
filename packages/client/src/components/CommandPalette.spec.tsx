@@ -112,9 +112,7 @@ describe('CommandPalette', () => {
   });
 
   it('says so when nothing matches instead of showing an empty list', () => {
-    renderPalette([
-      { id: 'review', title: 'Code Review', group: 'Modules', onSelect: jest.fn() },
-    ]);
+    renderPalette([{ id: 'review', title: 'Code Review', group: 'Modules', onSelect: jest.fn() }]);
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzzz' } });
 
@@ -124,14 +122,7 @@ describe('CommandPalette', () => {
 
   it('toggles with ⌘K while it is unmounted from view', () => {
     const onOpenChange = jest.fn();
-    render(
-      <CommandPalette
-        open={false}
-        onOpenChange={onOpenChange}
-        items={[]}
-        labels={labels}
-      />,
-    );
+    render(<CommandPalette open={false} onOpenChange={onOpenChange} items={[]} labels={labels} />);
 
     fireEvent.keyDown(document, { key: 'k', metaKey: true });
     expect(onOpenChange).toHaveBeenCalledWith(true);

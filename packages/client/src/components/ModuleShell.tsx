@@ -95,10 +95,7 @@ export default function ModuleShell({
       </header>
 
       {tabs != null && tabs.length > 0 && (
-        <nav
-          aria-label={tabsLabel ?? title}
-          className="mt-3 shrink-0 overflow-x-auto px-4 sm:px-6"
-        >
+        <nav aria-label={tabsLabel ?? title} className="mt-3 shrink-0 overflow-x-auto px-4 sm:px-6">
           <ul className="border-border-light -mb-px flex items-center gap-1 border-b">
             {tabs.map((tab) => {
               const isActive = tab.value === activeTab;
@@ -114,9 +111,9 @@ export default function ModuleShell({
                       }
                     }}
                     className={cn(
-                      'duration-theme-fast inline-flex min-h-theme-target items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                      'duration-theme-fast min-h-theme-target inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors',
                       isActive
-                        ? 'border-current text-text-primary'
+                        ? 'text-text-primary border-current'
                         : 'text-text-secondary hover:text-text-primary border-transparent',
                       'disabled:pointer-events-none disabled:opacity-50',
                     )}
@@ -131,9 +128,7 @@ export default function ModuleShell({
         </nav>
       )}
 
-      <div
-        className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6', bodyClassName)}
-      >
+      <div className={cn('min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6', bodyClassName)}>
         {children}
       </div>
 

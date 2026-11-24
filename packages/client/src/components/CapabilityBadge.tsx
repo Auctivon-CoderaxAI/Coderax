@@ -32,10 +32,7 @@ type ChipTone = 'surface' | 'neutral' | 'info' | 'success' | 'warning' | 'error'
  * `blocked` uses the warning family until the `status-blocked` token lands with theme
  * coverage; when it does, only the tone in this table changes.
  */
-const STATUS_PRESENTATION: Record<
-  CapabilityStatus,
-  { icon: LucideIcon; tone: ChipTone }
-> = {
+const STATUS_PRESENTATION: Record<CapabilityStatus, { icon: LucideIcon; tone: ChipTone }> = {
   live: { icon: CircleDot, tone: 'success' },
   preview: { icon: CircleDashed, tone: 'info' },
   experimental: { icon: FlaskConical, tone: 'warning' },
@@ -77,9 +74,7 @@ export default function CapabilityBadge({
       shape="round"
       title={hasReason ? reason : undefined}
       className={cn('shrink-0', className)}
-      leading={
-        <Icon className={size === 'sm' ? 'size-3' : 'size-3.5'} aria-hidden={true} />
-      }
+      leading={<Icon className={size === 'sm' ? 'size-3' : 'size-3.5'} aria-hidden={true} />}
     >
       {label}
     </Chip>

@@ -239,9 +239,7 @@ export default function CommandPalette({
           className="max-h-[60vh] overflow-y-auto p-1.5"
         >
           {matches.length === 0 && (
-            <div className="text-text-secondary px-4 py-8 text-center text-sm">
-              {labels.empty}
-            </div>
+            <div className="text-text-secondary px-4 py-8 text-center text-sm">{labels.empty}</div>
           )}
 
           {groups.map((group, groupIndex) => {
@@ -273,6 +271,10 @@ export default function CommandPalette({
                         }
                       }}
                       role="option"
+                      /* Options are reached through the input's
+                         aria-activedescendant, so they stay out of the tab order but
+                         must be programmatically focusable. */
+                      tabIndex={-1}
                       aria-selected={isActive}
                       aria-disabled={isUnavailable || undefined}
                       onMouseMove={() => {
@@ -287,15 +289,11 @@ export default function CommandPalette({
                       onClick={() => select(item, false)}
                       className={cn(
                         'rounded-theme-control flex cursor-pointer items-center gap-2.5 px-2 py-2 text-sm',
-                        isActive
-                          ? 'bg-surface-hover text-text-primary'
-                          : 'text-text-secondary',
+                        isActive ? 'bg-surface-hover text-text-primary' : 'text-text-secondary',
                         isUnavailable && 'cursor-not-allowed opacity-60',
                       )}
                     >
-                      {Icon != null && (
-                        <Icon className="size-4 shrink-0" aria-hidden={true} />
-                      )}
+                      {Icon != null && <Icon className="size-4 shrink-0" aria-hidden={true} />}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{item.title}</span>
                         {item.subtitle != null && item.subtitle !== '' && (

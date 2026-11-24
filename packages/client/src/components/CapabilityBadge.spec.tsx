@@ -19,9 +19,7 @@ describe('CapabilityBadge', () => {
   });
 
   it('takes its tone from the status family', () => {
-    const { container, rerender } = render(
-      <CapabilityBadge status="live" label="Live" />,
-    );
+    const { container, rerender } = render(<CapabilityBadge status="live" label="Live" />);
     expect(container.firstElementChild).toHaveClass('text-status-success');
 
     rerender(<CapabilityBadge status="planned" label="Planned" />);
@@ -33,11 +31,7 @@ describe('CapabilityBadge', () => {
 
   it('states the reason inline, not only as a tooltip', () => {
     render(
-      <CapabilityBadge
-        status="blocked"
-        label="Blocked"
-        reason="Requires a connected repository"
-      />,
+      <CapabilityBadge status="blocked" label="Blocked" reason="Requires a connected repository" />,
     );
 
     expect(screen.getByText('Requires a connected repository')).toBeInTheDocument();
@@ -46,9 +40,7 @@ describe('CapabilityBadge', () => {
 
   it('drops the inline reason where the screen already states it', () => {
     const reason = 'Requires video generation capacity';
-    render(
-      <CapabilityBadge status="blocked" label="Blocked" reason={reason} showReason={false} />,
-    );
+    render(<CapabilityBadge status="blocked" label="Blocked" reason={reason} showReason={false} />);
 
     expect(screen.queryByText(reason)).not.toBeInTheDocument();
   });
