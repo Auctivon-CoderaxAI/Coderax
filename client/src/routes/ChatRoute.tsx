@@ -349,6 +349,9 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   const forceTemporaryChat = isForcedTemporaryRetention(startupConfig?.interface?.retentionMode);
 
   useEffect(() => {
+    if (conversationModeMismatch) {
+      return;
+    }
     if (conversationId === Constants.NEW_CONVO) {
       setIsTemporary(forceTemporaryChat || defaultTemporaryChat);
     } else if (forceTemporaryChat || isTemporaryChat) {
@@ -356,7 +359,14 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     } else {
       setIsTemporary(false);
     }
-  }, [conversationId, isTemporaryChat, setIsTemporary, defaultTemporaryChat, forceTemporaryChat]);
+  }, [
+    conversationId,
+    conversationModeMismatch,
+    isTemporaryChat,
+    setIsTemporary,
+    defaultTemporaryChat,
+    forceTemporaryChat,
+  ]);
 
   /** This effect is mainly for the first conversation state change on first load of the page.
    *  Adjusting this may have unintended consequences on the conversation state.
@@ -593,6 +603,18 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
 
   if (!isAuthenticated) {
     return null;
+  }
+
+  if (conversationModeMismatch) {
+    return (
+      <Navigate
+        to={{
+          pathname: `${initialConvoQuery.data?.isWork === true ? '/work' : '/c'}/${conversationId}`,
+          search: location.search,
+        }}
+        replace
+      />
+    );
   }
 
   // if not a conversation

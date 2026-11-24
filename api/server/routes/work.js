@@ -1,4 +1,3 @@
-const express = require('express');
 const { logger } = require('@coderax/data-schemas');
 const { strictConfigMiddleware } = require('~/server/middleware/config/app');
 const {

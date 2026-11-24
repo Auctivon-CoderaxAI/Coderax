@@ -491,6 +491,29 @@ test('admits an owned Chat conversation through the Work model gate and native a
   assert.equal(db.saves.length, 1);
 });
 
+test('rejects a normal conversation before it reaches the Work agent router', async () => {
+  const db = fakeDb({ conversationId: 'chat-1', isWork: false });
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => 'llama3:latest',
+    (req, context) => seedWorkConversation(req, context, db),
+  );
+  const req = {
+    body: { text: 'plan', model: 'auto', conversationId: 'chat-1' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_CONVERSATION_REQUIRED');
+  assert.equal(db.saves.length, 0);
+});
+
 test('reads the hard default spec model from the real app config shape', () => {
   const config = {
     modelSpecs: {
