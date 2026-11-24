@@ -1,11 +1,11 @@
 import { memo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useSetAtom } from 'jotai';
-import { Compass, FolderKanban, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { SettingsTabValues } from 'coderax-data-provider';
+import { Compass, FolderKanban, SlidersHorizontal, Sparkles } from 'lucide-react';
+import type { TranslationKeys } from '~/hooks';
 import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
 import { useLocalize } from '~/hooks';
-import type { TranslationKeys } from '~/hooks';
 
 interface QuickLink {
   id: string;

@@ -1,7 +1,7 @@
-import { useGetFiles } from '~/data-provider';
 import type { TFile } from 'coderax-data-provider';
-import { useLocalize } from '~/hooks';
+import { useGetFiles } from '~/data-provider';
 import { Group, InfoRow } from './Rows';
+import { useLocalize } from '~/hooks';
 
 /** Two decimals past a gigabyte, so a few hundred megabytes still read as a size. */
 function formatSize(bytes: number): string {
