@@ -1,10 +1,13 @@
 import { createElement } from 'react';
 import {
+  Activity,
   Bell,
+  Bot,
   Database,
   Gauge,
   HardDrive,
   Headphones,
+  MessageSquare,
   Info,
   Settings2,
   ShieldCheck,
@@ -22,6 +25,7 @@ export type IosPageId =
   | 'account'
   | 'customize'
   | 'general'
+  | 'chat'
   | 'usage'
   | 'notifications'
   | 'voice'
@@ -29,6 +33,8 @@ export type IosPageId =
   | 'code'
   | 'storage'
   | 'dataControls'
+  | 'langfuse'
+  | 'cyvox'
   | 'about';
 
 export interface IosSource {
@@ -77,8 +83,17 @@ export const IOS_PAGES: IosPage[] = [
     labelKey: 'com_nav_setting_general',
     icon: icon(Settings2),
     sources: [
-      { tab: SettingsTabValues.GENERAL, sections: ['appearance', 'layout', 'accessibility'] },
+      {
+        tab: SettingsTabValues.GENERAL,
+        sections: ['appearance', 'layout', 'accessibility', 'admin'],
+      },
     ],
+  },
+  {
+    id: 'chat',
+    labelKey: 'com_nav_setting_chat',
+    icon: icon(MessageSquare),
+    sources: [{ tab: SettingsTabValues.CHAT }],
   },
   {
     id: 'usage',
@@ -136,6 +151,20 @@ export const IOS_PAGES: IosPage[] = [
     ],
   },
   {
+    id: 'langfuse',
+    labelKey: 'com_ui_settings_tab_langfuse',
+    icon: icon(Activity),
+    sources: [{ tab: SettingsTabValues.LANGFUSE }],
+    show: (ctx) => ctx.langfuseConnectionAccess,
+  },
+  {
+    id: 'cyvox',
+    labelKey: 'com_ui_settings_tab_cyvox',
+    icon: icon(Bot),
+    sources: [{ tab: SettingsTabValues.CYVOX }],
+    show: (ctx) => ctx.cyvoxConnectionAccess,
+  },
+  {
     id: 'about',
     labelKey: 'com_nav_setting_about',
     icon: icon(Info),
@@ -148,6 +177,10 @@ function matchesSource(entry: SettingEntry, source: IosSource): boolean {
     return false;
   }
   if (source.entryIds?.includes(entry.id)) {
+    return true;
+  }
+  if (source.entryIds == null && source.sections == null) {
+    /* A source that names no section or entry means the whole tab. */
     return true;
   }
   return source.sections?.includes(entry.section) ?? false;

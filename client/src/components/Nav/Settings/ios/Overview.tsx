@@ -13,6 +13,7 @@ const ABOUT_PAGE: IosPageId = 'about';
 /** Pages in the main group, in the order the iOS app lists them. */
 const MAIN_PAGES: IosPageId[] = [
   'general',
+  'chat',
   'usage',
   'notifications',
   'voice',
@@ -20,6 +21,8 @@ const MAIN_PAGES: IosPageId[] = [
   'code',
   'storage',
   'dataControls',
+  'langfuse',
+  'cyvox',
 ];
 
 export default function Overview({
