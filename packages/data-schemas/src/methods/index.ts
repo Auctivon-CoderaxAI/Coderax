@@ -108,7 +108,7 @@ import {
   type ParentSubagentThreadRecord,
 } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
-import { createGameProjectMethods } from './gameProject';
+import { createGameProjectMethods, type GameProjectMethods } from './gameProject';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -304,6 +304,7 @@ export type AllMethods = ToolApprovalGrantStorage &
   MessageMethods &
   ConversationMethods &
   ChatProjectMethods &
+  GameProjectMethods &
   TxMethods &
   TransactionMethods &
   SpendTokensMethods &
