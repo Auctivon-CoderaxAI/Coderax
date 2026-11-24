@@ -19,6 +19,7 @@ const {
   createEngineWorkChatPersistence,
   createWorkRunLeaseStore,
   getEngineWorkChatRuntime,
+  readEngineWorkState,
 } = require('@coderax/api');
 const db = require('~/models');
 const { loadModels } = require('~/server/controllers/ModelController');
@@ -94,14 +95,20 @@ const depsFor = (req) => {
   const configuredListModels = deps.listModels;
   deps.listModels = async () => [...(await configuredListModels()), ...freeSourcesFor(req)];
   deps.freeInference = () => describeFreeInferenceCatalog(req.config?.config ?? null, process.env);
-  /** An engine run is live state too; fall back to the native job registry. */
+  /** An engine run is live state too; fall back to the native job registry.
+   *  Observing an interrupted engine run persists its outcome, so it survives
+   *  the lease row being reclaimed. */
   const nativeGetRunState = deps.getRunState;
   deps.getRunState = async (input) =>
-    (await engineRuntimeFor(req).state({
-      userId: input.userId,
-      tenantId: req.user?.tenantId ?? null,
-      conversationId: input.conversationId,
-    })) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
+    (await readEngineWorkState(
+      {
+        userId: input.userId,
+        tenantId: req.user?.tenantId ?? null,
+        conversationId: input.conversationId,
+      },
+      engineRuntimeFor(req),
+      db,
+    )) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
   const nativeCancelRun = deps.cancelRun;
   deps.cancelRun = async (input) =>
     (await engineRuntimeFor(req).cancel({

@@ -41,6 +41,7 @@ jest.mock('@coderax/api', () => {
     createEngineWorkChatHandler: jest.fn(() => (_req, _res, next) => next()),
     createEngineWorkChatPersistence: jest.fn(),
     createWorkRunLeaseStore: jest.fn(() => ({})),
+    readEngineWorkState: jest.fn(async (scope, runtime) => runtime.state(scope)),
     getEngineWorkChatRuntime: jest.fn(() => ({
       state: async () => null,
       cancel: async () => false,
