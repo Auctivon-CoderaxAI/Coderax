@@ -394,21 +394,63 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
 
       let text = '';
+      /** The turn streams as content parts so the client renders the reply text
+       *  and every tool call in one message: the text keeps index 0 and each
+       *  call owns an index, which lets its settled result replace the call in
+       *  place. Parts are also carried by the final frame, because the client
+       *  substitutes that message for the streamed one. */
+      const parts: Array<Record<string, unknown> | undefined> = [];
+      const partIndexes = new Map<string, number>();
+      const calls = new Map<string, Record<string, unknown>>();
+      const sendPart = (index: number, part: Record<string, unknown>): void => {
+        parts[index] = part;
+        send({
+          ...part,
+          index,
+          messageId: responseMessageId,
+          conversationId,
+          stream: true,
+        });
+      };
+      const toolIndex = (callId: string): number => {
+        const known = partIndexes.get(callId);
+        if (known !== undefined) {
+          return known;
+        }
+        const index = partIndexes.size + 1;
+        partIndexes.set(callId, index);
+        return index;
+      };
       let approvalRequired = false;
       let streamError: string | undefined;
       try {
         for await (const event of started.value.events) {
           if (event.type === 'text_delta' || event.type === 'text_replace') {
-            const initial = text === '';
             text = event.type === 'text_delta' ? text + event.text : event.text;
-            send({
-              message: true,
-              initial,
-              text,
-              messageId: responseMessageId,
-              parentMessageId: userMessageId,
-              conversationId,
-            });
+            sendPart(0, { type: 'text', text });
+          } else if (event.type === 'tool_call') {
+            const call = {
+              id: event.callId,
+              name: event.tool,
+              type: 'tool_call',
+              progress: 0.1,
+              args: event.input ?? '',
+            };
+            calls.set(event.callId, call);
+            sendPart(toolIndex(event.callId), { type: 'tool_call', tool_call: call });
+          } else if (event.type === 'tool_result') {
+            const index = partIndexes.get(event.callId);
+            const call = calls.get(event.callId);
+            if (index !== undefined && call !== undefined) {
+              const settled = {
+                ...call,
+                progress: 1,
+                runStepStatus: event.ok ? 'completed' : 'failed',
+                ...(event.output ? { output: event.output } : {}),
+              };
+              calls.set(event.callId, settled);
+              sendPart(index, { type: 'tool_call', tool_call: settled });
+            }
           } else if (event.type === 'approval_required') {
             approvalRequired = true;
             await started.value.cancel();
@@ -424,6 +466,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
       }
 
+      const content = parts.filter((part) => part !== undefined);
       let result: EngineResult<EngineRunSummary>;
       try {
         result = await started.value.result;
@@ -454,6 +497,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
@@ -494,6 +538,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           sender: engineLabel(engine),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired || !persisted,
@@ -503,6 +548,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         },
         conversation: { conversationId, title, workAgent: engine },
         title,
+        /** What the engine actually ran, so a turn's tool activity is observable. */
+        ...(result.ok ? { toolCalls: result.value.toolCalls, edits: result.value.edits } : {}),
         ...(cancelled ? { aborted: true } : {}),
         ...(error || !persisted
           ? { error: { message: error ?? 'The engine reply could not be saved.' } }

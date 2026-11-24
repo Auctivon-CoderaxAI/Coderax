@@ -98,6 +98,9 @@ export function createEngineWorkChatPersistence(input: {
           parentMessageId: message.parentMessageId,
           conversationId: message.conversationId,
           text: message.text,
+          /** The reply's parts, so the stored row renders the same text and tool
+           *  cards the stream showed. A user message never carries them. */
+          ...(message.content ? { content: message.content } : {}),
           sender: message.isCreatedByUser ? 'User' : labels.sender,
           isCreatedByUser: message.isCreatedByUser,
           model: labels.model,
