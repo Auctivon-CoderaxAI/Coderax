@@ -65,20 +65,17 @@ function ModelSelectorContent() {
     [localize, agentsMap, modelSpecs, selectedValues, mappedEndpoints],
   );
   const hasNoAvailableModels = !mappedEndpoints?.length && !modelSpecs?.length;
-  const selectorAccessibleName = selectedDisplayValue
-    ? `${localize('com_ui_select_model')}: ${selectedDisplayValue}`
-    : localize('com_ui_select_model');
 
   const trigger = (
     <TooltipAnchor
-      aria-label={selectorAccessibleName}
+      aria-label={localize('com_ui_select_model')}
       description={modelSelectorHint}
       render={
         <button
           data-testid="model-selector-button"
           aria-keyshortcuts={modelSelectorAriaKey}
           className="border-border-chrome bg-presentation text-text-primary hover:bg-surface-active-alt rounded-theme-control my-1 flex h-9 max-w-full items-center gap-2 border px-3 py-2 text-sm"
-          aria-label={selectorAccessibleName}
+          aria-label={localize('com_ui_select_model')}
         >
           {selectedIcon && React.isValidElement(selectedIcon) && (
             <div className="flex shrink-0 items-center justify-center overflow-hidden">
