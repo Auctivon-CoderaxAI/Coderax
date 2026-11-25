@@ -29,13 +29,14 @@ release gate passes.
 | --- | --- |
 | Root directory | repository root (`/`) |
 | Install command | `npm ci` |
-| Build command | `npm run frontend` |
-| Deploy command | `npm run deploy:cloudflare` (`npx --yes wrangler@4.168.0 deploy`) |
+| Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
+| Deploy command | `npm run deploy:cloudflare` (writes the revision marker, then `npx --yes wrangler@4.168.0 deploy`) |
 | Branch | `main` |
-| Preview builds | off (`"previews": {}` in `wrangler.jsonc`) |
+| Preview builds | Enabled by Workers Builds for non-production branches; each preview is public and is not production. `"previews": {}` only disables named Wrangler preview aliases. |
 
-`npm run frontend` builds the workspace packages, writes `client/dist`, and then writes
-`client/dist/deployment.json` with the commit and branch supplied by Workers Builds. The deploy
+`npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
+hook and the `deploy:cloudflare` command both write `client/dist/deployment.json` with the commit and
+branch supplied by Workers Builds, so a build or deploy command cannot omit the marker. The deploy
 command pins Wrangler 4.168.0; change the pin in `package.json` and this table together.
 
 ### Committed configuration
@@ -71,8 +72,8 @@ reach the same backend. After a custom domain is attached, add that hostname too
 ```text
 push to main
   └─ Workers Builds: npm ci
-       └─ npm run frontend                 -> client/dist + deployment.json
-            └─ npm run deploy:cloudflare   -> wrangler@4.168.0 deploy
+       └─ npm run frontend                 -> client/dist (client postbuild writes deployment.json)
+            └─ npm run deploy:cloudflare   -> deployment.json + wrangler@4.168.0 deploy
                  └─ Cloudflare serves the new version
                       └─ Cloudflare production verification (GitHub Actions)
                            └─ polls /deployment.json for the merged commit
