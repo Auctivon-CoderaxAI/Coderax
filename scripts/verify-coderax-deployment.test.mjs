@@ -716,14 +716,22 @@ test('compiled API bundle rejects missing mathjs, SDK and eventsource imports', 
   }
 });
 
-test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () => {
+test('only Coderax HTTPS origins are accepted as deployment checks', () => {
   assert.equal(validateLiveURL('https://coderax-ten.vercel.app'), 'https://coderax-ten.vercel.app');
   assert.equal(validateLiveURL('https://coderaxai.vercel.app'), 'https://coderaxai.vercel.app');
+  assert.equal(
+    validateLiveURL('https://coderax.nnabdelshahid.workers.dev'),
+    'https://coderax.nnabdelshahid.workers.dev',
+  );
   assert.throws(() => validateLiveURL('https://coderaxai.vercel.app.evil.example/'));
   assert.throws(() => validateLiveURL('https://xcoderaxai.vercel.app/'));
+  assert.throws(() => validateLiveURL('https://coderax.nnabdelshahid.workers.dev.evil.example/'));
+  assert.throws(() => validateLiveURL('https://evil.nnabdelshahid.workers.dev/'));
   assert.throws(() => validateLiveURL('https://evil.example/'));
   assert.throws(() => validateLiveURL('http://coderax-ten.vercel.app/'));
+  assert.throws(() => validateLiveURL('http://coderax.nnabdelshahid.workers.dev/'));
   assert.throws(() => validateLiveURL('https://coderax-ten.vercel.app/?token=secret'));
+  assert.throws(() => validateLiveURL('https://coderax.nnabdelshahid.workers.dev/?token=secret'));
 });
 
 test('authenticated E2E sends credentials only to exact allowlisted origins', async () => {
@@ -732,6 +740,18 @@ test('authenticated E2E sends credentials only to exact allowlisted origins', as
     /not allowlisted/,
   );
   assert.equal(assertAuthenticatedOrigin('https://coderaxai.vercel.app', {}), undefined);
+  // Deployment verification accepts the Workers origin, but real credentials
+  // still require an operator to name that exact origin explicitly.
+  assert.throws(
+    () => assertAuthenticatedOrigin('https://coderax.nnabdelshahid.workers.dev', {}),
+    /not allowlisted/,
+  );
+  assert.equal(
+    assertAuthenticatedOrigin('https://coderax.nnabdelshahid.workers.dev', {
+      CODERAX_AUTHENTICATED_ORIGINS: 'https://coderax.nnabdelshahid.workers.dev',
+    }),
+    undefined,
+  );
   assert.equal(
     assertAuthenticatedOrigin('https://coderax-ten.vercel.app', {
       CODERAX_AUTHENTICATED_ORIGINS: 'https://coderax-ten.vercel.app',

@@ -23,6 +23,8 @@ import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+const PRODUCTION_ALIASES = new Set(['coderaxai.vercel.app', 'coderax.nnabdelshahid.workers.dev']);
+
 export const validateLiveURL = (value) => {
   const url = new URL(value);
   assert.equal(url.protocol, 'https:', 'live URL must use HTTPS');
@@ -33,11 +35,13 @@ export const validateLiveURL = (value) => {
   assert.equal(url.pathname, '/', 'live URL must be a deployment origin');
   const isPreviewAlias =
     url.hostname.startsWith('coderax-') && url.hostname.endsWith('.vercel.app');
-  // coderaxai.vercel.app is the project's assigned production alias. It does
-  // not match the coderax-<preview> pattern, but it is an owner-controlled
-  // origin, so preflight must be able to verify it.
-  const isProductionAlias = url.hostname === 'coderaxai.vercel.app';
-  assert.ok(isPreviewAlias || isProductionAlias, 'live URL must be a Coderax Vercel deployment');
+  // These production origins do not match the coderax-<preview> pattern, but
+  // they are owner-controlled deployments, so preflight must be able to verify
+  // them. Cloudflare Workers serves the client and proxies API paths to the
+  // configured backend; a worker without that backend fails /readyz, which is a
+  // deployment failure to report rather than an origin to reject.
+  const isProductionAlias = PRODUCTION_ALIASES.has(url.hostname);
+  assert.ok(isPreviewAlias || isProductionAlias, 'live URL must be a Coderax deployment');
   return url.origin;
 };
 
