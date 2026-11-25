@@ -8,7 +8,7 @@ import {
   WORK_RUN_SWEEP_LIMIT,
   createMemoryWorkRunLeaseStore,
 } from './leases';
-import { EngineWorkChatRuntime } from './runtime';
+import { EngineWorkChatRuntime, engineRunModels } from './runtime';
 
 let cloudRoot = '';
 const roots = {
@@ -96,8 +96,7 @@ describe('EngineWorkChatRuntime', () => {
   it('sends cloud runs to the cloud root with the configured model', async () => {
     const start = jest.fn(async () => ({ ok: true as const, value: handle('session-cloud') }));
     const runtime = new EngineWorkChatRuntime(fakeRegistry(start), roots, 'cloud', {
-      providerId: 'ollama',
-      modelId: 'qwen3.5:4b',
+      opencode: { providerId: 'ollama', modelId: 'qwen3.5:4b' },
     });
 
     await runtime.start({ ...scope('conversation-b'), prompt: 'Fix it' });
@@ -114,6 +113,53 @@ describe('EngineWorkChatRuntime', () => {
     });
 
     await runtime.release(scope('conversation-b'));
+  });
+
+  it('dispatches with the selected engine model when another engine is the default', async () => {
+    const start = jest.fn(async (_input: Parameters<EngineRegistryApi['start']>[0]) => ({
+      ok: true as const,
+      value: handle('session-model'),
+    }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'cloud',
+      { opencode: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' } },
+      'freebuff',
+    );
+
+    await runtime.start({ ...scope('conversation-model'), prompt: 'Fix it' });
+
+    expect(start.mock.calls[0]?.[0]).toEqual({
+      engine: 'opencode',
+      request: expect.objectContaining({
+        model: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' },
+      }),
+    });
+    await runtime.release(scope('conversation-model'));
+  });
+
+  it('omits a per-run model for an engine that resolves its own', async () => {
+    const start = jest.fn(async (_input: Parameters<EngineRegistryApi['start']>[0]) => ({
+      ok: true as const,
+      value: handle('session-own'),
+    }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'cloud',
+      { opencode: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' } },
+      'freebuff',
+    );
+
+    await runtime.start({
+      ...scope('conversation-freebuff'),
+      engine: 'freebuff' as const,
+      prompt: 'Fix it',
+    });
+
+    expect(start.mock.calls[0]?.[0].request).not.toHaveProperty('model');
+    await runtime.release(scope('conversation-freebuff'));
   });
 
   it('refuses a second live run for the same tenant, user and conversation', async () => {
@@ -346,5 +392,23 @@ describe('EngineWorkChatRuntime', () => {
 
     await runtime.release(scope(conversation));
     await expect(runtime.state(scope(conversation))).resolves.toBeNull();
+  });
+});
+
+describe('engineRunModels', () => {
+  it('reads each model from the engine that owns it', () => {
+    expect(
+      engineRunModels({
+        opencode: { model: 'opencode/deepseek-v4.1-flash-free' },
+        freebuff: { model: 'ollama/qwen2.5-coder:7b' },
+      }),
+    ).toEqual({ opencode: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' } });
+  });
+
+  it('has no model for an engine that is not configured with one', () => {
+    expect(engineRunModels({ freebuff: { model: 'ollama/qwen2.5-coder:7b' } })).toEqual({});
+    expect(engineRunModels({ opencode: { model: 'not-a-model' } })).toEqual({});
+    expect(engineRunModels(null)).toEqual({});
+    expect(engineRunModels(undefined)).toEqual({});
   });
 });

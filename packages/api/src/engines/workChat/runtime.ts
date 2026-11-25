@@ -37,11 +37,29 @@ function activeRunKey(input: RunScope): string {
   return JSON.stringify([input.tenantId, input.userId, input.conversationId]);
 }
 
+/**
+ * The model each engine is dispatched with. A run is pinned to the model its own
+ * engine approved, so selecting OpenCode Agent never runs the FreeBuff model (or
+ * the reverse) just because a different engine is the configured default.
+ *
+ * Only engines that accept a per-run model appear here. FreeBuff resolves its
+ * model from its adapter configuration, so a request-level model would describe
+ * that run inaccurately.
+ */
+export type EngineRunModels = Partial<Record<EngineId, EngineModelRef>>;
+
+export function engineRunModels(
+  engines: NonNullable<EngineWorkChatConfig>['engines'] | null | undefined,
+): EngineRunModels {
+  const model = parseEngineModel(engines?.opencode?.model);
+  return model ? { opencode: model } : {};
+}
+
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private readonly registry: EngineRegistryApi;
   private readonly roots: { private: string; cloud: string };
   private readonly mode: DataMode;
-  private readonly model: EngineModelRef | undefined;
+  private readonly models: EngineRunModels;
   private readonly defaultEngine: EngineId;
   private readonly leases: WorkRunLeaseStore;
   private readonly instanceId = randomUUID();
@@ -55,7 +73,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     registry: EngineRegistryApi,
     roots: { private: string; cloud: string },
     mode: DataMode = 'private',
-    model?: EngineModelRef,
+    models: EngineRunModels = {},
     defaultEngine: EngineId = 'opencode',
     leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
@@ -63,7 +81,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     this.registry = registry;
     this.roots = roots;
     this.mode = mode;
-    this.model = model;
+    this.models = models;
     this.defaultEngine = defaultEngine;
     this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
@@ -177,6 +195,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
 
+    const model = this.models[engine];
     const started = await this.registry.start({
       engine,
       beforeDispatch: input.beforeDispatch,
@@ -186,7 +205,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
         prompt: input.prompt,
         mode: this.mode,
         workspaceRoot,
-        ...(engine === 'opencode' && this.model ? { model: this.model } : {}),
+        ...(model ? { model } : {}),
       },
     });
     if (!started.ok) {
@@ -327,13 +346,13 @@ export function getEngineWorkChatRuntime(
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
   const workEngine = engines?.defaultEngine ?? 'opencode';
-  const modelConfig =
-    workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
+  /** Each engine keeps the model its own configuration approved. */
+  const models = engineRunModels(engines);
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
-    parseEngineModel(modelConfig) ?? undefined,
+    models,
     workEngine,
     leases,
   );
