@@ -36,7 +36,8 @@
  * With --against, add --include-worktree to also select local edits and untracked files.
  * Flags: --staged, --full, --fast, --only <ids>, --skip <ids>, --verbose,
  * --list. Check ids: eslint, prettier, imports, eslint-config, json, bun-lock,
- * suppressions, circular-deps, typecheck, config-tests, i18n, depcheck.
+ * suppressions, circular-deps, typecheck, config-tests, i18n, depcheck,
+ * model-probe.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -173,6 +174,15 @@ const FILTERS = {
     'scripts/static-checks.mts',
     '.github/workflows/static-checks.yml',
     '!**.md',
+  ],
+  // The probe is the repository's only statement about where configured
+  // inference runs, and its suite is the only thing pinning the placement
+  // wording. A change to the probe, its tests, or this runner has to run them.
+  model_probe: [
+    'scripts/probe-cloud-model.mjs',
+    'scripts/probe-cloud-model.test.mjs',
+    'scripts/static-checks.mts',
+    '.github/workflows/static-checks.yml',
   ],
 } as const;
 
@@ -2080,6 +2090,25 @@ function manifestDependencies(manifest: Manifest | null): Set<string> {
   ]);
 }
 
+/**
+ * The placement label the probe prints is the repository's only statement about
+ * where configured inference runs, and its suite is the only thing pinning it:
+ * nothing else reads either file, so the claim that a private Docker service is
+ * not cloud inference survived only as long as someone remembered to run it.
+ * The suite needs no installed dependency, so it runs on the fast tier.
+ */
+function runModelProbeTests(): CheckOutcome {
+  const result = runCommand({ command: process.execPath, args: [] }, [
+    '--test',
+    'scripts/probe-cloud-model.test.mjs',
+  ]);
+  return {
+    ok: result.status === 0,
+    output: result.output,
+    hints: ['Run them directly with: node --test scripts/probe-cloud-model.test.mjs'],
+  };
+}
+
 /** Dependencies a manifest inherits through its `@coderax/*` workspaces. */
 async function workspaceDependencies(manifest: Manifest | null): Promise<Set<string>> {
   const inherited = new Set<string>();
@@ -2235,6 +2264,13 @@ const CHECKS: Check[] = [
     tier: 'fast',
     group: 'suppressions',
     run: validateSuppressions,
+  },
+  {
+    id: 'model-probe',
+    title: 'Model placement probe',
+    tier: 'fast',
+    group: 'model_probe',
+    run: runModelProbeTests,
   },
   {
     id: 'circular-deps',
