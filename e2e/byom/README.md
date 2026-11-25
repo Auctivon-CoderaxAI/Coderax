@@ -34,7 +34,7 @@ BYOM_WORKSPACE_TRANSITIONS=true BYOM_CODE_REPO=/absolute/path/to/code-interprete
 This enables the decision protocol and attach/detach policy only in the disposable test app.
 
 The `Native Workspace Acceptance` workflow runs both variants on a hosted macOS
-runner when the harness changes in a `dev` pull request. It pins the Code API/worker revision
+runner when the harness changes in a pull request targeting `main`. It pins the Code API/worker revision
 and uses the native Seatbelt policy unchanged. It does not upload identities, raw logs or
 browser state. This proves the macOS journey only; Linux and WSL2 require their own native run.
 
@@ -112,5 +112,5 @@ WSL2; a macOS pass does not certify WSL2/Linux support.
 ## Dependency
 
 Requires Coderax #15675 (standalone create-file routing). Keep the acceptance PR
-stacked on that fix until it lands in `dev`, then retarget to `dev`. Do not merge the
+stacked on that fix until it lands in `main`, then retarget to `main`. Do not merge the
 acceptance branch into an already-merged feature branch.

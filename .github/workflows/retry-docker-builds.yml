@@ -5,7 +5,7 @@ on:
     workflows:
       - Docker Build Smoke Tests
       - Docker Compose Build Latest Main Image Tag (Manual Dispatch)
-      - Docker Dev Branch Images Build
+      - Docker Main Branch Images Build
       - Docker Dev Images Build
       - Docker Dev Staging Images Build
       - Docker Images Build on Tag
