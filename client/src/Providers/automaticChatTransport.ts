@@ -166,6 +166,9 @@ export function createAutomaticChatTransport({
         isAgentsEndpoint(endpoint) ||
         isAssistantsEndpoint(endpoint)
       ) {
+        // One approval authorizes one paid request. This request bypasses paid
+        // routing, so it must not leave an approval live for a later one.
+        clearPaidApproval();
         return transport.start(request, options);
       }
 

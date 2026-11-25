@@ -2,7 +2,7 @@ name: Sync Locize Translations & Create Translation PR
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
     paths:
       - 'client/src/locales/en/**'
   repository_dispatch:
@@ -63,7 +63,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v5
         with:
-          ref: dev
+          ref: main
           persist-credentials: false
 
       # Keep a baseline so generated changes can be checked before opening a PR.
@@ -110,7 +110,7 @@ jobs:
           add-paths: |
             client/src/locales/**
           commit-message: "🌍 i18n: Update translation.json with latest translations"
-          base: dev
+          base: main
           branch: i18n/locize-translation-update
           title: "🌍 i18n: Update translation.json with latest translations"
           body: |

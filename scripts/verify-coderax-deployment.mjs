@@ -5,16 +5,25 @@
  *
  * Usage:
  *   node scripts/verify-coderax-deployment.mjs --repo-only
- *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app
- *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app --expected-backend-revision <full-commit>
+ *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app [--expected-backend-revision <full-commit>]
+ *   node scripts/verify-coderax-deployment.mjs --live-url https://coderax-ten.vercel.app --authenticated-e2e
+ *
+ * Repository verification, deployment verification and authenticated E2E
+ * verification are separate levels. --repo-only never contacts a deployment;
+ * --live-url always requires the deployment to identify its full commit; and
+ * --authenticated-e2e fails closed when the deployment smoke credentials are
+ * absent.
  */
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+const PRODUCTION_ALIASES = new Set(['coderaxai.vercel.app', 'coderax.nnabdelshahid.workers.dev']);
 
 export const validateLiveURL = (value) => {
   const url = new URL(value);
@@ -26,13 +35,55 @@ export const validateLiveURL = (value) => {
   assert.equal(url.pathname, '/', 'live URL must be a deployment origin');
   const isPreviewAlias =
     url.hostname.startsWith('coderax-') && url.hostname.endsWith('.vercel.app');
-  // coderaxai.vercel.app is the project's assigned production alias. It does
-  // not match the coderax-<preview> pattern, but it is an owner-controlled
-  // origin, so preflight must be able to verify it.
-  const isProductionAlias = url.hostname === 'coderaxai.vercel.app';
-  assert.ok(isPreviewAlias || isProductionAlias, 'live URL must be a Coderax Vercel deployment');
+  // These production origins do not match the coderax-<preview> pattern, but
+  // they are owner-controlled deployments, so preflight must be able to verify
+  // them. Cloudflare Workers serves the client and proxies API paths to the
+  // configured backend; a worker without that backend fails /readyz, which is a
+  // deployment failure to report rather than an origin to reject.
+  const isProductionAlias = PRODUCTION_ALIASES.has(url.hostname);
+  assert.ok(isPreviewAlias || isProductionAlias, 'live URL must be a Coderax deployment');
   return url.origin;
 };
+
+// A name that looks like a Coderax preview project is not proof of ownership,
+// and Vercel derives preview hostnames from project names. Authenticated smoke
+// runs send real credentials, so the destination must be an exact allowlisted
+// origin; an operator adds a preview origin explicitly when it is theirs.
+const DEFAULT_AUTHENTICATED_ORIGINS = ['https://coderaxai.vercel.app'];
+
+/** Resolve the exact HTTPS origins allowed to receive authenticated E2E credentials. */
+export function resolveAuthenticatedOrigins(env = process.env) {
+  const configured =
+    typeof env.CODERAX_AUTHENTICATED_ORIGINS === 'string'
+      ? env.CODERAX_AUTHENTICATED_ORIGINS.split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : [];
+  const origins = new Set(DEFAULT_AUTHENTICATED_ORIGINS);
+  for (const value of configured) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error('CODERAX_AUTHENTICATED_ORIGINS must list exact HTTPS origins');
+    }
+    if (url.protocol !== 'https:' || url.origin !== value) {
+      throw new Error('CODERAX_AUTHENTICATED_ORIGINS must list exact HTTPS origins');
+    }
+    origins.add(value);
+  }
+  return origins;
+}
+
+/** Refuse to send credentials to an origin that is not explicitly owner-controlled. */
+export function assertAuthenticatedOrigin(origin, env = process.env) {
+  if (!resolveAuthenticatedOrigins(env).has(origin)) {
+    throw new Error(
+      `authenticated E2E verification is restricted to explicit owner-controlled origins; ${origin} is not allowlisted. ` +
+        'Set CODERAX_AUTHENTICATED_ORIGINS to the exact HTTPS origin.',
+    );
+  }
+}
 
 /**
  * Vercel Services traces the backend entrypoint from the repository root.
@@ -368,11 +419,37 @@ export function verifyWorkspaceBuildTooling(
     );
   }
 }
+/**
+ * The shell has two independent guards: SERVE_CLIENT=false disables it outright,
+ * and a Vercel service without built client assets must still boot the API. The
+ * served shell is their conjunction; reading index.html before that check would
+ * crash the API on a frontend-only deployment.
+ */
 export function verifyVercelClientShellAvailability(source) {
   assert.match(
     source,
-    /^[\t ]*const\s+clientShellAvailable\s*=\s*serveClientShell\s*&&\s*\(\s*!process\.env\.VERCEL\s*\|\|\s*fs\.existsSync\(\s*indexPath\s*\)\s*\)\s*;/m,
-    'Client shell availability must honor SERVE_CLIENT=false and tolerate missing assets on Vercel',
+    /\bconst\s+clientShellEnabled\s*=\s*process\.env\.SERVE_CLIENT\s*!==\s*'false'\s*;/,
+    'Client shell must honor SERVE_CLIENT=false',
+  );
+  assert.match(
+    source,
+    /\bconst\s+indexPath\s*=\s*path\.join\([^;]*?['"]index\.html['"]\s*\)\s*;/,
+    'Client shell must resolve its index.html path',
+  );
+  assert.match(
+    source,
+    /\bconst\s+clientShellAvailable\s*=\s*!\s*process\.env\.VERCEL\s*\|\|\s*fs\.existsSync\(\s*indexPath\s*\)\s*;/,
+    'Client shell availability must tolerate missing assets on Vercel',
+  );
+  assert.match(
+    source,
+    /\bconst\s+serveClientShell\s*=\s*clientShellEnabled\s*&&\s*clientShellAvailable\s*;/,
+    'Serving the client shell must require SERVE_CLIENT and an available shell',
+  );
+  assert.match(
+    source,
+    /\blet\s+indexHTML\s*=\s*serveClientShell\s*\?\s*fs\.readFileSync\(\s*indexPath\s*,\s*['"]utf8['"]\s*\)\s*:\s*['"]{2}\s*;/,
+    'Client shell HTML must only be read when both guards allow serving it',
   );
 }
 
@@ -653,14 +730,15 @@ export async function verifyLiveBackend(value, fetcher = fetch, expectedBackendR
     },
     fetcher,
   );
+  const actual = config.buildInfo?.commit;
+  assert.ok(
+    typeof actual === 'string' && /^[a-f0-9]{40}$/i.test(actual),
+    '/api/config is missing a full backend-reported buildInfo.commit; the deployed commit cannot be identified',
+  );
+  const deployedCommit = actual.toLowerCase();
   if (expectedBackendRevision !== undefined) {
-    const actual = config.buildInfo?.commit;
-    assert.ok(
-      typeof actual === 'string' && /^[a-f0-9]{40}$/i.test(actual),
-      '/api/config is missing a full backend-reported buildInfo.commit',
-    );
     assert.equal(
-      actual.toLowerCase(),
+      deployedCommit,
       expectedBackendRevision.toLowerCase(),
       'backend-reported buildInfo.commit does not match expected revision',
     );
@@ -680,30 +758,227 @@ export async function verifyLiveBackend(value, fetcher = fetch, expectedBackendR
     apiConfig: 'JSON',
     spa: 'HTML',
     appTitle: config.appTitle,
-    backendRevisionVerified: expectedBackendRevision !== undefined,
+    deployedCommit,
+    expectedCommit: expectedBackendRevision?.toLowerCase() ?? null,
+    backendRevisionVerified: true,
   };
 }
 
+export const USAGE = `Usage:
+  node scripts/verify-coderax-deployment.mjs --repo-only
+  node scripts/verify-coderax-deployment.mjs --live-url <https-origin> [--expected-backend-revision <full-commit>]
+  node scripts/verify-coderax-deployment.mjs --live-url <https-origin> --authenticated-e2e
+
+Verification levels (they are not interchangeable):
+  --repo-only   Repository contracts only. Contacts no deployment.
+  --live-url    Deployment verification: /readyz, /api/config, the SPA and the
+                full backend-reported commit. Fails when the deployed commit
+                cannot be identified.
+  --authenticated-e2e
+                Also run the authenticated deployment smoke. Requires
+                CODERAX_SMOKE_TOKEN or CODERAX_SMOKE_EMAIL and
+                CODERAX_SMOKE_PASSWORD, and an origin listed exactly in
+                CODERAX_AUTHENTICATED_ORIGINS (the production alias is
+                always allowed). Missing credentials fail the run.
+
+  --expected-backend-revision <full-commit>
+                Require /api/config to report this exact commit.
+  --help, -h    Show this message.`;
+
+export function parseArgs(argv) {
+  const options = {
+    mode: null,
+    liveUrl: null,
+    expectedBackendRevision: null,
+    authenticatedE2e: false,
+    help: false,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--repo-only') {
+      if (options.mode !== null) throw new Error('choose exactly one verification mode');
+      options.mode = 'repository';
+    } else if (argument === '--live-url') {
+      if (options.mode !== null) throw new Error('choose exactly one verification mode');
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith('--') || value.trim() === '') {
+        throw new Error('--live-url needs an HTTPS origin');
+      }
+      index += 1;
+      options.mode = 'deployment';
+      options.liveUrl = value;
+    } else if (argument === '--expected-backend-revision') {
+      if (options.expectedBackendRevision !== null) {
+        throw new Error('--expected-backend-revision can only be given once');
+      }
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith('--') || value.trim() === '') {
+        throw new Error('--expected-backend-revision needs a full commit');
+      }
+      index += 1;
+      options.expectedBackendRevision = value;
+    } else if (argument === '--authenticated-e2e') {
+      if (options.authenticatedE2e) throw new Error('--authenticated-e2e can only be given once');
+      options.authenticatedE2e = true;
+    } else if (argument === '--help' || argument === '-h') {
+      options.help = true;
+    } else {
+      throw new Error(`unknown argument ${argument}`);
+    }
+  }
+  if (options.help) {
+    return options;
+  }
+  if (
+    options.mode === 'repository' &&
+    (options.expectedBackendRevision || options.authenticatedE2e)
+  ) {
+    throw new Error(
+      '--repo-only verifies repository contracts only; deployment flags need --live-url',
+    );
+  }
+  if (options.authenticatedE2e && options.liveUrl === null) {
+    throw new Error('--authenticated-e2e needs --live-url');
+  }
+  if (options.mode === null) {
+    throw new Error('choose --repo-only or --live-url');
+  }
+  if (options.expectedBackendRevision !== null) {
+    assert.match(
+      options.expectedBackendRevision,
+      /^[a-f0-9]{40}$/i,
+      '--expected-backend-revision must be a full 40-character commit',
+    );
+  }
+  return options;
+}
+
+const VERIFICATION_STATUSES = new Set(['verified', 'not-run']);
+
+/** Keep repository, deployment and authenticated E2E verification distinct. */
+export function buildVerificationReport({
+  repository,
+  deployment = 'not-run',
+  authenticatedE2E = 'not-run',
+}) {
+  for (const [level, status] of Object.entries({ repository, deployment, authenticatedE2E })) {
+    assert.ok(
+      VERIFICATION_STATUSES.has(status),
+      `${level} verification status must be "verified" or "not-run"`,
+    );
+  }
+  assert.equal(
+    repository,
+    'verified',
+    'repository verification must pass before any deployment is reported',
+  );
+  if (deployment === 'not-run') {
+    assert.equal(
+      authenticatedE2E,
+      'not-run',
+      'authenticated E2E verification requires deployment verification',
+    );
+  }
+  return { repository, deployment, authenticatedE2E };
+}
+
+/** Name only the variables, never their values. */
+export function resolveAuthenticatedE2eCredentials(env = process.env) {
+  const token = typeof env.CODERAX_SMOKE_TOKEN === 'string' ? env.CODERAX_SMOKE_TOKEN.trim() : '';
+  if (token) {
+    return { method: 'token' };
+  }
+  const email = typeof env.CODERAX_SMOKE_EMAIL === 'string' ? env.CODERAX_SMOKE_EMAIL.trim() : '';
+  const password = typeof env.CODERAX_SMOKE_PASSWORD === 'string' ? env.CODERAX_SMOKE_PASSWORD : '';
+  if (email && password) {
+    return { method: 'password' };
+  }
+  const missing = [
+    ...(email ? [] : ['CODERAX_SMOKE_EMAIL']),
+    ...(password ? [] : ['CODERAX_SMOKE_PASSWORD']),
+  ];
+  throw new Error(
+    'authenticated E2E verification requires CODERAX_SMOKE_TOKEN or both ' +
+      `CODERAX_SMOKE_EMAIL and CODERAX_SMOKE_PASSWORD; missing ${missing.join(', ')}. ` +
+      'No authenticated verification was performed.',
+  );
+}
+
+const runDeployedSmoke = (origin, env) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(repoRoot, 'scripts/smoke-deployed.mjs')], {
+      cwd: repoRoot,
+      env,
+      stdio: 'inherit',
+    });
+    child.once('error', reject);
+    child.once('close', (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `authenticated E2E smoke failed (${signal ? `signal ${signal}` : `exit code ${code}`})`,
+        ),
+      );
+    });
+  });
+
+export async function verifyAuthenticatedE2e(
+  origin,
+  { env = process.env, run = runDeployedSmoke } = {},
+) {
+  assertAuthenticatedOrigin(origin, env);
+  const credentials = resolveAuthenticatedE2eCredentials(env);
+  await run(origin, { ...env, CODERAX_BASE_URL: origin });
+  return { status: 'verified', method: credentials.method, origin };
+}
+
 async function main() {
-  const flag = process.argv[2];
+  const options = parseArgs(process.argv.slice(2));
+  if (options.help) {
+    console.log(USAGE);
+    return;
+  }
   try {
-    const result = await verifyRepositoryContracts();
-    if (flag === '--repo-only') {
-      console.log(JSON.stringify({ ok: true, repo: result }));
+    const repository = await verifyRepositoryContracts();
+    if (options.mode === 'repository') {
+      console.log(
+        JSON.stringify({
+          ok: true,
+          verification: buildVerificationReport({ repository: 'verified' }),
+          repo: repository,
+        }),
+      );
       return;
     }
-    if (
-      flag !== '--live-url' ||
-      !process.argv[3] ||
-      (process.argv.length !== 4 &&
-        !(process.argv.length === 6 && process.argv[4] === '--expected-backend-revision'))
-    ) {
-      throw new Error(
-        'Use --repo-only or --live-url https://coderax-*.vercel.app [--expected-backend-revision <full-commit>]',
-      );
+
+    const origin = validateLiveURL(options.liveUrl);
+    if (options.authenticatedE2e) {
+      resolveAuthenticatedE2eCredentials(process.env);
+      assertAuthenticatedOrigin(origin, process.env);
     }
-    const live = await verifyLiveBackend(process.argv[3], fetch, process.argv[5]);
-    console.log(JSON.stringify({ ok: true, repo: result, live }));
+    const live = await verifyLiveBackend(
+      origin,
+      fetch,
+      options.expectedBackendRevision ?? undefined,
+    );
+    const authenticated = options.authenticatedE2e
+      ? await verifyAuthenticatedE2e(origin)
+      : { status: 'not-run' };
+    console.log(
+      JSON.stringify({
+        ok: true,
+        verification: buildVerificationReport({
+          repository: 'verified',
+          deployment: 'verified',
+          authenticatedE2E: authenticated.status === 'verified' ? 'verified' : 'not-run',
+        }),
+        repo: repository,
+        live: { ...live, authenticatedE2E: authenticated },
+      }),
+    );
   } catch (error) {
     console.error(
       '[Coderax release gate] FAILED:',

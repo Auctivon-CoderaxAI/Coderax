@@ -486,6 +486,7 @@ const startServer = async () => {
   app.use('/api/presets', routes.presets);
   app.use('/api/projects', routes.projects);
   app.use('/api/games', routes.games);
+  app.use('/api/research', routes.research);
   app.use('/api/prompts', routes.prompts);
   app.use('/api/skills', routes.skills);
   app.use('/api/categories', routes.categories);

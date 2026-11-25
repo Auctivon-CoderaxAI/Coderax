@@ -150,6 +150,7 @@ export function createWorkDepsFactory({
   return function depsFor(req: WorkDepsRequest): WorkDeps {
     const workConfig = req.config?.config?.work;
     return {
+      ...(logger ? { logger } : {}),
       listModels: async () => projections.flattenModelConfig(await loadModels(req)),
       ...(listAgents
         ? {

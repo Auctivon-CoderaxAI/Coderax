@@ -13,6 +13,7 @@ export * from './Messages';
 export * from './Misc';
 export * from './Projects';
 export * from './Games';
+export * from './Research';
 /* Scheduled chats */
 export * from './Schedules';
 export * from './Workflows';

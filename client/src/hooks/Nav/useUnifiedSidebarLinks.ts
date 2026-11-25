@@ -1,22 +1,26 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SystemRoles } from 'coderax-data-provider';
-import { Gamepad2, MessagesSquare } from 'lucide-react';
+import { Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
 import type { NavLink } from '~/common';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
+import { useResearchCapabilitiesQuery } from '~/data-provider';
 import { useAuthContext } from '~/hooks';
 
 /**
  * Keep the sidebar as a chat navigation surface, not a general app launcher.
  * Work shares the chat shell; unrelated tools retain their direct routes.
- * Game Studio is the exception: it is the only entry point to the owner's own
- * game projects, so it needs a destination here instead of a remembered URL.
- * Non-owners get no entry, because every Game Studio route rejects them.
+ * Game Studio and Research are the exceptions: they are the only entries to
+ * the owner's own creativity and evidence records, so they need a destination
+ * here instead of a remembered URL. Non-owners get no entry, because both
+ * route trees reject them.
  */
 export default function useUnifiedSidebarLinks() {
   const navigate = useNavigate();
   const { user } = useAuthContext();
+  const { data: researchAccess } = useResearchCapabilitiesQuery();
   const isOwner = user?.role === SystemRoles.ADMIN;
+  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   return useMemo<NavLink[]>(() => {
     const links: NavLink[] = [
       {
@@ -36,6 +40,15 @@ export default function useUnifiedSidebarLinks() {
         onClick: () => navigate('/games'),
       });
     }
+    if (canAccessResearch) {
+      links.push({
+        title: 'com_research_title',
+        label: '',
+        icon: Microscope,
+        id: 'research',
+        onClick: () => navigate('/research'),
+      });
+    }
     return links;
-  }, [isOwner, navigate]);
+  }, [canAccessResearch, isOwner, navigate]);
 }
