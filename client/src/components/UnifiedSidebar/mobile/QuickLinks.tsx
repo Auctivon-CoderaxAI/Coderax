@@ -2,7 +2,14 @@ import { memo } from 'react';
 import { useSetAtom } from 'jotai';
 import { useNavigate } from 'react-router-dom';
 import { SettingsTabValues, SystemRoles } from 'coderax-data-provider';
-import { Compass, FolderKanban, Gamepad2, SlidersHorizontal, Sparkles } from 'lucide-react';
+import {
+  Compass,
+  FolderKanban,
+  Gamepad2,
+  Microscope,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
 import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
 import { useAuthContext, useLocalize } from '~/hooks';
@@ -32,6 +39,12 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
     icon: Gamepad2,
     onSelect: () => navigate('/games'),
   };
+  const researchLink: QuickLink = {
+    id: 'research',
+    labelKey: 'com_research_title',
+    icon: Microscope,
+    onSelect: () => navigate('/research'),
+  };
 
   const links: QuickLink[] = [
     {
@@ -40,7 +53,7 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
       icon: FolderKanban,
       onSelect: () => navigate('/projects'),
     },
-    ...(isOwner ? [gamesLink] : []),
+    ...(isOwner ? [gamesLink, researchLink] : []),
     {
       id: 'skills',
       labelKey: 'com_ui_skills',

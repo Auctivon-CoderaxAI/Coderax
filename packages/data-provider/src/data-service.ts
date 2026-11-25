@@ -1,5 +1,13 @@
 import type { AxiosResponse } from 'axios';
 import type {
+  TCreateResearchProjectRequest,
+  TResearchCapabilities,
+  TResearchDossier,
+  TResearchProjectListParams,
+  TResearchProjectListResponse,
+  TSaveResearchProjectRequest,
+} from './research';
+import type {
   TTracePage,
   TTracePageParams,
   TTraceAvailability,
@@ -1159,6 +1167,37 @@ export function saveGameSpec(payload: t.TSaveGameSpecRequest): Promise<t.TGamePr
 
 export function getGameCapabilities(): Promise<t.TGameCapabilities> {
   return request.get(endpoints.gameCapabilities());
+}
+
+export function listResearchProjects(
+  params: TResearchProjectListParams = {},
+): Promise<TResearchProjectListResponse> {
+  return request.get(endpoints.researchProjects(params));
+}
+
+export function createResearchProject(
+  payload: TCreateResearchProjectRequest,
+): Promise<TResearchDossier> {
+  return request.post(endpoints.researchProjects(), payload);
+}
+
+export function getResearchProjectById(researchId: string): Promise<TResearchDossier> {
+  return request.get(endpoints.researchProjectById(researchId));
+}
+
+export function saveResearchProject(
+  payload: TSaveResearchProjectRequest,
+): Promise<TResearchDossier> {
+  const { researchId, ...data } = payload;
+  return request.put(endpoints.researchProjectById(researchId), data);
+}
+
+export function deleteResearchProject(researchId: string): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.researchProjectById(researchId));
+}
+
+export function getResearchCapabilities(): Promise<TResearchCapabilities> {
+  return request.get(endpoints.researchCapabilities());
 }
 
 export function getProjectFiles(projectId: string): Promise<t.TChatProjectFile[]> {
