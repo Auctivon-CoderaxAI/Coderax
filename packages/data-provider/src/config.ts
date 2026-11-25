@@ -22,6 +22,13 @@ import {
   MAX_PII_PATTERN_LENGTH,
 } from './filters';
 import {
+  DEFAULT_RESEARCH_PROJECTS_PER_OWNER,
+  MAX_RESEARCH_CLAIMS,
+  MAX_RESEARCH_PROJECTS_PER_OWNER_CEILING,
+  MAX_RESEARCH_QUESTION_LENGTH,
+  MAX_RESEARCH_SOURCES,
+} from './research';
+import {
   REFILL_INTERVAL_UNITS,
   BALANCE_DISPLAY_MODES,
   BALANCE_REFILL_MODES,
@@ -3872,6 +3879,31 @@ export const gamesConfigSchema = z
 
 export type TGamesConfig = z.infer<typeof gamesConfigSchema>;
 
+/** The research ledger is owner-only by default, matching Game Studio. */
+export const researchConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    ownerOnly: z.boolean().default(true),
+    maxProjectsPerOwner: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_RESEARCH_PROJECTS_PER_OWNER_CEILING)
+      .default(DEFAULT_RESEARCH_PROJECTS_PER_OWNER),
+    maxSources: z.number().int().positive().max(MAX_RESEARCH_SOURCES).default(MAX_RESEARCH_SOURCES),
+    maxClaims: z.number().int().positive().max(MAX_RESEARCH_CLAIMS).default(MAX_RESEARCH_CLAIMS),
+    maxQuestionLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_RESEARCH_QUESTION_LENGTH)
+      .default(MAX_RESEARCH_QUESTION_LENGTH),
+  })
+  .strict()
+  .prefault({});
+
+export type TResearchConfig = z.infer<typeof researchConfigSchema>;
+
 /** Maximum CAS attempts per ACL document, including the initial attempt. */
 export const permissionWriteAttemptsSchema = z.number().int().min(1).max(100).default(3);
 
@@ -4215,6 +4247,7 @@ export const configSchema = z.object({
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   games: gamesConfigSchema,
+  research: researchConfigSchema,
   /** Durable workflow runner limits; omitted fields keep built-in defaults. */
   workflows: z
     .object({

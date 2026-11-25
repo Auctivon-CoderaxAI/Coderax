@@ -24,7 +24,7 @@ Copy the bundle to private owner-controlled storage. A Git bundle contains Git o
 - Keep `.github/CODEOWNERS` as a useful reviewer map, but do not claim automatic required-owner reviews are enforceable.
 - Use small feature branches, draft PRs where useful, manual diff reviews, local checks, and real CI when the runner is operational.
 - Before any merge, inspect current PR reviews, conflicts, relevant tests, branch HEAD, dependency/security findings, and deployment rollback. Do not interpret an empty or runnerless Actions job as a passed test.
-- If the documented `dev`/canary/main promotion policy refers to branches that are absent, **stop the promotion** and reconcile it with repository maintainers. This guide does not silently change `AGENTS.md` or authorize direct main merges.
+- `main` is the only persistent branch and the target for every pull request. If a document, workflow or script still describes a `dev`, `canary`, `dev-staging` or promotion branch, treat it as stale and reconcile it through a reviewed pull request; do not recreate those branches, promote through them, or merge directly to `main`.
 - Preserve release URLs and separate the working deployment from repository-history cleanup.
 - Branches named `backup/*` are retention checkpoints, not CI or production branches. Do not delete them as part of a routine feature-branch cleanup.
 

@@ -13,6 +13,8 @@ export * from './artifacts';
 export * from './admin';
 /* Game Studio */
 export * from './games';
+/* Research */
+export * from './research';
 export * from './cdn';
 export * from './code';
 export * from './pulls';
