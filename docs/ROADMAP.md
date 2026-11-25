@@ -83,7 +83,7 @@ Observed directly in this tree. Paths are relative to the repository root.
 | Visual App Studio           | `packages/api/src/studio/`, `client/src/lib/studio/`                        | Deterministic prompt templates, sandboxed preview, browser-local drafts — see [`visual-app-studio.md`](visual-app-studio.md) |
 | Pull request observation    | `packages/api/src/pulls/`                                                   | **Read-only** GitHub PR state and check-run lookup. Not repository access.                                                   |
 | Chat + Work shell           | `client/src/routes/`                                                        | `ChatRoute`, `WorkRoute`, `Studio`, `Dashboard`, unified sidebar                                                             |
-| Deployment stacks           | `deploy/cloud/`, `deploy/oci/`, `deploy/selfhost/`, `deploy/vercel/`        | Cloudflare/Oracle-adjacent compose stacks exist; `pages.dev` origin unverified                                               |
+| Deployment stacks           | `deploy/cloud/`, `deploy/cloudflare/`, `deploy/oci/`, `deploy/selfhost/`, `deploy/vercel/` | Cloudflare Worker serves the SPA from `main`; edge API routing awaits Worker origin/secret; Vercel remains the legacy front door pending owner-approved retirement |
 | Security lab                | `packages/security-lab-core`                                                | Adversarial evaluation harness                                                                                               |
 
 Not present anywhere in this tree: GitHub App or repository read/write access, gaming agent, game
