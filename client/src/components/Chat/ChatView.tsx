@@ -193,7 +193,7 @@ function ChatView({
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} messages={messages} />;
   } else {
-    content = <Landing centerFormOnLanding={centerFormOnLanding} />;
+    content = <Landing centerFormOnLanding={centerFormOnLanding} workMode={workMode} />;
   }
 
   let chatFormPlaceholder: string | undefined;
@@ -285,7 +285,6 @@ function ChatView({
                               isLandingPage && cn(landingBandClass, 'transition-all duration-200'),
                             )}
                           >
-                            {isLandingPage && <ConversationStarters />}
                             {isSubagentThreadReadOnly ? (
                               <div
                                 className="text-text-secondary mx-auto w-full max-w-3xl px-4 py-3 text-center text-sm xl:max-w-4xl"
@@ -309,13 +308,16 @@ function ChatView({
                                 />
                               </ComposerPreferencesProvider>
                             )}
+                            {/* The approved design puts the suggestion row beneath the
+                              composer, not between the greeting and it. */}
+                            {isLandingPage && !workMode && <ConversationStarters />}
                             {/* The generic disclaimer and the policy links are the
                               welcome screen's; a deployment's own footer stays
                               with the conversation that always showed it. */}
                             {!isLandingPage && configuredFooter && <Footer configuredOnly />}
                           </div>
                         </div>
-                        {isLandingPage && <Footer />}
+                        {isLandingPage && <Footer configuredOnly />}
                       </>
                     </TraceSurface>
                   </Presentation>

@@ -9,7 +9,14 @@ import { useChatSettings } from '~/Providers/ChatSettingsContext';
 import AgentContact from '~/components/Agents/AgentContact';
 import { useLocalize, useAuthContext } from '~/hooks';
 
-export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: boolean }) {
+export default function Landing({
+  centerFormOnLanding,
+  workMode = false,
+}: {
+  centerFormOnLanding: boolean;
+  /** Work keeps its own greeting over the same shell and background. */
+  workMode?: boolean;
+}) {
   const { conversation } = useChatContext();
   const agentsMap = useAgentsMapContext();
   const assistantMap = useAssistantsMapContext();
@@ -66,12 +73,14 @@ export default function Landing({ centerFormOnLanding }: { centerFormOnLanding: 
 
   const greetingText = isTemporary
     ? localize('com_ui_temporary')
-    : (resolvedWelcome ?? localize('com_cyvox_home_chat_title'));
+    : (resolvedWelcome ??
+      localize(workMode ? 'com_cyvox_work_welcome_title' : 'com_cyvox_home_chat_title'));
 
   return (
     <div
       className={cn(
         landingGreetingBlockClass,
+        !centerFormOnLanding && 'h-full',
         'transform-gpu transition-all duration-200',
         landingGreetingSpacing(centerFormOnLanding),
       )}

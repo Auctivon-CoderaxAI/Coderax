@@ -98,6 +98,19 @@ describe('Tray', () => {
     expect(screen.queryByTestId('composer-tray')).not.toBeInTheDocument();
   });
 
+  it('keeps the active model visible inside an existing conversation', () => {
+    renderTray([], new Map(), undefined, {
+      title: 'A thread',
+      conversationId: 'convo-1',
+      endpoint: null,
+      createdAt: '',
+      updatedAt: '',
+      model: 'qwen2.5-coder:7b',
+    } as TConversation);
+
+    expect(screen.getByTestId('composer-model-bar')).toHaveTextContent('qwen2.5-coder:7b');
+  });
+
   it('groups every staged kind under one labelled chip list', () => {
     renderTray(
       [

@@ -42,7 +42,7 @@ interface ControlComboboxProps {
    * Typing lifts the cap so search reaches every option. */
   unsearchedLimit?: number;
   /** `field` matches the `Input` primitive so this can sit in a form row. */
-  variant?: 'default' | 'field';
+  variant?: 'default' | 'field' | 'chip' | 'bar';
   gutter?: number;
   /**
    * Radix dialogs trap focus, so a portaled popover rendered outside the dialog
@@ -193,6 +193,7 @@ function ControlCombobox({
       className={cn(
         'flex w-full items-center justify-center px-1',
         variant === 'field' && 'px-0',
+        (variant === 'chip' || variant === 'bar') && 'w-auto min-w-0 justify-start px-0',
         containerClassName,
       )}
     >
@@ -213,6 +214,10 @@ function ControlCombobox({
           'border-border-control border',
           isCollapsed ? 'h-9 w-9' : 'h-9 w-full rounded-xl px-3 py-2 text-sm',
           variant === 'field' && cn(fieldControl, 'hover:bg-surface-hover justify-start'),
+          variant === 'chip' &&
+            'text-text-secondary hover:bg-surface-hover hover:text-text-primary h-8 w-auto max-w-[14rem] min-w-[7.5rem] gap-1.5 rounded-full border-0 bg-transparent px-2.5 text-sm font-medium',
+          variant === 'bar' &&
+            'text-text-secondary hover:bg-surface-hover hover:text-text-primary h-8 w-auto max-w-[14rem] gap-2 rounded-lg border-0 bg-transparent px-2.5 text-sm font-medium',
           className,
         )}
       >
@@ -244,7 +249,10 @@ function ControlCombobox({
         className={cn(
           'border-border-light bg-surface-secondary overflow-hidden rounded-xl border shadow-lg',
           popoverMaxHeight != null && 'flex flex-col',
-          popoverClassName ?? 'animate-popover',
+          popoverClassName ??
+            (variant === 'chip' || variant === 'bar'
+              ? 'animate-popover-bottom min-w-[min(16rem,90vw)] rounded-2xl shadow-xl'
+              : 'animate-popover'),
         )}
         style={{
           zIndex: popoverZIndex,

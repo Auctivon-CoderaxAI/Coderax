@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useMemo, memo, useRef } from 'react';
 import { useAtomValue } from 'jotai';
 import { useRecoilValue } from 'recoil';
+import { SquarePen } from 'lucide-react';
 import type { InfiniteQueryObserverResult } from '@tanstack/react-query';
 import type { ConversationListResponse } from 'coderax-data-provider';
 import type { List } from 'react-virtualized';
@@ -22,11 +23,11 @@ import {
   useLocalStorage,
   useNavScrolling,
   useScrollFade,
+  useNewChat,
 } from '~/hooks';
 import { chatFacetParamsAtom, useFreshLocalDay } from '~/components/Conversations/facets';
 import WorkTasksSection from '~/components/Conversations/WorkTasksSection';
 import ProjectsSection from '~/components/Conversations/ProjectsSection';
-import ChatFilterMenu from '~/components/Conversations/ChatFilterMenu';
 import PinnedSection from '~/components/Conversations/PinnedSection';
 import ProjectNamesProvider from '~/Providers/ProjectNamesContext';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
@@ -36,7 +37,31 @@ import { cn, collectPinnedConversations } from '~/utils';
 import SearchBar from '~/components/Nav/SearchBar';
 import store from '~/store';
 
-const chatsHeaderTrailing = <ChatFilterMenu />;
+/** The first row of the history panel, above Projects, as in the approved design. */
+const NewChatRow = memo(function NewChatRow({
+  toggleNav,
+}: {
+  toggleNav: (afterSlide?: () => void) => void;
+}) {
+  const localize = useLocalize();
+  const { handleNewChatClick } = useNewChat({ onNewChat: () => toggleNav() });
+
+  return (
+    <div className="px-3 pt-1 pb-2">
+      <a
+        href="/c/new"
+        onClick={handleNewChatClick}
+        data-testid="sidebar-new-chat"
+        className="text-text-primary hover:bg-surface-nav-hover focus-visible:ring-text-primary flex h-9 items-center gap-2.5 rounded-lg px-2 text-sm font-medium outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-inset"
+      >
+        <SquarePen className="text-text-secondary size-4 shrink-0" aria-hidden="true" />
+        <span className="truncate">{localize('com_ui_new_chat')}</span>
+      </a>
+    </div>
+  );
+});
+
+NewChatRow.displayName = 'NewChatRow';
 
 const ConversationsSection = memo(() => {
   const localize = useLocalize();
@@ -132,9 +157,7 @@ const ConversationsSection = memo(() => {
   });
 
   const conversations = useMemo(() => {
-    return data
-      ? data.pages.flatMap((page) => page.conversations)
-      : [];
+    return data ? data.pages.flatMap((page) => page.conversations) : [];
   }, [data]);
 
   /** Pins are fetched on their own so one older than the first page of the chats list
@@ -154,10 +177,7 @@ const ConversationsSection = memo(() => {
      cache holds the same unarchived chats this section shows. */
   const pinnedConversations = useMemo(
     () =>
-      collectPinnedConversations(
-        pinnedData?.conversations,
-        isArchivedView ? [] : conversations,
-      ),
+      collectPinnedConversations(pinnedData?.conversations, isArchivedView ? [] : conversations),
     [pinnedData?.conversations, conversations, isArchivedView],
   );
 
@@ -234,10 +254,11 @@ const ConversationsSection = memo(() => {
           Chats heading, where the list they act on is labelled. On mobile the field
           itself lives in the drawer's bottom bar, within thumb reach. */}
         {!isSmallScreen && search.enabled && (
-          <div className="flex items-center px-3">
+          <div className="flex items-center px-3 pb-2">
             <SearchBar isSmallScreen={isSmallScreen} />
           </div>
         )}
+        <NewChatRow toggleNav={toggleNav} />
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div
             ref={setScrollViewportNode}
@@ -276,7 +297,6 @@ const ConversationsSection = memo(() => {
                 hasNextPage={computedHasNextPage}
                 isError={isError}
                 onRetry={retryConversations}
-                chatsHeaderTrailing={chatsHeaderTrailing}
                 accountHasProjects={scopeToUnassigned && hasProjects}
                 scrollViewport={scrollViewport}
                 scrollContent={scrollContent}

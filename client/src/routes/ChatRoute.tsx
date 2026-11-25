@@ -227,9 +227,8 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     () => ({ ...modeState, setMode: setConversationMode }),
     [modeState, setConversationMode],
   );
-  const ownerSignInRequired = isWorkMode && isGuestSession;
   const workOptions = useWorkOptions({
-    enabled: isAuthenticated && !isGuestSession && isWorkMode,
+    enabled: isAuthenticated && isWorkMode,
   });
   useEffect(() => {
     if (!isAuthenticated || isGuestSession || !isWorkMode) {
@@ -283,7 +282,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   );
   const workCanSubmit =
     isAuthenticated &&
-    !isGuestSession &&
     !workOptions.isLoading &&
     !workOptions.modelsQuery.isError &&
     resolvedWorkSelection != null;
@@ -371,10 +369,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
    *  Adjusting this may have unintended consequences on the conversation state.
    */
   useEffect(() => {
-    // Private Work must not create a task or conversation for an isolated guest identity.
-    if (ownerSignInRequired) {
-      return;
-    }
     // Wait for roles to load so hasAgentAccess has a definitive value in useNewConvo
     const rolesLoaded = roles?.USER != null;
     const isNewConvo = conversationId === Constants.NEW_CONVO;
@@ -558,7 +552,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   }, [
     conversationId,
     isWorkMode,
-    ownerSignInRequired,
     routeState.pending,
     roles,
     agentsMap,
@@ -578,19 +571,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     conversation?.conversationId,
     automaticChatPreset,
   ]);
-
-  if (ownerSignInRequired) {
-    return (
-      <div
-        className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center"
-        aria-live="polite"
-        role="status"
-      >
-        <p>{localize('com_work_owner_signin_required')}</p>
-        <Button onClick={() => setConversationMode('chat')}>{localize('com_ui_chat')}</Button>
-      </div>
-    );
-  }
 
   if (endpointsQuery.isLoading || modelsQuery.isLoading) {
     return (

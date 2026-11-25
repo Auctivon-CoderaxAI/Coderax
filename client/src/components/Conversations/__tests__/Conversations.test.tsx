@@ -115,10 +115,14 @@ jest.mock('~/data-provider', () => ({
   usePinConversationMutation: () => ({ mutate: jest.fn() }),
 }));
 
-jest.mock('~/utils', () => ({
-  groupConversations: jest.fn(jest.requireActual('~/utils/convos').groupConversations),
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-}));
+jest.mock('~/utils', () => {
+  const convos = jest.requireActual('~/utils/convos');
+  return {
+    ...convos,
+    groupConversations: jest.fn(convos.groupConversations),
+    cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  };
+});
 
 jest.mock('../Convo', () => ({
   __esModule: true,

@@ -14,8 +14,9 @@ type IconButtonVariantProps = {
     | 'row-action'
     | 'destructive'
     | 'submit'
+    | 'brand'
     | null;
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'theme' | null;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'theme' | null;
   shape?: 'round' | 'square' | 'control' | 'theme' | 'composer' | null;
 };
 
@@ -43,12 +44,16 @@ const iconButtonVariants: (props?: IconButtonVariantProps & ClassProp) => string
           'hover:bg-surface-inverted-hover hover:active:bg-surface-inverted-pressed',
           composerSubmitClasses(),
         ),
+        /** The landing composer's larger, brand-filled action circle. */
+        brand:
+          'bg-brand-purple text-text-on-status hover:bg-brand-purple/90 hover:active:bg-brand-purple disabled:bg-brand-purple disabled:text-text-on-status disabled:opacity-60',
       },
       size: {
         xs: 'size-6',
         sm: 'size-8',
         md: 'size-9',
         lg: 'size-10',
+        xl: 'size-12',
         theme: 'size-theme-control',
       },
       shape: {

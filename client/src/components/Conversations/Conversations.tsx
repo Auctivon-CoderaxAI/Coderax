@@ -8,6 +8,7 @@ import { Button, EmptyState, Spinner, useRemScale, buttonVariants } from '@coder
 import {
   Archive,
   ChevronDown,
+  Clock,
   MessageSquareDashed,
   MessageSquareOff,
   SearchX,
@@ -40,10 +41,12 @@ import {
   groupConversationsByStatus,
 } from './running';
 import { useLocalize, TranslationKeys, useElementSize, useOuterScrollWindow } from '~/hooks';
+import useUnseenConversations from '~/hooks/Conversations/useUnseenConversations';
 import { useActiveJobs, useRunningConversationsQuery } from '~/data-provider';
 import { facetFilterCountAtom, resetFacetsAtom } from './facets';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import { groupConversations, cn } from '~/utils';
+import { countUnreadInRecents } from './unread';
 import Convo from './Convo';
 import store from '~/store';
 
@@ -139,38 +142,59 @@ interface ChatsHeaderProps {
   trailing?: ReactNode;
   /** Drop-target affordance while a project conversation is dragged over the section. */
   highlight?: boolean;
+  /** Unread completions inside this section, shown even while it is collapsed. */
+  unreadCount?: number;
 }
 
-/** Collapsible header for the Chats section */
-const ChatsHeader: FC<ChatsHeaderProps> = memo(({ isExpanded, onToggle, trailing, highlight }) => {
-  const localize = useLocalize();
+/** Collapsible header for the Recents section. */
+const ChatsHeader: FC<ChatsHeaderProps> = memo(
+  ({ isExpanded, onToggle, trailing, highlight, unreadCount = 0 }) => {
+    const localize = useLocalize();
+    const unreadLabel =
+      unreadCount === 0
+        ? undefined
+        : localize(
+            unreadCount === 1 ? 'com_a11y_recents_unread' : 'com_a11y_recents_unread_plural',
+            { count: unreadCount },
+          );
 
-  return (
-    <div
-      className={cn(
-        'flex h-8 w-full items-center pr-1',
-        highlight && 'bg-surface-nav-selected rounded-lg',
-      )}
-    >
-      <button
-        onClick={onToggle}
-        className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
-        type="button"
-        aria-expanded={isExpanded}
+    return (
+      <div
+        className={cn(
+          'flex h-8 w-full items-center pr-1',
+          highlight && 'bg-surface-nav-selected rounded-lg',
+        )}
       >
-        <span className="truncate select-none">{localize('com_ui_chats')}</span>
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 shrink-0 transition-transform duration-200',
-            isExpanded ? '' : '-rotate-90',
+        <button
+          onClick={onToggle}
+          className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={unreadLabel}
+          data-testid="recents-header"
+        >
+          <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate select-none">{localize('com_ui_recents')}</span>
+          <ChevronDown
+            className={cn(
+              'h-3 w-3 shrink-0 transition-transform duration-200',
+              isExpanded ? '' : '-rotate-90',
+            )}
+            aria-hidden="true"
+          />
+          {unreadCount > 0 && !isExpanded && (
+            <span
+              aria-hidden="true"
+              data-testid="recents-unread-dot"
+              className="bg-status-info ml-auto size-2 shrink-0 rounded-full"
+            />
           )}
-          aria-hidden="true"
-        />
-      </button>
-      {trailing}
-    </div>
-  );
-});
+        </button>
+        {trailing}
+      </div>
+    );
+  },
+);
 
 ChatsHeader.displayName = 'ChatsHeader';
 
@@ -335,6 +359,23 @@ const Conversations: FC<ConversationsProps> = ({
     () => rawConversations.filter(Boolean) as TConversation[],
     [rawConversations],
   );
+  /** Unread completions the Recents list holds; pinned and project chats have their
+   *  own rows and must not light this header. Derived from the already-cached lists,
+   *  so a collapsed section still reports its backlog without another request. */
+  const unseen = useUnseenConversations();
+  const recentsIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const conversation of filteredConversations) {
+      if (conversation.conversationId) {
+        ids.add(conversation.conversationId);
+      }
+    }
+    return ids;
+  }, [filteredConversations]);
+  const unreadCount = useMemo(
+    () => countUnreadInRecents(unseen?.unseen ?? [], recentsIds),
+    [unseen, recentsIds],
+  );
 
   /** The pinned section carries pins except in the archive or during search, when it is
    *  hidden. Keep matching pins in the Chats results instead of showing an empty list. */
@@ -426,11 +467,15 @@ const Conversations: FC<ConversationsProps> = ({
     const items: FlattenedItem[] = [];
     if (isChatsExpanded) {
       groupedConversations.forEach(([groupName, convos]) => {
-        items.push({
-          type: 'header',
-          groupName,
-          count: isStatusGroup(groupName) ? convos.length : undefined,
-        });
+        /* The approved Recents list is flat under its heading; date labels are
+           not part of that design. Status groups still announce themselves. */
+        if (isStatusGroup(groupName)) {
+          items.push({
+            type: 'header',
+            groupName,
+            count: convos.length,
+          });
+        }
         items.push(...convos.map((convo) => ({ type: 'convo' as const, convo })));
       });
 
@@ -720,6 +765,7 @@ const Conversations: FC<ConversationsProps> = ({
           onToggle={() => setIsChatsExpanded(!isChatsExpanded)}
           trailing={chatsHeaderTrailing}
           highlight={isDropOver && canDrop}
+          unreadCount={unreadCount}
         />
       </div>
       {body}

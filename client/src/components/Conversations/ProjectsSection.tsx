@@ -556,19 +556,21 @@ const ProjectsSection = ({ toggleNav, isAuthenticated }: ProjectsSectionProps) =
             aria-hidden="true"
           />
         </button>
-        <TooltipAnchor
-          description={localize('com_ui_all_projects')}
-          render={
-            <button
-              type="button"
-              aria-label={localize('com_ui_all_projects')}
-              className={iconButtonClassName}
-              onClick={openProjects}
-            >
-              <Folders className="h-4 w-4" aria-hidden="true" />
-            </button>
-          }
-        />
+        {projects.length > 0 && (
+          <TooltipAnchor
+            description={localize('com_ui_all_projects')}
+            render={
+              <button
+                type="button"
+                aria-label={localize('com_ui_all_projects')}
+                className={iconButtonClassName}
+                onClick={openProjects}
+              >
+                <Folders className="h-4 w-4" aria-hidden="true" />
+              </button>
+            }
+          />
+        )}
       </div>
 
       <Collapse open={isExpanded}>

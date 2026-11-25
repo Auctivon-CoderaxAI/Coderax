@@ -120,42 +120,40 @@ describe('Conversation row status', () => {
     mockIsUnseen = false;
   });
 
-  it('rings the avatar while running and keeps the row menu reachable', () => {
+  it('shows the running spinner at the trailing edge and keeps the row menu reachable', () => {
     renderRow({ isGenerating: true });
 
     const ring = screen.getByTestId('status-ring');
-    expect(rowButton()).toContainElement(ring);
+    expect(screen.getByTestId('convo-status')).toContainElement(ring);
     expect(rowButton()).toHaveAccessibleName('com_ui_conversation_label, com_ui_generating');
-    /* The trailing slot used to hold the spinner in place of the menu, so a running chat
-       could not be renamed or archived from the list. */
+    /* The status slot sits beside the row button, not over its menu, so a running
+       chat can still be renamed or archived from the list. */
     fireEvent.contextMenu(screen.getByTestId('convo-item'));
     expect(screen.getByTestId('convo-options')).toBeInTheDocument();
     expect(screen.getAllByTestId('status-ring')).toHaveLength(1);
-    expect(rowButton()).toContainElement(ring);
   });
 
-  it('sizes the ring in rem so it follows the avatar box at any UI scale', () => {
+  it('sizes the spinner for the trailing status slot', () => {
     renderRow({ isGenerating: true });
 
-    expect(screen.getByTestId('status-ring').getAttribute('class')).toContain('size-[2.125rem]');
+    expect(screen.getByTestId('status-ring').getAttribute('class')).toContain('size-4');
   });
 
-  it('offsets the ring in rem so it stays centered on the avatar at any UI scale', () => {
+  it('keeps the status outside the row button so the title keeps its width', () => {
     renderRow({ isGenerating: true });
 
-    const className = screen.getByTestId('status-ring').getAttribute('class') ?? '';
-    expect(className).toContain('-top-[0.4375rem]');
-    expect(className).toContain('-left-[0.4375rem]');
-    expect(className).not.toMatch(/\[\d+px\]/);
+    const slot = screen.getByTestId('convo-status');
+    expect(rowButton()).not.toContainElement(slot);
+    expect(slot.getAttribute('class')).toContain('shrink-0');
   });
 
-  it('marks an unseen reply on the avatar and in the title weight', () => {
+  it('marks an unseen reply at the trailing edge and in the title weight', () => {
     mockIsUnseen = true;
     const { container } = renderRow();
 
     const dot = unreadDot(container);
     expect(dot).not.toBeNull();
-    expect(rowButton()).toContainElement(dot as HTMLElement);
+    expect(screen.getByTestId('convo-status')).toContainElement(dot as HTMLElement);
     expect(rowButton()).toHaveAccessibleName('com_ui_conversation_label, com_ui_unread');
     expect(screen.getByText('Tool Approval UI').parentElement).toHaveClass('font-semibold');
   });
