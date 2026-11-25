@@ -27,6 +27,8 @@ test('OCI Compose publishes only Caddy and starts no local model server', async 
 
   assert.match(web, /"80:80"/);
   assert.match(web, /"443:443"/);
+  assert.match(web, /env_file:\s*\n\s*- \.\/origin\.env/);
+  assert.doesNotMatch(web, /CODERAX_PUBLIC_HOST:/);
   assert.doesNotMatch(app, /^\s+ports:/m);
   assert.doesNotMatch(compose, /^  ollama:/m);
   assert.doesNotMatch(compose, /^  model-setup:/m);
@@ -46,7 +48,10 @@ test('Caddy requires the private proxy header and preserves origin and streaming
     caddy,
     /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?path \/api\/agents\/chat\/stream\n[\s\S]*?path \/api\/agents\/chat\/stream\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
   );
-  assert.match(caddy, /header_up Host \{\$CODERAX_PUBLIC_HOST:coderaxai\.vercel\.app\}/);
+  assert.match(
+    caddy,
+    /header_up Host \{\$CODERAX_PUBLIC_HOST:coderax\.nnabdelshahid\.workers\.dev\}/,
+  );
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);
   assert.match(caddy, /header_up Host \{http\.request\.header\.X-Forwarded-Host\}/);
   assert.match(caddy, /header_up X-Forwarded-Proto https/);

@@ -22,10 +22,28 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 2. Keep the VM's public IPv4 address; add that address as a single `/32` in Atlas after creating a Coderax-only `readWrite` database user.
 3. Transfer a reviewed source snapshot of this private repository to the VM over the authenticated operator session. Do not put Git credentials, environment files, SSH private keys, or Atlas credentials in the source archive.
 4. Run `sh deploy/oci/prepare-env.sh` on the VM. The script prompts without echo for the database-only MongoDB URI and the existing Production `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDS_KEY`, and `CREDS_IV`. Keep those existing values so current sessions and encrypted database credentials remain usable. It also requires an OpenRouter API key, which is the only Work inference path: the verified $0 OpenRouter models are selected automatically. It generates a new proxy secret, writes owner-only local environment files, and does not print their values.
-5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>` and `CODERAX_PROXY_SECRET` from `origin.env` as Cloudflare Worker secrets for the `coderax` Worker in **Production**. Keep the secret server-only; never use a `NEXT_PUBLIC_`, `VITE_` or public Worker variable for it. The Worker defaults its API host gate to `coderax.nnabdelshahid.workers.dev`; set the public `CODERAX_ALLOWED_HOSTS` variable only to add preview or custom hosts. Set `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev` in the Compose environment (the tracked `compose.yaml` already defaults to it), and set `CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev` in `origin.env`.
+5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>` and `CODERAX_PROXY_SECRET` from `origin.env` as Cloudflare Worker secrets for the `coderax` Worker in **Production**. Keep the secret server-only; never use a `NEXT_PUBLIC_`, `VITE_` or public Worker variable for it. The Worker defaults its API host gate to `coderax.nnabdelshahid.workers.dev`; a nonempty `CODERAX_ALLOWED_HOSTS` replaces that default, so include the canonical host alongside any preview or custom hosts. Set `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev` in the Compose environment (the tracked `compose.yaml` already defaults to it), and set `CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev` in `origin.env`.
 6. Configure only inbound 80/443 (and temporary operator-IP-only SSH) in the Oracle security list. Configure Atlas for the VM's `/32` and the Coderax database user above.
 7. Run `docker compose -f deploy/oci/compose.yaml config --quiet`, then `docker compose -f deploy/oci/compose.yaml up -d --build --wait`.
-8. After the VM reports ready, verify the HTTPS origin directly and then the Cloudflare canonical URL. The expected checks are `/readyz` = plain `OK`, `/api/config` = JSON, anonymous access to `/api/work/chat` and every private collection = `401`/`403`, the owner password form at `/login?manual=1` = frontend HTML, and a real streamed completion from a verified free OpenRouter model that persists after refresh. Run `node scripts/verify-coderax-access.mjs --base-url https://coderax.nnabdelshahid.workers.dev`. Full release verification (served revision plus backend revision) is provided by the Cloudflare deployment-acceptance change; `scripts/verify-coderax-deployment.mjs --live-url` additionally needs the exact Workers-origin acceptance from PR #302.
+8. After the VM reports ready, verify the Oracle HTTPS origin directly with the proxy secret, then verify the Cloudflare canonical URL without it. Read the secret from `origin.env` into a shell variable; do not echo it, enable `set -x`, or place it in command history. Direct probes without the header return `403`:
+
+   ```sh
+   cd deploy/oci
+   . ./origin.env
+   curl -fsS -H "X-Coderax-Proxy-Secret: $CODERAX_PROXY_SECRET" "https://$CODERAX_API_HOST/readyz"
+   curl -fsS -H "X-Coderax-Proxy-Secret: $CODERAX_PROXY_SECRET" "https://$CODERAX_API_HOST/api/config"
+   unset CODERAX_PROXY_SECRET
+   ```
+
+   Canonical Worker probes must not send that header, and anonymous checks stay unauthenticated:
+
+   ```sh
+   curl -fsS https://coderax.nnabdelshahid.workers.dev/readyz
+   curl -fsS https://coderax.nnabdelshahid.workers.dev/api/config
+   node scripts/verify-coderax-access.mjs --base-url https://coderax.nnabdelshahid.workers.dev
+   ```
+
+   The expected checks are `/readyz` = plain `OK`, `/api/config` = JSON, anonymous access to `/api/work/chat` and every private collection = `401`/`403`, the owner password form at `/login?manual=1` = frontend HTML, and a real streamed completion from a verified free OpenRouter model that persists after refresh. Full release verification (served revision plus backend revision) is provided by the Cloudflare deployment-acceptance change; `scripts/verify-coderax-deployment.mjs --live-url` additionally needs the exact Workers-origin acceptance from PR #302.
 
 Work's model picker is zero-cost only: it lists the verified OpenRouter `:free` models when `OPENROUTER_API_KEY` is present in `app.env`. If `app.env` already exists, append `OPENROUTER_API_KEY=<key>` (the script refuses to overwrite existing files) and recreate the app container. Never commit or paste that key anywhere else. A missing key leaves Work without a model rather than starting a local one.
 
@@ -38,7 +56,8 @@ Set the following as secrets on the `coderax` Worker in **Production**:
 - `CODERAX_API_ORIGIN`: the HTTPS `coderax-<public-ip>.sslip.io` address.
 - `CODERAX_PROXY_SECRET`: the matching value stored in the VM's `origin.env`.
 - `CODERAX_ALLOWED_HOSTS` (optional public variable): defaults to
-  `coderax.nnabdelshahid.workers.dev`; add preview or custom hosts only.
+  `coderax.nnabdelshahid.workers.dev`; a nonempty value replaces it, so include the canonical host
+  plus any preview or custom hosts.
 - `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev` in the Compose environment;
   `DOMAIN_CLIENT` and `DOMAIN_SERVER` derive from it. If you edit `app.env` directly, the Compose
   `environment:` block still takes precedence.

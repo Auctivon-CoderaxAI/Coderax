@@ -54,8 +54,6 @@ services:
     restart: unless-stopped
     env_file:
       - ./origin.env
-    environment:
-      CODERAX_PUBLIC_HOST: ${CODERAX_PUBLIC_HOST:-coderax.nnabdelshahid.workers.dev}
     ports:
       - "80:80"
       - "443:443"

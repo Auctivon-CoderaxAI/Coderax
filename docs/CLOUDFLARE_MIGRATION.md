@@ -21,8 +21,8 @@ database was created, reset, migrated or reseeded.
 API call with `index.html`. The Worker fails closed with `503` when the API origin is missing or is
 not the Coderax `sslip.io` form, or when the proxy secret is absent or shorter than 32 characters.
 It returns `421` when an API request arrives on a hostname not listed in
-`CODERAX_ALLOWED_HOSTS`, which defaults to the canonical host. Loopback hosts stay allowed for local
-`wrangler dev`.
+`CODERAX_ALLOWED_HOSTS`, which defaults to the canonical host. A nonempty list replaces that
+default, so it must include the canonical host. Loopback hosts stay allowed for local `wrangler dev`.
 
 ## Invariants preserved
 
@@ -99,7 +99,8 @@ pasted into a PR, issue, document or chat message.
      `deploy/oci/origin.env` (`CODERAX_API_HOST`).
    - `CODERAX_PROXY_SECRET` = the `CODERAX_PROXY_SECRET` value from the same file.
    - `CODERAX_ALLOWED_HOSTS` is optional; the Worker defaults to
-     `coderax.nnabdelshahid.workers.dev`. Set it only to add preview or custom hostnames.
+     `coderax.nnabdelshahid.workers.dev`. A nonempty value replaces that default, so include the
+     canonical host alongside any preview or custom hostnames.
    Redeploy the Worker after adding secrets if the dashboard does not apply them to the current
    version.
 2. **API public origin** — on the Oracle host, in the Compose environment:
