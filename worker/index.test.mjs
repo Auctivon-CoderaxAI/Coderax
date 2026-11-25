@@ -124,6 +124,50 @@ describe('worker fetch', () => {
     assert.equal(assets.calls.length, 0);
   });
 
+  it('drops request fields named by the Connection header', async () => {
+    let captured;
+    globalThis.fetch = async (input, init) => {
+      captured = { headers: new Headers(init.headers) };
+      return new Response('ok');
+    };
+
+    await worker.fetch(
+      new Request('https://coderax.example/api/config', {
+        headers: {
+          connection: 'x-hop-state',
+          'x-hop-state': 'drop-me',
+          'x-keep-state': 'keep-me',
+        },
+      }),
+      env({ CODERAX_API_ORIGIN: ORIGIN }),
+    );
+
+    assert.equal(captured.headers.get('connection'), null);
+    assert.equal(captured.headers.get('x-hop-state'), null);
+    assert.equal(captured.headers.get('x-keep-state'), 'keep-me');
+  });
+
+  it('drops response fields named by the Connection header', async () => {
+    globalThis.fetch = async () =>
+      new Response('{"ok":true}', {
+        headers: {
+          connection: 'x-upstream-state',
+          'x-upstream-state': 'drop-me',
+          'x-keep-state': 'keep-me',
+        },
+      });
+
+    const response = await worker.fetch(
+      new Request('https://coderax.example/api/config'),
+      env({ CODERAX_API_ORIGIN: ORIGIN }),
+    );
+
+    assert.equal(await response.text(), '{"ok":true}');
+    assert.equal(response.headers.get('connection'), null);
+    assert.equal(response.headers.get('x-upstream-state'), null);
+    assert.equal(response.headers.get('x-keep-state'), 'keep-me');
+  });
+
   it('forwards request bodies for API writes', async () => {
     let captured;
     globalThis.fetch = async (input, init) => {

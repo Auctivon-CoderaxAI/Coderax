@@ -66,12 +66,21 @@ function json(status, body) {
   });
 }
 
+function connectionOptions(value) {
+  return (value ?? '')
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0);
+}
+
 function forwardedHeaders(request, host) {
   const headers = new Headers();
+  const nominated = new Set(connectionOptions(request.headers.get('connection')));
   for (const [name, value] of request.headers) {
     const lowerName = name.toLowerCase();
     if (
       HOP_BY_HOP_HEADERS.includes(lowerName) ||
+      nominated.has(lowerName) ||
       lowerName.startsWith('x-forwarded-') ||
       lowerName.startsWith('x-vercel-') ||
       lowerName === 'x-real-ip' ||
@@ -118,6 +127,9 @@ export default {
     }
 
     const responseHeaders = new Headers(response.headers);
+    for (const name of connectionOptions(responseHeaders.get('connection'))) {
+      responseHeaders.delete(name);
+    }
     for (const name of HOP_BY_HOP_HEADERS) {
       responseHeaders.delete(name);
     }
