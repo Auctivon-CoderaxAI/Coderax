@@ -5,6 +5,8 @@ import {
   DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS,
 } from 'coderax-data-provider';
 import type { fetch as undiciFetch } from 'undici';
+import type { FreeInferenceBudget } from '~/routing/budget';
+import { FreeInferenceBudgetExceededError } from '~/routing/budget';
 
 const completionURL = `${FREE_OPENROUTER_URL}/chat/completions`;
 const FREE_OPENROUTER_MODEL_IDS = FREE_ENDPOINTS.filter(
@@ -30,9 +32,62 @@ const chatFields = [
   'reasoning',
 ] as const;
 
+/**
+ * Conservative prompt estimate: the routing planner uses the same heuristic
+ * for a turn's reservation. Prompt text is what the caller controls before the
+ * call; measured usage reconciles it afterwards when the provider reports it.
+ */
+function estimatePromptTokens(messages: unknown): number {
+  try {
+    const serialized = JSON.stringify(messages);
+    return serialized == null ? 0 : Math.max(1, Math.ceil(serialized.length / 4));
+  } catch {
+    return 0;
+  }
+}
+
+type FreeOpenRouterResponse = Awaited<ReturnType<typeof undiciFetch>>;
+
+/**
+ * Measured tokens for a completed non-streaming completion. A declined request
+ * consumed nothing, so its token reservation is released. A streaming or
+ * unparseable response returns `null`, which keeps the reservation in place.
+ */
+async function measuredTokens(response: FreeOpenRouterResponse): Promise<number | null> {
+  if (!response.ok) {
+    return 0;
+  }
+  try {
+    if (!(response.headers.get('content-type') ?? '').includes('application/json')) {
+      return null;
+    }
+    const body = (await response.clone().json()) as {
+      usage?: { total_tokens?: unknown; prompt_tokens?: unknown; completion_tokens?: unknown };
+    } | null;
+    const usage = body?.usage;
+    if (!usage) {
+      return null;
+    }
+    if (Number.isSafeInteger(usage.total_tokens) && (usage.total_tokens as number) >= 0) {
+      return usage.total_tokens as number;
+    }
+    if (Number.isSafeInteger(usage.prompt_tokens) && (usage.prompt_tokens as number) >= 0) {
+      const completion =
+        Number.isSafeInteger(usage.completion_tokens) && (usage.completion_tokens as number) >= 0
+          ? (usage.completion_tokens as number)
+          : 0;
+      return (usage.prompt_tokens as number) + completion;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function createFreeOpenRouterFetch(
   send: typeof undiciFetch,
   maxOutputTokens = DEFAULT_FREE_INFERENCE_OPENROUTER_MAX_OUTPUT_TOKENS,
+  budget?: FreeInferenceBudget,
 ): typeof undiciFetch {
   return async (input, init) => {
     if (
@@ -90,6 +145,34 @@ export function createFreeOpenRouterFetch(
       max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
     };
 
-    return send(completionURL, { ...init, body: JSON.stringify(payload), redirect: 'error' });
+    // The daily budget is enforced here, at the only place a free completion
+    // can leave the process. A stale or forged earlier plan cannot bypass it.
+    const admission = budget?.admit(estimatePromptTokens(payload.messages));
+    const granted = admission?.ok === true ? admission : null;
+    if (admission && !admission.ok) {
+      throw new FreeInferenceBudgetExceededError(admission.reason);
+    }
+
+    let response: FreeOpenRouterResponse;
+    try {
+      response = await send(completionURL, {
+        ...init,
+        body: JSON.stringify(payload),
+        redirect: 'error',
+      });
+    } catch (error) {
+      if (granted && budget) {
+        budget.settle(0, granted.reservedTokens, granted.resetAt);
+      }
+      throw error;
+    }
+
+    if (granted && budget) {
+      const used = await measuredTokens(response);
+      if (used != null) {
+        budget.settle(used, granted.reservedTokens, granted.resetAt);
+      }
+    }
+    return response;
   };
 }
