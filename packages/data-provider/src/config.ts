@@ -3965,6 +3965,7 @@ export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
 export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
 export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
+export const DEFAULT_OPENCODE_PROBE_TIMEOUT_MS = 5_000;
 /** One attempt is the pre-retry behavior: a run fails where it would have failed before. */
 export const DEFAULT_ENGINE_MAX_ATTEMPTS = 1;
 export const DEFAULT_ENGINE_RETRY_DELAY_MS = 250;
@@ -4028,10 +4029,26 @@ export const enginesConfigSchema = z
         /** An existing `opencode serve` endpoint; Coderax never spawns it. */
         baseURL: z.string().trim().url().optional(),
         /**
-         * Pinned zero-cost model in `provider/model` form. Required when the
-         * engine is enabled so OpenCode never falls back to a paid default.
+         * Pinned zero-cost model in `provider/model` form, or `auto` to choose
+         * among verified $0 candidates at run time. Required when the engine is
+         * enabled so OpenCode never falls back to a paid default.
          */
         model: z.string().trim().optional(),
+        /** Server variable holding the OpenCode server password. */
+        passwordEnv: z
+          .string()
+          .trim()
+          .regex(/^[A-Z][A-Z0-9_]*$/, 'Expected an uppercase environment variable name.')
+          .optional(),
+        /** Bound on the authenticated `/global/health` readiness probe. */
+        probeTimeoutMs: z
+          .number()
+          .int()
+          .min(250)
+          .max(30_000)
+          .default(DEFAULT_OPENCODE_PROBE_TIMEOUT_MS),
+        /** Bound on automatic model fallback attempts (1-5). */
+        maxModelAttempts: z.number().int().min(1).max(5).default(3),
         timeoutMs: z.number().int().min(1_000).max(3_600_000).default(DEFAULT_ENGINE_TIMEOUT_MS),
       })
       .prefault({}),

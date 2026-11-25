@@ -286,7 +286,7 @@ describe('EngineWorkChatRuntime', () => {
       fakeRegistry(start),
       roots,
       'private',
-      undefined,
+      {},
       'opencode',
       leases,
       LEASE_TTL_MS,
@@ -315,7 +315,7 @@ describe('EngineWorkChatRuntime', () => {
       fakeRegistry(start),
       roots,
       'private',
-      undefined,
+      {},
       'opencode',
       leases,
       LEASE_TTL_MS,
@@ -348,7 +348,7 @@ describe('EngineWorkChatRuntime', () => {
       fakeRegistry(start),
       roots,
       'private',
-      undefined,
+      {},
       'opencode',
       leases,
       LEASE_TTL_MS,
@@ -382,7 +382,7 @@ describe('EngineWorkChatRuntime', () => {
       fakeRegistry(start),
       roots,
       'private',
-      undefined,
+      {},
       'opencode',
       leases,
       LEASE_TTL_MS,
@@ -395,6 +395,30 @@ describe('EngineWorkChatRuntime', () => {
 
     await runtime.release(scope(conversation));
     await expect(runtime.state(scope(conversation))).resolves.toBeNull();
+  });
+
+  it('exposes the claimed lease token as the generation that fences writes', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const start = jest.fn(async () => ({ ok: true as const, value: handle('session-generation') }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-generation';
+
+    await expect(runtime.generation(scope(conversation))).resolves.toBeNull();
+    await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    const lease = await leases.read(scope(conversation), new Date());
+    expect(lease?.token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    await expect(runtime.generation(scope(conversation))).resolves.toBe(lease?.token);
+
+    await runtime.release(scope(conversation));
+    await expect(runtime.generation(scope(conversation))).resolves.toBeNull();
   });
 });
 

@@ -18,6 +18,7 @@ const {
   getFreeRouterForConfig,
   createEngineWorkChatHandler,
   createEngineWorkChatPersistence,
+  cancelEngineWorkRun,
   createWorkRunLeaseStore,
   getEngineWorkChatRuntime,
   readEngineWorkState,
@@ -114,13 +115,19 @@ const depsFor = (req) => {
       engineRuntimeFor(req),
       db,
     )) ?? (nativeGetRunState ? nativeGetRunState(input) : null);
+  /** Cancelling an expired lease retires its row, so the interruption has to be
+   *  recorded first: `cancelEngineWorkRun` observes it, then asks for the cancel. */
   const nativeCancelRun = deps.cancelRun;
   deps.cancelRun = async (input) =>
-    (await engineRuntimeFor(req).cancel({
-      userId: input.userId,
-      tenantId: req.user?.tenantId ?? null,
-      conversationId: input.conversationId,
-    })) || nativeCancelRun(input);
+    (await cancelEngineWorkRun(
+      {
+        userId: input.userId,
+        tenantId: req.user?.tenantId ?? null,
+        conversationId: input.conversationId,
+      },
+      engineRuntimeFor(req),
+      db,
+    )) || nativeCancelRun(input);
   return deps;
 };
 

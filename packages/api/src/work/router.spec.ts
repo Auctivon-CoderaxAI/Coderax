@@ -494,7 +494,7 @@ describe('native Work router', () => {
       } as unknown as EngineRegistryApi,
       { private: '/private', cloud: '/cloud' },
       'private',
-      undefined,
+      {},
       'opencode',
       leases,
     );

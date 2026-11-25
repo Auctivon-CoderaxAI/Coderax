@@ -13,6 +13,8 @@ export type WorkRunCancelOutcome =
   | 'none';
 
 export type WorkRunLeaseSnapshot = {
+  /** The holder's fencing token: the generation a conversation write is bound to. */
+  token: string;
   cancelRequested: boolean;
   expiresAt: Date;
   /** False once the holder stopped heartbeating: the run cannot still be live. */
@@ -158,6 +160,7 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
       return null;
     }
     return {
+      token: row.token,
       cancelRequested: row.cancelRequested === true,
       expiresAt: row.expiresAt,
       live: row.expiresAt.getTime() > input.now.getTime(),

@@ -46,6 +46,8 @@ describe('Work run lease methods', () => {
     await expect(methods.claimWorkRun(claim('token-2'))).resolves.toBe(false);
 
     await expect(methods.readWorkRun({ key: KEY, now: new Date() })).resolves.toMatchObject({
+      /** The token is the generation a conversation write is fenced to. */
+      token: 'token-1',
       cancelRequested: false,
       live: true,
     });
