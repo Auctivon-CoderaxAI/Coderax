@@ -208,16 +208,28 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
 
     const model = this.models[engine];
     /**
-     * The conversation row is written once, by the first attempt. A retry only
-     * re-invokes the engine: the same engine, the same task and the same model,
-     * with no fallback and no second write.
+     * The conversation row is written once, before a successful dispatch. A
+     * readiness refusal runs before the callback, so the callback stays on the
+     * retry until it has completed; afterwards it is omitted so the row is not
+     * written again. The wrapper keeps a retry idempotent even when the
+     * registry repeats the callback.
      */
-    const dispatch = (withBeforeDispatch: boolean) =>
+    const beforeDispatch = input.beforeDispatch;
+    let recorded = false;
+    const writeOnce =
+      beforeDispatch == null
+        ? undefined
+        : async (): Promise<void> => {
+            if (recorded) {
+              return;
+            }
+            await beforeDispatch();
+            recorded = true;
+          };
+    const dispatch = () =>
       this.registry.start({
         engine,
-        ...(withBeforeDispatch && input.beforeDispatch
-          ? { beforeDispatch: input.beforeDispatch }
-          : {}),
+        ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
         request: {
           taskKey: this.mode === 'cloud' ? key : input.conversationId,
           conversationId: input.conversationId,
@@ -228,7 +240,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
         },
       });
 
-    let started = await dispatch(true);
+    let started = await dispatch();
     for (let attempt = 1; ; attempt += 1) {
       if (
         started.ok ||
@@ -239,7 +251,32 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
         break;
       }
       await wait(this.retry.delayMs);
-      started = await dispatch(false);
+      /**
+       * The delay is time in which the owner can cancel and another replica
+       * can claim an expired lease. Re-read the lease before dispatching again:
+       * an engine must not start for a cancelled task or one this run no longer
+       * owns. `renew` also extends the lease so the retry stays fenced.
+       */
+      const retryAt = new Date();
+      let lease: { renewed: boolean; cancelRequested: boolean };
+      try {
+        lease = await this.leases.renew(
+          input,
+          token,
+          retryAt,
+          new Date(retryAt.getTime() + this.leaseTtlMs),
+        );
+      } catch {
+        lease = { renewed: false, cancelRequested: false };
+      }
+      if (lease.cancelRequested) {
+        await this.leases.release(input, token).catch(() => false);
+        return engineFailure('cancelled', 'The run was cancelled before it started.');
+      }
+      if (!lease.renewed) {
+        return engineFailure('busy', 'This run no longer owns the task.');
+      }
+      started = await dispatch();
     }
     if (!started.ok) {
       /**

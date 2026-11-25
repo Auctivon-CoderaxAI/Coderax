@@ -320,7 +320,9 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           try {
             await store.saveConversation({
               conversationId,
-              workState: 'failed',
+              /** A start refused because the owner cancelled is a cancelled
+               *  run, not a failure of the task. */
+              workState: started.error.code === 'cancelled' ? 'cancelled' : 'failed',
               ...(!recorded && existing == null ? { title, create: true } : {}),
             });
           } catch (error) {
