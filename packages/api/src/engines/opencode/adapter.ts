@@ -315,8 +315,18 @@ async function startOpenCodeAttempt(
       );
     }
     sessionId = outcome.value.id;
-  } catch {
-    return engineFailure('server_unavailable', 'The OpenCode server did not accept the session.');
+  } catch (error) {
+    // Only a refused connection proves that the server never received the request.
+    const refused = (cause: unknown) =>
+      cause != null &&
+      typeof cause === 'object' &&
+      'code' in cause &&
+      cause.code === 'ECONNREFUSED';
+    return engineFailure(
+      'server_unavailable',
+      'The OpenCode session could not be confirmed.',
+      refused(error) || (error instanceof Error && refused(error.cause)),
+    );
   }
   if (!sessionId) {
     await abortSession(sessionId).catch(() => undefined);
@@ -358,8 +368,16 @@ async function startOpenCodeAttempt(
     }
     stream = outcome.value;
   } catch {
-    await abortSession(sessionId).catch(() => undefined);
-    return engineFailure('server_unavailable', 'The OpenCode event stream was unavailable.');
+    /**
+     * The session exists, so it is aborted and the task stays owned until that
+     * settles. A failure after session creation is never replayed.
+     */
+    const abort = abortSession(sessionId);
+    return engineFailureWithCleanup(
+      'server_unavailable',
+      retainOnFailure(abort),
+      'The OpenCode event stream was unavailable.',
+    );
   }
   if (controller.signal.aborted) {
     await abortSession(sessionId).catch(() => undefined);
@@ -408,14 +426,23 @@ async function startOpenCodeAttempt(
     }
   } catch {
     const cancelled = controller.signal.aborted;
-    await abortSession(sessionId).catch(() => undefined);
+    if (cancelled) {
+      await abortSession(sessionId).catch(() => undefined);
+      await handle.close();
+      return engineFailure('cancelled', 'The run was cancelled before it started.', false);
+    }
+    /**
+     * The prompt may already have been accepted before the transport threw, so
+     * this failure is never replayed. The abort is retained as cleanup so task
+     * ownership lasts until the engine settles.
+     */
+    const abort = abortSession(sessionId);
+    await abort.catch(() => undefined);
     await handle.close();
-    return engineFailure(
-      cancelled ? 'cancelled' : 'server_unavailable',
-      cancelled
-        ? 'The run was cancelled before it started.'
-        : 'The OpenCode server did not accept the task.',
-      false,
+    return engineFailureWithCleanup(
+      'server_unavailable',
+      retainOnFailure(abort),
+      'The OpenCode server did not accept the task.',
     );
   }
 

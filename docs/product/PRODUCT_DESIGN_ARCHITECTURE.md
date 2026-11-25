@@ -4,6 +4,7 @@
 **Audience:** FreeBuff design and frontend contributors; Coderax Full Engineering  
 **Status:** Design architecture and implementation brief. This does not claim that planned modules are implemented.  
 **Baseline reviewed:** Coderax main at ea167498e639fddffa14d0dd2770bc77f5721d32, 24 November 2026. This was a source-level review, not a live visual inspection or full source audit.
+**Revision v1.1 (25 November 2026):** re-read at `2cdce45c`. Game Studio's project lifecycle and design brief now exist and are specified in [DESIGN_ARCHITECTURE.md](../design/DESIGN_ARCHITECTURE.md) §7.6 D7; its build, playtest and agent surfaces remain Blocked. Statuses in this family of documents describe source at a named SHA and are never a claim about a deployment.
 
 ## 1. Product direction and boundaries
 

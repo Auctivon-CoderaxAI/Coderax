@@ -1,7 +1,9 @@
 import { MockAgent } from 'undici';
 import { FREE_OPENROUTER_URL } from 'coderax-data-provider';
 import { initializeModel, Providers } from '@librechat/agents';
+import { createFreeInferenceBudget } from '../../routing/budget';
 import { createFreeOpenRouterFetch } from './freeOpenRouter';
+import { createQuotaLedger } from '../../routing/quota';
 import { getOpenAIConfig } from './config';
 
 const url = `${FREE_OPENROUTER_URL}/chat/completions`;
@@ -92,6 +94,104 @@ describe('free OpenRouter transport', () => {
       fetch(url, request({ model, messages, tools: [{ type: 'web_search' }] })),
     ).rejects.toThrow('Only function tools');
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe('free OpenRouter daily budget', () => {
+  const budgetSend = jest.fn();
+
+  beforeEach(() => budgetSend.mockClear());
+
+  const config = {
+    freeInference: { enabled: true, maxRequestsPerDay: 5, maxTokensPerDay: 10_000 },
+  };
+
+  function jsonResponse(body: unknown, status = 200) {
+    return {
+      ok: status < 400,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      clone: () => ({ json: async () => body }) as Response,
+    } as unknown as Response;
+  }
+
+  function budgetWith(requestsPerDay: number, tokensPerDay = 10_000) {
+    return createFreeInferenceBudget({
+      config: { freeInference: { ...config.freeInference, maxRequestsPerDay: requestsPerDay } },
+      modelId: model,
+      ledger: createQuotaLedger({
+        limits: { requestsPerDay, tokensPerDay },
+      }),
+    })!;
+  }
+
+  it('debits one request and settles measured usage', async () => {
+    const budget = budgetWith(5);
+    const guarded = createFreeOpenRouterFetch(budgetSend, 8192, budget);
+    budgetSend.mockResolvedValueOnce(
+      jsonResponse({ usage: { prompt_tokens: 11, completion_tokens: 4 } }),
+    );
+
+    await guarded(url, request({ model, messages }));
+
+    expect(budget.snapshot()).toMatchObject({ requestsUsed: 1, tokensUsed: 15 });
+  });
+
+  it('stops before the provider once the daily request budget is spent', async () => {
+    const budget = budgetWith(1);
+    const guarded = createFreeOpenRouterFetch(budgetSend, 8192, budget);
+    budgetSend.mockResolvedValueOnce(jsonResponse({ usage: { total_tokens: 3 } }));
+
+    await guarded(url, request({ model, messages }));
+    await expect(guarded(url, request({ model, messages }))).rejects.toThrow(
+      'The free inference daily budget is exhausted; no paid provider was used.',
+    );
+    expect(budgetSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the token reservation when the provider declines without usage', async () => {
+    const budget = budgetWith(5);
+    const guarded = createFreeOpenRouterFetch(budgetSend, 8192, budget);
+    budgetSend.mockResolvedValueOnce(jsonResponse({ error: { message: 'rate limited' } }, 429));
+
+    await guarded(url, request({ model, messages }));
+
+    expect(budget.snapshot()).toMatchObject({ requestsUsed: 1, tokensUsed: 0 });
+  });
+
+  it('refuses a prompt that cannot fit the remaining token budget', async () => {
+    const budget = budgetWith(5, 1);
+    const guarded = createFreeOpenRouterFetch(budgetSend, 8192, budget);
+
+    await expect(
+      guarded(url, request({ model, messages: [{ role: 'user', content: 'x'.repeat(400) }] })),
+    ).rejects.toThrow('The free inference daily budget is exhausted');
+    expect(budgetSend).not.toHaveBeenCalled();
+  });
+
+  it('keeps the reservation when a streaming response reports no usage', async () => {
+    const budget = budgetWith(5);
+    const guarded = createFreeOpenRouterFetch(budgetSend, 8192, budget);
+    budgetSend.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+    } as unknown as Response);
+
+    await guarded(url, request({ model, messages }));
+
+    expect(budget.snapshot()).toMatchObject({ requestsUsed: 1 });
+    expect(budget.snapshot().tokensUsed).toBeGreaterThan(0);
+  });
+
+  it('leaves the transport unguarded when no budget is supplied', async () => {
+    const unguarded = createFreeOpenRouterFetch(budgetSend, 8192);
+    budgetSend.mockResolvedValueOnce(jsonResponse({}));
+
+    await unguarded(url, request({ model, messages }));
+    await unguarded(url, request({ model, messages }));
+
+    expect(budgetSend).toHaveBeenCalledTimes(2);
   });
 });
 

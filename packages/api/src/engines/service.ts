@@ -31,6 +31,11 @@ export type ExecutionEnginesConfig =
   | {
       engines?: {
         defaultEngine?: 'opencode' | 'openhands' | 'freebuff';
+        /** Bounded same-engine retry for a run that failed before any side effect. */
+        retry?: {
+          maxAttempts?: number;
+          delayMs?: number;
+        } | null;
         workChat?: {
           enabled?: boolean;
           mode?: 'private' | 'cloud';
