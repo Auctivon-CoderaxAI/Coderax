@@ -7,6 +7,12 @@ import SettingsDialog from '../../../Nav/Settings/Dialog';
 import { render, screen } from 'test/layout-test-utils';
 import QuickLinks from '../QuickLinks';
 
+let mockResearchAccess: { canAccess: boolean } | undefined;
+
+jest.mock('~/data-provider/Research/queries', () => ({
+  useResearchCapabilitiesQuery: () => ({ data: mockResearchAccess }),
+}));
+
 jest.mock('../../../Nav/Settings/Content', () => ({
   __esModule: true,
   default: () => <div data-testid="settings-content" />,
@@ -64,6 +70,10 @@ function SettingsHost({ onNavigate }: { onNavigate: () => void }) {
 }
 
 describe('mobile drawer quick links', () => {
+  beforeEach(() => {
+    mockResearchAccess = undefined;
+  });
+
   it('lists the app-wide destinations in drawer order', () => {
     renderQuickLinks();
 
@@ -82,6 +92,14 @@ describe('mobile drawer quick links', () => {
 
     expect(screen.getByTestId('pathname')).toHaveTextContent(path);
     expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Research when the server admits the account, without Game Studio', () => {
+    mockResearchAccess = { canAccess: true };
+    renderQuickLinks();
+
+    const labels = screen.getAllByRole('button').map((row) => row.textContent);
+    expect(labels).toEqual(['Projects', 'Research', 'Skills', 'Explore', 'Customize Coderax']);
   });
 
   it('closes the drawer and asks for Settings without leaving the route', async () => {

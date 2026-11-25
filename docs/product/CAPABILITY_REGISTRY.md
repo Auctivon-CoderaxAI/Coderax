@@ -56,6 +56,11 @@ Every row below was re-read at `2cdce45c` against `packages/api/src/`, `api/serv
 | CX-38 | Cloud Resource Governor | Blocked | $0/cloud requirement exists; verified capacity contract absent from audit | Verify free quota, admission, cleanup and stop | P0 |
 | CX-39 | Original differentiators | Planned | Workflow host receipts and autobuild verification exist (`packages/api/src/workflows/host.ts`, `autobuild/`), but none of the eighteen named services is implemented as a service | Specify the Evidence Engine receipt schema first | P5 |
 | CX-40 | Competitive intelligence | Planned | `docs/ROADMAP.md` is a hand-maintained ledger; no automated competitive scan or deduplicated intake exists | Establish a primary-source scan and deduplication process | P5 |
+| CX-41 | Cloudflare canonical edge | Blocked | Worker host gate, client-IP forwarding and fail-closed proxy are tested (17/17); anonymous access gate passes 8/8 and the full `npm run verify` gate passes. Live API is still `503` until the owner sets `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET`; the Oracle public host is not recorded in the repository. The PR #302 verifier and the PR #303 release gate are merged. | Owner sets the two Worker bindings and the VM canonical origin, then runs an authenticated journey on `https://coderax.nnabdelshahid.workers.dev`. | P0 |
+
+CX-41 was added on 2026-11-25 against `main` at `7c9147e7460d6b2e987b7294da49c6a4c20293cd`. Its `Blocked` status covers the
+infrastructure/credential boundary, not source completeness; the verifier and release gate landed in PR #302 and PR #303. The Worker and access
+tests are recorded in the evidence section of [`docs/ROADMAP.md`](../ROADMAP.md).
 
 ## Evidence rules
 

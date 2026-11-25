@@ -1,7 +1,7 @@
 import { useLocation } from 'react-router-dom';
 
 /**
- * Route-backed sidebar links (insights, cyvox-*, games) are active because of
+ * Route-backed sidebar links (insights, cyvox-*, games, research) are active because of
  * the URL, not the stored panel. Returns the link id the current path selects,
  * or `undefined` when the path is not a route-backed link.
  */
@@ -14,6 +14,9 @@ export function getRouteActiveId(pathname: string): string | undefined {
   }
   if (pathname === '/games' || pathname.startsWith('/games/')) {
     return 'games';
+  }
+  if (pathname === '/research' || pathname.startsWith('/research/')) {
+    return 'research';
   }
   return undefined;
 }

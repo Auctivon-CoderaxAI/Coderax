@@ -19,8 +19,8 @@
 		handle @direct_work {
 			reverse_proxy app:3080 {
 				flush_interval -1
-				header_up Host coderaxai.vercel.app
-				header_up X-Forwarded-Host coderaxai.vercel.app
+				header_up Host {$CODERAX_PUBLIC_HOST:coderax.nnabdelshahid.workers.dev}
+				header_up X-Forwarded-Host {$CODERAX_PUBLIC_HOST:coderax.nnabdelshahid.workers.dev}
 				header_up X-Forwarded-Proto https
 				header_up X-Forwarded-For {http.request.remote.host}
 				header_up -X-Coderax-Proxy-Secret

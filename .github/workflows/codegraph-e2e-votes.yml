@@ -1,9 +1,9 @@
 # Codegraph e2e VOTES — observe-only, post-merge, time-boxed.
 #
-# Playwright never runs on pushes to dev, so evidence for the e2e skip election would
+# Playwright never runs on pushes to main, so evidence for the e2e skip election would
 # otherwise wait on rare organic PR spec failures. This workflow runs the FULL mock suite on
 # every merge: each run is one graduation trial for every spec it executes, and doubles as
-# the post-merge safety net the jest workflows already have via their dev-push triggers.
+# the post-merge safety net the jest workflows already have via their main-push triggers.
 #
 # It previously ran only the merged PR's skippable tier, passing the tier as CLI path
 # filters. playwright.config.mock.ts scopes discovery to testDir specs/mock/, so tier
@@ -22,7 +22,7 @@ name: Codegraph E2E Votes
 on:
   push:
     branches:
-      - dev
+      - main
     paths:
       - '**'
       - '!**.md'

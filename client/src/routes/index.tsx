@@ -106,6 +106,21 @@ const loadGameWorkspace = () =>
     Component: m.GameWorkspace,
   }));
 
+const loadResearchView = () =>
+  importWithRecovery(() => import('~/components/Research')).then((m) => ({
+    Component: m.ResearchView,
+  }));
+
+const loadResearchNew = () =>
+  importWithRecovery(() => import('~/components/Research')).then((m) => ({
+    Component: m.ResearchNew,
+  }));
+
+const loadResearchWorkspace = () =>
+  importWithRecovery(() => import('~/components/Research')).then((m) => ({
+    Component: m.ResearchWorkspace,
+  }));
+
 const loadProjectsView = () =>
   importWithRecovery(() => import('~/components/Projects')).then((m) => ({
     Component: m.ProjectsView,
@@ -294,6 +309,18 @@ export const router = createBrowserRouter(
                 {
                   path: 'games/:gameId',
                   lazy: loadGameWorkspace,
+                },
+                {
+                  path: 'research',
+                  lazy: loadResearchView,
+                },
+                {
+                  path: 'research/new',
+                  lazy: loadResearchNew,
+                },
+                {
+                  path: 'research/:researchId',
+                  lazy: loadResearchWorkspace,
                 },
                 {
                   path: 'agents',

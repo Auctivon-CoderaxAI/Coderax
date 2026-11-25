@@ -159,7 +159,15 @@ export function createAutomaticChatTransport({
     ...transport,
     start: async (request, options) => {
       const endpoint = request.payload.endpoint;
-      if (isAgentsEndpoint(endpoint) || isAssistantsEndpoint(endpoint)) {
+      if (
+        request.payload.spec ||
+        request.payload.agent_id ||
+        isAgentsEndpoint(endpoint) ||
+        isAssistantsEndpoint(endpoint)
+      ) {
+        // One approval authorizes one paid request. This request bypasses paid
+        // routing, so it must not leave an approval live for a later one.
+        clearPaidApproval();
         return transport.start(request, options);
       }
 

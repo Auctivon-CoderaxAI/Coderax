@@ -1717,7 +1717,7 @@ This architecture is a design contribution under the brief's §3 and §47. It is
 
 Per `AGENTS.md`, which governs:
 
-- Branch from `dev`, target `dev`, pass `--base dev` explicitly (`gh pr create` defaults to `main`). Never backport to `main`.
+- Branch from `main`, target `main`, pass `--base main` explicitly. `main` is the only persistent branch; never push to it or create a `dev`, `canary` or `dev-staging` branch.
 - Never push to a protected branch; never open a draft PR; never merge.
 - Run `npm run verify` and paste its Markdown artifact into the PR's Testing section — it is the acceptance artifact.
 - Run `npx tsc --noEmit` in every touched workspace; `tsdown` builds do not typecheck.
