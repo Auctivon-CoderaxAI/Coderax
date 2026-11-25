@@ -1,12 +1,12 @@
 name: Backend Unit Tests
 on:
-  # push-to-dev runs are the post-merge safety net: gating only ever narrows pull_request
+  # push-to-main runs are the post-merge safety net: gating only ever narrows pull_request
   # synchronize runs, so every merged state still gets the full suite — which is also what
   # keeps ground-truth recall telemetry alive for the codegraph shadow evaluator once
   # selection hides skipped tests from PR runs.
   push:
     branches:
-      - dev
+      - main
     paths:
       - 'api/**'
       - 'packages/**'
@@ -24,7 +24,7 @@ on:
       - 'config/circular-deps.mjs'
       - '.github/workflows/backend-review.yml'
       - '!**.md'
-  # Promotion requires full CI at the exact dev SHA, including path-filtered commits.
+  # A manual dispatch runs the full suite at the exact commit, including path-filtered changes.
   workflow_dispatch:
 
 permissions:
@@ -33,9 +33,9 @@ permissions:
 
 concurrency:
   # PR pushes supersede each other (per-PR canceling group). Push events get a PER-COMMIT group:
-  # dev-push runs are the post-merge safety net and the full-run baseline, and with a shared
+  # main-push runs are the post-merge safety net and the full-run baseline, and with a shared
   # canceling group closely spaced merges cancel each other's runs — observed live on 2026-08-23,
-  # when three consecutive dev merges cancelled the runs that would have caught #15142's red
+  # when three consecutive main merges cancelled the runs that would have caught #15142's red
   # (Codex P2 on #15145).
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true

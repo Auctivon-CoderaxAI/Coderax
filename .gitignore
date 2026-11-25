@@ -35,6 +35,9 @@ client/src/localization/languages/*_missing_keys.json
 # Turborepo
 .turbo
 
+# Wrangler local state (created by `wrangler dev` / `wrangler deploy`)
+/.wrangler/
+
 # AppMap recordings
 tmp/appmap/
 .appmap/
