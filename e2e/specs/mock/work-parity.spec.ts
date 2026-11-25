@@ -142,6 +142,43 @@ test.describe('continuous Chat and Work conversation', () => {
     await expect(page.getByText('Keep this conversation history.', { exact: true })).toBeVisible();
   });
 
+  test('a project stays with the conversation across both mode changes and reload', async ({
+    page,
+  }) => {
+    await page.goto(NEW_CHAT_PATH);
+    const token = await getAccessToken(page);
+    const project = await requestJson<{ _id: string }>(page, {
+      path: '/api/projects',
+      method: 'POST',
+      token,
+      body: { name: `Continuous project ${Date.now()}` },
+    });
+    try {
+      await page.goto(`/c/new?projectId=${project._id}`);
+      await sendMessageAndWaitForCompletion(page, 'Keep this project context.');
+      const url = page.url();
+      const id = new URL(url).pathname.split('/').at(-1)!;
+
+      await switchMode(page, 'Work');
+      await switchMode(page, 'Chat');
+
+      const stored = await requestJson<{ chatProjectId?: string }>(page, {
+        path: `/api/convos/${encodeURIComponent(id)}`,
+        token,
+      });
+      expect(stored.chatProjectId).toBe(project._id);
+      await page.reload();
+      await expect(page.getByText('Keep this project context.', { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(url);
+    } finally {
+      await requestJson(page, {
+        path: `/api/projects/${encodeURIComponent(project._id)}`,
+        method: 'DELETE',
+        token,
+      });
+    }
+  });
+
   test('switching modes does not abort or restart an active Work generation', async ({ page }) => {
     const controls: string[] = [];
     page.on('request', (request) => {
