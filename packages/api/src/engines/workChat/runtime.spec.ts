@@ -412,3 +412,143 @@ describe('engineRunModels', () => {
     expect(engineRunModels(undefined)).toEqual({});
   });
 });
+
+describe('engine run retries', () => {
+  const refused = (code: 'server_unavailable' | 'provider_error') => ({
+    ok: false as const,
+    error: { code },
+  });
+
+  it('makes a single attempt with the default policy', async () => {
+    const start = jest.fn(async () => refused('server_unavailable'));
+    const runtime = new EngineWorkChatRuntime(fakeRegistry(start), roots, 'private');
+
+    await expect(
+      runtime.start({ ...scope('conversation-single'), prompt: 'Fix it' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'server_unavailable' } });
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a transient start failure on the same engine and writes the conversation once', async () => {
+    const beforeDispatch = jest.fn(async () => undefined);
+    let attempts = 0;
+    const start = jest.fn(async (input: Parameters<EngineRegistryApi['start']>[0]) => {
+      await input.beforeDispatch?.();
+      attempts += 1;
+      return attempts < 3
+        ? refused('server_unavailable')
+        : { ok: true as const, value: handle('session-retried') };
+    });
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      createMemoryWorkRunLeaseStore(),
+      30_000,
+      { maxAttempts: 3, delayMs: 0 },
+    );
+    const conversation = 'conversation-retried';
+
+    const started = await runtime.start({
+      ...scope(conversation),
+      engine: 'freebuff' as const,
+      prompt: 'Fix it',
+      beforeDispatch,
+    });
+
+    expect(started.ok).toBe(true);
+    expect(start).toHaveBeenCalledTimes(3);
+    expect(start.mock.calls.map(([input]) => input.engine)).toEqual([
+      'freebuff',
+      'freebuff',
+      'freebuff',
+    ]);
+    expect(beforeDispatch).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]?.[0].beforeDispatch).toBe(beforeDispatch);
+    expect(start.mock.calls[1]?.[0].beforeDispatch).toBeUndefined();
+    expect(start.mock.calls[2]?.[0].beforeDispatch).toBeUndefined();
+    await runtime.release(scope(conversation));
+  });
+
+  it('stops at the configured attempt count and releases the lease', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const start = jest.fn(async () => refused('provider_error'));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      leases,
+      30_000,
+      { maxAttempts: 3, delayMs: 0 },
+    );
+    const conversation = 'conversation-exhausted';
+
+    await expect(
+      runtime.start({ ...scope(conversation), prompt: 'Fix it' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'provider_error' } });
+    expect(start).toHaveBeenCalledTimes(3);
+    await expect(runtime.state(scope(conversation))).resolves.toBeNull();
+  });
+
+  it.each(['busy', 'cancelled', 'workspace_denied', 'disabled', 'protocol_error'] as const)(
+    'does not retry a %s failure',
+    async (code) => {
+      const start = jest.fn(async () => ({ ok: false as const, error: { code } }));
+      const runtime = new EngineWorkChatRuntime(
+        fakeRegistry(start),
+        roots,
+        'private',
+        {},
+        'opencode',
+        createMemoryWorkRunLeaseStore(),
+        30_000,
+        { maxAttempts: 3, delayMs: 0 },
+      );
+
+      await runtime.start({ ...scope(`conversation-${code}`), prompt: 'Fix it' });
+      expect(start).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('does not retry a failure that still has cleanup to settle', async () => {
+    const start = jest.fn(async () => ({
+      ok: false as const,
+      error: { code: 'server_unavailable' as const },
+      cleanup: Promise.resolve(),
+    }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      createMemoryWorkRunLeaseStore(),
+      30_000,
+      { maxAttempts: 3, delayMs: 0 },
+    );
+
+    await runtime.start({ ...scope('conversation-cleanup'), prompt: 'Fix it' });
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start a retry that could outlive the lease', async () => {
+    const start = jest.fn(async () => refused('server_unavailable'));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      createMemoryWorkRunLeaseStore(),
+      20,
+      { maxAttempts: 3, delayMs: 1_000 },
+    );
+
+    await runtime.start({ ...scope('conversation-lease-bound'), prompt: 'Fix it' });
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+});

@@ -6,12 +6,20 @@ import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
 import type { WorkRunLeaseStore } from './leases';
+import type { EngineRetryPolicy } from '../retry';
 import {
   DEFAULT_WORK_RUN_LEASE_TTL_MS,
   DEFAULT_WORK_RUN_RETENTION_MS,
   WORK_RUN_SWEEP_LIMIT,
   memoryWorkRunLeases,
 } from './leases';
+import {
+  DEFAULT_ENGINE_RETRY_POLICY,
+  canRetryWithin,
+  isRetryableStartFailure,
+  normalizeEngineRetryPolicy,
+  wait,
+} from '../retry';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -62,6 +70,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private readonly models: EngineRunModels;
   private readonly defaultEngine: EngineId;
   private readonly leases: WorkRunLeaseStore;
+  private readonly retry: EngineRetryPolicy;
   private readonly instanceId = randomUUID();
   private readonly leaseTtlMs: number;
   private readonly heartbeatMs: number;
@@ -77,6 +86,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     defaultEngine: EngineId = 'opencode',
     leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry: EngineRetryPolicy = DEFAULT_ENGINE_RETRY_POLICY,
   ) {
     this.registry = registry;
     this.roots = roots;
@@ -85,6 +95,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     this.defaultEngine = defaultEngine;
     this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
+    this.retry = normalizeEngineRetryPolicy(retry);
     this.heartbeatMs = Math.max(5, Math.floor(leaseTtlMs / 3));
   }
 
@@ -196,18 +207,40 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     }
 
     const model = this.models[engine];
-    const started = await this.registry.start({
-      engine,
-      beforeDispatch: input.beforeDispatch,
-      request: {
-        taskKey: this.mode === 'cloud' ? key : input.conversationId,
-        conversationId: input.conversationId,
-        prompt: input.prompt,
-        mode: this.mode,
-        workspaceRoot,
-        ...(model ? { model } : {}),
-      },
-    });
+    /**
+     * The conversation row is written once, by the first attempt. A retry only
+     * re-invokes the engine: the same engine, the same task and the same model,
+     * with no fallback and no second write.
+     */
+    const dispatch = (withBeforeDispatch: boolean) =>
+      this.registry.start({
+        engine,
+        ...(withBeforeDispatch && input.beforeDispatch
+          ? { beforeDispatch: input.beforeDispatch }
+          : {}),
+        request: {
+          taskKey: this.mode === 'cloud' ? key : input.conversationId,
+          conversationId: input.conversationId,
+          prompt: input.prompt,
+          mode: this.mode,
+          workspaceRoot,
+          ...(model ? { model } : {}),
+        },
+      });
+
+    let started = await dispatch(true);
+    for (let attempt = 1; ; attempt += 1) {
+      if (
+        started.ok ||
+        attempt >= this.retry.maxAttempts ||
+        !isRetryableStartFailure(started) ||
+        !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
+      ) {
+        break;
+      }
+      await wait(this.retry.delayMs);
+      started = await dispatch(false);
+    }
     if (!started.ok) {
       /**
        * The engine never ran, so there is nothing to report but its own typed
@@ -317,6 +350,7 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     openhands: engines?.openhands ?? null,
     freebuff: engines?.freebuff ?? null,
     defaultEngine: engines?.defaultEngine ?? null,
+    retry: engines?.retry ?? null,
   });
 }
 
@@ -348,6 +382,7 @@ export function getEngineWorkChatRuntime(
   const workEngine = engines?.defaultEngine ?? 'opencode';
   /** Each engine keeps the model its own configuration approved. */
   const models = engineRunModels(engines);
+  const retry = normalizeEngineRetryPolicy(engines?.retry);
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
@@ -355,6 +390,8 @@ export function getEngineWorkChatRuntime(
     models,
     workEngine,
     leases,
+    DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry,
   );
   cache.set(key, runtime);
   return runtime;
