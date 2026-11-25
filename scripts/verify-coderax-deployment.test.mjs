@@ -8,8 +8,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
 import {
+  buildVerificationReport,
   findMissingBuildTestFiles,
+  parseArgs,
+  resolveAuthenticatedE2eCredentials,
   validateLiveURL,
+  verifyAuthenticatedE2e,
   verifyDataSchemasModelsExport,
   verifyLiveBackend,
   verifyRepositoryContracts,
@@ -38,22 +42,55 @@ const headers = (type, extras = {}) => ({
   },
 });
 
-test('client shell availability requires both guards in the initializer', () => {
-  const assetGuard = '(!process.env.VERCEL || fs.existsSync(indexPath))';
-  assert.doesNotThrow(() =>
-    verifyVercelClientShellAvailability(
-      `  const clientShellAvailable =\n    serveClientShell && ${assetGuard};`,
-    ),
+test('client shell availability requires both independent guards', () => {
+  const current = [
+    "  const clientShellEnabled = process.env.SERVE_CLIENT !== 'false';",
+    "  const indexPath = path.join(appConfig.paths.dist, 'index.html');",
+    '  const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);',
+    '  const serveClientShell = clientShellEnabled && clientShellAvailable;',
+    "  let indexHTML = serveClientShell ? fs.readFileSync(indexPath, 'utf8') : '';",
+  ].join('\n');
+
+  assert.doesNotThrow(() => verifyVercelClientShellAvailability(current));
+
+  // The obsolete circular form was the assertion that broke against the split
+  // guards; keeping it would make the verifier accept code that cannot boot.
+  assert.throws(
+    () =>
+      verifyVercelClientShellAvailability(
+        current.replace(
+          'const clientShellAvailable = !process.env.VERCEL || fs.existsSync(indexPath);',
+          'const clientShellAvailable = serveClientShell && (!process.env.VERCEL || fs.existsSync(indexPath));',
+        ),
+      ),
+    /tolerate missing assets on Vercel/,
   );
-  assert.throws(() =>
-    verifyVercelClientShellAvailability(
-      `const clientShellAvailable = serveClientShell || ${assetGuard};`,
-    ),
+  assert.throws(
+    () =>
+      verifyVercelClientShellAvailability(
+        current.replace(
+          'const serveClientShell = clientShellEnabled && clientShellAvailable;',
+          'const serveClientShell = clientShellAvailable;',
+        ),
+      ),
+    /must require SERVE_CLIENT and an available shell/,
   );
-  assert.throws(() =>
-    verifyVercelClientShellAvailability(
-      `const clientShellAvailable = serveClientShell;\nconst other = ${assetGuard};`,
-    ),
+  assert.throws(
+    () =>
+      verifyVercelClientShellAvailability(
+        current.replace("process.env.SERVE_CLIENT !== 'false'", 'false'),
+      ),
+    /must honor SERVE_CLIENT=false/,
+  );
+  assert.throws(
+    () =>
+      verifyVercelClientShellAvailability(
+        current.replace(
+          "let indexHTML = serveClientShell ? fs.readFileSync(indexPath, 'utf8') : '';",
+          "let indexHTML = fs.readFileSync(indexPath, 'utf8');",
+        ),
+      ),
+    /only be read when both guards allow serving it/,
   );
 });
 
@@ -714,24 +751,164 @@ test('rejects a green Vercel static deployment without an Express /readyz endpoi
   );
 });
 
-test('accepts a real-shaped Express readiness, startup config and Vite shell', async () => {
+const deployedCommit = '6673992ff2e08664f2869da4fda822c964ea58f1';
+
+test('accepts a real-shaped deployment that identifies its full commit', async () => {
   const fakeFetch = async (url) => ({
     status: 200,
     headers: headers(contentTypeFor(url)),
     text: async () => {
       if (url.endsWith('/readyz')) return 'OK';
-      if (url.endsWith('/api/config')) return JSON.stringify({ appTitle: 'Coderax' });
+      if (url.endsWith('/api/config')) {
+        return JSON.stringify({ appTitle: 'Coderax', buildInfo: { commit: deployedCommit } });
+      }
       return '<html><body>Coderax</body></html>';
     },
   });
   const result = await verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch);
   assert.equal(result.apiConfig, 'JSON');
   assert.equal(result.appTitle, 'Coderax');
-  assert.equal(result.backendRevisionVerified, false);
+  assert.equal(result.deployedCommit, deployedCommit);
+  assert.equal(result.expectedCommit, null);
+  assert.equal(result.backendRevisionVerified, true);
+});
+
+test('rejects a live deployment whose commit cannot be identified', async () => {
+  const fakeFetch = (buildInfo) => async (url) => ({
+    status: 200,
+    headers: headers(contentTypeFor(url)),
+    text: async () => {
+      if (url.endsWith('/readyz')) return 'OK';
+      if (url.endsWith('/api/config')) {
+        return JSON.stringify({ appTitle: 'Coderax', ...(buildInfo ? { buildInfo } : {}) });
+      }
+      return '<html><body>Coderax</body></html>';
+    },
+  });
+
+  await assert.rejects(
+    verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch()),
+    /deployed commit cannot be identified/,
+  );
+  await assert.rejects(
+    verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch({ commit: '6673992f' })),
+    /deployed commit cannot be identified/,
+  );
+  await assert.rejects(
+    verifyLiveBackend('https://coderax-ten.vercel.app', fakeFetch({ commit: null })),
+    /deployed commit cannot be identified/,
+  );
+});
+
+test('keeps repository, deployment and authenticated E2E verification distinct', () => {
+  assert.deepEqual(buildVerificationReport({ repository: 'verified' }), {
+    repository: 'verified',
+    deployment: 'not-run',
+    authenticatedE2E: 'not-run',
+  });
+  assert.deepEqual(
+    buildVerificationReport({
+      repository: 'verified',
+      deployment: 'verified',
+      authenticatedE2E: 'verified',
+    }),
+    { repository: 'verified', deployment: 'verified', authenticatedE2E: 'verified' },
+  );
+  assert.throws(
+    () => buildVerificationReport({ repository: 'verified', authenticatedE2E: 'verified' }),
+    /authenticated E2E verification requires deployment verification/,
+  );
+  assert.throws(
+    () => buildVerificationReport({ repository: 'failed', deployment: 'verified' }),
+    /status must be "verified" or "not-run"/,
+  );
+});
+
+test('verification modes cannot be conflated on the command line', () => {
+  assert.equal(parseArgs(['--repo-only']).mode, 'repository');
+  assert.equal(parseArgs(['--live-url', 'https://coderax-ten.vercel.app']).mode, 'deployment');
+  assert.equal(
+    parseArgs([
+      '--live-url',
+      'https://coderax-ten.vercel.app',
+      '--expected-backend-revision',
+      deployedCommit,
+    ]).expectedBackendRevision,
+    deployedCommit,
+  );
+  assert.equal(
+    parseArgs(['--live-url', 'https://coderax-ten.vercel.app', '--authenticated-e2e'])
+      .authenticatedE2e,
+    true,
+  );
+  assert.throws(() => parseArgs([]), /choose --repo-only or --live-url/);
+  assert.throws(
+    () => parseArgs(['--repo-only', '--authenticated-e2e']),
+    /deployment flags need --live-url/,
+  );
+  assert.throws(() => parseArgs(['--authenticated-e2e']), /needs --live-url/);
+  assert.throws(
+    () =>
+      parseArgs([
+        '--live-url',
+        'https://coderax-ten.vercel.app',
+        '--expected-backend-revision',
+        '6673992f',
+      ]),
+    /must be a full 40-character commit/,
+  );
+  assert.throws(() => parseArgs(['--unknown']), /unknown argument/);
+});
+
+test('authenticated E2E verification fails closed without credentials', async () => {
+  assert.throws(
+    () => resolveAuthenticatedE2eCredentials({}),
+    /requires CODERAX_SMOKE_TOKEN or both .*CODERAX_SMOKE_EMAIL.*CODERAX_SMOKE_PASSWORD/,
+  );
+  assert.throws(
+    () => resolveAuthenticatedE2eCredentials({ CODERAX_SMOKE_EMAIL: 'owner@example.test' }),
+    /missing CODERAX_SMOKE_PASSWORD/,
+  );
+  assert.deepEqual(resolveAuthenticatedE2eCredentials({ CODERAX_SMOKE_TOKEN: 'token' }), {
+    method: 'token',
+  });
+  assert.deepEqual(
+    resolveAuthenticatedE2eCredentials({
+      CODERAX_SMOKE_EMAIL: 'owner@example.test',
+      CODERAX_SMOKE_PASSWORD: 'secret',
+    }),
+    { method: 'password' },
+  );
+
+  let ran = false;
+  await assert.rejects(
+    verifyAuthenticatedE2e('https://coderax-ten.vercel.app', {
+      env: {},
+      run: async () => {
+        ran = true;
+      },
+    }),
+    /No authenticated verification was performed/,
+  );
+  assert.equal(ran, false, 'the smoke must not run without credentials');
+
+  const result = await verifyAuthenticatedE2e('https://coderax-ten.vercel.app', {
+    env: { CODERAX_SMOKE_TOKEN: 'token' },
+    run: async (origin, env) => {
+      assert.equal(origin, 'https://coderax-ten.vercel.app');
+      assert.equal(env.CODERAX_BASE_URL, origin);
+      assert.equal(env.CODERAX_SMOKE_TOKEN, 'token');
+    },
+  });
+  assert.deepEqual(result, {
+    status: 'verified',
+    method: 'token',
+    origin: 'https://coderax-ten.vercel.app',
+  });
 });
 
 test('requires a matching backend-reported revision when the gate is requested', async () => {
-  const expected = '6673992ff2e08664f2869da4fda822c964ea58f1';
+  const expected = deployedCommit;
   const old = '71fbdbaa2dfed54055b92357d375db41e593a90f';
   const fakeFetch = (commit) => async (url) => ({
     status: 200,

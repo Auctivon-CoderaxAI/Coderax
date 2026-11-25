@@ -108,6 +108,27 @@ own successful run.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
+## Verification levels
+
+These levels are not interchangeable. A green frontend build, a reachable host or a
+successful `--repo-only` run does not prove that a deployment happened.
+
+- **Repository:** `node scripts/verify-coderax-deployment.mjs --repo-only` checks the
+  committed deployment contract (services, rewrites, traced API dependencies). It contacts
+  no deployment and reports `deployment: not-run`.
+- **Deployment:** `node scripts/verify-coderax-deployment.mjs --live-url <origin>` requires
+  `/readyz`, JSON `/api/config`, the SPA shell and a full 40-character
+  `buildInfo.commit` from the deployment. A missing or short commit fails the gate because
+  the deployed revision cannot be identified; `--expected-backend-revision <full-commit>`
+  additionally requires an exact match.
+- **Authenticated E2E:** add `--authenticated-e2e` to run the deployment-backed smoke. It
+  fails closed unless `CODERAX_SMOKE_TOKEN` or both `CODERAX_SMOKE_EMAIL` and
+  `CODERAX_SMOKE_PASSWORD` are set. The browser suite remains `npm run e2e:deployed`, which
+  requires `E2E_BASE_URL` and a Playwright storage state (`E2E_STORAGE_STATE`).
+
+The post-merge workflow waits for the pushed revision before running the deployment check;
+`deployed-smoke.yml` runs the authenticated lane on its own schedule.
+
 ## Failure modes
 
 - **Missing secret:** the deploy step stops before installing the CLI and names
@@ -171,9 +192,10 @@ merging, check that `vercel deploy --help` at the new version still lists
 
 ## Known follow-up
 
-`coderax-post-merge-deployment.yml` expects `/api/config` to report
-`buildInfo.commit` equal to the pushed SHA. The API runs on the OCI host, where
-`packages/api/src/app/build.ts` can only resolve `BUILD_COMMIT` / `BUILD_BRANCH` /
-`BUILD_DATE` from the environment. Set those in `deploy/oci/compose.yaml` from
-the deployed snapshot, or scope that revision assertion to the frontend
-deployment; otherwise that check stays red after every merge.
+`coderax-post-merge-deployment.yml` and every `--live-url` check require
+`/api/config` to report a full `buildInfo.commit`. The API runs on the OCI host,
+where `packages/api/src/app/build.ts` can only resolve `BUILD_COMMIT` /
+`BUILD_BRANCH` / `BUILD_DATE` from the environment. Build the image with the
+build args `docker-publish.yml` already passes, or add `BUILD_COMMIT` to the
+OCI app environment. A deployment that cannot identify its commit is
+intentionally reported as unverified rather than passed.
