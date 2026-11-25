@@ -13,9 +13,11 @@
  *   node scripts/write-deployment-metadata.mjs --verify
  *   node scripts/write-deployment-metadata.mjs --output <file> --commit <sha> --branch <name>
  *
- * --verify refuses to deploy when the marker is missing, names a commit other
- * than the current checkout, or was built from a dirty tracked tree, so a manual
- * deploy cannot claim a revision its assets were not built from.
+ * A normal build with tracked changes still succeeds but writes `commit: null`,
+ * so development and e2e builds work before a commit exists. --verify refuses to
+ * deploy that marker, a missing marker, a marker for another commit, or a dirty
+ * tracked tree, so a manual deploy cannot claim a revision its assets were not
+ * built from.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -89,7 +91,6 @@ const commit = one('commit', [
   ],
   ['git HEAD', commitValue('git HEAD', head)],
 ]);
-const verifiableCommit = commit || null;
 const branch =
   one('branch', [
     ['--branch', option('--branch')],
@@ -104,6 +105,8 @@ const output = path.resolve(root, option('--output') ?? 'client/dist/deployment.
 const verify = process.argv.includes('--verify');
 const insideWorkTree = git('rev-parse', '--is-inside-work-tree') === 'true';
 const trackedChanges = insideWorkTree ? git('status', '--porcelain', '--untracked-files=no') : '';
+const trackedTreeDirty = insideWorkTree && trackedChanges.length > 0;
+const verifiableCommit = trackedTreeDirty ? null : commit || null;
 const dirtyMessage =
   'Working tree has tracked changes; commit or stash them before recording deployment provenance.';
 
@@ -137,9 +140,6 @@ if (verify) {
   }
   console.log(`Verified ${output} for ${existing.commit} on ${existing.branch ?? 'unknown'}.`);
 } else {
-  if (trackedChanges) {
-    throw new Error(dirtyMessage);
-  }
   mkdirSync(path.dirname(output), { recursive: true });
   writeFileSync(
     output,
@@ -155,7 +155,11 @@ if (verify) {
     )}\n`,
   );
 
-  if (verifiableCommit === null) {
+  if (trackedTreeDirty) {
+    console.warn(
+      `Tracked files are modified; wrote ${output} without a verifiable revision.`,
+    );
+  } else if (verifiableCommit === null) {
     console.warn(
       `No 40-character commit was available; wrote ${output} without a verifiable revision.`,
     );

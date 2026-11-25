@@ -35,10 +35,12 @@ release gate passes.
 | Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
-hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. The
-`deploy:cloudflare` command verifies that marker against the current checkout and refuses a missing
-or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The gate
-also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
+hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. A
+clean tracked tree records the full commit; a dirty tracked tree still builds for local development
+and e2e, but writes `commit: null` so the artifact is explicitly unverifiable. The
+`deploy:cloudflare` command verifies that marker against the current checkout and refuses a missing,
+null or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The
+gate also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
 HEAD`; untracked build output is ignored. If Workers Builds, GitHub and Vercel expose conflicting
 commit values, the script fails instead of choosing one. The deploy command pins Wrangler 4.168.0;
 change the pin in `package.json` and this table together.
