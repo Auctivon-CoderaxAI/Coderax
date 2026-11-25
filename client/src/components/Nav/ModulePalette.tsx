@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useAtom } from 'jotai';
 import { useNavigate } from 'react-router-dom';
 import { CommandPalette } from '@coderax/client';
@@ -27,6 +27,9 @@ export default function ModulePalette() {
   const localize = useLocalize();
   const navigate = useNavigate();
   const [open, setOpen] = useAtom(commandPaletteOpenAtom);
+
+  // The app's store outlives the authenticated shell. Close the palette when the shell leaves.
+  useEffect(() => () => setOpen(false), [setOpen]);
 
   const labels = useMemo<CommandPaletteLabels>(
     () => ({

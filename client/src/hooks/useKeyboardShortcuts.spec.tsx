@@ -19,6 +19,7 @@ import useKeyboardShortcuts, {
 } from './useKeyboardShortcuts';
 import { ReasoningControl } from '~/components/Chat/Input/Reasoning';
 import Thinking from '~/components/Chat/Input/Composer/Thinking';
+import ModulePalette from '~/components/Nav/ModulePalette';
 import { commandPaletteOpenAtom } from '~/store/palette';
 import store from '~/store';
 
@@ -529,6 +530,30 @@ function appendDialog() {
 }
 
 describe('command palette shortcut', () => {
+  it('starts closed when the palette host remounts in the same store', () => {
+    const { getByTestId, rerender } = renderHarness(
+      undefined,
+      '/c/test-convo',
+      undefined,
+      <>
+        <ModulePalette />
+        <PaletteProbe />
+      </>,
+    );
+    dispatchKey({ key: 'k', ctrlKey: true });
+    expect(getByTestId('palette-open')).toHaveTextContent('true');
+
+    rerender(<PaletteProbe />);
+    rerender(
+      <>
+        <Harness />
+        <ModulePalette />
+        <PaletteProbe />
+      </>,
+    );
+    expect(getByTestId('palette-open')).toHaveTextContent('false');
+  });
+
   it('toggles the palette with its default chord', () => {
     const { getByTestId } = renderHarness(undefined, '/c/test-convo', undefined, <PaletteProbe />);
 
