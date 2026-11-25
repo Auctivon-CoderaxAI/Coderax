@@ -233,7 +233,7 @@ export async function startOpenCodeRun(
     const abort = abortSession(sessionId);
     return engineFailureWithCleanup(
       'server_unavailable',
-      abort.catch(() => undefined),
+      retainOnFailure(abort),
       'The OpenCode event stream was unavailable.',
     );
   }
@@ -299,7 +299,7 @@ export async function startOpenCodeRun(
     await handle.close();
     return engineFailureWithCleanup(
       'server_unavailable',
-      abort.catch(() => undefined),
+      retainOnFailure(abort),
       'The OpenCode server did not accept the task.',
     );
   }
