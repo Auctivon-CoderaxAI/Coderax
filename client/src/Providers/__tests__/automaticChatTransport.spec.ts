@@ -130,13 +130,36 @@ describe('automatic Chat model transport', () => {
     );
   });
 
-  it('keeps native agent and assistant conversations on their configured execution path', async () => {
+  it('routes a loaded Work conversation through automatic Chat after switching modes', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'chat-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'chat-free', provider: 'openrouter' }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+      workMode: false,
+    });
+    const request = {
+      ...makeRequest(EModelEndpoint.agents),
+      server: 'https://coderax.example/api/agents/chat',
+    };
+
+    await controller.transport.start(request);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      server: 'https://coderax.example/api/agents/openrouter',
+      payload: { endpoint: 'openrouter', model: 'chat-free', endpointType: 'custom' },
+    });
+  });
+
+  it('keeps native agent conversations on their configured execution path in Work mode', async () => {
     const start = jest.fn().mockResolvedValue({ generationId: 'agent-generation' });
     const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
     const controller = createAutomaticChatTransport({
       transport: makeTransport(start),
       selection,
       endpointsConfig,
+      workMode: true,
     });
     const request = makeRequest(EModelEndpoint.agents);
 
