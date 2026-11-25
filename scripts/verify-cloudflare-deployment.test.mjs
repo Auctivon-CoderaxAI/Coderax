@@ -47,7 +47,7 @@ before(async () => {
       return;
     }
     response.writeHead(200, { 'content-type': route.type });
-    response.end(route.body);
+    response.end(typeof route.body === 'function' ? route.body() : route.body);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
@@ -124,6 +124,25 @@ describe('verifyDeployment', () => {
       },
     });
     await assert.rejects(() => verifyDeployment(ORIGIN, COMMIT, localFetch), /expected/);
+  });
+
+  it('fails when the marker changes during verification', async () => {
+    let reads = 0;
+    fixture({
+      '/deployment.json': {
+        type: 'application/json',
+        body: () =>
+          JSON.stringify({
+            worker: 'coderax',
+            commit: reads++ === 0 ? COMMIT : OTHER_COMMIT,
+            branch: 'main',
+          }),
+      },
+    });
+    await assert.rejects(
+      () => verifyDeployment(ORIGIN, COMMIT, localFetch),
+      /reports b{40}, expected/,
+    );
   });
 
   it('fails when the SPA fallback answers /deployment.json', async () => {

@@ -22,7 +22,7 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 2. Keep the VM's public IPv4 address; add that address as a single `/32` in Atlas after creating a Coderax-only `readWrite` database user.
 3. Transfer a reviewed source snapshot of this private repository to the VM over the authenticated operator session. Do not put Git credentials, environment files, SSH private keys, or Atlas credentials in the source archive.
 4. Run `sh deploy/oci/prepare-env.sh` on the VM. The script prompts without echo for the database-only MongoDB URI and the existing Production `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDS_KEY`, and `CREDS_IV`. Keep those existing values so current sessions and encrypted database credentials remain usable. It also requires an OpenRouter API key, which is the only Work inference path: the verified $0 OpenRouter models are selected automatically. It generates a new proxy secret, writes owner-only local environment files, and does not print their values.
-5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>` and `CODERAX_PROXY_SECRET` from `origin.env` on the **coderax** Cloudflare Worker. Set `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev` and `DOMAIN_CLIENT` / `DOMAIN_SERVER` to the Cloudflare origin on the VM. Keep the secret server-only; never use a `NEXT_PUBLIC_`, `VITE_`, or committed value for it. The Vercel project keeps its own copies only while it remains the fallback front door; see [`deploy/vercel/README.md`](../vercel/README.md).
+5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>` and `CODERAX_PROXY_SECRET` from `origin.env` on the **coderax** Cloudflare Worker. Set `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev` and `DOMAIN_CLIENT` / `DOMAIN_SERVER` in `deploy/oci/app.env` on the VM, not only in a shell; `compose.yaml` reads `app.env` and does not override those two values. Keep the secret server-only; never use a `NEXT_PUBLIC_`, `VITE_`, or committed value for it. The Vercel project keeps its own copies only while it remains the fallback front door; see [`deploy/vercel/README.md`](../vercel/README.md).
 6. Configure only inbound 80/443 (and temporary operator-IP-only SSH) in the Oracle security list. Configure Atlas for the VM's `/32` and the Coderax database user above.
 7. Run `docker compose -f deploy/oci/compose.yaml config --quiet`, then `docker compose -f deploy/oci/compose.yaml up -d --build --wait`.
 8. After the VM reports ready, verify the HTTPS origin directly, then the Cloudflare Worker origin, and, while it remains the fallback, the Vercel canonical URL. The expected checks are `/readyz` = plain `OK`, `/api/config` = JSON, guest access = a 200 response with a guest session, login route = frontend HTML, and a real streamed completion from a verified free OpenRouter model that persists after refresh.
@@ -38,18 +38,20 @@ Set the following on the **coderax** Worker in **Cloudflare → Workers & Pages 
 - `CODERAX_API_ORIGIN`: the HTTPS `coderax-<public-ip>.sslip.io` address (text variable).
 - `CODERAX_PROXY_SECRET`: the matching value stored in the VM's `origin.env` (secret; at least 32 characters).
 
-On the VM, keep both front doors allowed during the transition:
+In `deploy/oci/app.env` on the VM, keep both front doors allowed during the transition (append these
+lines if the file already exists; `prepare-env.sh` refuses to overwrite it):
 
 - `CODERAX_ALLOWED_HOSTS`: `coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev`.
-- `DOMAIN_CLIENT` and `DOMAIN_SERVER`: the origin users actually open. Use the Cloudflare origin after cutover and keep `https://coderaxai.vercel.app` only while Vercel remains the fallback.
+- `DOMAIN_CLIENT` and `DOMAIN_SERVER`: the origin users actually open. Use the Cloudflare origin after cutover and keep `https://coderaxai.vercel.app` only while Vercel remains the fallback. Changing `DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the new host.
 
 The legacy Vercel project keeps `CODERAX_API_ORIGIN`, `CODERAX_PROXY_SECRET`, and
 `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app` in **Production** until the owner retires it. Do not
 delete those values, its alias, or the deployment without explicit owner approval.
 
-Until the Worker origin, secret, allowed host, and a full backend `buildInfo.commit` are in place, the
-Cloudflare proxy fails closed with HTTP 503 and the release gate reports the deployment as unverified.
+Until the Worker origin, secret and allowed host are in place, the Cloudflare proxy fails closed with
+HTTP 503. Once the proxy is configured but the backend still lacks a full `buildInfo.commit`, the API
+can answer while the release gate remains unverified. These are separate failure conditions.
 
 ## Rollback
 
-For the Cloudflare edge, roll back the Worker to the previous version in the Cloudflare dashboard and verify `/deployment.json` and `/readyz` (see [`deploy/cloudflare/README.md`](../cloudflare/README.md)). For the legacy front door, restore the previous Vercel deployment. Keep OCI volumes and the existing Atlas data. Never run `docker compose down -v` or prune volumes during rollback.
+For the Cloudflare edge, roll back the Worker to the previous version in the Cloudflare dashboard and verify `/deployment.json` and `/readyz` (see [`deploy/cloudflare/README.md`](../cloudflare/README.md)). A Worker-only rollback is partial: restore the matching OCI backend revision too, or the gate will fail until the backend reports the restored commit. For the legacy front door, restore the previous Vercel deployment. Keep OCI volumes and the existing Atlas data. Never run `docker compose down -v` or prune volumes during rollback.

@@ -70,14 +70,7 @@ async function request(origin, route, fetcher) {
   return { response, body };
 }
 
-/** Verify the live Worker serves the expected revision and reaches the backend. */
-export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
-  if (!FULL_COMMIT.test(expectedCommit ?? '')) {
-    throw new Error('--expected-commit must be a full 40-character commit');
-  }
-  const expected = expectedCommit.toLowerCase();
-  const origin = validateOrigin(value);
-
+async function verifyMarker(origin, expected, fetcher) {
   const marker = await request(origin, '/deployment.json', fetcher);
   assert.match(
     marker.response.headers.get('content-type') ?? '',
@@ -97,6 +90,18 @@ export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
     `/deployment.json reports ${deployment.commit}, expected ${expected}`,
   );
   assert.equal(typeof deployment.branch, 'string', '/deployment.json has no branch');
+  return deployment;
+}
+
+/** Verify the live Worker serves the expected revision and reaches the backend. */
+export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
+  if (!FULL_COMMIT.test(expectedCommit ?? '')) {
+    throw new Error('--expected-commit must be a full 40-character commit');
+  }
+  const expected = expectedCommit.toLowerCase();
+  const origin = validateOrigin(value);
+
+  await verifyMarker(origin, expected, fetcher);
 
   const shell = await request(origin, '/', fetcher);
   assert.match(
@@ -140,12 +145,14 @@ export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
     `/api/config reports ${backendCommit}, expected ${expected}`,
   );
 
+  const finalDeployment = await verifyMarker(origin, expected, fetcher);
+
   return {
     origin,
-    worker: deployment.worker,
-    deployedCommit: deployment.commit.toLowerCase(),
-    branch: deployment.branch,
-    builtAt: deployment.builtAt ?? null,
+    worker: finalDeployment.worker,
+    deployedCommit: finalDeployment.commit.toLowerCase(),
+    branch: finalDeployment.branch,
+    builtAt: finalDeployment.builtAt ?? null,
     shell: 'HTML',
     login: 'HTML',
     readiness: 'OK',
@@ -180,6 +187,11 @@ export function verifyRepositoryConfig(root = repoRoot) {
     pkg.scripts?.['deploy:cloudflare'] ?? '',
     /wrangler@4\.168\.0/,
     'the Cloudflare deploy command must pin Wrangler',
+  );
+  assert.match(
+    pkg.scripts?.['deploy:cloudflare'] ?? '',
+    /write-deployment-metadata\.mjs/,
+    'the Cloudflare deploy command must write the revision marker',
   );
   return {
     worker: 'coderax',

@@ -32,7 +32,7 @@ release gate passes.
 | Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
 | Deploy command | `npm run deploy:cloudflare` (writes the revision marker, then `npx --yes wrangler@4.168.0 deploy`) |
 | Branch | `main` |
-| Preview builds | Enabled by Workers Builds for non-production branches; each preview is public and is not production. `"previews": {}` only disables named Wrangler preview aliases. |
+| Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
 hook and the `deploy:cloudflare` command both write `client/dist/deployment.json` with the commit and
@@ -56,16 +56,20 @@ coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 | `CODERAX_API_ORIGIN` | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port. |
 | `CODERAX_PROXY_SECRET` | secret | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
 
-The OCI application must also accept the Cloudflare hostname. Set on the VM and recreate the app:
+The OCI application must also accept the Cloudflare hostname. Put these values in
+`deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and
+does not override `DOMAIN_CLIENT` or `DOMAIN_SERVER`.
 
-```sh
+```dotenv
 CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev
 DOMAIN_CLIENT=https://coderax.nnabdelshahid.workers.dev
 DOMAIN_SERVER=https://coderax.nnabdelshahid.workers.dev
 ```
 
-Keep the Vercel hostname in `CODERAX_ALLOWED_HOSTS` during the transition so both front doors can
-reach the same backend. After a custom domain is attached, add that hostname too.
+If `deploy/oci/app.env` already exists, append these lines; `prepare-env.sh` refuses to overwrite
+it. Keep the Vercel hostname in `CODERAX_ALLOWED_HOSTS` during the transition so both front doors can
+reach the same backend. After a custom domain is attached, add that hostname too. Changing
+`DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the new host.
 
 ## What a merge does
 
@@ -132,6 +136,11 @@ Use a previous Worker version; never rebuild a rollback from an unreviewed worki
      --expected-commit <restored-commit>
    ```
 
+   A Worker-only rollback is partial: the gate compares the backend `buildInfo.commit` with the
+   restored Worker commit. If the OCI backend still serves a newer commit, the gate fails even
+   though the Worker rollback succeeded. Restore the matching OCI image/commit, or record the
+   mismatch as an incident; do not treat that gate failure as a failed Worker rollback.
+
 3. Open a reviewed revert pull request so `main` and the deployed version converge again. A rollback
    is an incident response, not the permanent fix.
 
@@ -165,12 +174,18 @@ Vercel is still a live dependency, and **must not be deleted without explicit ow
 
 Exact safe retirement procedure:
 
-1. Set the Worker's `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` and restart the OCI app with the
-   Cloudflare host in `CODERAX_ALLOWED_HOSTS` and `DOMAIN_CLIENT` / `DOMAIN_SERVER`.
+1. Set the Worker's `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET`. In `deploy/oci/app.env`, keep
+   both hosts in `CODERAX_ALLOWED_HOSTS` and set `DOMAIN_CLIENT` / `DOMAIN_SERVER` to the Cloudflare
+   origin; recreate the OCI app.
 2. Run the live release gate against the Cloudflare origin and confirm `/deployment.json`, `/login`,
-   `/readyz` and `/api/config` all pass with the current `main` commit.
+   `/readyz` and `/api/config` all pass with the current `main` commit. **If step 2 fails, restore
+   `DOMAIN_CLIENT` and `DOMAIN_SERVER` in `app.env` to `https://coderaxai.vercel.app`, keep the
+   Vercel hostname in `CODERAX_ALLOWED_HOSTS`, recreate the app, and keep Vercel as the front door.
+   Do not remove the Vercel deployment.**
 3. Sign in through the Cloudflare origin, send one Work request, refresh, and confirm the
-   conversation persists. Existing sessions will sign in again once the origin changes.
+   conversation persists. The Cloudflare domain values become authoritative only after this check
+   passes. Changing `DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the
+   Cloudflare host; set it before cutover if passkeys are enrolled.
 4. Move the canonical domain and the GitHub repository homepage to the Cloudflare origin, then keep
    both origins available for a soak period.
 5. Only after the owner explicitly approves retirement, unpublish/delete the Vercel project through
