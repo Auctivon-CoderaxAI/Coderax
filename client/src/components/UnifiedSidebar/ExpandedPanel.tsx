@@ -1,12 +1,16 @@
-import { memo, useCallback, Suspense } from 'react';
+import { memo, useCallback, useEffect, useRef, Suspense, useState } from 'react';
 import { SquarePen } from 'lucide-react';
 import { Skeleton, Sidebar, Button, TooltipAnchor } from '@coderax/client';
 import type { NavLink } from '~/common';
 import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcuts';
 import { useActivePanel, resolveActivePanel, DEFAULT_PANEL } from '~/Providers';
+import ScheduleNavButton from '~/components/UnifiedSidebar/ScheduleNavButton';
+import ScheduleHoverPanel from '~/components/Taskbar/ScheduleHoverPanel';
+import PluginsHoverPanel from '~/components/Taskbar/PluginsHoverPanel';
 import { CLOSE_SIDEBAR_ID } from '~/components/Chat/Menus/OpenSidebar';
 import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
+import Taskbar from '~/components/Taskbar/Taskbar';
 import useNewChat from '~/hooks/Chat/useNewChat';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -60,6 +64,11 @@ const NavIconButton = memo(function NavIconButton({
   onExpand,
   onNavigate,
   onLeaveInsights,
+  onHover,
+  onHoverEnd,
+  onDismissHover,
+  hasPopup,
+  popupExpanded,
 }: {
   link: NavLink;
   isActive: boolean;
@@ -68,11 +77,17 @@ const NavIconButton = memo(function NavIconButton({
   onExpand?: () => void;
   onNavigate?: () => void;
   onLeaveInsights?: () => void;
+  onHover?: () => void;
+  onHoverEnd?: () => void;
+  onDismissHover?: () => void;
+  hasPopup?: boolean;
+  popupExpanded?: boolean;
 }) {
   const localize = useLocalize();
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
+      onDismissHover?.();
       if (link.onClick) {
         link.onClick(e);
         onNavigate?.();
@@ -91,7 +106,7 @@ const NavIconButton = memo(function NavIconButton({
         onLeaveInsights?.();
       }
     },
-    [link, isActive, setActive, expanded, onExpand, onNavigate, onLeaveInsights],
+    [link, isActive, setActive, expanded, onExpand, onNavigate, onLeaveInsights, onDismissHover],
   );
 
   return (
@@ -104,6 +119,8 @@ const NavIconButton = memo(function NavIconButton({
           variant="ghost"
           aria-label={localize(link.title)}
           aria-pressed={isActive}
+          aria-haspopup={hasPopup ? 'dialog' : undefined}
+          aria-expanded={hasPopup ? popupExpanded : undefined}
           disabled={link.disabled}
           data-testid={`nav-panel-${link.id}`}
           className={cn(
@@ -111,6 +128,8 @@ const NavIconButton = memo(function NavIconButton({
             isActive ? 'bg-surface-active-alt text-text-primary' : 'text-text-secondary',
           )}
           onClick={handleClick}
+          onMouseEnter={onHover}
+          onMouseLeave={onHoverEnd}
         >
           <link.icon className="h-5 w-5" aria-hidden="true" />
         </Button>
@@ -140,6 +159,26 @@ function ExpandedPanel({
   const { active, setActive } = useActivePanel();
   const effectiveActive = resolveActivePanel(active, links);
   const routeActiveId = useRouteActiveId();
+  const [hoverPreview, setHoverPreview] = useState<'schedules' | 'plugins' | null>(null);
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPreviewOpen = useCallback(() => {
+    if (previewTimer.current != null) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+  }, []);
+  const openPreview = useCallback(
+    (id: 'schedules' | 'plugins') => {
+      cancelPreviewOpen();
+      previewTimer.current = setTimeout(() => setHoverPreview(id), 250);
+    },
+    [cancelPreviewOpen],
+  );
+  const closePreview = useCallback(() => {
+    cancelPreviewOpen();
+    setHoverPreview(null);
+  }, [cancelPreviewOpen]);
+  useEffect(() => () => cancelPreviewOpen(), [cancelPreviewOpen]);
 
   const toggleLabel = expanded ? 'com_nav_close_sidebar' : 'com_nav_open_sidebar';
   const toggleClick = expanded ? onCollapse : onExpand;
@@ -147,7 +186,20 @@ function ExpandedPanel({
   const toggleSidebarAriaKey = useShortcutAriaKey('toggleSidebar');
 
   return (
-    <div className="border-border-inset bg-surface-primary-alt flex h-full shrink-0 flex-col gap-2 border-r px-2 py-2">
+    <div className="border-border-inset bg-surface-primary-alt flex h-full w-16 shrink-0 flex-col items-center gap-2 border-r px-2 pt-4 pb-2">
+      <a
+        href="/c/new"
+        aria-label="Coderax"
+        data-testid="sidebar-brand-mark"
+        className="focus-visible:ring-text-primary flex size-10 items-center justify-center overflow-hidden rounded-xl outline-hidden focus-visible:ring-2 focus-visible:ring-inset"
+      >
+        <img
+          src="/assets/coderax-mark.svg"
+          alt=""
+          aria-hidden="true"
+          className="size-8 rounded-lg"
+        />
+      </a>
       <TooltipAnchor
         side="right"
         description={toggleSidebarHint}
@@ -168,20 +220,50 @@ function ExpandedPanel({
         }
       />
       <NewChatButton setActive={setActive} switchToHistory={switchToHistory} />
-      <div className="flex flex-col gap-1 overflow-y-auto">
-        {links.map((link) => (
-          <NavIconButton
-            key={link.id}
-            link={link}
-            isActive={routeActiveId ? link.id === routeActiveId : link.id === effectiveActive}
-            expanded={expanded ?? true}
-            setActive={setActive}
-            onExpand={onExpand}
-            onNavigate={onNavigate}
-            onLeaveInsights={routeActiveId ? onLeaveInsights : undefined}
-          />
-        ))}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+        {links.map((link) => {
+          const isLinkActive = routeActiveId
+            ? link.id === routeActiveId
+            : link.id === effectiveActive;
+          if (link.id === 'schedules') {
+            return (
+              <ScheduleNavButton
+                key={link.id}
+                link={link}
+                isActive={isLinkActive}
+                expanded={expanded ?? true}
+                setActive={setActive}
+                onExpand={onExpand}
+                onLeaveInsights={routeActiveId ? onLeaveInsights : undefined}
+                onHover={() => openPreview('schedules')}
+                onHoverEnd={cancelPreviewOpen}
+                onDismissHover={closePreview}
+              />
+            );
+          }
+          return (
+            <NavIconButton
+              key={link.id}
+              link={link}
+              isActive={isLinkActive}
+              expanded={expanded ?? true}
+              setActive={setActive}
+              onExpand={onExpand}
+              onNavigate={onNavigate}
+              onLeaveInsights={routeActiveId ? onLeaveInsights : undefined}
+              onHover={link.id === 'plugins' ? () => openPreview('plugins') : undefined}
+              onHoverEnd={link.id === 'plugins' ? cancelPreviewOpen : undefined}
+              onDismissHover={link.id === 'plugins' ? closePreview : undefined}
+              hasPopup={link.id === 'plugins'}
+              popupExpanded={link.id === 'plugins' ? hoverPreview === 'plugins' : undefined}
+            />
+          );
+        })}
+        <Taskbar />
       </div>
+
+      {hoverPreview === 'schedules' && <ScheduleHoverPanel onClose={closePreview} />}
+      {hoverPreview === 'plugins' && <PluginsHoverPanel onClose={closePreview} />}
 
       <div className="mt-auto">
         <Suspense fallback={<Skeleton className="h-9 w-9 rounded-lg" />}>
