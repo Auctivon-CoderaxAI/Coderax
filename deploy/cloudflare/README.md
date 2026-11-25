@@ -72,8 +72,9 @@ DOMAIN_CLIENT=https://coderax.nnabdelshahid.workers.dev
 DOMAIN_SERVER=https://coderax.nnabdelshahid.workers.dev
 ```
 
-If `deploy/oci/app.env` already exists, append these lines; `prepare-env.sh` refuses to overwrite
-it. Keep the Vercel hostname in `CODERAX_ALLOWED_HOSTS` during the transition so both front doors can
+For an existing deployment, follow the [OCI domain preflight](../oci/README.md#front-door-environment-cloudflare-first-vercel-legacy)
+before recreating the app. Add missing entries and update existing entries in place. Keep the
+Vercel hostname in `CODERAX_ALLOWED_HOSTS` during the transition so both front doors can
 reach the same backend. After a custom domain is attached, add that hostname too. Passkeys enrolled
 on `coderaxai.vercel.app` are bound to that RP ID and will not work on the Cloudflare origin; users
 who use passkeys must sign in there with email/password and re-register them. Passkey sign-in on the
@@ -194,7 +195,9 @@ Exact safe retirement procedure:
    Do not remove the Vercel deployment.**
 3. Sign in through the Cloudflare origin, send one Work request, refresh, and confirm the
    conversation persists. The Cloudflare domain values become authoritative only after this check
-   passes. Passkeys enrolled on the Vercel origin will not work on the Cloudflare origin; sign in
+   passes. Before retiring Vercel, also verify that requests from distinct clients reach the OCI
+   password login limiter with distinct client identities. The release gate does not verify this
+   behavior. Passkeys enrolled on the Vercel origin will not work on the Cloudflare origin; sign in
    with email/password there and re-register them. Passkey sign-in on the Vercel fallback can fail
    after `DOMAIN_CLIENT` changes.
 4. Move the canonical domain and the GitHub repository homepage to the Cloudflare origin, then keep

@@ -28,8 +28,8 @@ test('OCI Compose publishes only Caddy and starts no local model server', async 
   assert.match(web, /"80:80"/);
   assert.match(web, /"443:443"/);
   assert.doesNotMatch(app, /^\s+ports:/m);
-  assert.doesNotMatch(compose, /^  ollama:/m);
-  assert.doesNotMatch(compose, /^  model-setup:/m);
+  assert.doesNotMatch(compose, /^ {2}ollama:/m);
+  assert.doesNotMatch(compose, /^ {2}model-setup:/m);
   assert.doesNotMatch(compose, /11434|qwen3\.5/);
   assert.doesNotMatch(compose, /model:\s+internal:\s+true/);
   assert.doesNotMatch(compose, /^\s+mongodb:/m);
@@ -81,7 +81,7 @@ test('OCI keeps native Work on free hosted models without embedding a key', asyn
   assert.match(app, /CONFIG_PATH: \/app\/deploy\/oci\/coderax\.yaml/);
   assert.match(app, /\.\/coderax\.oci\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
   assert.match(compose, /ALLOW_REGISTRATION: "false"/);
-  assert.match(compose, /ENABLE_GUEST_ACCESS: "true"/);
+  assert.match(app, /^ {6}ENABLE_GUEST_ACCESS: "false"\r?$/m);
   assert.match(compose, /REGISTER_WINDOW: "60"/);
   assert.match(compose, /REGISTER_MAX: "5"/);
 });
