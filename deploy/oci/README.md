@@ -35,9 +35,10 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
    unset CODERAX_PROXY_SECRET
    ```
 
-   Canonical Worker probes must not send that header, and anonymous checks stay unauthenticated:
+   Return to the repository root, then run the canonical Worker probes without that header; anonymous checks stay unauthenticated:
 
    ```sh
+   cd ../..
    curl -fsS https://coderax.nnabdelshahid.workers.dev/readyz
    curl -fsS https://coderax.nnabdelshahid.workers.dev/api/config
    node scripts/verify-coderax-access.mjs --base-url https://coderax.nnabdelshahid.workers.dev
@@ -70,8 +71,11 @@ Until the proxy origin, secret and source commit are in place, the Worker fails 
 
 The Vercel project keeps its existing `CODERAX_API_ORIGIN`, `CODERAX_PROXY_SECRET` and
 `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app` variables so `coderaxai.vercel.app` continues to serve
-while both origins share the API. Do not remove them, and do not remove the Vercel project or
-domain, until the owner authorizes retirement after end-to-end verification.
+while both origins share the API. If this deployment creates a new Oracle origin or a new proxy
+secret, update Vercel's Production `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` to those same
+values before relying on the legacy origin for continuity or rollback; the old values will not
+authenticate against the new Caddy. Do not remove the variables, project or domain until the owner
+authorizes retirement after end-to-end verification.
 
 ## Rollback
 
