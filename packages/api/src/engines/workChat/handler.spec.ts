@@ -1085,7 +1085,7 @@ describe('createEngineWorkChatHandler', () => {
       signalStart = resolve;
     });
     const start = jest.fn(
-      () =>
+      (_input: Parameters<EngineWorkChatRunner['start']>[0]) =>
         new Promise<StartResult>((resolve) => {
           resolveStart = resolve;
           signalStart?.();
@@ -1120,6 +1120,8 @@ describe('createEngineWorkChatHandler', () => {
       expect(first).toBe('started');
 
       response.listeners.close?.forEach((listener) => listener());
+      expect(start.mock.calls[0][0].signal?.aborted).toBe(true);
+      expect(runner.cancel).not.toHaveBeenCalled();
       resolveStart!({ ok: true, value: handle });
       await pending;
 

@@ -156,7 +156,12 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   async start(
-    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
+    input: RunScope & {
+      prompt: string;
+      engine?: EngineId;
+      signal?: AbortSignal;
+      beforeDispatch?: () => Promise<void>;
+    },
   ): Promise<EngineResult<EngineRunHandle>> {
     const engine = input.engine ?? this.defaultEngine;
     if (engine !== 'opencode' && engine !== 'freebuff') {
@@ -226,19 +231,27 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
             await beforeDispatch();
             recorded = true;
           };
-    const dispatch = () =>
-      this.registry.start({
-        engine,
-        ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
-        request: {
-          taskKey: this.mode === 'cloud' ? key : input.conversationId,
-          conversationId: input.conversationId,
-          prompt: input.prompt,
-          mode: this.mode,
-          workspaceRoot,
-          ...(model ? { model } : {}),
-        },
-      });
+    const dispatch = async () => {
+      if (input.signal?.aborted) return engineFailure('cancelled');
+      try {
+        return await this.registry.start({
+          engine,
+          ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
+          request: {
+            taskKey: this.mode === 'cloud' ? key : input.conversationId,
+            conversationId: input.conversationId,
+            prompt: input.prompt,
+            signal: input.signal,
+            mode: this.mode,
+            workspaceRoot,
+            ...(model ? { model } : {}),
+          },
+        });
+      } catch (error) {
+        await this.leases.release(input, token).catch(() => false);
+        throw error;
+      }
+    };
 
     let started = await dispatch();
     for (let attempt = 1; ; attempt += 1) {
@@ -279,12 +292,26 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       started = await dispatch();
     }
     if (!started.ok) {
-      /**
-       * The engine never ran, so there is nothing to report but its own typed
-       * failure. A release that fails must not replace it with a thrown error;
-       * the unclaimed lease simply expires.
-       */
-      await this.leases.release(input, token).catch(() => false);
+      if (started.cleanup) {
+        // A different replica uses the shared lease, not the registry's local lock.
+        const renew = async () => {
+          const at = new Date();
+          const lease = await this.leases.renew(input, token, at, new Date(+at + this.leaseTtlMs));
+          if (!lease.renewed) clearInterval(timer);
+        };
+        const timer = setInterval(() => void renew().catch(() => undefined), this.heartbeatMs);
+        timer.unref?.();
+        void renew().catch(() => undefined);
+        void started.cleanup.then(
+          async () => {
+            clearInterval(timer);
+            await this.leases.release(input, token).catch(() => false);
+          },
+          () => undefined,
+        );
+      } else {
+        await this.leases.release(input, token).catch(() => false);
+      }
       return started;
     }
 

@@ -689,7 +689,7 @@ describe('start safety through the real registry and OpenCode adapter', () => {
   it('retries a rejected session request that dispatched nothing', async () => {
     const openCode = transport();
     (openCode.createSession as jest.Mock)
-      .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+      .mockRejectedValueOnce(Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' }))
       .mockResolvedValue({ id: 'session-retried' });
     const { runtime, root } = await realRuntime(openCode);
 
@@ -705,6 +705,40 @@ describe('start safety through the real registry and OpenCode adapter', () => {
     expect(openCode.prompt).toHaveBeenCalledTimes(1);
 
     await runtime.release(scope('conversation-adapter-retry'));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('does not retry when the session response was lost', async () => {
+    const openCode = transport();
+    (openCode.createSession as jest.Mock).mockRejectedValue(new Error('socket hang up'));
+    const { runtime, root } = await realRuntime(openCode);
+    await expect(
+      runtime.start({ ...scope('lost-session'), prompt: 'Fix it' }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { retryable: false },
+    });
+    expect(openCode.createSession).toHaveBeenCalledTimes(1);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('retains the shared lease until failed subscription cleanup completes', async () => {
+    const openCode = transport();
+    let finish!: () => void;
+    (openCode.abort as jest.Mock).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    (openCode.subscribe as jest.Mock).mockRejectedValue(new Error('subscription failed'));
+    const { runtime, root } = await realRuntime(openCode);
+    const task = scope('pending-abort');
+    const started = await runtime.start({ ...task, prompt: 'Fix it' });
+    expect(started.ok).toBe(false);
+    await expect(runtime.state(task)).resolves.toBe('running');
+    finish();
+    if (!started.ok) await started.cleanup;
+    await expect(runtime.state(task)).resolves.toBeNull();
     await rm(root, { recursive: true, force: true });
   });
 

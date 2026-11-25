@@ -175,15 +175,17 @@ export async function startOpenCodeRun(
       );
     }
     sessionId = outcome.value.id;
-  } catch {
-    /**
-     * A rejected session request created nothing, so the same engine may be
-     * asked again. This is the only post-attempt failure marked retryable.
-     */
+  } catch (error) {
+    // Only a refused connection proves that the server never received the request.
+    const refused = (cause: unknown) =>
+      cause != null &&
+      typeof cause === 'object' &&
+      'code' in cause &&
+      cause.code === 'ECONNREFUSED';
     return engineFailure(
       'server_unavailable',
-      'The OpenCode server did not accept the session.',
-      true,
+      'The OpenCode session could not be confirmed.',
+      refused(error) || (error instanceof Error && refused(error.cause)),
     );
   }
   if (!sessionId) {

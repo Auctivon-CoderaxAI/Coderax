@@ -221,6 +221,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let activeHandle: EngineRunHandle | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
+    const startup = new AbortController();
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
@@ -234,15 +235,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
         return;
       }
-      /**
-       * No handle exists yet, so the start is still waiting or between retry
-       * attempts. Recording the cancellation on the runtime makes the retry
-       * loop refuse the next dispatch instead of starting an engine for a
-       * request nobody is reading.
-       */
-      void runtime
-        .cancel({ userId, tenantId, conversationId })
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed Work start.'));
+      startup.abort();
     };
     res.on('close', () => {
       if (!finished) {
@@ -300,6 +293,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (closed) return;
       let recorded = false;
       const started = await runtime.start({
+        signal: startup.signal,
         beforeDispatch: async () => {
           if (closed) throw new Error('Work request closed');
           try {
