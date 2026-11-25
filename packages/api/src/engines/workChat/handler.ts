@@ -241,7 +241,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
        * request nobody is reading.
        */
       void runtime
-        .cancel({ userId, tenantId, conversationId, engine })
+        .cancel({ userId, tenantId, conversationId })
         .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed Work start.'));
     };
     res.on('close', () => {
