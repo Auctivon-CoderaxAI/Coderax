@@ -137,10 +137,12 @@ export function createAutomaticChatTransport({
   transport,
   selection,
   endpointsConfig,
+  workMode = false,
 }: {
   transport: Transport;
   selection: AutomaticChatModel;
   endpointsConfig?: TEndpointsConfig;
+  workMode?: boolean;
 }): AutomaticChatTransportController {
   /** Per-route start outcomes never cross browser accounts or chat hosts. */
   const health = new Map<string, RouteHealth>();
@@ -159,7 +161,7 @@ export function createAutomaticChatTransport({
     ...transport,
     start: async (request, options) => {
       const endpoint = request.payload.endpoint;
-      if (isAgentsEndpoint(endpoint) || isAssistantsEndpoint(endpoint)) {
+      if ((isAgentsEndpoint(endpoint) && workMode) || isAssistantsEndpoint(endpoint)) {
         return transport.start(request, options);
       }
 
