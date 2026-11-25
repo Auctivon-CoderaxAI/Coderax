@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Owner-only access gate for a running Coderax deployment.
+ * Anonymous access gate for a running Coderax deployment.
  *
  * Checks, without credentials, that:
- *   - the public startup config still disables registration and guest access,
- *   - password-only owner sign-in is enabled, and
+ *   - the public startup config reports registration disabled,
+ *   - the owner password form is enabled, and
  *   - every private surface (Chat, Work, projects, files, memory, agents,
  *     schedules and model inference) refuses an anonymous request.
  *
@@ -12,7 +12,7 @@
  *   node scripts/verify-coderax-access.mjs --base-url https://coderax.nnabdelshahid.workers.dev
  *
  * This contacts the deployment but never creates a session, guest account or
- * model run.
+ * model run. Verify effective session policy and owner-only sign-in separately.
  */
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -70,10 +70,10 @@ const anonymousRequest = (fetcher, url, init = {}) =>
 const denied = (status) => status === 401 || status === 403;
 
 /**
- * Fail unless the deployment is owner-only and refuses anonymous access.
+ * Check public startup flags and anonymous denial on the listed private routes.
  * `fetcher` is injectable so the contract can be tested without a deployment.
  */
-export async function verifyOwnerOnly(value, fetcher = fetch) {
+export async function verifyAnonymousAccess(value, fetcher = fetch) {
   const origin = validateAccessURL(value);
   const checks = [];
 
@@ -81,9 +81,8 @@ export async function verifyOwnerOnly(value, fetcher = fetch) {
   assert.equal(configResponse.status, 200, 'anonymous /api/config must return 200');
   const config = JSON.parse(await configResponse.text());
   assert.equal(typeof config.appTitle, 'string', 'startup config is missing appTitle');
-  assert.notEqual(config.registrationEnabled, true, 'public registration must be disabled');
-  assert.equal(config.passwordLoginEnabled, true, 'password-only owner sign-in must be enabled');
-  assert.notEqual(config.guestAccessEnabled, true, 'guest access must be disabled');
+  assert.equal(config.registrationEnabled, false, 'public registration must be disabled');
+  assert.equal(config.passwordLoginEnabled, true, 'owner password sign-in must be enabled');
   checks.push({ name: 'startup config', status: 'pass' });
 
   for (const route of PROTECTED_GET_PATHS) {
@@ -138,10 +137,9 @@ export function parseArgs(argv) {
 export const USAGE = `Usage:
   node scripts/verify-coderax-access.mjs --base-url <https-origin>
 
-Fails unless the deployment disables registration and guest access, enables
-password-only owner sign-in, and refuses anonymous access to Chat, Work,
-projects, files, memory, agents, schedules and model inference. It creates no
-session and runs no model.`;
+Checks public registration and password sign-in flags and anonymous denial
+on private routes. It creates no session, runs no model, and does not verify
+guest session policy or which identities can sign in.`;
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -150,7 +148,7 @@ async function main() {
     return;
   }
   try {
-    const report = await verifyOwnerOnly(options.baseUrl);
+    const report = await verifyAnonymousAccess(options.baseUrl);
     console.log(JSON.stringify(report));
   } catch (error) {
     console.error(

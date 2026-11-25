@@ -1,11 +1,11 @@
-name: Cloudflare owner-only access verification
+name: Cloudflare anonymous access verification
 
 # Verification only: deploying the Worker is done by Cloudflare Workers Builds
 # on merge, or by an authenticated `npx wrangler deploy`. This workflow never
 # writes to production and needs no repository secrets, so it can be run before
 # the Worker's proxy secrets are configured to see exactly what is missing.
 # Full release verification (served revision + backend revision) is owned by
-# the deployment-acceptance change, not this owner-only access gate.
+# the deployment-acceptance change. This workflow cannot verify sign-in policy.
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   verify:
-    name: Verify Worker deployment and owner-only access
+    name: Verify Worker deployment contracts and anonymous access
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

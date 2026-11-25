@@ -126,8 +126,15 @@ pasted into a PR, issue, document or chat message.
    node scripts/verify-coderax-deployment.mjs --live-url https://coderax.nnabdelshahid.workers.dev
    node scripts/verify-coderax-access.mjs --base-url https://coderax.nnabdelshahid.workers.dev
    ```
-   The first requires a full 40-character `buildInfo.commit`; the second requires owner-only
-   configuration and `401`/`403` on every private route.
+   The first requires a full 40-character `buildInfo.commit`. The second checks the public
+   registration and password sign-in flags and requires `401`/`403` on the listed private routes.
+   It creates no session; the public config does not report whether guest access is enabled.
+   Before accepting the cutover, check the running OCI application's effective settings: guest
+   access and registration (including social registration) are off, the owner password is set,
+   and other sign-in methods are disabled unless explicitly authorized. Do not print secrets.
+   Confirm owner sign-in succeeds and that any valid non-owner identity for a configured sign-in
+   method is denied a Coderax session. If there is no other configured method, confirm this from
+   the running configuration; an anonymous probe cannot establish which identities can sign in.
 6. **Verify data in the UI** — recent conversations, projects and files, persistent memory, Work
    history, saved settings, agent configurations, authorized integrations, scheduled tasks and
    generated artifacts. The backend did not move, so any absence is a defect, not a migration
@@ -137,7 +144,18 @@ pasted into a PR, issue, document or chat message.
 
 ## Rollback
 
-Remove `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` from the Worker to make its API route fail
-closed with `503`. The legacy Vercel origin keeps serving and forwarding to the same API. Restore
-the previous Worker version from the Cloudflare dashboard if the Worker source itself is at fault.
-Keep every OCI volume and the existing database in place.
+1. Confirm the retained Vercel deployment can reach the current OCI backend. If its proxy
+   variables changed, redeploy and check it as described in the [OCI runbook](../deploy/oci/README.md#legacy-vercel-environment).
+2. Restore the legacy public origin in the Compose interpolation environment used to start the app:
+   set `CODERAX_PUBLIC_ORIGIN=https://coderaxai.vercel.app` so both `DOMAIN_CLIENT` and
+   `DOMAIN_SERVER` use it. In `deploy/oci/origin.env`, set `CODERAX_PUBLIC_HOST=coderaxai.vercel.app`
+   for the direct Work stream path. Apply both changes using the same Compose invocation as for
+   the cutover: `docker compose -f deploy/oci/compose.yaml up -d app web`. Keep owner-only
+   access settings, secrets, volumes and the existing database in place.
+3. Verify `/readyz`, confirm `/api/config` reports the legacy `serverDomain`, and sign in at
+   `https://coderaxai.vercel.app/login?manual=1`. If a redirect-based sign-in is enabled, restore
+   its legacy callback registration and verify the full sign-in flow returns to Vercel. Check a
+   direct Work stream before relying on the fallback.
+4. Remove `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` from the Worker to make API forwarding
+   fail closed with `503`. If restoring an earlier Worker version, confirm it also leaves forwarding
+   disabled. Never remove or prune OCI volumes during rollback.

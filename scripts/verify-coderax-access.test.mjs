@@ -5,7 +5,7 @@ import {
   PROTECTED_POST_PATHS,
   parseArgs,
   validateAccessURL,
-  verifyOwnerOnly,
+  verifyAnonymousAccess,
 } from './verify-coderax-access.mjs';
 
 const response = (status, body = {}, headers = {}) => ({
@@ -14,14 +14,14 @@ const response = (status, body = {}, headers = {}) => ({
   text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
 });
 
-const ownerOnlyConfig = {
+const publicConfig = {
   appTitle: 'Coderax',
   registrationEnabled: false,
   passwordLoginEnabled: true,
 };
 
 const fakeFetch =
-  ({ config = ownerOnlyConfig, statuses = {}, postStatuses = {}, workStatus = 401 } = {}) =>
+  ({ config = publicConfig, statuses = {}, postStatuses = {}, workStatus = 401 } = {}) =>
   async (input, init = {}) => {
     const url = new URL(input);
     if (url.pathname === '/api/config') {
@@ -47,44 +47,47 @@ test('accepts HTTPS origins and loopback HTTP only', () => {
 });
 
 test('passes only when every private surface refuses anonymous access', async () => {
-  const report = await verifyOwnerOnly('https://coderax.nnabdelshahid.workers.dev', fakeFetch());
+  const report = await verifyAnonymousAccess(
+    'https://coderax.nnabdelshahid.workers.dev',
+    fakeFetch(),
+  );
   assert.equal(report.ok, true);
   assert.equal(report.checks.length, 1 + PROTECTED_GET_PATHS.length + PROTECTED_POST_PATHS.length);
 });
 
 test('fails when public registration is enabled', async () => {
   await assert.rejects(
-    verifyOwnerOnly(
+    verifyAnonymousAccess(
       'https://coderax.nnabdelshahid.workers.dev',
-      fakeFetch({ config: { ...ownerOnlyConfig, registrationEnabled: true } }),
+      fakeFetch({ config: { ...publicConfig, registrationEnabled: true } }),
     ),
     /public registration must be disabled/,
   );
 });
 
-test('fails when guest access is enabled', async () => {
+test('fails when startup config does not report whether registration is disabled', async () => {
   await assert.rejects(
-    verifyOwnerOnly(
+    verifyAnonymousAccess(
       'https://coderax.nnabdelshahid.workers.dev',
-      fakeFetch({ config: { ...ownerOnlyConfig, guestAccessEnabled: true } }),
+      fakeFetch({ config: { ...publicConfig, registrationEnabled: undefined } }),
     ),
-    /guest access must be disabled/,
+    /public registration must be disabled/,
   );
 });
 
 test('fails when owner password sign-in is not enabled', async () => {
   await assert.rejects(
-    verifyOwnerOnly(
+    verifyAnonymousAccess(
       'https://coderax.nnabdelshahid.workers.dev',
-      fakeFetch({ config: { ...ownerOnlyConfig, passwordLoginEnabled: false } }),
+      fakeFetch({ config: { ...publicConfig, passwordLoginEnabled: false } }),
     ),
-    /password-only owner sign-in must be enabled/,
+    /owner password sign-in must be enabled/,
   );
 });
 
 test('fails when a private route answers an anonymous request', async () => {
   await assert.rejects(
-    verifyOwnerOnly(
+    verifyAnonymousAccess(
       'https://coderax.nnabdelshahid.workers.dev',
       fakeFetch({ statuses: { '/api/convos': 200 } }),
     ),
@@ -95,7 +98,7 @@ test('fails when a private route answers an anonymous request', async () => {
 test('fails when Chat, Work or agent inference is reachable anonymously', async () => {
   for (const route of PROTECTED_POST_PATHS) {
     await assert.rejects(
-      verifyOwnerOnly(
+      verifyAnonymousAccess(
         'https://coderax.nnabdelshahid.workers.dev',
         fakeFetch({ postStatuses: { [route]: 200 } }),
       ),

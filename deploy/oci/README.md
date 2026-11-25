@@ -81,4 +81,7 @@ authorizes retirement after end-to-end verification.
 
 ## Rollback
 
-Remove `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` from the Cloudflare Worker to make its API route fail closed, then continue using the legacy Vercel origin. Keep OCI volumes and the existing Atlas data. Never run `docker compose down -v` or prune volumes during rollback.
+Follow the [migration rollback steps](../../docs/CLOUDFLARE_MIGRATION.md#rollback) to restore
+the legacy OCI public origin and direct Work host, verify Vercel sign-in, then disable Worker
+forwarding. Keep OCI volumes and the existing Atlas data. Never run `docker compose down -v`
+or prune volumes during rollback.
