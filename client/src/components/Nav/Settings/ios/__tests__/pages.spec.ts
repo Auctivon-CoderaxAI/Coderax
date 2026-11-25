@@ -3,6 +3,7 @@ import type { SettingsContextValue } from '../../types';
 import type { IosPageId } from '../pages';
 import { IOS_PAGES, findPage, pageEntries, pageVisible } from '../pages';
 import en from '~/locales/en/translation.json';
+import { registry } from '../../registry';
 
 const ctx: SettingsContextValue = {
   balanceEnabled: false,
@@ -250,6 +251,49 @@ describe('iOS settings pages', () => {
     it('appears with its single row when build information is on', () => {
       expect(entryIds('about', { aboutEnabled: true })).toEqual(['about']);
       expect(pageShown('about', { aboutEnabled: true })).toBe(true);
+    });
+  });
+
+  describe('registry coverage', () => {
+    /* Every capability on at once: the context the pages have to cover. */
+    const fullyCapable = contextFor({
+      balanceEnabled: true,
+      hasAnyPersonalizationFeature: true,
+      hasMemoryOptOut: true,
+      hasStatefulCodeSessions: true,
+      hasRemoteAgents: true,
+      hasUserProvidedEndpoints: true,
+      hasMultiConvo: true,
+      hasPrompts: true,
+      isLocalProvider: true,
+      emailEnabled: true,
+      allowEmailChange: true,
+      passkeyLoginEnabled: true,
+      isTwoFactorPolicyProvider: true,
+      twoFactorEnabled: true,
+      allowAccountDeletion: true,
+      aboutEnabled: true,
+      langfuseConnectionAccess: true,
+      cyvoxConnectionAccess: true,
+      adminPanelURL: 'https://admin.example.com',
+      replyTabBadgeAllowed: true,
+      replyNotificationsAllowed: true,
+      replyNotificationSoundAllowed: true,
+    });
+
+    it('shows every registry entry once every capability is on', () => {
+      const hidden = registry.filter((entry) => entry.show && !entry.show(fullyCapable));
+      expect(hidden.map((entry) => entry.id)).toEqual([]);
+    });
+
+    it('reaches every registry entry from some iOS page', () => {
+      const reachable = new Set(
+        IOS_PAGES.flatMap((page) => pageEntries(page, fullyCapable).map((entry) => entry.id)),
+      );
+      const unreachable = registry
+        .filter((entry) => !reachable.has(entry.id))
+        .map((entry) => entry.id);
+      expect(unreachable).toEqual([]);
     });
   });
 
