@@ -4,7 +4,13 @@
   // before `wrangler deploy` runs, and client-side routes fall back to
   // index.html. API paths run the Worker first so they are forwarded to the
   // configured backend instead of being answered with index.html.
+  //
+  // The public production host is https://coderax.nnabdelshahid.workers.dev.
+  // CODERAX_API_ORIGIN is a non-secret Worker variable and must name the
+  // authorized OCI origin; CODERAX_PROXY_SECRET is a Worker secret and must
+  // never be committed. See deploy/cloudflare/README.md.
   "name": "coderax",
+  "workers_dev": true,
   "main": "./worker/index.mjs",
   "compatibility_date": "2026-11-25",
   "assets": {
