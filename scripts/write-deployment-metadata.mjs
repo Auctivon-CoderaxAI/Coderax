@@ -156,9 +156,7 @@ if (verify) {
   );
 
   if (trackedTreeDirty) {
-    console.warn(
-      `Tracked files are modified; wrote ${output} without a verifiable revision.`,
-    );
+    console.warn(`Tracked files are modified; wrote ${output} without a verifiable revision.`);
   } else if (verifiableCommit === null) {
     console.warn(
       `No 40-character commit was available; wrote ${output} without a verifiable revision.`,
