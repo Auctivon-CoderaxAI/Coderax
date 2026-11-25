@@ -5655,6 +5655,51 @@ describe('Conversation Operations', () => {
       ).resolves.toMatchObject({ workState: 'completed' });
     });
 
+    it('rejects an interruption that would reopen a settled row with the same generation', async () => {
+      const conversationId = uuidv4();
+      await Conversation.create({
+        conversationId,
+        user: 'user123',
+        title: 'Work task',
+        endpoint: EModelEndpoint.openAI,
+        isWork: true,
+        workState: 'completed',
+        workRunId: 'run-1',
+      });
+
+      const applied = await methods.saveConvo(
+        { userId: 'user123' },
+        { conversationId, workState: 'failed', workRunId: null },
+        { noUpsert: true, workRunGeneration: 'run-1', unsettledWorkRun: true },
+      );
+
+      expect(applied).toBeNull();
+      await expect(
+        Conversation.findOne({ conversationId }).lean<{
+          workState?: string;
+          workRunId?: string | null;
+        }>(),
+      ).resolves.toMatchObject({ workState: 'completed', workRunId: 'run-1' });
+    });
+
+    it('applies an interruption to an unsettled row with the same generation', async () => {
+      const conversationId = await createRunningWork('run-1');
+
+      const applied = await methods.saveConvo(
+        { userId: 'user123' },
+        { conversationId, workState: 'failed', workRunId: null },
+        { noUpsert: true, workRunGeneration: 'run-1', unsettledWorkRun: true },
+      );
+
+      expect(applied).not.toBeNull();
+      await expect(
+        Conversation.findOne({ conversationId }).lean<{
+          workState?: string;
+          workRunId?: string | null;
+        }>(),
+      ).resolves.toMatchObject({ workState: 'failed', workRunId: null });
+    });
+
     it('stamps a takeover only for the replaced or absent generation', async () => {
       const conversationId = await createRunningWork('run-1');
 
