@@ -161,8 +161,27 @@ export function createAutomaticChatTransport({
     ...transport,
     start: async (request, options) => {
       const endpoint = request.payload.endpoint;
-      if ((isAgentsEndpoint(endpoint) && workMode) || isAssistantsEndpoint(endpoint)) {
+      const storedWorkEndpoint = isAgentsEndpoint(endpoint) && !workMode;
+      if (isAssistantsEndpoint(endpoint) || (isAgentsEndpoint(endpoint) && workMode)) {
         return transport.start(request, options);
+      }
+      if (
+        !storedWorkEndpoint &&
+        (request.payload.spec || request.payload.agent_id || request.payload.ephemeralAgent)
+      ) {
+        // Explicit model specs and agent requests are administrator/user-selected routes.
+        return transport.start(request, options);
+      }
+
+      let chatRequest = request;
+      if (storedWorkEndpoint) {
+        // A Work transcript may retain agent-only fields after switching to Chat.
+        // Clear them at the transport boundary before selecting a Chat model.
+        const payload = { ...request.payload };
+        delete payload.agent_id;
+        delete payload.ephemeralAgent;
+        delete payload.spec;
+        chatRequest = { ...request, payload };
       }
 
       let candidates: ModelRouteCandidate[];
@@ -190,7 +209,7 @@ export function createAutomaticChatTransport({
       let lastError: unknown;
       for (let index = 0; index < candidates.length; index += 1) {
         const candidate = candidates[index] as ModelRouteCandidate;
-        const routedRequest = withCandidate(request, candidate, endpointsConfig, paidRequest);
+        const routedRequest = withCandidate(chatRequest, candidate, endpointsConfig, paidRequest);
         const startedAt = Date.now();
         try {
           const result = await transport.start(routedRequest, options);
