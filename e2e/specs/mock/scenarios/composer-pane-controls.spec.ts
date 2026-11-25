@@ -143,7 +143,7 @@ async function selectAgent(page: Page, agentName: string) {
  * The composer-hosted Review panel/chip is intentionally not asserted here.
  * On the first turn, the pending-approval atom is keyed by the run's durable
  * conversation id while the composer remains bound to the new-chat sentinel
- * through the pause, in code identical to origin/dev. Mirroring the write onto
+ * through the pause. Mirroring the write onto
  * the sentinel did not surface that panel either, so the timeline approval
  * card is the reliable approval surface for this scenario.
  */

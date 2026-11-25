@@ -143,4 +143,43 @@ describe('automatic Chat model transport', () => {
     await controller.transport.start(request);
     expect(start).toHaveBeenCalledWith(request, undefined);
   });
+
+  it('forwards explicit model specs and saved agents unchanged', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'explicit-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+    });
+    const specRequest = makeRequest();
+    specRequest.payload.spec = 'fast-qwen';
+    const agentRequest = makeRequest();
+    agentRequest.payload.agent_id = 'agent-1';
+
+    await controller.transport.start(specRequest);
+    await controller.transport.start(agentRequest);
+
+    expect(start).toHaveBeenNthCalledWith(1, specRequest, undefined);
+    expect(start).toHaveBeenNthCalledWith(2, agentRequest, undefined);
+  });
+
+  it('keeps routing requests that carry only ephemeral tool state', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'tool-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+    });
+    const request = makeRequest();
+    request.payload.ephemeralAgent = { skills: true };
+
+    await controller.transport.start(request);
+
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      server: 'https://coderax.example/api/agents/chat/ollama',
+      payload: { endpoint: 'ollama', model: 'local', ephemeralAgent: { skills: true } },
+    });
+  });
 });

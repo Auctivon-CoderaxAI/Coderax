@@ -27,7 +27,7 @@
  *   Add the slow gates (TypeScript, config tests, i18n, depcheck):
  *     npm run static-checks:full
  *   Against a base ref, the way CI sees a pull request:
- *     node scripts/static-checks.mts --against origin/dev
+ *     node scripts/static-checks.mts --against origin/main
  *   A single commit:
  *     node scripts/static-checks.mts --commit HEAD
  *   Explicit files:
@@ -595,7 +595,7 @@ function diffPaths(args: string[]): { files: string[]; existing: string[] } {
 function resolveTarget(): Target {
   if (OPTIONS.includeWorktree && !OPTIONS.against) fail('--include-worktree requires --against');
 
-  // Precedence would silently drop the losers: `--against origin/dev pkg.json`
+  // Precedence would silently drop the losers: `--against origin/main pkg.json`
   // checked only the file, and paired with --commit the base ref was never even
   // resolved, so a caller could believe a range had been checked.
   const selectors = [

@@ -293,11 +293,12 @@ describe('Access Middleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    test('should handle database errors gracefully', async () => {
-      // Mock getRoleByName to throw an error
+    test('should not disclose internal database errors', async () => {
       const mockGetRoleByName = jest
         .fn()
-        .mockRejectedValue(new Error('Database connection failed'));
+        .mockRejectedValue(
+          new Error('Database connection failed: mongodb://owner:super-secret@db.internal/coderax'),
+        );
 
       const middleware = generateCheckAccess({
         permissionType: PermissionTypes.AGENTS,
@@ -308,9 +309,11 @@ describe('Access Middleware', () => {
 
       expect(next).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({
-        message: expect.stringContaining('Server error:'),
-      });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Server error' });
+
+      const responseBody = JSON.stringify(res.json.mock.calls[0][0]);
+      expect(responseBody).not.toContain('Database connection failed');
+      expect(responseBody).not.toContain('super-secret');
     });
 
     test('should work with multiple permission types', async () => {

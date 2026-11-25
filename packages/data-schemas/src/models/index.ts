@@ -4,6 +4,7 @@ import { createAgentTriggerLaneSequenceModel } from './triggerLaneSequence';
 import { createScheduleModel, createScheduleRunModel } from './schedule';
 import { createWorkflowModel, createWorkflowRunModel } from './workflow';
 import { getTenantIndexMigrationHint } from '~/migrations/tenantIndexes';
+import { createResearchProjectQuotaModel } from './researchProjectQuota';
 import { createSkillSyncCredentialModel } from './skillSyncCredential';
 import { createOpenIDRefreshFlightModel } from './openidRefreshFlight';
 import { createAgentTriggerUserPurgeModel } from './triggerUserPurge';
@@ -13,6 +14,7 @@ import { createToolApprovalGrantModel } from './toolApprovalGrant';
 import { createSkillSyncStatusModel } from './skillSyncStatus';
 import { createConversationTagModel } from './conversationTag';
 import { createCodeEnvironmentModel } from './codeEnvironment';
+import { createResearchProjectModel } from './researchProject';
 import { createAgentCategoryModel } from './agentCategory';
 import { createGameProjectModel } from './gameProject';
 import { createChatProjectModel } from './chatProject';
@@ -66,6 +68,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
   Conversation: ReturnType<typeof createConversationModel>;
   ChatProject: ReturnType<typeof createChatProjectModel>;
   GameProject: ReturnType<typeof createGameProjectModel>;
+  ResearchProject: ReturnType<typeof createResearchProjectModel>;
+  ResearchProjectQuota: ReturnType<typeof createResearchProjectQuotaModel>;
   CodeEnvironment: ReturnType<typeof createCodeEnvironmentModel>;
   Message: ReturnType<typeof createMessageModel>;
   Agent: ReturnType<typeof createAgentModel>;
@@ -122,6 +126,8 @@ export function createModels(mongoose: typeof import('mongoose')): {
     Conversation: createConversationModel(mongoose),
     ChatProject: createChatProjectModel(mongoose),
     GameProject: createGameProjectModel(mongoose),
+    ResearchProject: createResearchProjectModel(mongoose),
+    ResearchProjectQuota: createResearchProjectQuotaModel(mongoose),
     CodeEnvironment: createCodeEnvironmentModel(mongoose),
     Message: createMessageModel(mongoose),
     Agent: createAgentModel(mongoose),
