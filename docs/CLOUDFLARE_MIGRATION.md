@@ -56,7 +56,7 @@ It returns `421` when an API request arrives on a hostname not listed in
 | OAuth callbacks | Social, OpenID and admin SSO are disabled. If one is enabled later, register the new redirect URIs at the provider: `/oauth/<provider>/callback` and `/api/admin/oauth/<provider>/callback` on the new origin, and set `DOMAIN_SERVER` to it. |
 | Passkeys | Disabled. If enabled later, pin `PASSKEY_RP_ID` and add the new origin to `PASSKEY_ORIGINS`; changing the RP ID invalidates existing passkeys. |
 | Password reset / verification links | Disabled: `ALLOW_PASSWORD_RESET=false` and registration is off, so no such link is issued. If enabled later, they use `DOMAIN_CLIENT`. |
-| Deployment verification | `scripts/verify-coderax-deployment.mjs` accepts the Cloudflare origin and the legacy Vercel alias; authenticated smoke runs are allowed only for those exact origins. |
+| Deployment verification | `scripts/verify-coderax-deployment.mjs --live-url` currently accepts only the legacy Vercel alias; PR #302 adds the exact Cloudflare origin and its regression suite. Authenticated smoke runs remain restricted to the exact allowlisted origin. |
 
 ## Live state observed on 2026-11-25
 
