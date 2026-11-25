@@ -1,19 +1,21 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SystemRoles } from 'coderax-data-provider';
-import { Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
+import { Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
+import { CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
 import type { NavLink } from '~/common';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import { useResearchCapabilitiesQuery } from '~/data-provider';
-import { useAuthContext } from '~/hooks';
+import { useGetStartupConfig, useResearchCapabilitiesQuery } from '~/data-provider';
+import { SchedulePanel } from '~/components/SidePanel/Schedules';
+import PluginsPanel from '~/components/Taskbar/PluginsPanel';
+import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
- * Keep the sidebar as a chat navigation surface, not a general app launcher.
+ * The owner's rail is a taskbar: chat history, scheduled tasks, plugins, the
+ * owner's creative/research records, and the app shortcuts pinned from More.
  * Work shares the chat shell; unrelated tools retain their direct routes.
- * Game Studio and Research are the exceptions: they are the only entries to
- * the owner's own creativity and evidence records, so they need a destination
- * here instead of a remembered URL. Non-owners get no entry, because both
- * route trees reject them.
+ * Game Studio and Research are the owner's own creativity and evidence
+ * records, so they need a destination here instead of a remembered URL.
+ * Non-owners get no entry, because both route trees reject them.
  */
 export default function useUnifiedSidebarLinks() {
   const navigate = useNavigate();
@@ -21,6 +23,16 @@ export default function useUnifiedSidebarLinks() {
   const { data: researchAccess } = useResearchCapabilitiesQuery();
   const isOwner = user?.role === SystemRoles.ADMIN;
   const canAccessResearch = isOwner || researchAccess?.canAccess === true;
+  const hasAccessToSchedules = useHasAccess({
+    permissionType: PermissionTypes.SCHEDULES,
+    permission: Permissions.USE,
+  });
+  const { data: startupConfig } = useGetStartupConfig();
+  const schedulesConfig = startupConfig?.interface?.schedules;
+  const schedulesEnabled =
+    schedulesConfig != null &&
+    schedulesConfig !== false &&
+    !(typeof schedulesConfig === 'object' && schedulesConfig.use === false);
   return useMemo<NavLink[]>(() => {
     const links: NavLink[] = [
       {
@@ -31,6 +43,22 @@ export default function useUnifiedSidebarLinks() {
         Component: ConversationsSection,
       },
     ];
+    if (hasAccessToSchedules && schedulesEnabled) {
+      links.push({
+        title: 'com_ui_taskbar_scheduled',
+        label: '',
+        icon: CalendarClock,
+        id: 'schedules',
+        Component: SchedulePanel,
+      });
+    }
+    links.push({
+      title: 'com_ui_plugins',
+      label: '',
+      icon: Plug,
+      id: 'plugins',
+      Component: PluginsPanel,
+    });
     if (isOwner) {
       links.push({
         title: 'com_games_title',
@@ -50,5 +78,5 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [canAccessResearch, isOwner, navigate]);
+  }, [canAccessResearch, hasAccessToSchedules, isOwner, navigate, schedulesEnabled]);
 }
