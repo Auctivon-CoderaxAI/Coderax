@@ -1,8 +1,31 @@
 jest.mock('@opencode-ai/sdk', () => ({ createOpencodeClient: jest.fn() }), { virtual: true });
 
 import { loadOpenCodeSdk } from './sdk';
+import { openCodeAuthHeader } from './auth';
 
 describe('OpenCode SDK transport', () => {
+  it('passes Basic auth to the client without putting it in the base URL', () => {
+    const createOpencodeClient = jest.requireMock('@opencode-ai/sdk')
+      .createOpencodeClient as jest.Mock;
+    createOpencodeClient.mockReturnValue({
+      session: { create: jest.fn(), promptAsync: jest.fn(), abort: jest.fn() },
+      event: { subscribe: jest.fn() },
+    });
+
+    const loaded = loadOpenCodeSdk({
+      baseURL: 'http://127.0.0.1:4096',
+      directory: '/srv/coderax/private',
+      password: 's3cret',
+    });
+
+    expect(loaded.ok).toBe(true);
+    expect(createOpencodeClient).toHaveBeenCalledWith({
+      baseUrl: 'http://127.0.0.1:4096',
+      directory: '/srv/coderax/private',
+      headers: openCodeAuthHeader({ password: 's3cret' }),
+    });
+  });
+
   it('uses the root client nested path, body and query shape', async () => {
     const stream = {
       async *[Symbol.asyncIterator]() {
