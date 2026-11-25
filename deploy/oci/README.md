@@ -74,7 +74,9 @@ The Vercel project keeps its existing `CODERAX_API_ORIGIN`, `CODERAX_PROXY_SECRE
 while both origins share the API. If this deployment creates a new Oracle origin or a new proxy
 secret, update Vercel's Production `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` to those same
 values before relying on the legacy origin for continuity or rollback; the old values will not
-authenticate against the new Caddy. Do not remove the variables, project or domain until the owner
+authenticate against the new Caddy. Vercel applies environment changes only to new deployments, so
+create a new Production deployment and verify `/readyz` and `/api/config` on `coderaxai.vercel.app`
+before relying on that origin. Do not remove the variables, project or domain until the owner
 authorizes retirement after end-to-end verification.
 
 ## Rollback
