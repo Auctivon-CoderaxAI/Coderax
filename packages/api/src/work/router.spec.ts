@@ -341,7 +341,7 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
-  it('serves every valid task when a legacy row has a non-string title', async () => {
+  it('serves every task when legacy rows have missing, null or non-string titles', async () => {
     const server = app({
       listConversations: async () => [
         { conversationId: 'c-valid', title: 'Plan', isWork: true, updatedAt: '2026-02-02' },
@@ -352,6 +352,8 @@ describe('native Work router', () => {
           updatedAt: '2026-02-01',
         },
         { conversationId: 'c-number', title: 42, isWork: true, updatedAt: '2026-02-03' },
+        { conversationId: 'c-null', title: null, isWork: true, updatedAt: '2026-02-04' },
+        { conversationId: 'c-missing', isWork: true },
       ],
     });
     const res = await request(server).get('/api/work/tasks');
@@ -359,10 +361,35 @@ describe('native Work router', () => {
     expect(
       res.body.tasks.map((task: { id: string; title: string }) => [task.id, task.title]),
     ).toEqual([
+      ['c-null', 'c-null'],
       ['c-number', 'c-number'],
       ['c-valid', 'Plan'],
       ['c-object', 'c-object'],
+      ['c-missing', 'c-missing'],
     ]);
+  });
+
+  it('reads only the authenticated owner’s rows when a legacy title is malformed', async () => {
+    const listConversations = jest.fn(async ({ userId }: { userId: string }) =>
+      [
+        { conversationId: 'mine-valid', title: 'Plan', isWork: true, userId: 'user-a' },
+        {
+          conversationId: 'mine-object',
+          title: { en: 'Plan' },
+          isWork: true,
+          userId: 'user-a',
+        },
+        { conversationId: 'theirs', title: null, isWork: true, userId: 'user-b' },
+      ].filter((row) => row.userId === userId),
+    );
+    const server = app({ listConversations });
+    const res = await request(server).get('/api/work/tasks?userId=user-b');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks.map((task: { id: string }) => task.id).sort()).toEqual([
+      'mine-object',
+      'mine-valid',
+    ]);
+    expect(listConversations).toHaveBeenCalledWith({ userId: 'user-a', limit: 50 });
   });
 
   it('serves history when stored timestamps are Date objects', async () => {

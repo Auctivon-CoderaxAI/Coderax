@@ -84,11 +84,12 @@ describe('work task mapping', () => {
     expect(toWorkTask({ conversationId: 'c2', isWork: false })).toBeNull();
   });
 
-  it('falls back to the id when a persisted title is not usable text', () => {
+  it('falls back to the id for a missing, null or non-string persisted title', () => {
+    expect(toWorkTask(work())?.title).toBe('c1');
+    expect(toWorkTask(work({ title: null }))?.title).toBe('c1');
     expect(toWorkTask(work({ title: 42 }))?.title).toBe('c1');
     expect(toWorkTask(work({ title: { en: 'Plan' } }))?.title).toBe('c1');
     expect(toWorkTask(work({ title: '   ' }))?.title).toBe('c1');
-    expect(toWorkTask(work({ title: null }))?.title).toBe('c1');
     expect(toWorkTask(work({ title: '  Plan  ' }))?.title).toBe('Plan');
   });
 
