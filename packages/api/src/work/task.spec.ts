@@ -84,6 +84,21 @@ describe('work task mapping', () => {
     expect(toWorkTask({ conversationId: 'c2', isWork: false })).toBeNull();
   });
 
+  it('falls back to the id when a persisted title is not a string', () => {
+    /** Legacy and imported rows can carry another type; one must not fail the read. */
+    const malformed = {
+      conversationId: 'legacy',
+      title: 42 as unknown as string,
+      isWork: true,
+    };
+    expect(toWorkTask(malformed)?.title).toBe('legacy');
+    const history = toWorkHistory([
+      { ...malformed, updatedAt: '2026-01-01' },
+      { conversationId: 'ok', title: 'Plan', isWork: true, updatedAt: '2026-02-01' },
+    ]);
+    expect(history.map((task) => task.id)).toEqual(['ok', 'legacy']);
+  });
+
   it('returns newest-first history and honours the limit', () => {
     const history = toWorkHistory(
       [

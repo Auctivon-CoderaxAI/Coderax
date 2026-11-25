@@ -362,6 +362,19 @@ describe('native Work router', () => {
     });
   });
 
+  it('serves the rest of the history when a legacy title is not a string', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'legacy', title: 42 as unknown as string, isWork: true },
+        { conversationId: 'c-1', title: 'Plan', isWork: true },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks.map((task: { id: string }) => task.id)).toEqual(['legacy', 'c-1']);
+    expect(res.body.tasks[0].title).toBe('legacy');
+  });
+
   it('uses live native job state and clears a stale running marker', async () => {
     const server = app({
       listConversations: async () => [
