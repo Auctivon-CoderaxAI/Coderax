@@ -8,10 +8,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { verifyApiBundle } from './verify-coderax-api-bundle.mjs';
 import {
+  assertAuthenticatedOrigin,
   buildVerificationReport,
   findMissingBuildTestFiles,
   parseArgs,
   resolveAuthenticatedE2eCredentials,
+  resolveAuthenticatedOrigins,
   validateLiveURL,
   verifyAuthenticatedE2e,
   verifyDataSchemasModelsExport,
@@ -724,6 +726,52 @@ test('only Coderax HTTPS Vercel origins are accepted as deployment checks', () =
   assert.throws(() => validateLiveURL('https://coderax-ten.vercel.app/?token=secret'));
 });
 
+test('authenticated E2E sends credentials only to exact allowlisted origins', async () => {
+  assert.throws(
+    () => assertAuthenticatedOrigin('https://coderax-ten.vercel.app', {}),
+    /not allowlisted/,
+  );
+  assert.equal(assertAuthenticatedOrigin('https://coderaxai.vercel.app', {}), undefined);
+  assert.equal(
+    assertAuthenticatedOrigin('https://coderax-ten.vercel.app', {
+      CODERAX_AUTHENTICATED_ORIGINS: 'https://coderax-ten.vercel.app',
+    }),
+    undefined,
+  );
+  assert.ok(
+    resolveAuthenticatedOrigins({
+      CODERAX_AUTHENTICATED_ORIGINS:
+        'https://coderax-ten.vercel.app, https://coderax-owner.vercel.app',
+    }).has('https://coderax-owner.vercel.app'),
+  );
+  assert.throws(
+    () =>
+      resolveAuthenticatedOrigins({
+        CODERAX_AUTHENTICATED_ORIGINS: 'https://coderax-ten.vercel.app/',
+      }),
+    /exact HTTPS origins/,
+  );
+  assert.throws(
+    () =>
+      resolveAuthenticatedOrigins({
+        CODERAX_AUTHENTICATED_ORIGINS: 'http://coderax-ten.vercel.app',
+      }),
+    /exact HTTPS origins/,
+  );
+
+  let ran = false;
+  await assert.rejects(
+    verifyAuthenticatedE2e('https://coderax-ten.vercel.app', {
+      env: { CODERAX_SMOKE_TOKEN: 'token' },
+      run: async () => {
+        ran = true;
+      },
+    }),
+    /not allowlisted/,
+  );
+  assert.equal(ran, false, 'the smoke must not run for an origin that is not allowlisted');
+});
+
 test('rejects the broken configuration where /api/config is served as HTML', async () => {
   const fakeFetch = async (url) => {
     const isHealth = url.endsWith('/readyz');
@@ -882,7 +930,7 @@ test('authenticated E2E verification fails closed without credentials', async ()
 
   let ran = false;
   await assert.rejects(
-    verifyAuthenticatedE2e('https://coderax-ten.vercel.app', {
+    verifyAuthenticatedE2e('https://coderaxai.vercel.app', {
       env: {},
       run: async () => {
         ran = true;
@@ -892,10 +940,10 @@ test('authenticated E2E verification fails closed without credentials', async ()
   );
   assert.equal(ran, false, 'the smoke must not run without credentials');
 
-  const result = await verifyAuthenticatedE2e('https://coderax-ten.vercel.app', {
+  const result = await verifyAuthenticatedE2e('https://coderaxai.vercel.app', {
     env: { CODERAX_SMOKE_TOKEN: 'token' },
     run: async (origin, env) => {
-      assert.equal(origin, 'https://coderax-ten.vercel.app');
+      assert.equal(origin, 'https://coderaxai.vercel.app');
       assert.equal(env.CODERAX_BASE_URL, origin);
       assert.equal(env.CODERAX_SMOKE_TOKEN, 'token');
     },
@@ -903,7 +951,7 @@ test('authenticated E2E verification fails closed without credentials', async ()
   assert.deepEqual(result, {
     status: 'verified',
     method: 'token',
-    origin: 'https://coderax-ten.vercel.app',
+    origin: 'https://coderaxai.vercel.app',
   });
 });
 

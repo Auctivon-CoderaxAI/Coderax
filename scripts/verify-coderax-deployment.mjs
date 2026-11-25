@@ -41,6 +41,46 @@ export const validateLiveURL = (value) => {
   return url.origin;
 };
 
+// A name that looks like a Coderax preview project is not proof of ownership,
+// and Vercel derives preview hostnames from project names. Authenticated smoke
+// runs send real credentials, so the destination must be an exact allowlisted
+// origin; an operator adds a preview origin explicitly when it is theirs.
+const DEFAULT_AUTHENTICATED_ORIGINS = ['https://coderaxai.vercel.app'];
+
+/** Resolve the exact HTTPS origins allowed to receive authenticated E2E credentials. */
+export function resolveAuthenticatedOrigins(env = process.env) {
+  const configured =
+    typeof env.CODERAX_AUTHENTICATED_ORIGINS === 'string'
+      ? env.CODERAX_AUTHENTICATED_ORIGINS.split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+      : [];
+  const origins = new Set(DEFAULT_AUTHENTICATED_ORIGINS);
+  for (const value of configured) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error('CODERAX_AUTHENTICATED_ORIGINS must list exact HTTPS origins');
+    }
+    if (url.protocol !== 'https:' || url.origin !== value) {
+      throw new Error('CODERAX_AUTHENTICATED_ORIGINS must list exact HTTPS origins');
+    }
+    origins.add(value);
+  }
+  return origins;
+}
+
+/** Refuse to send credentials to an origin that is not explicitly owner-controlled. */
+export function assertAuthenticatedOrigin(origin, env = process.env) {
+  if (!resolveAuthenticatedOrigins(env).has(origin)) {
+    throw new Error(
+      `authenticated E2E verification is restricted to explicit owner-controlled origins; ${origin} is not allowlisted. ` +
+        'Set CODERAX_AUTHENTICATED_ORIGINS to the exact HTTPS origin.',
+    );
+  }
+}
+
 /**
  * Vercel Services traces the backend entrypoint from the repository root.
  * Keep a runtime dependency used by @coderax/api visible to the root tracer,
@@ -733,7 +773,9 @@ Verification levels (they are not interchangeable):
   --authenticated-e2e
                 Also run the authenticated deployment smoke. Requires
                 CODERAX_SMOKE_TOKEN or CODERAX_SMOKE_EMAIL and
-                CODERAX_SMOKE_PASSWORD. Missing credentials fail the run.
+                CODERAX_SMOKE_PASSWORD, and an origin listed exactly in
+                CODERAX_AUTHENTICATED_ORIGINS (the production alias is
+                always allowed). Missing credentials fail the run.
 
   --expected-backend-revision <full-commit>
                 Require /api/config to report this exact commit.
@@ -883,6 +925,7 @@ export async function verifyAuthenticatedE2e(
   origin,
   { env = process.env, run = runDeployedSmoke } = {},
 ) {
+  assertAuthenticatedOrigin(origin, env);
   const credentials = resolveAuthenticatedE2eCredentials(env);
   await run(origin, { ...env, CODERAX_BASE_URL: origin });
   return { status: 'verified', method: credentials.method, origin };
@@ -910,6 +953,7 @@ async function main() {
     const origin = validateLiveURL(options.liveUrl);
     if (options.authenticatedE2e) {
       resolveAuthenticatedE2eCredentials(process.env);
+      assertAuthenticatedOrigin(origin, process.env);
     }
     const live = await verifyLiveBackend(
       origin,
