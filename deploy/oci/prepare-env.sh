@@ -89,6 +89,7 @@ printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
 cat > origin.env <<EOF
 CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET
+CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev
 EOF
 unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_KEY PROXY_SECRET secret_name secret_prompt
 chmod 600 app.env origin.env
