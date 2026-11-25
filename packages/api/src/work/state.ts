@@ -8,8 +8,13 @@ type WorkStateStore = {
   ) => Promise<{ isWork?: boolean; workState?: string } | null | undefined>;
   saveConvo: (
     context: { userId: string },
-    fields: { conversationId: string; workState: WorkTaskState },
-    options: { context: string; noUpsert: true },
+    fields: { conversationId: string; workState: WorkTaskState; workRunId?: string | null },
+    options: {
+      context: string;
+      noUpsert: true;
+      workRunGeneration?: string;
+      unsettledWorkRun?: boolean;
+    },
   ) => Promise<unknown>;
 };
 
@@ -25,10 +30,17 @@ export function workStateForJobStatus(status: unknown): WorkTaskState | null {
  * history, and checking the marker prevents ordinary Chat from being promoted.
  * A row that already records the outcome is left untouched, so observing the
  * same settled run twice costs a read instead of a write.
+ *
+ * `fence` names the run the outcome belongs to. The write is then an atomic
+ * compare-and-set on that generation: a newer run stamps its own as it starts,
+ * so a late outcome from the run it replaced matches nothing and leaves the
+ * newer run's state alone. A settled row detaches its generation, which is what
+ * keeps a later reading of a dead lease from reopening a finished task.
  */
 export async function persistTerminalWorkState(
   event: { userId?: string; conversationId?: string; status?: unknown } | null | undefined,
   store: WorkStateStore,
+  fence?: { generation: string },
 ): Promise<boolean> {
   const workState = workStateForJobStatus(event?.status);
   if (!workState || !isTerminalWorkState(workState)) {
@@ -48,8 +60,16 @@ export async function persistTerminalWorkState(
   }
   await store.saveConvo(
     { userId },
-    { conversationId, workState },
-    { context: 'Work terminal generation state', noUpsert: true },
+    {
+      conversationId,
+      workState,
+      ...(fence ? { workRunId: null } : {}),
+    },
+    {
+      context: 'Work terminal generation state',
+      noUpsert: true,
+      ...(fence ? { workRunGeneration: fence.generation, unsettledWorkRun: true } : {}),
+    },
   );
   return true;
 }
@@ -61,7 +81,31 @@ export type EngineRunStateReader = {
     tenantId: string | null;
     conversationId: string;
   }) => Promise<string | null>;
+  /** The lease generation behind `state()`, when the runtime keeps durable leases. */
+  generation?: (input: {
+    userId: string;
+    tenantId: string | null;
+    conversationId: string;
+  }) => Promise<string | null>;
 };
+
+type RunScope = { userId: string; tenantId: string | null; conversationId: string };
+
+async function readRunGeneration(
+  input: RunScope,
+  runtime: EngineRunStateReader,
+): Promise<string | null> {
+  if (!runtime.generation) {
+    return null;
+  }
+  try {
+    return await runtime.generation(input);
+  } catch {
+    /** An unreadable generation costs the fence, not the outcome: the row itself
+     *  still reports the interruption until cleanup reclaims it. */
+    return null;
+  }
+}
 
 /**
  * Resolves a Work task's run state from the engine's durable lease.
@@ -73,16 +117,38 @@ export type EngineRunStateReader = {
  * because the row itself remains the evidence until cleanup.
  */
 export async function readEngineWorkState(
-  input: { userId: string; tenantId: string | null; conversationId: string },
+  input: RunScope,
   runtime: EngineRunStateReader,
   store: WorkStateStore,
 ): Promise<string | null> {
   const state = await runtime.state(input);
   if (state === 'failed') {
+    const generation = await readRunGeneration(input, runtime);
     await persistTerminalWorkState(
       { userId: input.userId, conversationId: input.conversationId, status: 'failed' },
       store,
+      generation == null ? undefined : { generation },
     ).catch(() => false);
   }
   return state;
+}
+
+/** The engine runtime as far as cancellation is concerned; the route supplies it. */
+export type EngineRunController = EngineRunStateReader & {
+  cancel: (input: RunScope) => Promise<boolean>;
+};
+
+/**
+ * Cancels an engine run, recording an interruption the lease store is about to
+ * retire. Cancelling an expired lease deletes its row, so the `failed` outcome
+ * has to reach the conversation before that evidence is gone; a live run is
+ * only flagged, and reports `cancelled` through its own handler.
+ */
+export async function cancelEngineWorkRun(
+  input: RunScope,
+  runtime: EngineRunController,
+  store: WorkStateStore,
+): Promise<boolean> {
+  await readEngineWorkState(input, runtime, store);
+  return runtime.cancel(input);
 }

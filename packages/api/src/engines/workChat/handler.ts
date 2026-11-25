@@ -219,6 +219,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     /** Separates a conversation-store outage from an engine failure. */
     let storeUnavailable = false;
     let activeHandle: EngineRunHandle | null = null;
+    /** The lease generation this run writes messages and state under. */
+    let generation: string | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
     let closeCancelled = false;
@@ -314,6 +316,25 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       activeHandle = started.value;
+      /**
+       * The lease token fences this run's conversation writes: a retry stamps
+       * its own generation, so a late outcome from this run matches nothing
+       * instead of replacing the retry's state.
+       */
+      if (runtime.generation) {
+        try {
+          generation = await runtime.generation({ ...reservation, handle: activeHandle });
+        } catch {
+          generation = null;
+        }
+      }
+      const runGeneration = generation;
+      /** A terminal write applies only while this run still owns the row; it also detaches
+       *  the generation, so a later reading of a dead lease cannot reopen the outcome. */
+      const settle = (workState: 'completed' | 'failed' | 'cancelled') =>
+        runGeneration == null
+          ? { conversationId, workState }
+          : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
       try {
         await store.saveConversation({
           conversationId,
@@ -321,6 +342,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           workAgent: engine,
           workState: 'running',
           create: existing == null,
+          ...(runGeneration == null ? {} : { workRunId: runGeneration }),
         });
       } catch (error) {
         storeUnavailable = true;
@@ -328,7 +350,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
       if (closed) {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        await store.saveConversation(settle('cancelled'));
         finished = true;
         return;
       }
@@ -353,7 +375,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({ conversationId });
       } catch {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'failed' });
+        await store.saveConversation(settle('failed'));
         if (closed) {
           finished = true;
           return;
@@ -366,7 +388,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
       if (closed) {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        await store.saveConversation(settle('cancelled'));
         finished = true;
         return;
       }
@@ -463,15 +485,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
         });
-        await store.saveConversation({
-          conversationId,
-          workState: terminalState,
-        });
+        await store.saveConversation(settle(terminalState));
       } catch {
         persisted = false;
         options.logger?.warn?.('[Work] Could not persist the engine response.');
         try {
-          await store.saveConversation({ conversationId, workState: 'failed' });
+          await store.saveConversation(settle('failed'));
         } catch {
           // The stream still has to close even when storage is unavailable.
         }

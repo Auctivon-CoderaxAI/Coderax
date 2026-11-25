@@ -99,6 +99,7 @@ export function createMemoryWorkRunLeaseStore(): WorkRunLeaseStore {
         return null;
       }
       return {
+        token: lease.token,
         cancelRequested: lease.cancelRequested,
         expiresAt: lease.expiresAt,
         live: lease.expiresAt.getTime() > now.getTime(),

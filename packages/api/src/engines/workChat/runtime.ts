@@ -88,6 +88,17 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     return lease.cancelRequested ? 'cancelled' : 'running';
   }
 
+  /**
+   * The generation a conversation write must name to belong to this scope's run.
+   * It is read separately from `state` so the common path keeps one row read;
+   * a row that changes in between only makes the fenced write match nothing,
+   * which is exactly the outcome that must not land.
+   */
+  async generation(input: RunScope): Promise<string | null> {
+    const lease = await this.leases.read(input, new Date());
+    return lease?.token ?? null;
+  }
+
   async cancel(input: RunScope): Promise<boolean> {
     const key = activeRunKey(input);
     const run = activeRuns.get(key);
