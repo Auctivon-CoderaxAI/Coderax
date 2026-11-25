@@ -521,6 +521,56 @@ describe('access middleware', () => {
       expect(mockRes.status).toHaveBeenCalledWith(500);
       expect(mockRes.json).toHaveBeenCalledWith({ message: 'Server error' });
     });
+
+    it('keeps credentials and provider payloads out of the response and logs', async () => {
+      const error = Object.assign(
+        new Error(
+          'MongoServerError: mongodb://owner:super-secret@db.internal/coderax failed with Bearer sk-live-abcdef',
+        ),
+        {
+          response: {
+            status: 401,
+            headers: { authorization: 'Bearer sk-live-abcdef' },
+            data: { prompt: 'PRIVATE-PROVIDER-PAYLOAD' },
+          },
+        },
+      );
+      mockGetRoleByName.mockRejectedValue(error);
+
+      const middleware = generateCheckAccess({
+        permissionType: PermissionTypes.AGENTS,
+        permissions: [Permissions.USE],
+        getRoleByName: mockGetRoleByName,
+      });
+
+      await middleware(mockReq as Request, mockRes as Response, mockNext);
+
+      expect(mockRes.status).toHaveBeenCalledWith(500);
+      expect(mockRes.json).toHaveBeenCalledWith({ message: 'Server error' });
+
+      const { logger } = jest.requireMock('@coderax/data-schemas') as {
+        logger: { error: jest.Mock };
+      };
+      const responseBody = JSON.stringify((mockRes.json as jest.Mock).mock.calls[0][0]);
+      const logged = JSON.stringify(logger.error.mock.calls);
+      for (const secret of ['super-secret', 'sk-live-abcdef', 'PRIVATE-PROVIDER-PAYLOAD']) {
+        expect(responseBody).not.toContain(secret);
+        expect(logged).not.toContain(secret);
+      }
+
+      expect(logger.error).toHaveBeenCalledWith(
+        '[access] Permission check failed',
+        expect.objectContaining({
+          type: 'Error',
+          status: 401,
+          permission_type: PermissionTypes.AGENTS,
+          permission: 'USE',
+        }),
+      );
+      const metadata = logger.error.mock.calls[0]?.[1] ?? {};
+      expect(metadata).not.toHaveProperty('message');
+      expect(metadata).not.toHaveProperty('stack');
+    });
   });
 
   describe('Real-world usage patterns', () => {
