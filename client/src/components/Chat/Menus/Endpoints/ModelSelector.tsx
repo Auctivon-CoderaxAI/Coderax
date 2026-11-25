@@ -65,9 +65,13 @@ function ModelSelectorContent() {
     [localize, agentsMap, modelSpecs, selectedValues, mappedEndpoints],
   );
   const hasNoAvailableModels = !mappedEndpoints?.length && !modelSpecs?.length;
-  const selectorAccessibleName = selectedDisplayValue
-    ? `${localize('com_ui_select_model')}: ${selectedDisplayValue}`
-    : localize('com_ui_select_model');
+  /* getDisplayValue reports the selection label when nothing resolves, so the
+   * name only carries a value once the visible text differs from that label. */
+  const selectionLabel = localize('com_ui_select_model');
+  const selectorAccessibleName =
+    selectedDisplayValue && selectedDisplayValue !== selectionLabel
+      ? `${selectionLabel}: ${selectedDisplayValue}`
+      : selectionLabel;
 
   const trigger = (
     <TooltipAnchor
