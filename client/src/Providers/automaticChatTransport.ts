@@ -138,11 +138,19 @@ export function createAutomaticChatTransport({
   selection,
   endpointsConfig,
   workMode = false,
+  workConversation = false,
 }: {
   transport: Transport;
   selection: AutomaticChatModel;
   endpointsConfig?: TEndpointsConfig;
   workMode?: boolean;
+  /**
+   * True only for a conversation stored as Work that is being viewed in Chat. That
+   * transcript can leave `agent_id`, `spec` or `ephemeralAgent` in the payload, and
+   * those leftovers must not override the Chat model selection. Chat mode alone is
+   * not evidence of that state: an agent endpoint in Chat may be an explicit pick.
+   */
+  workConversation?: boolean;
 }): AutomaticChatTransportController {
   /** Per-route start outcomes never cross browser accounts or chat hosts. */
   const health = new Map<string, RouteHealth>();
@@ -161,7 +169,7 @@ export function createAutomaticChatTransport({
     ...transport,
     start: async (request, options) => {
       const endpoint = request.payload.endpoint;
-      const storedWorkEndpoint = isAgentsEndpoint(endpoint) && !workMode;
+      const storedWorkEndpoint = isAgentsEndpoint(endpoint) && !workMode && workConversation;
       if (isAssistantsEndpoint(endpoint) || (isAgentsEndpoint(endpoint) && workMode)) {
         // One approval authorizes one paid request. This request bypasses paid
         // routing, so it must not leave an approval live for a later one.

@@ -75,6 +75,7 @@ export type EngineWorkChatRunner = {
     input: RunScope & {
       prompt: string;
       engine?: EngineId;
+      signal?: AbortSignal;
       /** Runs after ownership is verified and before the engine is dispatched. */
       beforeDispatch?: (ownership: EngineRunOwnership) => Promise<void>;
     },

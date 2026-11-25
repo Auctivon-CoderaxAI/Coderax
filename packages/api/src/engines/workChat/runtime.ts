@@ -12,12 +12,20 @@ import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
 import type { WorkRunLeaseStore } from './leases';
+import type { EngineRetryPolicy } from '../retry';
 import {
   DEFAULT_WORK_RUN_LEASE_TTL_MS,
   DEFAULT_WORK_RUN_RETENTION_MS,
   WORK_RUN_SWEEP_LIMIT,
   memoryWorkRunLeases,
 } from './leases';
+import {
+  DEFAULT_ENGINE_RETRY_POLICY,
+  canRetryWithin,
+  isRetryableStartFailure,
+  normalizeEngineRetryPolicy,
+  wait,
+} from '../retry';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -48,13 +56,32 @@ function activeRunKey(input: RunScope): string {
   return JSON.stringify([input.tenantId, input.userId, input.conversationId]);
 }
 
+/**
+ * The model each engine is dispatched with. A run is pinned to the model its own
+ * engine approved, so selecting OpenCode Agent never runs the FreeBuff model (or
+ * the reverse) just because a different engine is the configured default.
+ *
+ * Only engines that accept a per-run model appear here. FreeBuff resolves its
+ * model from its adapter configuration, so a request-level model would describe
+ * that run inaccurately.
+ */
+export type EngineRunModels = Partial<Record<EngineId, EngineModelRef>>;
+
+export function engineRunModels(
+  engines: NonNullable<EngineWorkChatConfig>['engines'] | null | undefined,
+): EngineRunModels {
+  const model = parseEngineModel(engines?.opencode?.model);
+  return model ? { opencode: model } : {};
+}
+
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private readonly registry: EngineRegistryApi;
   private readonly roots: { private: string; cloud: string };
   private readonly mode: DataMode;
-  private readonly model: EngineModelRef | undefined;
+  private readonly models: EngineRunModels;
   private readonly defaultEngine: EngineId;
   private readonly leases: WorkRunLeaseStore;
+  private readonly retry: EngineRetryPolicy;
   private readonly instanceId = randomUUID();
   private readonly leaseTtlMs: number;
   private readonly heartbeatMs: number;
@@ -66,18 +93,20 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     registry: EngineRegistryApi,
     roots: { private: string; cloud: string },
     mode: DataMode = 'private',
-    model?: EngineModelRef,
+    models: EngineRunModels = {},
     defaultEngine: EngineId = 'opencode',
     leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry: EngineRetryPolicy = DEFAULT_ENGINE_RETRY_POLICY,
   ) {
     this.registry = registry;
     this.roots = roots;
     this.mode = mode;
-    this.model = model;
+    this.models = models;
     this.defaultEngine = defaultEngine;
     this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
+    this.retry = normalizeEngineRetryPolicy(retry);
     this.heartbeatMs = Math.max(5, Math.floor(leaseTtlMs / 3));
   }
 
@@ -172,6 +201,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     input: RunScope & {
       prompt: string;
       engine?: EngineId;
+      signal?: AbortSignal;
       beforeDispatch?: (ownership: EngineRunOwnership) => Promise<void>;
     },
   ): Promise<EngineResult<EngineRunHandle>> {
@@ -244,43 +274,130 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     activeRuns.set(key, run);
     this.startHeartbeat(input, key, run);
 
+    const model = this.models[engine];
     let ownershipLost = false;
+    const beforeDispatch = input.beforeDispatch;
+    let recorded = false;
+    /**
+     * The conversation row is written once, before a successful dispatch. A
+     * readiness refusal runs before the callback, so the callback stays on the
+     * retry until it has completed; afterwards it is omitted so the row is not
+     * written again. The wrapper keeps a retry idempotent even when the
+     * registry repeats the callback.
+     */
+    const writeOnce =
+      beforeDispatch == null
+        ? undefined
+        : async (): Promise<void> => {
+            if (recorded) {
+              return;
+            }
+            /**
+             * Re-establish ownership immediately before the startup write.
+             * A successful renew is the atomic linearization point: the
+             * claim of a replacement run cannot land until this expiry, so
+             * the generation this execution stamps is still its own.
+             */
+            const verifiedAt = new Date();
+            const verifiedExpiry = new Date(verifiedAt.getTime() + this.leaseTtlMs);
+            const ownership = await this.leases.renew(input, token, verifiedAt, verifiedExpiry);
+            if (!ownership.renewed) {
+              ownershipLost = true;
+              run.lost = true;
+              throw new Error('The Work run lease was lost before dispatch.');
+            }
+            run.leaseExpiresAt = verifiedExpiry.getTime();
+            await beforeDispatch({ generation: token, replaces: claim.previousToken });
+            recorded = true;
+          };
+    const dispatch = async (): Promise<EngineResult<EngineRunHandle>> => {
+      if (input.signal?.aborted || run.cancelRequested) {
+        return engineFailure('cancelled');
+      }
+      if (run.lost) {
+        return engineFailure('busy', 'This run no longer owns the task.');
+      }
+      try {
+        return await this.registry.start({
+          engine,
+          ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
+          request: {
+            taskKey: this.mode === 'cloud' ? key : input.conversationId,
+            conversationId: input.conversationId,
+            prompt: input.prompt,
+            signal: input.signal,
+            mode: this.mode,
+            workspaceRoot,
+            ...(model ? { model } : {}),
+          },
+        });
+      } catch (error) {
+        await this.leases.release(input, token).catch(() => false);
+        throw error;
+      }
+    };
+
     let started: EngineResult<EngineRunHandle>;
     try {
-      started = await this.registry.start({
-        engine,
-        beforeDispatch: input.beforeDispatch
-          ? async () => {
-              /**
-               * Re-establish ownership immediately before the startup write.
-               * A successful renew is the atomic linearization point: the
-               * claim of a replacement run cannot land until this expiry, so
-               * the generation this execution stamps is still its own.
-               */
-              const verifiedAt = new Date();
-              const verifiedExpiry = new Date(verifiedAt.getTime() + this.leaseTtlMs);
-              const ownership = await this.leases.renew(input, token, verifiedAt, verifiedExpiry);
-              if (!ownership.renewed) {
-                ownershipLost = true;
-                run.lost = true;
-                throw new Error('The Work run lease was lost before dispatch.');
-              }
-              run.leaseExpiresAt = verifiedExpiry.getTime();
-              await input.beforeDispatch?.({
-                generation: token,
-                replaces: claim.previousToken,
-              });
-            }
-          : undefined,
-        request: {
-          taskKey: this.mode === 'cloud' ? key : input.conversationId,
-          conversationId: input.conversationId,
-          prompt: input.prompt,
-          mode: this.mode,
-          workspaceRoot,
-          ...(engine === 'opencode' && this.model ? { model: this.model } : {}),
-        },
-      });
+      started = await dispatch();
+      for (let attempt = 1; ; attempt += 1) {
+        if (
+          started.ok ||
+          attempt >= this.retry.maxAttempts ||
+          !isRetryableStartFailure(started) ||
+          !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
+        ) {
+          break;
+        }
+        await wait(this.retry.delayMs);
+        if (run.lost) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        if (run.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        /**
+         * The delay is time in which the owner can cancel and another replica
+         * can claim an expired lease. Re-read the lease before dispatching again:
+         * an engine must not start for a cancelled task or one this run no longer
+         * owns. `renew` also extends the lease so the retry stays fenced.
+         */
+        const retryAt = new Date();
+        const retryExpiry = new Date(retryAt.getTime() + this.leaseTtlMs);
+        let lease: { renewed: boolean; cancelRequested: boolean };
+        try {
+          lease = await this.leases.renew(input, token, retryAt, retryExpiry);
+        } catch {
+          lease = { renewed: false, cancelRequested: false };
+        }
+        if (lease.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        if (!lease.renewed) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        run.leaseExpiresAt = retryExpiry.getTime();
+        started = await dispatch();
+      }
     } catch (error) {
       this.stopHeartbeat(run);
       if (activeRuns.get(key) === run) {
@@ -441,6 +558,7 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     openhands: engines?.openhands ?? null,
     freebuff: engines?.freebuff ?? null,
     defaultEngine: engines?.defaultEngine ?? null,
+    retry: engines?.retry ?? null,
   });
 }
 
@@ -470,15 +588,18 @@ export function getEngineWorkChatRuntime(
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
   const workEngine = engines?.defaultEngine ?? 'opencode';
-  const modelConfig =
-    workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
+  /** Each engine keeps the model its own configuration approved. */
+  const models = engineRunModels(engines);
+  const retry = normalizeEngineRetryPolicy(engines?.retry);
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
-    parseEngineModel(modelConfig) ?? undefined,
+    models,
     workEngine,
     leases,
+    DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry,
   );
   cache.set(key, runtime);
   return runtime;

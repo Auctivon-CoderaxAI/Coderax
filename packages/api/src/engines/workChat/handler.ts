@@ -224,16 +224,21 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let activeHandle: EngineRunHandle | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
+    const startup = new AbortController();
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
-      if (!activeHandle || closeCancelled) {
+      if (closeCancelled) {
         return;
       }
       closeCancelled = true;
-      void activeHandle
-        .cancel()
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+      if (activeHandle) {
+        void activeHandle
+          .cancel()
+          .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+        return;
+      }
+      startup.abort();
     };
     res.on('close', () => {
       if (!finished) {
@@ -299,6 +304,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           ? { conversationId, workState }
           : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
       const started = await runtime.start({
+        signal: startup.signal,
         beforeDispatch: async (ownership) => {
           if (closed) throw new Error('Work request closed');
           runGeneration = ownership.generation;
@@ -357,17 +363,14 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
+          /** A start refused because the owner cancelled is a cancelled run. */
+          const startupState = started.error.code === 'cancelled' ? 'cancelled' : 'failed';
           try {
             /** A startup that stamped its generation settles through that fence. */
             await store.saveConversation({
               ...(runGeneration == null
-                ? { conversationId, workState: 'failed' as const }
-                : {
-                    conversationId,
-                    workState: 'failed' as const,
-                    workRunId: null,
-                    fenceWorkRun: runGeneration,
-                  }),
+                ? { conversationId, workState: startupState }
+                : settle(startupState)),
               ...(!recorded && existing == null ? { title, create: true } : {}),
             });
           } catch (error) {
