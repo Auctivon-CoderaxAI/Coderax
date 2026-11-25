@@ -19,12 +19,15 @@ services:
       PORT: "3080"
       SCHEDULES_SINGLE_PROCESS: "true"
       TRUST_PROXY: "1"
-      DOMAIN_CLIENT: https://coderaxai.vercel.app
-      DOMAIN_SERVER: https://coderaxai.vercel.app
+      DOMAIN_CLIENT: ${CODERAX_PUBLIC_ORIGIN:-https://coderax.nnabdelshahid.workers.dev}
+      DOMAIN_SERVER: ${CODERAX_PUBLIC_ORIGIN:-https://coderax.nnabdelshahid.workers.dev}
       SESSION_COOKIE_SECURE: "true"
       ALLOW_REGISTRATION: "false"
       ALLOW_SOCIAL_REGISTRATION: "false"
-      ENABLE_GUEST_ACCESS: "true"
+      # Owner-only runtime: password login is the only entry path. The legacy
+      # Vercel frontend keeps working because it shares this backend until the
+      # owner authorizes retirement; no guest path exists on either origin.
+      ENABLE_GUEST_ACCESS: "false"
       REGISTER_WINDOW: "60"
       REGISTER_MAX: "5"
       NO_INDEX: "true"
@@ -51,6 +54,8 @@ services:
     restart: unless-stopped
     env_file:
       - ./origin.env
+    environment:
+      CODERAX_PUBLIC_HOST: ${CODERAX_PUBLIC_HOST:-coderax.nnabdelshahid.workers.dev}
     ports:
       - "80:80"
       - "443:443"

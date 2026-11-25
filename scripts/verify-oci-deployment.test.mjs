@@ -46,7 +46,7 @@ test('Caddy requires the private proxy header and preserves origin and streaming
     caddy,
     /@direct_work \{[\s\S]*?path \/api\/work\/chat\n[\s\S]*?path \/api\/work\/chat\/\*[\s\S]*?path \/api\/agents\/chat\/stream\n[\s\S]*?path \/api\/agents\/chat\/stream\/\*[\s\S]*?not header X-Coderax-Proxy-Secret/,
   );
-  assert.match(caddy, /header_up Host coderaxai\.vercel\.app/);
+  assert.match(caddy, /header_up Host \{\$CODERAX_PUBLIC_HOST:coderaxai\.vercel\.app\}/);
   assert.match(caddy, /header_up -X-Coderax-Proxy-Secret/);
   assert.match(caddy, /header_up Host \{http\.request\.header\.X-Forwarded-Host\}/);
   assert.match(caddy, /header_up X-Forwarded-Proto https/);
@@ -81,7 +81,8 @@ test('OCI keeps native Work on free hosted models without embedding a key', asyn
   assert.match(app, /CONFIG_PATH: \/app\/deploy\/oci\/coderax\.yaml/);
   assert.match(app, /\.\/coderax\.oci\.yaml:\/app\/deploy\/oci\/coderax\.yaml:ro/);
   assert.match(compose, /ALLOW_REGISTRATION: "false"/);
-  assert.match(compose, /ENABLE_GUEST_ACCESS: "true"/);
+  assert.match(compose, /ENABLE_GUEST_ACCESS: "false"/);
+  assert.match(compose, /CODERAX_PUBLIC_ORIGIN:-https:\/\/coderax\.nnabdelshahid\.workers\.dev/);
   assert.match(compose, /REGISTER_WINDOW: "60"/);
   assert.match(compose, /REGISTER_MAX: "5"/);
 });
@@ -123,6 +124,7 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /OPENROUTER_API_KEY=%s\\n' "\$OPENROUTER_API_KEY" >> app\.env/);
   assert.doesNotMatch(setup, /CREDS_KEY=\$\(openssl rand/);
   assert.match(setup, /openssl rand -hex 32/);
+  assert.match(setup, /CODERAX_PUBLIC_HOST=coderax\.nnabdelshahid\.workers\.dev/);
   assert.match(setup, /chmod 600 app\.env origin\.env/);
   assert.match(setup, /do not print or commit that file/);
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);

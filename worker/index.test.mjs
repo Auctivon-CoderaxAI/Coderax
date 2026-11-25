@@ -16,7 +16,7 @@ const assets = {
 };
 
 function env(overrides = {}) {
-  return { ASSETS: assets, ...overrides };
+  return { ASSETS: assets, CODERAX_ALLOWED_HOSTS: 'coderax.example', ...overrides };
 }
 
 const realFetch = globalThis.fetch;
@@ -49,7 +49,7 @@ describe('isApiPath', () => {
 });
 
 describe('parseApiOrigin', () => {
-  it('accepts a plain HTTPS origin', () => {
+  it('accepts the authorized Coderax sslip.io origin', () => {
     assert.equal(parseApiOrigin(ORIGIN)?.origin, ORIGIN);
   });
 
@@ -57,14 +57,29 @@ describe('parseApiOrigin', () => {
     for (const value of [
       undefined,
       '',
-      'http://coderax.example',
-      'https://coderax.example/path',
-      'https://coderax.example?x=1',
-      'https://coderax.example:8443',
-      'https://user:pass@coderax.example',
+      'http://coderax-93-184-216-34.sslip.io',
+      'https://coderax-93-184-216-34.sslip.io/path',
+      'https://coderax-93-184-216-34.sslip.io?x=1',
+      'https://coderax-93-184-216-34.sslip.io:8443',
+      'https://user:pass@coderax-93-184-216-34.sslip.io',
       'not a url',
     ]) {
       assert.equal(parseApiOrigin(value), null, String(value));
+    }
+  });
+
+  it('refuses to send the proxy secret to a non-Coderax or private origin', () => {
+    for (const value of [
+      'https://coderaxai.vercel.app',
+      'https://coderax.example',
+      'https://coderax-93-184-216-34.sslip.io.evil.example',
+      'https://coderax-10-0-0-1.sslip.io',
+      'https://coderax-127-0-0-1.sslip.io',
+      'https://coderax-192-168-1-1.sslip.io',
+      'https://coderax-198-51-100-1.sslip.io',
+      'https://coderax-999-1-1-1.sslip.io',
+    ]) {
+      assert.equal(parseApiOrigin(value), null, value);
     }
   });
 });
@@ -78,6 +93,43 @@ describe('worker fetch', () => {
     assert.equal(assets.calls.length, 1);
   });
 
+  it('refuses to proxy API calls for a host it does not serve', async () => {
+    let requested = false;
+    globalThis.fetch = async () => {
+      requested = true;
+      return new Response('should not be called');
+    };
+
+    const response = await worker.fetch(
+      new Request('https://attacker.example/api/config'),
+      env({ CODERAX_ALLOWED_HOSTS: 'coderax.nnabdelshahid.workers.dev' }),
+    );
+
+    assert.equal(response.status, 421);
+    assert.equal(requested, false);
+    assert.equal(assets.calls.length, 0);
+  });
+
+  it('allows loopback during local Worker development', async () => {
+    globalThis.fetch = async () => new Response('{"ok":true}');
+    const response = await worker.fetch(
+      new Request('http://localhost:8787/api/config'),
+      env({ CODERAX_ALLOWED_HOSTS: '', CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
+    );
+
+    assert.equal(response.status, 200);
+  });
+
+  it('defaults the allowed host to the canonical Workers origin', async () => {
+    globalThis.fetch = async () => new Response('{"ok":true}');
+    const response = await worker.fetch(
+      new Request('https://coderax.nnabdelshahid.workers.dev/api/config'),
+      env({ CODERAX_ALLOWED_HOSTS: '', CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
+    );
+
+    assert.equal(response.status, 200);
+  });
+
   it('fails closed instead of answering API calls with index.html', async () => {
     const response = await worker.fetch(new Request('https://coderax.example/api/config'), env());
 
@@ -85,6 +137,25 @@ describe('worker fetch', () => {
     assert.deepEqual(await response.json(), { error: 'API proxy is not configured' });
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(assets.calls.length, 0);
+  });
+
+  it('fails closed when the proxy secret is missing or too short', async () => {
+    let requested = false;
+    globalThis.fetch = async () => {
+      requested = true;
+      return new Response('{"ok":true}');
+    };
+
+    for (const secret of [undefined, '', 'too-short']) {
+      const response = await worker.fetch(
+        new Request('https://coderax.example/api/config'),
+        env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: secret }),
+      );
+
+      assert.equal(response.status, 503, String(secret));
+      assert.deepEqual(await response.json(), { error: 'API proxy is not configured' });
+    }
+    assert.equal(requested, false);
   });
 
   it('forwards API calls to the configured origin', async () => {
@@ -103,7 +174,12 @@ describe('worker fetch', () => {
 
     const response = await worker.fetch(
       new Request('https://coderax.example/api/config?x=1', {
-        headers: { cookie: 'a=b', 'x-vercel-id': 'skip-me' },
+        headers: {
+          cookie: 'a=b',
+          'x-vercel-id': 'skip-me',
+          'x-forwarded-for': '1.2.3.4',
+          'cf-connecting-ip': '203.0.113.9',
+        },
       }),
       env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
     );
@@ -115,6 +191,7 @@ describe('worker fetch', () => {
     assert.equal(captured.headers.get('x-vercel-id'), null);
     assert.equal(captured.headers.get('x-forwarded-host'), 'coderax.example');
     assert.equal(captured.headers.get('x-forwarded-proto'), 'https');
+    assert.equal(captured.headers.get('x-forwarded-for'), '203.0.113.9');
     assert.equal(captured.headers.get('x-coderax-proxy-secret'), SECRET);
 
     assert.equal(response.status, 200);
@@ -122,6 +199,23 @@ describe('worker fetch', () => {
     assert.equal(response.headers.get('transfer-encoding'), null);
     assert.equal(response.headers.get('x-coderax-proxy-secret'), null);
     assert.equal(assets.calls.length, 0);
+  });
+
+  it('does not trust a client-supplied X-Forwarded-For without Cloudflare attestation', async () => {
+    let captured;
+    globalThis.fetch = async (input, init) => {
+      captured = { headers: new Headers(init.headers) };
+      return new Response('{"ok":true}');
+    };
+
+    await worker.fetch(
+      new Request('https://coderax.example/api/config', {
+        headers: { 'x-forwarded-for': '198.51.100.7' },
+      }),
+      env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
+    );
+
+    assert.equal(captured.headers.get('x-forwarded-for'), null);
   });
 
   it('drops request fields named by the Connection header', async () => {
@@ -139,7 +233,7 @@ describe('worker fetch', () => {
           'x-keep-state': 'keep-me',
         },
       }),
-      env({ CODERAX_API_ORIGIN: ORIGIN }),
+      env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
     );
 
     assert.equal(captured.headers.get('connection'), null);
@@ -159,7 +253,7 @@ describe('worker fetch', () => {
 
     const response = await worker.fetch(
       new Request('https://coderax.example/api/config'),
-      env({ CODERAX_API_ORIGIN: ORIGIN }),
+      env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
     );
 
     assert.equal(await response.text(), '{"ok":true}');
@@ -180,7 +274,7 @@ describe('worker fetch', () => {
         method: 'POST',
         body: '{"text":"hi"}',
       }),
-      env({ CODERAX_API_ORIGIN: ORIGIN }),
+      env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
     );
 
     assert.equal(captured.input, `${ORIGIN}/api/work/chat`);
@@ -195,7 +289,7 @@ describe('worker fetch', () => {
 
     const response = await worker.fetch(
       new Request('https://coderax.example/api/config'),
-      env({ CODERAX_API_ORIGIN: ORIGIN }),
+      env({ CODERAX_API_ORIGIN: ORIGIN, CODERAX_PROXY_SECRET: SECRET }),
     );
 
     assert.equal(response.status, 502);
