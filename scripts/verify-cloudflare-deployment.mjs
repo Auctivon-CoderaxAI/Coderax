@@ -193,6 +193,11 @@ export function verifyRepositoryConfig(root = repoRoot) {
     /write-deployment-metadata\.mjs/,
     'the Cloudflare deploy command must write the revision marker',
   );
+  assert.match(
+    pkg.scripts?.['deploy:cloudflare'] ?? '',
+    /--verify/,
+    'the Cloudflare deploy command must verify build provenance',
+  );
   return {
     worker: 'coderax',
     entrypoint: './worker/index.mjs',

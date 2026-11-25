@@ -30,14 +30,15 @@ release gate passes.
 | Root directory | repository root (`/`) |
 | Install command | `npm ci` |
 | Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
-| Deploy command | `npm run deploy:cloudflare` (writes the revision marker, then `npx --yes wrangler@4.168.0 deploy`) |
+| Deploy command | `npm run deploy:cloudflare` (verifies the revision marker matches the checkout, then `npx --yes wrangler@4.168.0 deploy`) |
 | Branch | `main` |
 | Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
-hook and the `deploy:cloudflare` command both write `client/dist/deployment.json` with the commit and
-branch supplied by Workers Builds, so a build or deploy command cannot omit the marker. The deploy
-command pins Wrangler 4.168.0; change the pin in `package.json` and this table together.
+hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. The
+`deploy:cloudflare` command verifies that marker against the current checkout and refuses a missing
+or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The
+deploy command pins Wrangler 4.168.0; change the pin in `package.json` and this table together.
 
 ### Committed configuration
 
@@ -68,8 +69,12 @@ DOMAIN_SERVER=https://coderax.nnabdelshahid.workers.dev
 
 If `deploy/oci/app.env` already exists, append these lines; `prepare-env.sh` refuses to overwrite
 it. Keep the Vercel hostname in `CODERAX_ALLOWED_HOSTS` during the transition so both front doors can
-reach the same backend. After a custom domain is attached, add that hostname too. Changing
-`DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the new host.
+reach the same backend. After a custom domain is attached, add that hostname too. Passkeys enrolled
+on `coderaxai.vercel.app` are bound to that RP ID and will not work on the Cloudflare origin; users
+who use passkeys must sign in there with email/password and re-register them. Passkey sign-in on the
+Vercel fallback can also fail after `DOMAIN_CLIENT` changes, because the RP ID no longer matches.
+`emailLoginEnabled` is true in the current configuration; keep it enabled until re-enrollment is
+complete.
 
 ## What a merge does
 
@@ -77,7 +82,7 @@ reach the same backend. After a custom domain is attached, add that hostname too
 push to main
   └─ Workers Builds: npm ci
        └─ npm run frontend                 -> client/dist (client postbuild writes deployment.json)
-            └─ npm run deploy:cloudflare   -> deployment.json + wrangler@4.168.0 deploy
+            └─ npm run deploy:cloudflare   -> verify deployment.json + wrangler@4.168.0 deploy
                  └─ Cloudflare serves the new version
                       └─ Cloudflare production verification (GitHub Actions)
                            └─ polls /deployment.json for the merged commit
@@ -184,8 +189,9 @@ Exact safe retirement procedure:
    Do not remove the Vercel deployment.**
 3. Sign in through the Cloudflare origin, send one Work request, refresh, and confirm the
    conversation persists. The Cloudflare domain values become authoritative only after this check
-   passes. Changing `DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the
-   Cloudflare host; set it before cutover if passkeys are enrolled.
+   passes. Passkeys enrolled on the Vercel origin will not work on the Cloudflare origin; sign in
+   with email/password there and re-register them. Passkey sign-in on the Vercel fallback can fail
+   after `DOMAIN_CLIENT` changes.
 4. Move the canonical domain and the GitHub repository homepage to the Cloudflare origin, then keep
    both origins available for a soak period.
 5. Only after the owner explicitly approves retirement, unpublish/delete the Vercel project through

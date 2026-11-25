@@ -42,7 +42,7 @@ In `deploy/oci/app.env` on the VM, keep both front doors allowed during the tran
 lines if the file already exists; `prepare-env.sh` refuses to overwrite it):
 
 - `CODERAX_ALLOWED_HOSTS`: `coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev`.
-- `DOMAIN_CLIENT` and `DOMAIN_SERVER`: the origin users actually open. Use the Cloudflare origin after cutover and keep `https://coderaxai.vercel.app` only while Vercel remains the fallback. Changing `DOMAIN_CLIENT` changes the passkey RP ID unless `PASSKEY_RP_ID` is pinned to the new host.
+- `DOMAIN_CLIENT` and `DOMAIN_SERVER`: the origin users actually open. Use the Cloudflare origin after cutover and keep `https://coderaxai.vercel.app` only while Vercel remains the fallback. Passkeys enrolled on the Vercel origin will not work on the Cloudflare origin; sign in with email/password there and re-register them. Passkey sign-in on the Vercel fallback can fail after `DOMAIN_CLIENT` changes.
 
 The legacy Vercel project keeps `CODERAX_API_ORIGIN`, `CODERAX_PROXY_SECRET`, and
 `CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app` in **Production** until the owner retires it. Do not
