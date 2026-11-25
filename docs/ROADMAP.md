@@ -296,7 +296,23 @@ fixed size and no category is capped.
 | [`tool-approval-modes.md`](tool-approval-modes.md)             | What exists of `AGT-02` and `AGT-03` today.                                                                                 |
 | [`visual-app-studio.md`](visual-app-studio.md)                 | The honest scope of `DES-03` today: local-first and deterministic, explicitly not v0.                                       |
 | [`PORTFOLIO_ORCHESTRATION.md`](PORTFOLIO_ORCHESTRATION.md)     | Repository steward orchestration; depends on `GH-01` and `FND-08`.                                                          |
+| [`CLOUDFLARE_MIGRATION.md`](CLOUDFLARE_MIGRATION.md)           | The canonical-origin cutover, owner handoff, rollback and the exact remaining Cloudflare/OCI actions.                        |
 | `AGENTS.md`                                                    | Engineering rules. This file never overrides module boundaries, service-failure contracts or the review policy.             |
+
+## Cloudflare cutover evidence (2026-11-25)
+
+This is a status snapshot, not a completed migration. The canonical Worker is deployed but its API
+route is intentionally closed until the owner supplies the backend origin and proxy secret.
+
+| Item | State | Evidence |
+| --- | --- | --- |
+| Worker host gate and client-IP forwarding | **Tested** | `node --test worker/index.test.mjs` — 17/17 pass at `7c9147e7` plus the working tree. Rejects unknown API hosts with `421`, accepts only the public Coderax `sslip.io` backend form, requires a 32+ character proxy secret, and strips client-supplied `X-Forwarded-For`. |
+| Anonymous access gate | **Tested** | `node --test scripts/verify-coderax-access.test.mjs` — 8/8 pass; the live legacy origin returns `401` on every private collection and on Chat, Work and agent inference. Live canonical checks are blocked at the Worker's `503`. |
+| Canonical Oracle origin defaults | **Implemented** | `deploy/oci/compose.yaml` defaults `DOMAIN_CLIENT`/`DOMAIN_SERVER` to the Workers origin and sets `ENABLE_GUEST_ACCESS=false`; Caddy's direct-Work host reads `CODERAX_PUBLIC_HOST`. Not deployed; the running VM still reports `serverDomain=https://coderaxai.vercel.app`. |
+| Oracle backend reachability | **Partial** | Vercel `/readyz` returns `OK` and upstream responses carry `via: 1.1 Caddy`, so a Caddy-fronted API is running. The actual Oracle public origin is not recorded in this repository; the only `sslip.io` address in the tree is the documentation example `93.184.216.34`. |
+| Cloudflare API cutover | **Blocked** | `https://coderax.nnabdelshahid.workers.dev/api/config`, `/health` and `/readyz` return `503 {"error":"API proxy is not configured"}`. `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET` are absent; this workspace's Cloudflare integration returns authentication error `9106`, so the owner or ChatGPT must set them. |
+| Authenticated production journey | **Not run** | No owner password or session is available in this workspace. Conversation, project, file, memory, Work and agent behavior remain unverified on the canonical origin. |
+| Exact release revision | **Blocked** | The legacy origin reports no full `buildInfo.commit`; the Cloudflare release gate is owned by PR #303 and the exact Workers-origin verifier acceptance by PR #302. |
 
 ## Change control
 

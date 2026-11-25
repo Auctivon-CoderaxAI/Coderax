@@ -1,65 +1,209 @@
-# Coderax legacy front door on Vercel (frozen)
+# Coderax frontend on Vercel (legacy during the Cloudflare migration)
 
-**Status: legacy, retained for rollback. Do not deploy from this repository, and do not delete the
-project without explicit owner approval.**
+> **Legacy deployment.** The canonical frontend is now
+> `https://coderax.nnabdelshahid.workers.dev`, served by the Cloudflare Worker in
+> [`worker/index.mjs`](../../worker/index.mjs). This Vercel project remains live and unchanged so
+> `coderaxai.vercel.app` keeps working against the same API. Do not remove the project, its domain
+> or its proxy variables until the owner authorizes retirement after end-to-end verification. The
+> cutover, verification commands and secure owner handoff are in
+> [`docs/CLOUDFLARE_MIGRATION.md`](../../docs/CLOUDFLARE_MIGRATION.md).
 
-`https://coderaxai.vercel.app` is still the only origin whose API reaches the OCI backend, because
-the Cloudflare Worker has no `CODERAX_API_ORIGIN` or `CODERAX_PROXY_SECRET` yet. The repository's
-production path is [`deploy/cloudflare/README.md`](../cloudflare/README.md); the Cloudflare Worker
-builds from `main` through Workers Builds.
+The Vite interface is served by the Vercel project behind `coderaxai.vercel.app`.
+That deployment is produced by [`vercel-production.yml`](../../.github/workflows/vercel-production.yml)
+on every push to `main`. Nothing in the repository deployed it before, so merges
+never reached production and the alias kept serving an old build.
 
-Automatic Vercel deployment has been removed. `vercel-production.yml` and
-`coderax-post-merge-deployment.yml` no longer exist, so a merge to `main` creates no new Vercel
-workload. The Vercel project, its production alias, its environment variables, and the existing
-deployment remain untouched for rollback.
+The repository has two Vercel services, both declared in the root [`vercel.json`](../../vercel.json):
 
-## What still depends on Vercel
+- `frontend` - root `client`, `framework: vite`, output `dist`. Its
+  `buildCommand` runs `npm run frontend` (data-provider, data-schemas, api,
+  `@coderax/client`, then the SPA) and the release-gate client tests.
+- `backend` - root `.`, entrypoint `api/proxy.js`, which forwards `/api`,
+  `/oauth` and the health routes to the OCI host.
 
-- The production alias `coderaxai.vercel.app` is the working front door and the origin named by the
-  GitHub repository homepage.
-- The Vercel project's Production environment holds `CODERAX_API_ORIGIN`, `CODERAX_PROXY_SECRET` and
-  `CODERAX_ALLOWED_HOSTS`, which forward `/api`, `/oauth` and the health routes to the OCI Caddy front.
-- The OCI app's `DOMAIN_CLIENT` / `DOMAIN_SERVER` point at this origin, so browser sessions and
-  cookies are bound to it.
-- `vercel.json` describes the two Vercel services (`frontend`, `backend`) used by the existing
-  deployment. It is kept only so a rollback does not require reconstructing the project.
+## Required repository secrets
 
-## Inspect or roll back the existing deployment
+Set these under **Settings → Secrets and variables → Actions → Repository
+secrets**. They belong to the Vercel project that owns the production alias; do
+not add them to the VM or to `vercel.json`.
 
-Use the Vercel dashboard, or an authenticated operator session:
+| Secret              | What it is                                        | Where to get it                                                                                                                               |
+| ------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VERCEL_TOKEN`      | Personal/team access token used by the Vercel CLI | <https://vercel.com/account/tokens> → **Create Token**, scoped to the team that owns the project. Give it an expiry you will actually rotate. |
+| `VERCEL_ORG_ID`     | Team (or user) id, `team_…` / `user_…`            | `vercel link` in a checkout, then `.vercel/project.json` → `orgId`; or the team's **Settings → General**.                                     |
+| `VERCEL_PROJECT_ID` | Project id, `prj_…`                               | Same `.vercel/project.json` → `projectId`; or **Project → Settings → General → Project ID**.                                                  |
 
-```sh
-vercel ls --prod
-vercel inspect <deployment-url>
-vercel rollback <deployment-url>
+`gh secret set VERCEL_TOKEN`, `gh secret set VERCEL_ORG_ID` and
+`gh secret set VERCEL_PROJECT_ID` from an authenticated operator avoids pasting
+values into a file. `.vercel/` is already gitignored; never commit it.
+
+When any of these is missing, `Vercel production deployment` and `Coderax
+post-merge deployment verification` name every absent secret in a notice and
+step summary, then skip their deploy and verify steps. An unconfigured
+repository therefore shows a successful run with an explicit "skipped"
+annotation instead of a red job on every push. Add the secrets and re-run either
+workflow; nothing deploys without them.
+
+## Vercel project settings
+
+The workflow deploys with the CLI, so the project must match the repository
+contract:
+
+**Settings → General**
+
+- **Root Directory:** empty (repository root). `client/vercel.json` is a
+  rewrites-only leftover and is _not_ the project root: at `client` Vercel would
+  ignore the root `vercel.json` services block, `/api` would stop resolving, and
+  `npm run frontend` (which builds the workspace packages the SPA imports) would
+  never run. The release gate also requires the API runtime dependencies at the
+  repo root for function tracing.
+- **Framework Preset:** leave unset / **Other**. The services declare `vite` and
+  `express` themselves; a project-level preset applies to the whole root and
+  overrides them.
+- **Build & Development Settings:** keep **Override** off for Install Command,
+  Build Command and Output Directory. The services supply them.
+- **Ignored Build Step:** empty. A path-filtered ignore command silently keeps
+  the previous deployment in place, which is the failure this workflow exists to
+  prevent.
+- **Node.js Version:** `24.x` (`.nvmrc` pins `24.16.0`).
+
+**Settings → Git**
+
+- `main` is the **Production Branch**.
+- Either let Vercel deploy on push, **or** run this workflow — not both, or every
+  merge builds twice and races for the alias. This workflow is the supported
+  path, so turn off the project's automatic production deployments (or leave the
+  repository disconnected).
+
+**Settings → Environment Variables (Production)**
+
+| Variable                | Purpose                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `CODERAX_API_ORIGIN`    | HTTPS origin of the OCI Caddy front (`https://<host>.sslip.io`).                     |
+| `CODERAX_PROXY_SECRET`  | Shared secret from the VM's `origin.env`; server-only, never `VITE_`/`NEXT_PUBLIC_`. |
+| `CODERAX_ALLOWED_HOSTS` | `coderaxai.vercel.app` (legacy; the Cloudflare Worker gates its own host and defaults to the canonical Workers origin). |
+
+Without these the proxy fails closed with HTTP 503. Add them to **Preview** as
+well only if preview deployments should reach the same API.
+
+**Settings → Domains**
+
+- `coderaxai.vercel.app` is attached to **Production**, not to a single
+  deployment. An active **Instant Rollback** pins an old deployment and must be
+  removed before the alias can track `main` again.
+
+## How a deploy runs
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:29aaa461b1d97524d704d1b9eb7a9b0935c4be9f345bc7fb90e66017dbe98f61 -->
+
+1. `scripts/verify-coderax-deployment.mjs --repo-only` — the deployment contract
+   (services, rewrites, traced API dependencies) still matches the repo.
+2. After installing the CLI, compare the checked-out revision to current `main`.
+   Superseded runs skip deployment and verification; a failed lookup stops the run.
+3. `vercel deploy --prod --yes` — remote build, so the services' own build
+   commands (and the release-gate tests they run) execute on Vercel. The workflow
+   does not use `--prebuilt`.
+4. Alias check — the entry bundle served by `coderaxai.vercel.app` must match the
+   bundle the new deployment built, polled cache-busted for about three minutes.
+5. `/readyz` is reported as a warning, because the API is deployed separately on
+   the OCI host.
+
+The check observes `main` immediately before deployment. A push after that check
+can still make an in-flight deployment temporarily stale; the newer push needs its
+own successful run.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+## Verification levels
+
+These levels are not interchangeable. A green frontend build, a reachable host or a
+successful `--repo-only` run does not prove that a deployment happened.
+
+- **Repository:** `node scripts/verify-coderax-deployment.mjs --repo-only` checks the
+  committed deployment contract (services, rewrites, traced API dependencies). It contacts
+  no deployment and reports `deployment: not-run`.
+- **Deployment:** `node scripts/verify-coderax-deployment.mjs --live-url <origin>` requires
+  `/readyz`, JSON `/api/config`, the SPA shell and a full 40-character
+  `buildInfo.commit` from the deployment. A missing or short commit fails the gate because
+  the deployed revision cannot be identified; `--expected-backend-revision <full-commit>`
+  additionally requires an exact match.
+- **Authenticated E2E:** add `--authenticated-e2e` to run the deployment-backed smoke. It
+  fails closed unless `CODERAX_SMOKE_TOKEN` or both `CODERAX_SMOKE_EMAIL` and
+  `CODERAX_SMOKE_PASSWORD` are set. The browser suite remains `npm run e2e:deployed`, which
+  requires `E2E_BASE_URL` and a Playwright storage state (`E2E_STORAGE_STATE`).
+
+The post-merge workflow waits for the pushed revision before running the deployment check;
+`deployed-smoke.yml` runs the authenticated lane on its own schedule.
+
+## Failure modes
+
+- **Missing secret:** the deploy step stops before installing the CLI and names
+  the secret it needs.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b77f2160eb7fdf234f2d34fa28438eb0f6a0e1accbfe97c999ad91df5ff07af7 -->
+
+- **Unreadable deployment URL:** the alias check **fails closed**. If
+  `https://<deployment>` does not return the SPA (Vercel Authentication, a bad
+  URL, an outage), the run fails instead of assuming the alias is fine. The
+  public production domain does not imply the generated production deployment
+  URL is public: [Standard Protection](https://vercel.com/docs/deployment-protection#standard-protection)
+  protects deployment URLs while exempting production domains. In **Settings →
+  Deployment Protection**, configure protection so that the generated production
+  deployment URL is publicly readable by this workflow; for example, disable
+  protection for the project where team policy permits. Verify the generated URL
+  directly. This may also expose preview deployments.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+- **Alias still on an older build:** after roughly three minutes of polling, the
+  run fails with the bundle the deployment built and the one the alias serves.
+  The deployment exists but is not what users get, so the release is not done.
+- **API down:** `/readyz` warns only. The frontend release does not wait on the
+  OCI host.
+
+## Deploying by hand
+
+The workflow also accepts `workflow_dispatch` from `main` (the job is skipped on
+any other ref), which is the recovery path for a merge that landed before the
+workflow existed:
+
+```bash
+gh workflow run "Vercel production deployment" --ref main
 ```
 
-A rollback changes the alias only; it creates no new workload from this repository. Verify the
-restored alias with the legacy contract check before relying on it:
+Locally, with the CLI linked to the same project:
 
-```sh
-node scripts/verify-coderax-deployment.mjs \
-  --live-url https://coderaxai.vercel.app
+```bash
+vercel deploy --prod
 ```
 
-That check fails today because `/api/config` has no full `buildInfo.commit`. The failure is accurate:
-the legacy backend cannot identify its revision. Do not treat a 200 from the SPA as verification.
+A manual `vercel deploy --prod` must run from a checkout that is actually at
+`main`; the stale production build came from a working copy that was behind.
 
-## Safe retirement procedure
+## Pinned Vercel CLI
 
-1. Complete the Cloudflare Worker configuration in
-   [`deploy/cloudflare/README.md`](../cloudflare/README.md): origin, proxy secret, OCI allowed host,
-   and `DOMAIN_CLIENT` / `DOMAIN_SERVER`.
-2. Confirm the Cloudflare release gate passes for the current `main` commit, including `/readyz` and
-   a matching `/api/config` `buildInfo.commit`.
-3. Sign in through the Cloudflare origin, send one Work request, refresh, and confirm the
-   conversation persists. Existing sessions will sign in again because the origin changed.
-4. Move the canonical domain and the GitHub repository homepage to the Cloudflare origin. Keep both
-   origins available for a soak period.
-5. Only after the owner explicitly approves retirement, unpublish/delete the Vercel project. This
-   removes its deployments and environment variables; it does not affect OCI data or Atlas.
-6. After the rollback window closes, remove `vercel.json`, this directory, and the remaining
-   Vercel-specific scripts in a separate reviewed pull request.
+The workflow installs `vercel@66.6.0`, taken from the `VERCEL_CLI_VERSION` env
+value in the workflow file, and fails if `vercel --version` does not report that
+number.
+The pin is deliberate: the CLI uploads a **Vercel Services** project, so a major
+bump changes the deploy path instead of being a routine upgrade.
 
-Until step 5, keep the Vercel deployment, its alias, its environment variables, and its DNS record.
-Deleting any of them without owner approval removes the only working front door.
+To bump it, change the `VERCEL_CLI_VERSION` env value in the workflow and this
+section together, merge to
+`main`, then dispatch the workflow and confirm the alias check passes. Before
+merging, check that `vercel deploy --help` at the new version still lists
+`--prod`, `--yes` and `--archive`.
+
+## Known follow-up
+
+`coderax-post-merge-deployment.yml` and every `--live-url` check require
+`/api/config` to report a full `buildInfo.commit`. The API runs on the OCI host,
+where `packages/api/src/app/build.ts` can only resolve `BUILD_COMMIT` /
+`BUILD_BRANCH` / `BUILD_DATE` from the environment. Build the image with the
+build args `docker-publish.yml` already passes, or add `BUILD_COMMIT` to the
+OCI app environment. A deployment that cannot identify its commit is
+intentionally reported as unverified rather than passed.

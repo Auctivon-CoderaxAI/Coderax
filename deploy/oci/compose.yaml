@@ -19,14 +19,14 @@ services:
       PORT: "3080"
       SCHEDULES_SINGLE_PROCESS: "true"
       TRUST_PROXY: "1"
-      # DOMAIN_CLIENT and DOMAIN_SERVER come from app.env so the Cloudflare
-      # cutover does not require editing tracked Compose configuration.
+      DOMAIN_CLIENT: ${CODERAX_PUBLIC_ORIGIN:-https://coderax.nnabdelshahid.workers.dev}
+      DOMAIN_SERVER: ${CODERAX_PUBLIC_ORIGIN:-https://coderax.nnabdelshahid.workers.dev}
       SESSION_COOKIE_SECURE: "true"
       ALLOW_REGISTRATION: "false"
       ALLOW_SOCIAL_REGISTRATION: "false"
       # Owner-only runtime: password login is the only entry path. The legacy
-      # Vercel frontend shares this backend until the owner authorizes retirement;
-      # no guest path exists on either origin.
+      # Vercel frontend keeps working because it shares this backend until the
+      # owner authorizes retirement; no guest path exists on either origin.
       ENABLE_GUEST_ACCESS: "false"
       REGISTER_WINDOW: "60"
       REGISTER_MAX: "5"
