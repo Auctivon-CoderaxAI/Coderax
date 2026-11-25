@@ -64,6 +64,8 @@ export type WorkDeps = {
   engines?: () => Promise<EngineStatusSnapshot> | EngineStatusSnapshot;
   /** The deployment's external-agent gate; native is always available. */
   workChat?: { enabled?: boolean; mode?: 'private' | 'cloud' } | null;
+  /** Fixed, user-safe diagnostics for the route's own catch blocks. */
+  logger?: { warn?: (message: string) => void };
 };
 
 const HISTORY_LIMIT = 50;
@@ -272,6 +274,9 @@ export function createWorkRouter(deps: WorkDeps): Router {
       res.setHeader('Cache-Control', 'no-store');
       res.json({ tasks: toWorkHistory(withState, HISTORY_LIMIT) });
     } catch {
+      // The response stays generic; the log names the failed read without the
+      // error text, which can echo stored content.
+      deps.logger?.warn?.('[Work] Could not read task history.');
       res.status(503).json({ code: 'WORK_HISTORY_UNAVAILABLE' });
     }
   });
