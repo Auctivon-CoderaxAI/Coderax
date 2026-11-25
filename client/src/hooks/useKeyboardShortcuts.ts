@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { useSetAtom } from 'jotai';
 import copy from 'copy-to-clipboard';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { useToastContext } from '@coderax/client';
 import { useMatch, useNavigate } from 'react-router-dom';
 import { useRecoilState, useRecoilValue, useSetRecoilState } from 'recoil';
@@ -19,6 +19,7 @@ import { useArchiveConvoMutation, useGetStartupConfig } from '~/data-provider';
 import { mainTextareaId, NotificationSeverity } from '~/common';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import { showFilesDialogAtom } from '~/store/filesDialog';
+import { commandPaletteOpenAtom } from '~/store/palette';
 import { useHasAccess, useLocalize } from '~/hooks';
 import { getFocusedChatPane } from '~/utils/pane';
 import useNewChat from '~/hooks/Chat/useNewChat';
@@ -100,6 +101,14 @@ export const shortcutDefinitions = {
     displayOther: 'Ctrl+/',
     ariaMac: 'Meta+/',
     ariaOther: 'Control+/',
+  },
+  openCommandPalette: {
+    labelKey: 'com_shortcut_open_command_palette',
+    groupKey: 'com_shortcut_group_navigation',
+    displayMac: '⌘ K',
+    displayOther: 'Ctrl+K',
+    ariaMac: 'Meta+K',
+    ariaOther: 'Control+K',
   },
   openSettings: {
     labelKey: 'com_nav_settings',
@@ -302,6 +311,9 @@ export const EDITING_ALLOWED_SHORTCUTS: ReadonlySet<ShortcutActionId> = new Set(
   'submitMessage',
   'escalateSteer',
   'uploadFile',
+  /* The palette is reached from the composer and, while it is open, from its own
+     input, so both of those are places the chord has to keep working. */
+  'openCommandPalette',
   /* The composer keeps focus across a send, so this is where a user reads the
      hint naming it and where they press it. Filtering it out as an editing
      chord made the one shortcut the composer advertises the one that did
@@ -549,6 +561,7 @@ export function useShortcutActions(): ShortcutAction[] {
   const sidebarExpanded = useRecoilValue(store.sidebarExpanded);
   const { setSidebarOpen, toggleSidebar } = useSidebarToggle();
   const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
+  const setCommandPaletteOpen = useSetAtom(commandPaletteOpenAtom);
   const setShowFilesDialog = useSetAtom(showFilesDialogAtom);
   const setIsTemporary = useSetRecoilState(store.isTemporary);
   const setDeleteTarget = useSetRecoilState(store.keyboardDeleteTarget);
@@ -570,6 +583,11 @@ export function useShortcutActions(): ShortcutAction[] {
     startNewChat();
     return true;
   }, [startNewChat]);
+
+  const handleOpenCommandPalette = useCallback(() => {
+    setCommandPaletteOpen((prev) => !prev);
+    return true;
+  }, [setCommandPaletteOpen]);
 
   const handleFocusChatInput = useCallback(() => {
     const textarea = document.getElementById(mainTextareaId) as HTMLTextAreaElement | null;
@@ -921,6 +939,7 @@ export function useShortcutActions(): ShortcutAction[] {
     () => ({
       showShortcuts: handleShowShortcuts,
       newChat: handleNewChat,
+      openCommandPalette: handleOpenCommandPalette,
       focusChat: handleFocusChatInput,
       copyLastResponse: handleCopyLastResponse,
       uploadFile: handleUploadFile,
@@ -954,6 +973,7 @@ export function useShortcutActions(): ShortcutAction[] {
     [
       handleShowShortcuts,
       handleNewChat,
+      handleOpenCommandPalette,
       handleFocusChatInput,
       handleCopyLastResponse,
       handleUploadFile,
@@ -1113,6 +1133,7 @@ export function useShortcutBindings(): {
 export default function useKeyboardShortcuts() {
   const actions = useShortcutActions();
   const overrides = useRecoilValue(store.customShortcuts);
+  const commandPaletteOpen = useAtomValue(commandPaletteOpenAtom);
   const shortcutsDialogOpen = useRecoilValue(store.showShortcutsDialog);
   const shortcutsEnabled = useRecoilValue(store.shortcutsEnabled);
 
@@ -1158,11 +1179,19 @@ export default function useKeyboardShortcuts() {
       const target = e.target as HTMLElement | null;
 
       const isStopGenerating = matchedId === 'stopGenerating';
+      /** The palette is itself a modal dialog, so its own toggle has to stay live while
+       *  it is open or the chord could only ever open it; every other action still
+       *  yields to it through the check below. */
+      const ownsOpenDialog = matchedId === 'openCommandPalette' && commandPaletteOpen;
       if (shortcutsDialogOpen) {
         if (matchedId !== 'showShortcuts' && !isStopGenerating) {
           return;
         }
-      } else if (!isStopGenerating && (anyModalOpen() || isWithinOpenMenu(target))) {
+      } else if (
+        !isStopGenerating &&
+        !ownsOpenDialog &&
+        (anyModalOpen() || isWithinOpenMenu(target))
+      ) {
         return;
       }
 
@@ -1187,7 +1216,7 @@ export default function useKeyboardShortcuts() {
         e.preventDefault();
       }
     },
-    [actionMap, bindingMap, shortcutsDialogOpen, shortcutsEnabled],
+    [actionMap, bindingMap, commandPaletteOpen, shortcutsDialogOpen, shortcutsEnabled],
   );
 
   useEffect(() => {

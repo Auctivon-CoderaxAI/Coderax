@@ -5,7 +5,8 @@ on:
     paths:
       - 'api/proxy.js'
       - 'api/proxy-handler.js'
-      - 'api/proxy.spec.js'
+      - 'packages/api/src/proxy.ts'
+      - 'packages/api/proxy.test.mjs'
       - 'deploy/oci/**'
       - 'scripts/verify-oci-deployment.test.mjs'
       - 'vercel.json'
@@ -15,7 +16,8 @@ on:
     paths:
       - 'api/proxy.js'
       - 'api/proxy-handler.js'
-      - 'api/proxy.spec.js'
+      - 'packages/api/src/proxy.ts'
+      - 'packages/api/proxy.test.mjs'
       - 'deploy/oci/**'
       - 'scripts/verify-oci-deployment.test.mjs'
       - 'vercel.json'
@@ -43,5 +45,9 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      - name: Install the frozen workspace
+        run: npm ci --no-audit --no-fund
+      - name: Build the API proxy package
+        run: npm run build:api
       - name: Check API proxy and OCI network boundaries
-        run: node --test api/proxy.spec.js scripts/verify-oci-deployment.test.mjs
+        run: node --test packages/api/proxy.test.mjs scripts/verify-oci-deployment.test.mjs

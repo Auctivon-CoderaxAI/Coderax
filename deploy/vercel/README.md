@@ -1,4 +1,12 @@
-# Coderax frontend on Vercel
+# Coderax frontend on Vercel (legacy during the Cloudflare migration)
+
+> **Legacy deployment.** The canonical frontend is now
+> `https://coderax.nnabdelshahid.workers.dev`, served by the Cloudflare Worker in
+> [`worker/index.mjs`](../../worker/index.mjs). This Vercel project remains live and unchanged so
+> `coderaxai.vercel.app` keeps working against the same API. Do not remove the project, its domain
+> or its proxy variables until the owner authorizes retirement after end-to-end verification. The
+> cutover, verification commands and secure owner handoff are in
+> [`docs/CLOUDFLARE_MIGRATION.md`](../../docs/CLOUDFLARE_MIGRATION.md).
 
 The Vite interface is served by the Vercel project behind `coderaxai.vercel.app`.
 That deployment is produced by [`vercel-production.yml`](../../.github/workflows/vercel-production.yml)
@@ -73,7 +81,7 @@ contract:
 | ----------------------- | ------------------------------------------------------------------------------------ |
 | `CODERAX_API_ORIGIN`    | HTTPS origin of the OCI Caddy front (`https://<host>.sslip.io`).                     |
 | `CODERAX_PROXY_SECRET`  | Shared secret from the VM's `origin.env`; server-only, never `VITE_`/`NEXT_PUBLIC_`. |
-| `CODERAX_ALLOWED_HOSTS` | `coderaxai.vercel.app`.                                                              |
+| `CODERAX_ALLOWED_HOSTS` | `coderaxai.vercel.app` (legacy; the Cloudflare Worker gates its own host and defaults to the canonical Workers origin). |
 
 Without these the proxy fails closed with HTTP 503. Add them to **Preview** as
 well only if preview deployments should reach the same API.
