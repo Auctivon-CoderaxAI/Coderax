@@ -36,6 +36,7 @@ jest.mock('@coderax/api', () => ({
   captureSubagentIdentity: jest.requireActual('@coderax/api').captureSubagentIdentity,
   createToolTimingAdapter: jest.requireActual('@coderax/api').createToolTimingAdapter,
   createModelTimingTracker: jest.requireActual('@coderax/api').createModelTimingTracker,
+  getModelRefusalInfo: jest.fn(() => null),
   stampCommandExecutor: jest.requireActual('@coderax/api').stampCommandExecutor,
 }));
 
@@ -1877,5 +1878,55 @@ describe('isStreamWritable', () => {
 
   it('returns true on the happy path: headers sent, not ended, no streamId', () => {
     expect(isStreamWritable({ headersSent: true, writableEnded: false }, null)).toBe(true);
+  });
+});
+
+describe('model end timing', () => {
+  const { ModelEndHandler } = require('../callbacks');
+
+  const graph = { getAgentContext: jest.fn(() => ({})) };
+  const metadata = { run_id: 'run-1', langgraph_node: 'agent', thread_id: 'conv-1' };
+  const timingKey = 'run-1\u0000agent';
+
+  const tracker = () => ({
+    start: jest.fn(),
+    firstDelta: jest.fn(),
+    end: jest.fn(() => ({ anchor: 'model_start' })),
+    take: jest.fn(() => []),
+  });
+
+  it('closes the window when a model end reports no usage', async () => {
+    const modelTiming = tracker();
+    const handler = new ModelEndHandler([], null, null, modelTiming);
+
+    await handler.handle('on_chat_model_end', { output: {} }, metadata, graph);
+
+    expect(modelTiming.end).toHaveBeenCalledWith(timingKey, null);
+  });
+
+  it('closes the window before awaiting the usage emit', async () => {
+    const order = [];
+    const modelTiming = tracker();
+    modelTiming.end.mockImplementation(() => {
+      order.push('timing');
+      return { anchor: 'model_start' };
+    });
+    const emitUsage = jest.fn(async () => {
+      order.push('usage');
+    });
+    const handler = new ModelEndHandler([], null, emitUsage, modelTiming);
+
+    await handler.handle(
+      'on_chat_model_end',
+      { output: { usage_metadata: { input_tokens: 3, output_tokens: 5 } } },
+      metadata,
+      graph,
+    );
+
+    expect(order).toEqual(['timing', 'usage']);
+    expect(modelTiming.end).toHaveBeenCalledWith(
+      timingKey,
+      expect.objectContaining({ input_tokens: 3, output_tokens: 5 }),
+    );
   });
 });

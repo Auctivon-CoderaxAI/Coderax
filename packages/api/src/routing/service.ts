@@ -27,7 +27,6 @@ export function resolveFreeRoutingLimits(config: FreeInferenceConfigLike): FreeR
   return {
     enabled: value?.enabled === true,
     allowFallback: value?.allowFallback ?? true,
-    allowToolsInFallback: value?.allowToolsInFallback ?? false,
     maxRequestsPerDay: value?.maxRequestsPerDay ?? DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
     maxTokensPerDay: value?.maxTokensPerDay ?? DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
     maxRetries: value?.maxRetries ?? DEFAULT_FREE_INFERENCE_MAX_RETRIES,

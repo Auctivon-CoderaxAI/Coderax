@@ -17,8 +17,9 @@ configured into existence.
 | Quota ledger          | `packages/api/src/routing/quota.ts`                                      | Per-endpoint daily request and token budgets with reservations and settlement                                             |
 | Cooldowns             | `packages/api/src/routing/health.ts`                                     | An endpoint that fails `failureThreshold` times is skipped until its cooldown expires                                     |
 | Safe checkpoints      | `packages/api/src/routing/checkpoint.ts`                                 | A model switch is allowed only at `turn_start` or `between_tool_calls`                                                    |
-| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     || Status endpoint | `GET /api/work/routing` | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads |
-| Composer badge | `client/src/components/Chat/Input/WorkRoutingBadge.tsx` | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled |
+| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     |
+| Status endpoint       | `GET /api/work/routing` | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads |
+| Composer badge        | `client/src/components/Chat/Input/WorkRoutingBadge.tsx`                  | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled         |
 | Config                | `freeInference` in `coderax.yaml`                                        | Disabled by default; budgets, retries, cooldown and timeouts are operator levers                                          |
 
 ## Routing planner order
@@ -47,7 +48,6 @@ flowchart TD
 freeInference:
   enabled: false # opt in; nothing hosted is called while false
   allowFallback: true
-  allowToolsInFallback: false
   maxRequestsPerDay: 200
   maxTokensPerDay: 400000
   openRouterMaxOutputTokens: 4096 # per native FreeOpenRouter completion
@@ -56,6 +56,12 @@ freeInference:
   cooldownMs: 60000
   requestTimeoutMs: 60000
 ```
+
+A turn that requires tools is never routed to a text-only endpoint, and no
+setting relaxes that: dropping native Work's tool definitions is a correctness
+failure, not a cost trade-off. `freeInference.allowToolsInFallback` from earlier
+versions never changed a route, so it is retired — a YAML that still sets it
+loads with the key ignored and a warning.
 
 For native Work, set `freeInference.enabled: true` in the backend's active YAML
 and supply `OPENROUTER_API_KEY` as a server-only secret. Coderax registers

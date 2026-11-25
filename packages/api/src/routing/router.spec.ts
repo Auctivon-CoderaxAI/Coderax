@@ -45,7 +45,6 @@ const fallbackB: FreeEndpoint = {
 const limits: FreeRoutingLimits = {
   enabled: true,
   allowFallback: true,
-  allowToolsInFallback: true,
   maxRequestsPerDay: 100,
   maxTokensPerDay: 100_000,
   maxRetries: 2,
@@ -232,20 +231,20 @@ describe('free route planning', () => {
       id: 'text-only',
       capabilities: { streaming: true, tools: false, reasoning: false },
     };
-    const { router } = routerWith({ allowToolsInFallback: false }, [textOnly]);
+    const { router } = routerWith({}, [textOnly]);
     expect(router.plan({ requireTools: true })).toMatchObject({
       ok: false,
       reason: 'free_capacity_exhausted',
     });
   });
 
-  it('never downgrades a tool-required turn even when text fallback is opted in', async () => {
+  it('never puts a text-only endpoint on a tool-required turn', async () => {
     const textOnly: FreeEndpoint = {
       ...fallbackB,
       id: 'text-only',
       capabilities: { streaming: true, tools: false, reasoning: false },
     };
-    const { router } = routerWith({ allowToolsInFallback: true }, [primary, textOnly]);
+    const { router } = routerWith({}, [primary, textOnly]);
     const plan = router.plan({ requireTools: true });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
@@ -266,7 +265,7 @@ describe('free route planning', () => {
       id: 'text-only',
       capabilities: { streaming: true, tools: false, reasoning: false },
     };
-    const { router } = routerWith({ allowToolsInFallback: true }, [primary, textOnly]);
+    const { router } = routerWith({}, [primary, textOnly]);
     const plan = router.plan({ requireTools: true });
     if (!plan.ok) throw new Error('Expected a route');
     const attempt = jest.fn(async () => ({
@@ -320,7 +319,7 @@ describe('free route planning', () => {
       id: 'text-only',
       capabilities: { streaming: true, tools: false, reasoning: false },
     };
-    const { router } = routerWith({ allowToolsInFallback: true }, [textOnly]);
+    const { router } = routerWith({}, [textOnly]);
     const plan = router.plan({ requireTools: false });
     if (!plan.ok) throw new Error('Expected a text-only route');
     const attempt = jest.fn(async () => ({ ok: true as const, value: 'text' }));
