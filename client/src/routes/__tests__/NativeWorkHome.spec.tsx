@@ -30,6 +30,7 @@ jest.mock('~/hooks', () => ({
 }));
 
 jest.mock('coderax-data-provider', () => ({
+  ...jest.requireActual('coderax-data-provider'),
   dataService: {
     getWorkModels: jest.fn(),
     getWorkTasks: jest.fn(),
