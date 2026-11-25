@@ -9,9 +9,9 @@ import type {
 import type { WorkspaceRoots } from '../workspace';
 import { engineFailure, engineFailureWithCleanup } from '../types';
 import { resolveEngineWorkspace } from '../workspace';
+import { OpenCodeEventMapper } from './protocol';
 import { createEngineRunHandle } from '../run';
 import { withDeadline } from '../deadline';
-import { OpenCodeEventMapper } from './protocol';
 
 const CLEANUP_TIMEOUT_MS = 5_000;
 
@@ -176,7 +176,15 @@ export async function startOpenCodeRun(
     }
     sessionId = outcome.value.id;
   } catch {
-    return engineFailure('server_unavailable', 'The OpenCode server did not accept the session.');
+    /**
+     * A rejected session request created nothing, so the same engine may be
+     * asked again. This is the only post-attempt failure marked retryable.
+     */
+    return engineFailure(
+      'server_unavailable',
+      'The OpenCode server did not accept the session.',
+      true,
+    );
   }
   if (!sessionId) {
     await abortSession(sessionId).catch(() => undefined);
@@ -218,8 +226,16 @@ export async function startOpenCodeRun(
     }
     stream = outcome.value;
   } catch {
-    await abortSession(sessionId).catch(() => undefined);
-    return engineFailure('server_unavailable', 'The OpenCode event stream was unavailable.');
+    /**
+     * The session exists, so it is aborted and the task stays owned until that
+     * settles. A failure after session creation is never replayed.
+     */
+    const abort = abortSession(sessionId);
+    return engineFailureWithCleanup(
+      'server_unavailable',
+      abort.catch(() => undefined),
+      'The OpenCode event stream was unavailable.',
+    );
   }
   if (controller.signal.aborted) {
     await abortSession(sessionId).catch(() => undefined);
@@ -268,14 +284,23 @@ export async function startOpenCodeRun(
     }
   } catch {
     const cancelled = controller.signal.aborted;
-    await abortSession(sessionId).catch(() => undefined);
+    if (cancelled) {
+      await abortSession(sessionId).catch(() => undefined);
+      await handle.close();
+      return engineFailure('cancelled', 'The run was cancelled before it started.', false);
+    }
+    /**
+     * The prompt may already have been accepted before the transport threw, so
+     * this failure is never replayed. The abort is retained as cleanup so task
+     * ownership lasts until the engine settles.
+     */
+    const abort = abortSession(sessionId);
+    await abort.catch(() => undefined);
     await handle.close();
-    return engineFailure(
-      cancelled ? 'cancelled' : 'server_unavailable',
-      cancelled
-        ? 'The run was cancelled before it started.'
-        : 'The OpenCode server did not accept the task.',
-      false,
+    return engineFailureWithCleanup(
+      'server_unavailable',
+      abort.catch(() => undefined),
+      'The OpenCode server did not accept the task.',
     );
   }
 

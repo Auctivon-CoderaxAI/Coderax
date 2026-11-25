@@ -3,12 +3,15 @@ import type { EngineFailure } from './types';
 /**
  * Bounded, same-engine retry for a run that failed before any side effect.
  *
- * The registry contract guarantees a rejected `start` created no session and
- * performed no side effect, so the same engine may be asked again. A failure
- * that already carries `cleanup` reached an adapter with something to settle
- * and is excluded, as is every deterministic or owner-driven failure: retrying
- * a disabled engine, a denied workspace, a busy task or a cancellation would
- * either fail again or override the owner's decision.
+ * A failure code alone does not prove replay is safe: an OpenCode prompt can
+ * fail with `server_unavailable` after the server accepted the task. The
+ * adapter that owns the transport is therefore the only party that can say a
+ * start never dispatched, and it says so with `error.retryable`. This module
+ * requires that explicit flag and rejects a failure that still carries
+ * `cleanup`, because cleanup means something reached the engine and must
+ * settle first. Deterministic and owner-driven failures are excluded too:
+ * retrying a disabled engine, a denied workspace, a busy task or a
+ * cancellation would either fail again or override the owner's decision.
  *
  * A retry never changes the engine. Falling back to another engine is an
  * explicit owner choice, never a recovery path.
@@ -32,7 +35,11 @@ export const DEFAULT_ENGINE_RETRY_POLICY: EngineRetryPolicy = {
   delayMs: DEFAULT_ENGINE_RETRY_DELAY_MS,
 };
 
-/** Transient transport states. Neither describes a decision about the task. */
+/**
+ * Transient transport states. Neither describes a decision about the task;
+ * the adapter still has to mark the failure as pre-dispatch before it is
+ * replayed.
+ */
 const RETRYABLE_START_CODES = new Set(['server_unavailable', 'provider_error']);
 
 function bounded(value: number | undefined, fallback: number, min: number, max: number): number {
@@ -56,9 +63,16 @@ export function normalizeEngineRetryPolicy(
   };
 }
 
-/** True only for a transient failure that left nothing to clean up. */
+/**
+ * True only for a transient failure an adapter explicitly reported as safe to
+ * replay before dispatch, and that left nothing to clean up.
+ */
 export function isRetryableStartFailure(failure: EngineFailure): boolean {
-  return failure.cleanup == null && RETRYABLE_START_CODES.has(failure.error.code);
+  return (
+    failure.cleanup == null &&
+    failure.error.retryable === true &&
+    RETRYABLE_START_CODES.has(failure.error.code)
+  );
 }
 
 /**

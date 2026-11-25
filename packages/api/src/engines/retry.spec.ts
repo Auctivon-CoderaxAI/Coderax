@@ -8,10 +8,14 @@ import {
   normalizeEngineRetryPolicy,
 } from './retry';
 
-function failure(code: EngineFailureCode, cleanup?: Promise<void>): EngineFailure {
+function failure(
+  code: EngineFailureCode,
+  cleanup?: Promise<void>,
+  retryable?: boolean,
+): EngineFailure {
   return {
     ok: false,
-    error: { code },
+    error: { code, ...(retryable === undefined ? {} : { retryable }) },
     ...(cleanup ? { cleanup } : {}),
   };
 }
@@ -50,9 +54,11 @@ describe('normalizeEngineRetryPolicy', () => {
 
 describe('isRetryableStartFailure', () => {
   it.each(['server_unavailable', 'provider_error'] as const)(
-    'retries the transient %s failure',
+    'retries the transient %s failure only when the adapter proved nothing was dispatched',
     (code) => {
-      expect(isRetryableStartFailure(failure(code))).toBe(true);
+      expect(isRetryableStartFailure(failure(code, undefined, true))).toBe(true);
+      /** A prompt can fail with this code after the server accepted the task. */
+      expect(isRetryableStartFailure(failure(code))).toBe(false);
     },
   );
 
@@ -66,11 +72,13 @@ describe('isRetryableStartFailure', () => {
     'protocol_error',
     'timeout',
   ] as const)('never retries the %s failure', (code) => {
-    expect(isRetryableStartFailure(failure(code))).toBe(false);
+    expect(isRetryableStartFailure(failure(code, undefined, true))).toBe(false);
   });
 
   it('does not retry a failure that reached an adapter with cleanup to settle', () => {
-    expect(isRetryableStartFailure(failure('server_unavailable', Promise.resolve()))).toBe(false);
+    expect(isRetryableStartFailure(failure('server_unavailable', Promise.resolve(), true))).toBe(
+      false,
+    );
   });
 });
 
