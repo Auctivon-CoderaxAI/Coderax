@@ -1,14 +1,14 @@
 # Coderax Design Architecture
 
-**Module, navigation and interface specification — v1.0**
+**Module, navigation and interface specification — v2.0**
 
 |                   |                                                                                                                                                                                                                                                      |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Document**      | Master design architecture for the Coderax application shell and every module in the product vision                                                                                                                                                  |
 | **Status**        | Design specification. Not a claim of implementation.                                                                                                                                                                                                 |
-| **Date**          | 24 November 2026                                                                                                                                                                                                                                     |
+| **Date**          | 25 November 2026                                                                                                                                                                                                                                     |
 | **Author role**   | Visual design and UI/UX contributor (FreeBuff), per the product brief §3                                                                                                                                                                             |
-| **Evidence base** | Repository `Auctivon-CoderaxAI/Coderax`, branch `freebuff/a1b038f05f3ba748796db084`, HEAD `ea16749`                                                                                                                                                  |
+| **Evidence base** | Repository `Auctivon-CoderaxAI/Coderax`, branch `freebuff/0551b5a63f85bdc10036cd9a`, HEAD `2cdce45c`. v1.0 was written at `ea16749`; §1.5 records every difference that changed this specification.                                                                                                                                                  |
 | **Scope**         | Information architecture, navigation, design system, interaction contracts, project creation, per-module specifications, capability registry schema, acceptance matrix, delivery plan                                                                |
 | **Out of scope**  | Backend implementation, security policy ownership, deployment, production merges                                                                                                                                                                     |
 | **Companions**    | `docs/product/PRODUCT_DESIGN_ARCHITECTURE.md` is the short product brief; this document is the detailed interface specification beneath it. `docs/product/CAPABILITY_REGISTRY.md` and `docs/product/ACCEPTANCE_MATRIX.md` remain the owner's records |
@@ -68,7 +68,7 @@ This section exists because a design architecture written without it would be fi
 - The rail is **52px** collapsed and **≥360px** expanded, capped at **40%** of viewport width, persisted at `side:width`; the transition is **300ms** `cubic-bezier(0.32, 0.72, 0, 1)`.
 - The active side panel persists at `side:active-panel`; `DEFAULT_PANEL` is `conversations`.
 - **The rail is deliberately not an app launcher.** `useUnifiedSidebarLinks.ts` says so in a comment: _"Keep the sidebar as a chat navigation surface, not a general app launcher."_ It exposes exactly one link — chat history.
-- Modules are therefore discovered today by URL, the product switcher, or nothing at all. There is no unified module navigation. **This is the central IA gap this document closes.**
+- Modules are therefore discovered by URL, the product switcher, or the command palette that shipped after v1.0 — nine destinations from `client/src/lib/modules/registry.ts`. The palette is real progress, but it is not yet the module navigation this document specifies: it has no recents, object results, actions or federated search (§3.6). **The IA gap is narrower, not closed.**
 
 ### 1.3 The design system, precisely
 
@@ -93,9 +93,22 @@ The token layer is unusually strong: it already supports per-theme control geome
 2. **One breakpoint convention exists** — `useMediaQuery('(max-width: 768px)')`. There is no three-column layout anywhere yet.
 3. **Settings is a dialog.** Module-level settings need a route namespace or a deep-linkable dialog contract.
 4. **`/work` is the chat route in another mode.** Persistent runs, approvals and evidence have no visual home yet.
-5. **No capability registry exists** — a repository-wide search found none, despite the product brief requiring one. It must be created, and it needs a UI.
+5. **The capability record is not a system** — `docs/product/CAPABILITY_REGISTRY.md` now lists 40 capabilities, but it is Markdown: it cannot reject a status change that has no receipt, and it has no API or UI. The typed registry and `/registry` surface in §9 are still required.
 6. **Every string is localized.** A design that invents 400 strings without keys creates 400 blockers.
 7. **Themes own appearance, not layout or behaviour.** New modules must not smuggle layout into theme definitions.
+
+### 1.5 Delta since v1.0
+
+v1.0 was written at `ea16749`. This revision reads the same tree at `2cdce45c` and found four differences that change the specification. Nothing else in v1.0's audit was contradicted.
+
+| Change                               | Evidence                                                                                                                                                                        | Consequence for this document                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Command palette shipped**          | `client/src/components/Nav/ModulePalette.tsx`, `client/src/lib/modules/registry.ts`, mounted by `Root.tsx`                                                                       | §1.2's "no unified module navigation" is no longer true. The palette reaches nine destinations and deliberately lists only routes that exist. §3.6 adopts that stricter rule.                                        |
+| **Game Studio M1 shipped**           | routes `/games`, `/games/new`, `/games/templates`, `/games/:gameId`; `client/src/components/Games/`; `packages/api/src/games/`; `packages/data-provider/src/games.ts`          | D7 moves from `Planned` to `Preview`. It persists a project and a design spec; builds, playtests and agent sessions are gated off by `TGameCapabilities` and render `409 EXECUTOR_UNAVAILABLE`. §7.6 is rewritten to the shipped surface. |
+| **A capability record exists**       | `docs/product/CAPABILITY_REGISTRY.md` (40 entries)                                                                                                                               | §9's "no capability registry exists" was true at v1.0 and is not now. What is still missing is the typed registry, lifecycle enforcement and UI; §9 keeps specifying those.                                          |
+| **Still absent**                     | no route in `client/src/routes/index.tsx`; `docs/ROADMAP.md` lists them as absent at its baseline                                                                                | No GitHub repository access, design-template gallery, Cloud IDE, studios beyond the Game Studio M1, or registry UI. Their `Planned`/`Blocked` statuses stand.                                                         |
+
+The companion documents under `docs/product/` were not revised for this delta and still carry the `ea16749` baseline. Their `CX-32` (Game Studio) row is now stale; the evidence above is the correction, and the owner's registry rules require the owner or engineering to record the status change.
 
 ## 2. Design principles
 
@@ -235,6 +248,7 @@ Routes marked _(existing)_ are already in `client/src/routes/index.tsx` and must
 | C6  | Backend Factory         | `/backend`, `/backend/:appId`              | Planned | 3    |
 | C7  | Distribution            | `/distribute`, `/distribute/:projectId`    | Planned | 3    |
 | C8  | Evidence Explorer       | `/evidence`, `/evidence/:receiptId`        | Planned | 2    |
+| C9  | GitHub & Repositories   | `/eng/github`, `/eng/github/:owner/:repo`  | Planned | 2    |
 
 #### Group D — Creation
 
@@ -246,7 +260,7 @@ Routes marked _(existing)_ are already in `client/src/routes/index.tsx` and must
 | D4  | Asset Factory           | `/studio/assets`                    | Planned | 3    |
 | D5  | Movie Studio            | `/film`, `/film/:productionId`      | Planned | 6    |
 | D6  | Avatar Lab              | `/avatars`, `/avatars/:characterId` | Blocked | 6    |
-| D7  | Game Studio             | `/games`, `/games/:gameId`          | Planned | 6    |
+| D7  | Game Studio             | `/games`, `/games/new`, `/games/templates`, `/games/:gameId` | Preview | 6    |
 | D8  | Gaming Agent            | `/games/agent/:sessionId`           | Blocked | 6    |
 
 #### Group E — Knowledge and productivity
@@ -316,7 +330,7 @@ The palette is the primary navigation surface for a platform expected to reach h
 
 - Results are de-duplicated by target; a conversation and its project collapse to the project with a secondary line.
 - Each result states its scope (`Project · Aurora`, `Workspace`).
-- Unavailable results are shown, dimmed, with the blocker — hiding them makes the platform feel smaller than it is.
+- Only destinations with a real route appear. v1.0 proposed dimmed rows for unavailable modules; the shipped registry made the stricter choice — a row that Enter cannot open is a lie — and v2.0 adopts it. Planned work is discoverable in `/registry`, not in the palette.
 - Keyboard: ↑↓ move, ⏎ open, ⌘⏎ open in inspector, Esc dismiss, ⌘K toggle.
 - The palette issues at most one network request per federated source per open, with per-source 1500ms timeout and graceful partial results.
 
@@ -1050,6 +1064,19 @@ This wave establishes the shared runtime surfaces the rest of the platform depen
 - **Deviations:** receipts are immutable; corrections are additive with a supersedes link.
 - **Relationships:** every module writes here; §10 reads from here.
 
+**C9 · GitHub & Repositories** — `Planned` — `/eng/github`, `/eng/github/:owner/:repo`
+
+- **Purpose:** the connection surface the brief requires and v1.0 lacked: link a GitHub account or App, verify the identity, choose repositories with least privilege, and reach branches, issues, pull requests and checks. **Signing in is not repository access**, and the screen says so until a repository is explicitly selected.
+- **Journey:** connect → verify account and organisations → select repositories → inspect repository health → open or create an issue, branch or PR → read checks and review state → revoke.
+- **Screens:** connections (account, granted scopes, last verified) | repository picker | repository overview (branches, PRs, issues, checks) | PR detail | permissions and revocation.
+- **Components:** connection card with `VerificationBadge`, scope table, repository table, check-run list, `CapabilityBadge`, `EvidenceCard` per verification.
+- **Inputs:** provider (GitHub App or OAuth), account or organisation, repository selection, branch, PR or issue.
+- **Actions:** connect, verify, select and deselect repositories, refresh, create issue, create branch, open PR, comment, revoke.
+- **Permissions:** nothing is granted by connecting. Read is T0 once the repository is selected; branch, issue and comment are T2; merge and repository settings are T3 and remain the owner's. Tokens stay server-side and are never rendered back.
+- **States:** `Not connected` (First use) | `No repositories selected` (Not configured) | `Permission revoked — reconnect` (Blocked) | `Rate limited until 14:20` (Degraded, with the reset time) | `Identity changed` (warning requiring re-verification).
+- **Deviations:** the surface distinguishes the eight stages the brief forbids conflating — authenticated, code generated, committed, pushed, PR opened, PR reviewed, PR merged, deployment verified. A repository that is not the verified canonical one is labelled before any write. A write to an unselected repository is refused by the backend, not hidden in the UI.
+- **Relationships:** prerequisite for C2 (indexing), C3 (review), C7 (distribution) and `ENG-01`; feeds F6's supply-chain view; A2 executes the writes under a grant.
+
 **F6 · Security Center** — `Preview` — `/security`
 
 - **Purpose:** the owner's single view of grants, sessions, findings and supply chain.
@@ -1281,15 +1308,24 @@ These modules are the ones most likely to be misrepresented by a UI. Every one o
 - **Deviations:** the module cannot produce a likeness of a real person without a recorded consent declaration, and every export carries a synthetic-media disclosure flag. Impersonation use cases are refused by policy, stated in the UI.
 - **Relationships:** D5, D7, E4, F6.
 
-**D7 · Game Studio** — `Planned` — `/games`, `/games/:gameId`
+**D7 · Game Studio** — `Preview` (M1) — `/games`, `/games/new`, `/games/templates`, `/games/:gameId`
 
-- **Purpose:** original playable games with real code, assets and evidence.
-- **Journey:** genre and pillars → design document → scene → mechanics and controls → assets → playable build → playtest → export.
-- **Screens:** overview | design doc | scenes/levels | entity and mechanic editor | assets | playtest | builds.
-- **Components:** level canvas, inspector, playable `ArtifactFrame`, playtest report, build table.
-- **Permissions:** T1 edit; build/export T2.
-- **Deviations:** originality is a first-class constraint — assets and code are original or licensed, and a genre reference never becomes a copied asset, character, map or brand. Playtest reports distinguish automated runs from human play.
-- **Relationships:** D8, D4, C7, C4 (gameplay tests).
+- **Purpose:** turn a game concept into an original, playable project with real code, assets and evidence — and state plainly when the executor that would build it does not exist.
+- **Journey as built:** list or search projects → create from a blank brief or an original template → author the design spec (genre, camera, players, core loop, win condition, art direction) → review the overview → see exactly what is not available yet. Builds, playtests and agent sessions each open a blocked panel.
+- **Journey when an executor exists:** spec → scene → mechanics and controls → assets → playable build → playtest → export. The M1 surfaces are the front half of that journey, not a claim about the back half.
+- **Screens:** `/games` (list, search, capability notice, pagination) | `/games/new` (name, summary, template) | `/games/templates` (original premises) | `/games/:gameId` with `?tab=overview|spec|builds|playtests|agent`.
+- **Components:** `GamesView`, `GameNew`, `GameTemplates`, `GameWorkspace`, `GameSpecForm`, `GameUnavailable`; list cards carry status and spec summary; the workspace uses a real `tablist`/`tabpanel` pair.
+- **Inputs:** name (≤100), summary (≤600), optional template, spec fields (≤2000 each), expected revision.
+- **Actions:** create, search, open, save spec, switch tab, retry a failed load, return to the list. No action exists for build, playtest or agent start, because no executor exists.
+- **Permissions:** owner-only by default (`SystemRoles.ADMIN`, relaxable by `games.ownerOnly: false`); config can disable the surface (`games.enabled: false`, `GAMES_DISABLED`); project count is capped (`GAME_PROJECT_LIMIT_REACHED`). Spec writes are T1 within the owner's own projects.
+- **Loading:** skeletons in the final layout shape, `aria-busy` on the workspace; the list uses an infinite query with a deferred search value.
+- **Errors:** 404 → "not found" with a way back; other failures → retry plus back; save failures distinguish `invalid`, `conflict` and `error`.
+- **Empty states:** no projects (create or browse templates); no spec yet (write one, with the next three steps listed); no search results (cleared query, not an error).
+- **Accessibility:** labelled tabs with `aria-selected`/`aria-controls`, `aria-hidden` icons, labelled fields, focus-visible rings, `role="alert"` on create failure, and no colour-only status.
+- **Responsive:** single column below 768px; cards stack to one column; the spec metadata grid is 2 columns then 4; tabs scroll horizontally without page overflow.
+- **Deviations:** the executor gate is data, not copy — `TGameCapabilities` returns `executor: 'unavailable'`, `builds: false`, `playtests: false`, `agentSessions: false` and a reason, so a future executor flips one source of truth. The blocked panel shows the machine code `409 EXECUTOR_UNAVAILABLE`. The spec form keeps unsaved drafts when another tab is selected, and a stale save is refused with `GAME_REVISION_CONFLICT` rather than overwriting another session. Originality is a first-class constraint: shipped templates are original premises, and a genre reference never becomes a copied asset, character, map or brand.
+- **Verified limit:** source and colocated tests exist; **no test run was executed at this SHA**. Build, playtest and export remain unbuilt, and D8 remains `Blocked`.
+- **Relationships:** D8 (agent), D4 (assets), C7 (distribution), C4 (gameplay tests), A4 (promotion into a project).
 
 **D8 · Gaming Agent** — `Blocked` — `/games/agent/:sessionId`
 
@@ -1454,7 +1490,7 @@ Owner-authored templates enter the same catalogue with a `Custom` origin label a
 
 ## 9. Capability registry
 
-A repository-wide search found no capability registry, although the brief requires one. It is the mechanism that keeps the roadmap from becoming a wish list, so it is specified here in full — schema, lifecycle and UI contract.
+When v1.0 was written, no capability registry existed. `docs/product/CAPABILITY_REGISTRY.md` now records 40 capabilities and their evidence, but it is a Markdown document: it cannot enforce a status transition, and it has no UI. The mechanism the brief requires is therefore still specified here in full — typed schema, lifecycle enforcement and UI contract — with the Markdown record as its first data source rather than its replacement.
 
 ### 9.1 Record schema
 
@@ -1567,6 +1603,11 @@ Design work is accepted on observable evidence, not on the existence of a screen
 | ACC-13 | 7    | A workload whose cost status is unknown              | Admission is requested                               | The workload is blocked and queued, never admitted                                     | Governor log; UI state           |
 | ACC-14 | all  | Any table below 768px                                | The viewport narrows                                 | The table becomes a card list; no horizontal scroll on the page                        | Responsive capture               |
 | ACC-15 | all  | Any new visible string                               | The build runs                                       | The string resolves through `useLocalize()`; English key added                         | Lint + diff                      |
+| ACC-16 | 6    | A game project with no cloud executor                     | The owner opens Builds, Playtests or Agent                            | Each renders a blocked panel naming `409 EXECUTOR_UNAVAILABLE`; no build, play or start control is offered | `GameWorkspace` test; manual check |
+| ACC-17 | 6    | Two sessions editing one game spec                        | The second saves against a stale revision                            | The save is refused with `GAME_REVISION_CONFLICT`; the draft is kept and nothing is overwritten              | API handler test; form state       |
+| ACC-18 | 0    | Any module in `MODULES`                                   | The owner presses Enter on a palette row                             | The target route exists in `client/src/routes/index.tsx`; a planned module is absent, not dimmed             | Registry test; recorded flow       |
+| ACC-19 | 2    | A GitHub surface with no connection                       | The owner opens it                                                   | It offers Connect and states that sign-in is not repository access; no repository list is fabricated        | Recorded flow (planned)            |
+| ACC-20 | 2    | A repository not selected by the owner                    | A tool attempts a write                                              | The backend refuses; the UI labels the repository as unselected before the attempt                          | Negative test (planned)            |
 
 ### 10.3 Definition of done for a design change
 
@@ -1582,11 +1623,11 @@ Waves are ordered by dependency, not by ambition. Later modules reuse earlier co
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | **0 · Shell foundation**       | `ModuleShell`, `CapabilityBadge`, `CommandPalette`, run state machine, `EvidenceCard`, seven-state taxonomy, module registry, `/registry` read-only, new semantic tokens | Palette navigates every existing route; every module route renders a truthful state; tokens pass theme and lint checks           | —          |
 | **1 · Coherence**              | Upgrade A1-A8, B1, B2, D1, F1, F2, G1-G5 to the module contract; add `ScopeChip`/`ApprovalSheet` to Work; settings routes                                                | Chat↔Work escalation works end to end in one URL; no surface invents its own header or state language                           | 0          |
-| **2 · Engineering + evidence** | A10, C1-C5, C8, F6, F7                                                                                                                                                   | A change can be made, reviewed, tested, verified and restored with receipts at every step                                        | 0, 1       |
+| **2 · Engineering + evidence** | A10, C1-C5, C8, C9, F6, F7                                                                                                                                                   | A change can be made, reviewed, tested, verified and restored with receipts at every step                                        | 0, 1       |
 | **3 · Creation**               | C6, C7, D2, D3, D4 + the 56 templates                                                                                                                                    | A website or dashboard can be created from a template, edited at component level and exported with an honest distribution matrix | 2          |
 | **4 · Knowledge**              | A9, E1-E7                                                                                                                                                                | Research and memory are source-attributed and project-scoped                                                                     | 2          |
 | **5 · Agents**                 | B3-B7                                                                                                                                                                    | Teams, councils and model routing produce measured results and visible disagreement                                              | 2          |
-| **6 · Media**                  | D5-D8                                                                                                                                                                    | Each studio states its validation level per asset and cannot export a placeholder as a finished work                             | 3, 4       |
+| **6 · Media**                  | D5-D8 (D7 M1 shipped; its executor is still blocked)                                                                                                                                                                    | Each studio states its validation level per asset and cannot export a placeholder as a finished work                             | 3, 4       |
 | **7 · Cloud + ops**            | F3, F4, F5                                                                                                                                                               | Workloads are admitted, refused and explained under a fail-closed governor                                                       | 2, 5       |
 
 ### 11.1 Sequencing rationale
@@ -1668,8 +1709,10 @@ These need the owner's decision or an external prerequisite. None block Wave 0.
 | D6  | Search federation scope                                         | Messages + files + evidence first; memory later | Each source adds cost and privacy surface                        |
 | D7  | Cloud execution provider and admission limits                   | Owner decision                                  | Governs every `Blocked` state in Waves 2-7                       |
 | D8  | External agent integrations (FreeBuff / OpenCode / Claude Code) | Opt-in, separately labelled, separately granted | The brief forbids silent substitution                            |
+| D9  | Palette scope: list every module or only real routes?           | Only real routes; planned work belongs in `/registry`             | A row Enter cannot open teaches the owner to distrust the palette |
+| D10 | Game Studio executor and admission limits                       | Owner decision; until then the M1 gate stays `unavailable`        | Every build, playtest and agent tab depends on it                 |
 
-**Known blockers already reflected in the design:** video generation capacity (D5), avatar synthesis (D6), game input environment (D8), OS signing and store accounts (C7), and cloud executors (C1, C6, F3). Each appears as a `Blocked` state with its prerequisite rather than as a missing feature.
+**Known blockers already reflected in the design:** video generation capacity (D5), avatar synthesis (D6), game build and input execution (D7, D8), OS signing and store accounts (C7), and cloud executors (C1, C6, F3). Each appears as a `Blocked` state with its prerequisite rather than as a missing feature.
 
 ---
 
@@ -1691,6 +1734,17 @@ These need the owner's decision or an external prerequisite. None block Wave 0.
 | Query keys                   | `packages/data-provider/src/keys.ts`                                  |
 | Studio limits                | `docs/visual-app-studio.md`                                           |
 | Security lab                 | `packages/security-lab-core`, `docs/security-lab.md`                  |
+
+### Appendix A.2 — Added since v1.0
+
+| Concern               | Home                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| Command palette       | `client/src/components/Nav/ModulePalette.tsx`                                         |
+| Palette destinations  | `client/src/lib/modules/registry.ts` (`MODULES`)                                       |
+| Game Studio client    | `client/src/components/Games/`                                                         |
+| Game Studio API       | `packages/api/src/games/handlers.ts`                                                   |
+| Game contracts        | `packages/data-provider/src/games.ts`                                                  |
+| Capability record     | `docs/product/CAPABILITY_REGISTRY.md`                                                  |
 
 ## Appendix B — Vocabulary
 

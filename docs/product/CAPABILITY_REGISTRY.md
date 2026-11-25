@@ -1,7 +1,9 @@
 # Coderax Capability Registry
 
-**Version:** 1.0  
-**Baseline:** main at ea167498e639fddffa14d0dd2770bc77f5721d32, reviewed 24 November 2026.  
+**Version:** 1.1
+
+**Baseline:** main at ea167498e639fddffa14d0dd2770bc77f5721d32, reviewed 24 November 2026. CX-32 was re-checked at `2cdce45c` on 25 November 2026; every other row remains at the 24 November baseline.
+
 **Purpose:** Track evidence-backed status and prevent roadmap descriptions from becoming shipped-feature claims.
 
 ## Status meanings
@@ -47,7 +49,7 @@ The bounded audit covered the root README, AGENTS.md, route inventory, App shell
 | CX-29 | Asset Factory | Partial | Image generation/edit documented; provenance/licensing library not verified | Verify model cost, rights metadata and versioning | P4 |
 | CX-30 | Movie Studio | Unverified | End-to-end production workflow not verified | Identify actual generation/rendering scope and cost | P4 |
 | CX-31 | Avatar Lab | Unverified | Consent/provenance pipeline not verified | Audit identity, consent, disclosure and render path | P4 |
-| CX-32 | Game Studio | Unverified | No Game Studio contract found on reviewed main baseline | Inspect active branch/PR, runtime and scope | P4 |
+| CX-32 | Game Studio | Partial | M1 source present at `2cdce45c`, re-checked 25 November 2026: routes `/games`, `/games/new`, `/games/templates`, `/games/:gameId`; `client/src/components/Games/`; `packages/api/src/games/handlers.ts`; `packages/data-provider/src/games.ts`. Persists a project and design spec only; `TGameCapabilities` gates builds, playtests and agent sessions off with `409 EXECUTOR_UNAVAILABLE`. Colocated specs exist, but **no test was executed at this SHA**. | Run the Games client and API specs at `2cdce45c`; only then verify an executor-backed build and playtest | P4 |
 | CX-33 | Gaming Agent | Unverified | No permitted game adapter/session confirmed in main | Verify allowed environment, bounds and takeover | P4 |
 | CX-34 | Invention Lab | Unverified | CAD/simulation/experiment workflow not verified | Separate theory, simulation and physical validation | P4 |
 | CX-35 | Business/Career | Unverified | Complete evidence-led workspace not verified | Verify sources and submission authorization | P4 |
