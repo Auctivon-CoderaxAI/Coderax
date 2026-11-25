@@ -84,6 +84,29 @@ describe('work task mapping', () => {
     expect(toWorkTask({ conversationId: 'c2', isWork: false })).toBeNull();
   });
 
+  it('falls back to the id for a missing, null or non-string persisted title', () => {
+    expect(toWorkTask(work())?.title).toBe('c1');
+    expect(toWorkTask(work({ title: null }))?.title).toBe('c1');
+    expect(toWorkTask(work({ title: 42 }))?.title).toBe('c1');
+    expect(toWorkTask(work({ title: { en: 'Plan' } }))?.title).toBe('c1');
+    expect(toWorkTask(work({ title: '   ' }))?.title).toBe('c1');
+    expect(toWorkTask(work({ title: '  Plan  ' }))?.title).toBe('Plan');
+  });
+
+  it('keeps every row when one legacy title is malformed', () => {
+    const history = toWorkHistory(
+      [
+        { conversationId: 'legacy', title: 42, updatedAt: '2026-01-01', isWork: true },
+        { conversationId: 'ok', title: 'Plan', updatedAt: '2026-02-01', isWork: true },
+      ],
+      10,
+    );
+    expect(history.map((task) => [task.id, task.title])).toEqual([
+      ['ok', 'Plan'],
+      ['legacy', 'legacy'],
+    ]);
+  });
+
   it('returns newest-first history and honours the limit', () => {
     const history = toWorkHistory(
       [

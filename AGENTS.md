@@ -18,25 +18,23 @@ charter appear to conflict, raise the conflict in the pull request instead of ch
 
 ## Branching and pull requests
 
-Normally branch off `dev` and target `dev`; `gh pr create` defaults to `main`, so pass `--base dev`
-explicitly. `main` is the released branch, kept as a fast-forward of `dev` and synced as-is — never
-open a backport pull request to `main`, because anything merged to `dev` reaches it at the next
-sync. Pull requests opened against `main` are retargeted automatically.
+`main` is the only persistent branch and the target for every pull request. Branch off `main` with a
+short-lived feature branch; `gh pr create` defaults to `main`, but pass `--base main` explicitly so
+the intent is visible. Do not create, target or recreate `dev`, `canary`, `dev-staging` or another
+long-lived integration branch. A feature branch exists only for the pull request it carries and is
+deleted after that pull request merges.
 
-**Maintainer-directed canary exception:** Experimental work, or a PR ready to merge after review but
-not yet suitable for the next `main` sync, may instead target `canary`. The maintainer may choose
-this before work starts or while reviewing a stale PR. For new canary work, branch from the current
-`origin/canary` and pass `--base canary` explicitly; do not silently retarget an existing PR or
-promote canary code to `dev`. If a stale PR is redirected to canary, first check its base, diff and
-reviewed head against current canary; coordinate any rebase or new PR with the maintainer. A PR
-explicitly based on `canary` stays there; the main-to-dev retarget workflow does not move it.
+Development is pull-request-only: never push directly to `main`. Every change reaches it through a
+reviewed pull request with an independent approval and green required checks at the exact pushed
+head. Keep the merge safeguards in place — required reviews, required status checks, resolved
+threads, no force pushes or deletions, and no administrator override or self-approval. Do not weaken
+them to land work; when a gate blocks a change, fix the change rather than the gate. The required
+protection for `main` is recorded in [`.github/MAIN_BRANCH.md`](.github/MAIN_BRANCH.md).
 
-Still link related issues in the PR (for example, `Related to #N`) so the work remains
-traceable. `Fixes #N` does not close an issue on a `dev` or `canary` merge — GitHub honors closing
-keywords only on the default branch. Close resolved issues by hand after merging. Worktrees share
+Link related issues in the PR (for example, `Related to #N`) so the work remains traceable. `main`
+is the default branch, so `Fixes #N` closes the issue when the pull request merges. Worktrees share
 one stash stack, so never use a bare `git stash pop`. Prefer a WIP commit; if a stash is necessary,
-apply the specific tagged entry. The `target: main` label and release-bound upstream branches are
-exempt from the main-to-dev retarget workflow; do not use either to backport ordinary work.
+apply the specific tagged entry.
 
 Write the description for a reader who has not followed the branch: what breaks, what triggers it,
 how it behaves after the change, then one or two views of the mechanism — a focused diff, a call
@@ -78,7 +76,7 @@ A green build is not a typecheck: `packages/api`, `packages/client` and `package
 with `tsdown`, which emits without checking types. Run `npx tsc --noEmit` in the workspace you
 changed. `packages/client` excludes `*.spec.ts(x)` and `*.test.ts(x)` from typechecking entirely.
 `npm run sort-imports` with no arguments rewrites every source root — pass the paths you touched.
-Run `npm run static-checks -- --against origin/dev` to reproduce the PR's static checks; use
+Run `npm run static-checks -- --against origin/main` to reproduce the PR's static checks; use
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
 

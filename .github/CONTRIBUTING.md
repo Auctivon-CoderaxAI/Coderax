@@ -24,7 +24,7 @@ An agent makes a patch cheap to produce, which moves the whole cost of it onto t
 
 A pull request that appears unannounced, with no issue, no assignment and no prior conversation, may be closed without review no matter how good the patch is. Features need prior approval as described above; agent assistance does not exempt a feature from the roadmap or the discussions board.
 
-**The one exception is a novel P0/P1 defect**: data loss, a broken release, a crash, or a regression with no workaround, that nobody has reported yet. Open it, and put the impact and the reproduction in the first paragraph. Novel is the operative word. A patch for something already reported, already assigned, or already fixed on `dev` is not an exception, and neither is a cosmetic or speculative change dressed up as urgent.
+**The one exception is a novel P0/P1 defect**: data loss, a broken release, a crash, or a regression with no workaround, that nobody has reported yet. Open it, and put the impact and the reproduction in the first paragraph. Novel is the operative word. A patch for something already reported, already assigned, or already fixed on `main` is not an exception, and neither is a cosmetic or speculative change dressed up as urgent.
 
 **Security is never an exception.** Do not open a pull request, an issue, or a public message that describes a vulnerability, even a critical one, and even with a fix attached. A pull request is a public disclosure that explains the attack and points at the affected code. Report it through Coderax's [private vulnerability reporting form](https://github.com/Coderax-AI/Coderax/security/advisories/new) and we will open a private channel and coordinate the fix and its release there. See [SECURITY.md](./SECURITY.md).
 
@@ -80,15 +80,15 @@ Project maintainers have the right and responsibility to remove, edit, or reject
 
 ## 2. Development Notes
 
-1. Before starting work, sync `dev` from this repository. You are working in a fork, so `origin` is
+1. Before starting work, sync `main` from this repository. You are working in a fork, so `origin` is
    your fork — add the canonical remote once and sync from it:
     - `git remote add upstream https://github.com/Coderax-AI/Coderax.git`
-    - `git fetch upstream dev && git checkout -B dev upstream/dev`
+    - `git fetch upstream main && git checkout -B main upstream/main`
     - `npm run update` is the self-host deployment updater — it checks out `main` and rebuilds your
       containers. Do not use it to refresh a development branch.
 2. Run linting command to find errors: `npm run lint`. Alternatively, ensure husky pre-commit checks are functioning.
     - `npm install` sets the hooks up for you; set `HUSKY=0` to opt out.
-    - The pre-commit hook runs the Static Checks CI job locally, scoped to the files in the commit. Run it by hand with `npm run static-checks`, against a base ref with `npm run static-checks -- --against origin/dev`, or with the slow gates (TypeScript, config migration tests, unused i18n keys, unused npm packages) via `npm run static-checks:full`.
+    - The pre-commit hook runs the Static Checks CI job locally, scoped to the files in the commit. Run it by hand with `npm run static-checks`, against a base ref with `npm run static-checks -- --against origin/main`, or with the slow gates (TypeScript, config migration tests, unused i18n keys, unused npm packages) via `npm run static-checks:full`.
     - Every commit gets ESLint, Prettier, import order and circular-dependency detection; the slower gates stay opt-in so commits stay fast.
 3. After your changes, reinstall packages in your current branch using `npm run reinstall` and ensure everything still works. 
     - Restart the ESLint server ("ESLint: Restart ESLint Server" in VS Code command bar) and your IDE after reinstalling or updating.
@@ -100,13 +100,13 @@ Project maintainers have the right and responsibility to remove, edit, or reject
 
 ## 3. Git Workflow
 
-We utilize a GitFlow workflow to manage changes to this project's codebase. Follow these general steps when contributing code:
+We integrate through short-lived pull-request branches on `main`. Follow these general steps when contributing code:
 
-1. Fork the repository and branch off `dev` with a descriptive slash-based name (e.g., `new/feature/x`). All contributions target `dev`; `main` only moves at release time, and pull requests opened against it are retargeted automatically.
+1. Fork the repository and branch off `main` with a descriptive slash-based name (e.g., `new/feature/x`). `main` is the only persistent branch and the target for every pull request; do not create a `dev`, `canary` or `dev-staging` branch.
 2. Implement your changes and ensure that all tests pass.
-3. Commit your changes using conventional commit messages with GitFlow flags. Begin the commit message with a tag indicating the change type, such as "feat" (new feature), "fix" (bug fix), "docs" (documentation), or "refactor" (code refactoring), followed by a brief summary of the changes (e.g., `feat: Add new feature X to the project`).
-4. Submit a pull request against `dev` with a clear and concise description of your changes and the reasons behind them.
-5. We will review your pull request, provide feedback as needed, and eventually merge the approved changes into the `dev` branch.
+3. Commit your changes using conventional commit messages. Begin the commit message with a tag indicating the change type, such as "feat" (new feature), "fix" (bug fix), "docs" (documentation), or "refactor" (code refactoring), followed by a brief summary of the changes (e.g., `feat: Add new feature X to the project`).
+4. Submit a pull request against `main` with a clear and concise description of your changes and the reasons behind them.
+5. We will review your pull request, provide feedback as needed, and eventually merge the approved changes into `main`. Delete the feature branch after it is merged.
 
 ## 4. Commit Message Format
 
