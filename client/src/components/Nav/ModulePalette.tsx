@@ -1,16 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import { useAtom } from 'jotai';
 import { useNavigate } from 'react-router-dom';
 import { CommandPalette } from '@coderax/client';
 import type { CommandPaletteItem, CommandPaletteLabels } from '@coderax/client';
+import { commandPaletteOpenAtom } from '~/store/palette';
 import { MODULES } from '~/lib/modules/registry';
 import { useLocalize } from '~/hooks';
 
 /**
  * The shell's command palette, mounted once by `Root`.
  *
- * It is mounted in the authenticated tree rather than in `App` for two reasons: the
- * destinations it offers only exist behind the auth gate, and `CommandPalette` owns a
- * document-level ⌘K listener that expects exactly one instance per window.
+ * It is mounted in the authenticated tree rather than in `App` because the
+ * destinations it offers only exist behind the auth gate.
+ *
+ * ⌘K is the registered `openCommandPalette` action rather than the primitive's own
+ * listener, so the chord appears in the Keyboard Shortcuts dialog, can be rebound,
+ * yields to the shortcuts off-switch and takes part in conflict detection. That is
+ * why `shortcut` is off here: the two listeners would toggle each other out.
  *
  * The registry supplies destinations; this component supplies the two things the
  * registry deliberately does not know about — localized copy and the router. A row
@@ -20,7 +26,10 @@ import { useLocalize } from '~/hooks';
 export default function ModulePalette() {
   const localize = useLocalize();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useAtom(commandPaletteOpenAtom);
+
+  // The app's store outlives the authenticated shell. Close the palette when the shell leaves.
+  useEffect(() => () => setOpen(false), [setOpen]);
 
   const labels = useMemo<CommandPaletteLabels>(
     () => ({
@@ -46,5 +55,13 @@ export default function ModulePalette() {
     }));
   }, [localize, navigate]);
 
-  return <CommandPalette open={open} onOpenChange={setOpen} items={items} labels={labels} />;
+  return (
+    <CommandPalette
+      open={open}
+      onOpenChange={setOpen}
+      items={items}
+      labels={labels}
+      shortcut={false}
+    />
+  );
 }
