@@ -162,7 +162,6 @@ export function createAutomaticChatTransport({
       if (
         request.payload.spec ||
         request.payload.agent_id ||
-        request.payload.ephemeralAgent ||
         isAgentsEndpoint(endpoint) ||
         isAssistantsEndpoint(endpoint)
       ) {

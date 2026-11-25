@@ -204,9 +204,7 @@ export default function ResearchView() {
           className="border-border-light bg-surface-secondary text-text-secondary mt-5 rounded-2xl border px-4 py-3 text-sm leading-6"
           role="status"
         >
-          {capability.isSuccess
-            ? capability.data.reason
-            : localize('com_research_capability_fallback')}
+          {localize('com_research_capability_fallback')}
         </p>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
