@@ -1137,4 +1137,27 @@ describe('createEngineWorkChatHandler', () => {
       await pending.catch(() => undefined);
     }
   });
+
+  it('stamps the run generation and fences every terminal write to it', async () => {
+    const { store, saveConversation } = fakeStore();
+    const { runner, start } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
+    runner.generation = jest.fn(async () => 'run-1');
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(200);
+    expect(saveConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'running', workRunId: 'run-1' }),
+    );
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      workState: 'completed',
+      workRunId: null,
+      fenceWorkRun: 'run-1',
+    });
+  });
 });

@@ -19,6 +19,10 @@ export type EngineWorkChatStore = {
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
     workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
+    /** Fencing generation stamped by the run; null detaches a settled row. */
+    workRunId?: string | null;
+    /** Applies only while the row still belongs to this generation. */
+    fenceWorkRun?: string;
   }) => Promise<void>;
   saveMessage: (input: {
     messageId: string;
@@ -53,6 +57,8 @@ export type EngineWorkChatRunner = {
   ) => Promise<EngineResult<EngineRunHandle>>;
   /** Durable: a run outlives the process that started it, so this reads the lease store. */
   state: (input: RunScope) => Promise<string | null>;
+  /** The lease generation this scope's run owns, so its conversation writes can be fenced. */
+  generation?: (input: RunScope & { handle?: EngineRunHandle }) => Promise<string | null>;
   cancel: (input: RunScope) => Promise<boolean>;
   /** The handler owns the lease until terminal persistence has finished. */
   release?: (input: RunScope & { handle?: EngineRunHandle }) => Promise<boolean>;

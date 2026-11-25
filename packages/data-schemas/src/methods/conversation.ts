@@ -316,6 +316,10 @@ export interface ConversationMethods {
       stampReply?: boolean;
       /** Durable messageId paired atomically with a reply stamp. */
       replyMessageId?: string;
+      /** Applies only while the row belongs to this Work run generation. */
+      workRunGeneration?: string;
+      /** Applies only while the row has not settled, so an observation cannot replace an outcome. */
+      unsettledWorkRun?: boolean;
     },
   ): Promise<IConversation | { message: string } | null>;
   /**
@@ -2464,6 +2468,10 @@ export function createConversationMethods(
       stampReply?: boolean;
       /** Durable messageId paired atomically with a reply stamp. */
       replyMessageId?: string;
+      /** Applies only while the row belongs to this Work run generation. */
+      workRunGeneration?: string;
+      /** Applies only while the row has not settled, so an observation cannot replace an outcome. */
+      unsettledWorkRun?: boolean;
     },
   ) {
     try {
@@ -2679,6 +2687,14 @@ export function createConversationMethods(
       const baseFilter = {
         conversationId,
         user: userId,
+        /** A Work run writes only while its generation still owns the row: a retry stamps its
+         *  own, so a late outcome from the run it replaced matches nothing. */
+        ...(metadata?.workRunGeneration ? { workRunId: metadata.workRunGeneration } : {}),
+        /** Interruption recovery only moves an unsettled row; `$nin` also matches an absent
+         *  state, so a row written before the marker existed is still recoverable. */
+        ...(metadata?.unsettledWorkRun === true
+          ? { workState: { $nin: ['completed', 'failed', 'cancelled'] } }
+          : {}),
         ...(metadata?.titleSource === 'generated' && {
           titleSetByUser: { $ne: true },
           title: { $in: [null, '', 'New Chat'] },
