@@ -132,7 +132,7 @@ describe('automatic Chat model transport', () => {
 
   it('routes a loaded Work conversation through automatic Chat after switching modes', async () => {
     const start = jest.fn().mockResolvedValue({ generationId: 'chat-generation' });
-    const selection = selectAutomaticChatModel([{ id: 'chat-free', provider: 'openrouter' }]);
+    const selection = selectAutomaticChatModel([{ id: 'chat-free:free', provider: 'openrouter' }]);
     const controller = createAutomaticChatTransport({
       transport: makeTransport(start),
       selection,
@@ -152,8 +152,8 @@ describe('automatic Chat model transport', () => {
     await controller.transport.start(request);
     expect(start).toHaveBeenCalledTimes(1);
     expect(start.mock.calls[0]?.[0]).toMatchObject({
-      server: 'https://coderax.example/api/agents/openrouter',
-      payload: { endpoint: 'openrouter', model: 'chat-free', endpointType: 'custom' },
+      server: 'https://coderax.example/api/agents/chat/openrouter',
+      payload: { endpoint: 'openrouter', model: 'chat-free:free', endpointType: 'custom' },
     });
     expect(start.mock.calls[0]?.[0].payload).not.toHaveProperty('agent_id');
     expect(start.mock.calls[0]?.[0].payload).not.toHaveProperty('spec');
