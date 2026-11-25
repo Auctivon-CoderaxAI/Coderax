@@ -128,6 +128,15 @@ jobs:
               - 'scripts/static-checks.mts'
               - '.github/workflows/static-checks.yml'
               - '!**.md'
+            # The probe is the repository's only statement about where configured
+            # inference runs, and its suite is the only thing pinning the
+            # placement wording. A change to the probe, its tests, or the runner
+            # that mirrors this step has to run them.
+            model_probe:
+              - 'scripts/probe-cloud-model.mjs'
+              - 'scripts/probe-cloud-model.test.mjs'
+              - 'scripts/static-checks.mts'
+              - '.github/workflows/static-checks.yml'
             unused_packages:
               - 'api/**'
               - 'client/**'
@@ -162,6 +171,20 @@ jobs:
         if: always()
         continue-on-error: true
         run: node --test scripts/verify-workspace-lockfile.test.mjs
+
+      # The model-placement probe is the repository's evidence that configured
+      # inference answers, and the one place that names where it runs. Its probe
+      # reported a Compose-hosted Ollama as "remote inference verified", which
+      # read as a cloud-inference proof the deployment cannot make; the tests pin
+      # the placement labels so that claim cannot come back. Nothing else reads
+      # them, so this step is what keeps the wording from drifting. Unconditional
+      # like the lockfile check above and independent of npm ci: the suite has no
+      # dependencies and costs milliseconds.
+      - name: Validate model placement probe
+        id: model_probe
+        if: always() && steps.paths.outputs.model_probe == 'true'
+        continue-on-error: true
+        run: node --test scripts/probe-cloud-model.test.mjs
 
       # Cloudflare installs the deployed tree with `bun install
       # --frozen-lockfile`, and bun aborts that install when package.json's
@@ -688,6 +711,7 @@ jobs:
         env:
           INSTALL_DEPENDENCIES_OUTCOME: ${{ steps.install_dependencies.outcome }}
           WORKSPACE_LOCKFILE_OUTCOME: ${{ steps.workspace_lockfile.outcome }}
+          MODEL_PROBE_OUTCOME: ${{ steps.model_probe.outcome }}
           BUN_LOCK_OUTCOME: ${{ steps.bun_lock.outcome }}
           ESLINT_OUTCOME: ${{ steps.eslint.outcome }}
           ESLINT_CONFIG_OUTCOME: ${{ steps.eslint_config.outcome }}
@@ -729,6 +753,7 @@ jobs:
 
           record_failure "Dependency installation" "$INSTALL_DEPENDENCIES_OUTCOME"
           record_failure "Workspace lockfile regression" "$WORKSPACE_LOCKFILE_OUTCOME"
+          record_failure "Model placement probe" "$MODEL_PROBE_OUTCOME"
           record_failure "bun.lock overrides" "$BUN_LOCK_OUTCOME"
           record_failure "ESLint" "$ESLINT_OUTCOME"
           record_failure "ESLint config validation" "$ESLINT_CONFIG_OUTCOME"

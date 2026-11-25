@@ -1,10 +1,10 @@
-name: Docker Dev Branch Images Build
+name: Docker Main Branch Images Build
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - dev
+      - main
     paths:
       - 'api/**'
       - 'client/**'

@@ -163,13 +163,15 @@ export function createAutomaticChatTransport({
       const endpoint = request.payload.endpoint;
       const storedWorkEndpoint = isAgentsEndpoint(endpoint) && !workMode;
       if (isAssistantsEndpoint(endpoint) || (isAgentsEndpoint(endpoint) && workMode)) {
+        // One approval authorizes one paid request. This request bypasses paid
+        // routing, so it must not leave an approval live for a later one.
+        clearPaidApproval();
         return transport.start(request, options);
       }
-      if (
-        !storedWorkEndpoint &&
-        (request.payload.spec || request.payload.agent_id || request.payload.ephemeralAgent)
-      ) {
+      if (!storedWorkEndpoint && (request.payload.spec || request.payload.agent_id)) {
         // Explicit model specs and agent requests are administrator/user-selected routes.
+        // One approval authorizes one paid request, so a bypass must consume it.
+        clearPaidApproval();
         return transport.start(request, options);
       }
 
