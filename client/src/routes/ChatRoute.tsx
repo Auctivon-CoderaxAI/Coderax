@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useRecoilCallback, useRecoilValue } from 'recoil';
 import { Button, Spinner, useToastContext } from '@coderax/client';
 import { useGetModelsQuery } from 'coderax-data-provider/react-query';
-import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Constants,
   EModelEndpoint,
@@ -287,10 +287,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     !workOptions.isLoading &&
     !workOptions.modelsQuery.isError &&
     resolvedWorkSelection != null;
-  const conversationModeMismatch =
-    conversationId !== Constants.NEW_CONVO &&
-    initialConvoQuery.isSuccess &&
-    (initialConvoQuery.data?.isWork === true) !== isWorkMode;
   const endpointsQuery = useGetEndpointsQuery({ enabled: isAuthenticated });
   const tokenConfigQuery = useTokenConfigQuery({ enabled: isAuthenticated && !isWorkMode });
   const baseChatTransport = useChatTransport();
@@ -353,9 +349,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
   const forceTemporaryChat = isForcedTemporaryRetention(startupConfig?.interface?.retentionMode);
 
   useEffect(() => {
-    if (conversationModeMismatch) {
-      return;
-    }
     if (conversationId === Constants.NEW_CONVO) {
       setIsTemporary(forceTemporaryChat || defaultTemporaryChat);
     } else if (forceTemporaryChat || isTemporaryChat) {
@@ -363,14 +356,7 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
     } else {
       setIsTemporary(false);
     }
-  }, [
-    conversationId,
-    conversationModeMismatch,
-    isTemporaryChat,
-    setIsTemporary,
-    defaultTemporaryChat,
-    forceTemporaryChat,
-  ]);
+  }, [conversationId, isTemporaryChat, setIsTemporary, defaultTemporaryChat, forceTemporaryChat]);
 
   /** This effect is mainly for the first conversation state change on first load of the page.
    *  Adjusting this may have unintended consequences on the conversation state.
@@ -607,18 +593,6 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
 
   if (!isAuthenticated) {
     return null;
-  }
-
-  if (conversationModeMismatch) {
-    return (
-      <Navigate
-        to={{
-          pathname: `${initialConvoQuery.data?.isWork === true ? '/work' : '/c'}/${conversationId}`,
-          search: location.search,
-        }}
-        replace
-      />
-    );
   }
 
   // if not a conversation

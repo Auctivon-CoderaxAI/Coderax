@@ -162,6 +162,7 @@ beforeEach(() => {
   mockAuthenticatedUser = undefined;
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
+  mockNewConversation.mockClear();
 });
 
 it.each(['/c/chat-a?projectId=keep#anchor', '/work/chat-a?prompt=keep#anchor'])(
@@ -201,6 +202,70 @@ it('does not redirect a stored Work transcript away from its existing Chat deep 
   await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-a'));
   expect(router.state.location.pathname).toBe('/c/chat-a');
   expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+it('switches a loaded Chat conversation to Work without navigating or recreating it', async () => {
+  mockHasSetConversation.current = false;
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: false });
+  const { router } = setup(['/c/chat-a']);
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+  const composer = screen.getByTestId('composer');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Work' }));
+
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(screen.getByTestId('composer')).toBe(composer);
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+  expect(mockNewConversation).toHaveBeenCalledTimes(1);
+});
+
+it('switches a loaded Work transcript to Chat on its legacy route without navigating', async () => {
+  mockHasSetConversation.current = false;
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: true });
+  const { router } = setup(['/work/chat-a']);
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+  const composer = screen.getByTestId('composer');
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+  expect(router.state.location.pathname).toBe('/work/chat-a');
+  expect(screen.getByTestId('composer')).toBe(composer);
+  expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+  expect(mockNewConversation).toHaveBeenCalledTimes(1);
+});
+
+it('restores a saved Work mode on reload while the server still records a Chat conversation', async () => {
+  mockAuthenticatedUser = { id: 'owner', provider: 'local' };
+  localStorage.setItem('conversationModes:owner', JSON.stringify({ 'chat-a': 'code' }));
+  mockHasSetConversation.current = false;
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: false });
+  const { router } = setup(['/c/chat-a']);
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+  expect(mockConversation.conversationId).toBe('chat-a');
+});
+
+it('opens a legacy Work link on its stored Chat conversation and keeps the route in place', async () => {
+  mockAuthenticatedUser = { id: 'owner', provider: 'local' };
+  localStorage.setItem('conversationModes:owner', JSON.stringify({ 'chat-a': 'chat' }));
+  mockHasSetConversation.current = false;
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: false });
+  const { router } = setup(['/work/chat-a?projectId=keep#anchor']);
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+  const location = { ...router.state.location };
+
+  expect(router.state.location.pathname).toBe('/work/chat-a');
+  expect(mockConversation.conversationId).toBe('chat-a');
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Chat' }));
+
+  expect(router.state.location).toEqual(location);
+  expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+  expect(mockNewConversation).toHaveBeenCalledTimes(1);
 });
 
 it('copies a new Work selection to the acknowledged conversation without replacing a saved one', async () => {
