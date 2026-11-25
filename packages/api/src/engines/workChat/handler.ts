@@ -221,16 +221,21 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let activeHandle: EngineRunHandle | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
+    const startup = new AbortController();
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
-      if (!activeHandle || closeCancelled) {
+      if (closeCancelled) {
         return;
       }
       closeCancelled = true;
-      void activeHandle
-        .cancel()
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+      if (activeHandle) {
+        void activeHandle
+          .cancel()
+          .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+        return;
+      }
+      startup.abort();
     };
     res.on('close', () => {
       if (!finished) {
@@ -288,6 +293,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (closed) return;
       let recorded = false;
       const started = await runtime.start({
+        signal: startup.signal,
         beforeDispatch: async () => {
           if (closed) throw new Error('Work request closed');
           try {
@@ -320,7 +326,9 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           try {
             await store.saveConversation({
               conversationId,
-              workState: 'failed',
+              /** A start refused because the owner cancelled is a cancelled
+               *  run, not a failure of the task. */
+              workState: started.error.code === 'cancelled' ? 'cancelled' : 'failed',
               ...(!recorded && existing == null ? { title, create: true } : {}),
             });
           } catch (error) {

@@ -3965,6 +3965,11 @@ export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
 export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
 export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
+/** One attempt is the pre-retry behavior: a run fails where it would have failed before. */
+export const DEFAULT_ENGINE_MAX_ATTEMPTS = 1;
+export const DEFAULT_ENGINE_RETRY_DELAY_MS = 250;
+export const MAX_ENGINE_MAX_ATTEMPTS = 5;
+export const MAX_ENGINE_RETRY_DELAY_MS = 1_000;
 
 /**
  * Coding-agent execution engines. Both are disabled by default, which keeps the
@@ -3975,6 +3980,27 @@ export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
 export const enginesConfigSchema = z
   .object({
     defaultEngine: z.enum(['opencode', 'openhands', 'freebuff']).default('opencode'),
+    /**
+     * Bounded retry for a run that failed before any engine side effect. The
+     * engine never changes between attempts: a fallback to another engine stays
+     * an explicit owner choice. `maxAttempts: 1` preserves the previous behavior.
+     */
+    retry: z
+      .object({
+        maxAttempts: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_ENGINE_MAX_ATTEMPTS)
+          .default(DEFAULT_ENGINE_MAX_ATTEMPTS),
+        delayMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_ENGINE_RETRY_DELAY_MS)
+          .default(DEFAULT_ENGINE_RETRY_DELAY_MS),
+      })
+      .prefault({}),
     /** Separate real roots; an engine is confined to the root for its data mode. */
     workspaces: z
       .object({

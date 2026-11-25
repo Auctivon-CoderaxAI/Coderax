@@ -63,7 +63,11 @@ function failureFor(availability: EngineAvailability): EngineFailure | null {
     case 'sdk_unavailable':
       return engineFailure('sdk_unavailable', availability.detail);
     default:
-      return engineFailure('server_unavailable', availability.detail);
+      /**
+       * A readiness probe refused before dispatch, so nothing reached the
+       * engine and replaying the same engine is safe.
+       */
+      return engineFailure('server_unavailable', availability.detail, true);
   }
 }
 
