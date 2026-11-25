@@ -341,6 +341,30 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
+  it('serves every valid task when a legacy row has a non-string title', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'c-valid', title: 'Plan', isWork: true, updatedAt: '2026-02-02' },
+        {
+          conversationId: 'c-object',
+          title: { en: 'Plan' },
+          isWork: true,
+          updatedAt: '2026-02-01',
+        },
+        { conversationId: 'c-number', title: 42, isWork: true, updatedAt: '2026-02-03' },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(
+      res.body.tasks.map((task: { id: string; title: string }) => [task.id, task.title]),
+    ).toEqual([
+      ['c-number', 'c-number'],
+      ['c-valid', 'Plan'],
+      ['c-object', 'c-object'],
+    ]);
+  });
+
   it('serves history when stored timestamps are Date objects', async () => {
     const server = app({
       listConversations: async () => [
@@ -552,6 +576,20 @@ describe('native Work router', () => {
     const res = await request(server).get('/api/work/tasks');
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('WORK_HISTORY_UNAVAILABLE');
+  });
+
+  it('logs a fixed diagnostic for a history failure without its error text', async () => {
+    const warn = jest.fn();
+    const server = app({
+      logger: { warn },
+      listConversations: async () => {
+        throw new Error('db down: transcript for secret-plan');
+      },
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(503);
+    expect(warn).toHaveBeenCalledWith('[Work] Could not read task history.');
+    expect(JSON.stringify(res.body)).not.toContain('secret-plan');
   });
 
   it('names the model the automatic option resolves to', async () => {
