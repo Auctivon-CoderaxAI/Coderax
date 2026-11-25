@@ -94,6 +94,7 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     resolveCleanup = resolve;
   });
   let cleanupDone = false;
+  let remoteStop: Promise<void> | null = null;
   const settleCleanup = (): void => {
     if (cleanupDone) {
       return;
@@ -148,28 +149,32 @@ export function createEngineRunHandle(options: EngineRunPumpOptions): EngineRunH
     }
   };
 
-  const stopRemote = async (): Promise<void> => {
-    await bounded(options.cancelRun());
-    await bounded(closeIterator());
-    settleCleanup();
+  const stopRemote = (): Promise<void> => {
+    if (!remoteStop) {
+      remoteStop = (async () => {
+        await bounded(options.cancelRun());
+        await bounded(closeIterator());
+        settleCleanup();
+      })();
+    }
+    return remoteStop;
   };
 
   const cancel = async (): Promise<void> => {
-    if (settled) {
-      await bounded(closeIterator());
-      await cleanup;
-      return;
+    if (!settled) {
+      // Settle before awaiting the engine: an iterator that closes during abort
+      // must not be able to turn a caller's cancellation into a protocol error.
+      finish(
+        {
+          ok: false,
+          error: { code: 'cancelled', message: 'The run was cancelled.', retryable: false },
+        },
+        { type: 'cancelled', sessionId: options.sessionId },
+        true,
+      );
     }
-    // Settle before awaiting the engine: an iterator that closes during abort
-    // must not be able to turn a caller's cancellation into a protocol error.
-    finish(
-      {
-        ok: false,
-        error: { code: 'cancelled', message: 'The run was cancelled.', retryable: false },
-      },
-      { type: 'cancelled', sessionId: options.sessionId },
-      true,
-    );
+    // A terminal provider failure settles the result but can leave the remote
+    // session open. Closing an abandoned model attempt must still abort it.
     await stopRemote();
   };
 

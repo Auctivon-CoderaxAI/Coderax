@@ -2,8 +2,8 @@
 set -eu
 
 cd "$(dirname "$0")"
-if [ -e app.env ] || [ -e origin.env ]; then
-  echo 'Refusing to replace existing app.env or origin.env.' >&2
+if [ -e app.env ] || [ -e origin.env ] || [ -e engine.env ]; then
+  echo 'Refusing to replace existing app.env, origin.env or engine.env.' >&2
   exit 1
 fi
 command -v openssl >/dev/null 2>&1 || {
@@ -77,6 +77,7 @@ esac
 HOST_LABEL=$(printf '%s' "$PUBLIC_IP" | tr '.' '-')
 API_HOST="coderax-${HOST_LABEL}.sslip.io"
 PROXY_SECRET=$(openssl rand -hex 32)
+OPENCODE_SERVER_PASSWORD=$(openssl rand -hex 32)
 
 cat > app.env <<EOF
 MONGO_URI=$MONGO_URI
@@ -86,12 +87,18 @@ CREDS_KEY=$CREDS_KEY
 CREDS_IV=$CREDS_IV
 EOF
 printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
+printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$OPENCODE_SERVER_PASSWORD" >> app.env
+cat > engine.env <<EOF
+OPENCODE_SERVER_PASSWORD=$OPENCODE_SERVER_PASSWORD
+OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+EOF
 cat > origin.env <<EOF
 CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET
 EOF
-unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_KEY PROXY_SECRET secret_name secret_prompt
-chmod 600 app.env origin.env
+unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_KEY PROXY_SECRET OPENCODE_SERVER_PASSWORD secret_name secret_prompt
+chmod 600 app.env origin.env engine.env
 
 printf 'Created protected environment files. API origin: https://%s\n' "$API_HOST"
 printf 'The proxy secret is stored in origin.env; do not print or commit that file.\n'
+printf 'The OpenCode service password is stored in app.env and engine.env; do not print or commit those files.\n'
