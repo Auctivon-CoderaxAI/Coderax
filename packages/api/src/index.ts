@@ -13,6 +13,8 @@ export * from './artifacts';
 export * from './admin';
 /* Game Studio */
 export * from './games';
+/* Research */
+export * from './research';
 export * from './cdn';
 export * from './code';
 export * from './pulls';
@@ -98,6 +100,7 @@ export * from './conversations';
 export * from './routing';
 /* Work */
 export * from './work/admission';
+export * from './work/reservation';
 export * from './work/configuredDefault';
 export * from './work/deps';
 export * from './work/agents';

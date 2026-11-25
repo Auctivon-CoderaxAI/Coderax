@@ -89,7 +89,6 @@ describe('config schema defaults', () => {
     expect(configSchema.parse({ version: '1.0' }).freeInference).toEqual({
       enabled: false,
       allowFallback: true,
-      allowToolsInFallback: false,
       maxRequestsPerDay: DEFAULT_FREE_INFERENCE_MAX_REQUESTS_PER_DAY,
       maxTokensPerDay: DEFAULT_FREE_INFERENCE_MAX_TOKENS_PER_DAY,
       openRouterMaxOutputTokens: 4096,
@@ -2950,5 +2949,19 @@ describe('engines config', () => {
         freebuff: { allowedHosts: Array.from({ length: 17 }, (_, index) => `host${index}`) },
       }).success,
     ).toBe(false);
+  });
+
+  it('makes one attempt unless engine retries are configured', () => {
+    expect(enginesConfigSchema.parse({}).retry).toEqual({ maxAttempts: 1, delayMs: 250 });
+  });
+
+  it('bounds the engine retry attempt count and delay', () => {
+    expect(enginesConfigSchema.parse({ retry: { maxAttempts: 3, delayMs: 500 } }).retry).toEqual({
+      maxAttempts: 3,
+      delayMs: 500,
+    });
+    expect(enginesConfigSchema.safeParse({ retry: { maxAttempts: 0 } }).success).toBe(false);
+    expect(enginesConfigSchema.safeParse({ retry: { maxAttempts: 6 } }).success).toBe(false);
+    expect(enginesConfigSchema.safeParse({ retry: { delayMs: 1_001 } }).success).toBe(false);
   });
 });

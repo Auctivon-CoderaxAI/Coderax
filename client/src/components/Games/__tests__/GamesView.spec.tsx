@@ -1,5 +1,5 @@
 import { MemoryRouter } from 'react-router-dom';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type * as ReactModule from 'react';
 import type { ReactNode } from 'react';
 import GamesView from '../GamesView';
@@ -160,6 +160,52 @@ describe('GamesView', () => {
     renderView();
 
     expect(screen.getByText('com_games_capability_error_title')).toBeTruthy();
+  });
+
+  it('blocks pagination while any list fetch is running', () => {
+    const fetchNextPage = jest.fn();
+    const page = {
+      data: {
+        pages: [
+          {
+            projects: [
+              {
+                _id: 'game-1',
+                name: 'Lantern Run',
+                summary: '',
+                status: 'draft',
+                revision: 1,
+                specRevision: 0,
+                spec: null,
+                createdAt: '2026-11-01T00:00:00.000Z',
+                updatedAt: '2026-11-02T00:00:00.000Z',
+              },
+            ],
+            nextCursor: 'cursor-1',
+          },
+        ],
+      },
+    };
+
+    mockUseProjects.mockReturnValue(
+      projectsResult({ ...page, hasNextPage: true, isFetching: true, fetchNextPage }),
+    );
+    const { rerender } = renderView();
+    const busyButton = screen.getByText('com_games_load_more') as HTMLButtonElement;
+    expect(busyButton.disabled).toBe(true);
+    fireEvent.click(busyButton);
+    expect(fetchNextPage).not.toHaveBeenCalled();
+
+    mockUseProjects.mockReturnValue(
+      projectsResult({ ...page, hasNextPage: true, isFetching: false, fetchNextPage }),
+    );
+    rerender(
+      <MemoryRouter>
+        <GamesView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText('com_games_load_more'));
+    expect(fetchNextPage).toHaveBeenCalled();
   });
 
   it('states the executor gate instead of implying builds are available', () => {

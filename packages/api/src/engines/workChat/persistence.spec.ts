@@ -295,6 +295,52 @@ describe('Work chat persistence adapter', () => {
     );
   });
 
+  it('stores the parts a reply streamed, and omits them when it streamed none', async () => {
+    const db = fakeDb();
+    const store = storeFor(db);
+    const content = [
+      { type: 'text', text: 'Listed it.' },
+      {
+        type: 'tool_call',
+        tool_call: {
+          id: 'call-1',
+          name: 'bash',
+          type: 'tool_call',
+          progress: 1,
+          args: { command: 'ls' },
+          runStepStatus: 'completed',
+          output: 'a.txt',
+        },
+      },
+    ];
+
+    await store.saveMessage({
+      messageId: 'message-2',
+      parentMessageId: 'message-1',
+      conversationId: 'conversation-1',
+      text: 'Listed it.',
+      content,
+      isCreatedByUser: false,
+    });
+
+    expect(db.saveMessage.mock.calls[0][1]).toMatchObject({
+      messageId: 'message-2',
+      text: 'Listed it.',
+      content,
+      sender: 'OpenCode Agent',
+    });
+
+    /* A turn that streamed no parts keeps the row it always wrote. */
+    await store.saveMessage({
+      messageId: 'message-3',
+      parentMessageId: 'message-2',
+      conversationId: 'conversation-1',
+      text: 'Plain answer',
+      isCreatedByUser: false,
+    });
+    expect(db.saveMessage.mock.calls[1][1]).not.toHaveProperty('content');
+  });
+
   it('refuses to report a message the database did not save', async () => {
     const db = fakeDb();
     const store = storeFor(db);

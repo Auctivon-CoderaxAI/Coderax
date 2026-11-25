@@ -5,6 +5,7 @@ import type { BindToolsInput } from '@librechat/agents/langchain/language_models
 import type { FallbackConfig, OpenAIClientOptions, Providers } from '@librechat/agents';
 import type { TConfig } from 'coderax-data-provider';
 import type { z } from 'zod/v4';
+import type { FreeInferenceBudget } from '~/routing/budget';
 import type { AzureOptions } from './azure';
 
 export type OpenAIParameters = z.infer<typeof openAISchema>;
@@ -17,6 +18,8 @@ export type OpenAIModelOptions = Partial<OpenAIParameters>;
 export interface OpenAIConfigOptions {
   modelOptions?: OpenAIModelOptions;
   freeOpenRouterMaxOutputTokens?: number;
+  /** Daily request/token budget debited by the free OpenRouter transport. */
+  freeInferenceBudget?: FreeInferenceBudget;
   transportTimeouts?: {
     bodyTimeout: number;
     headersTimeout: number;

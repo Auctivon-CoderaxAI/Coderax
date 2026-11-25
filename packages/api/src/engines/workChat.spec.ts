@@ -82,7 +82,10 @@ function fakeRunner(
     result: Promise.resolve(result),
     close: jest.fn(async () => undefined),
   };
-  const start = jest.fn(async () => ({ ok: true as const, value: handle }));
+  const start = jest.fn(async (input: Parameters<EngineWorkChatRunner['start']>[0]) => {
+    await input.beforeDispatch?.();
+    return { ok: true as const, value: handle };
+  });
   const runner: EngineWorkChatRunner = {
     start,
     state: jest.fn(async () => null),

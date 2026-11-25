@@ -8,7 +8,7 @@ import type {
 } from 'coderax-data-provider';
 
 /** Bounded like the approval-grant lookup; a slow store must not stall a run. */
-export const DEFAULT_STANDING_AUTHORIZATION_LOOKUP_TIMEOUT_MS = 3000;
+const DEFAULT_STANDING_AUTHORIZATION_LOOKUP_TIMEOUT_MS = 3000;
 
 export interface StandingAuthorizationGate {
   /** Optional because older wiring passes only the approval-grant methods. */

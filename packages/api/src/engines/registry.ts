@@ -63,13 +63,18 @@ function failureFor(availability: EngineAvailability): EngineFailure | null {
     case 'sdk_unavailable':
       return engineFailure('sdk_unavailable', availability.detail);
     default:
-      return engineFailure('server_unavailable', availability.detail);
+      /**
+       * A readiness probe refused before dispatch, so nothing reached the
+       * engine and replaying the same engine is safe.
+       */
+      return engineFailure('server_unavailable', availability.detail, true);
   }
 }
 
 export type EngineRunInput = {
   engine?: EngineId | null;
   request: EngineRunRequest;
+  beforeDispatch?: () => Promise<void>;
 };
 
 export type EngineRegistryApi = {
@@ -118,6 +123,12 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
       arbiter.release(input.request.taskKey, id);
     };
 
+    try {
+      await input.beforeDispatch?.();
+    } catch (error) {
+      release();
+      throw error;
+    }
     let started: EngineResult<EngineRunHandle>;
     try {
       started = await adapter.start(input.request);

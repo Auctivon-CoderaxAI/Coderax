@@ -189,6 +189,28 @@ function migrateRetiredFallback(config: unknown): unknown {
   return { ...config, providerFallback: { ...settings, order } };
 }
 
+/**
+ * `freeInference.allowToolsInFallback` never changed a route: a tool-required
+ * turn was already refused every text-only endpoint. Drop it so a YAML that
+ * still sets it boots instead of failing strict validation.
+ */
+function retireInertFreeInferenceKeys(config: unknown): unknown {
+  if (typeof config !== 'object' || config == null || !('freeInference' in config)) {
+    return config;
+  }
+  const settings = config.freeInference;
+  if (typeof settings !== 'object' || settings == null || !('allowToolsInFallback' in settings)) {
+    return config;
+  }
+  const { allowToolsInFallback: retired, ...rest } = settings as Record<string, unknown>;
+  if (retired === true) {
+    logger.warn(
+      'Ignoring retired freeInference.allowToolsInFallback: a turn that requires tools never runs on a text-only endpoint.',
+    );
+  }
+  return { ...config, freeInference: rest };
+}
+
 function isRemoteConfigPath(configPath: string): boolean {
   return /^https?:\/\//.test(configPath);
 }
@@ -301,7 +323,7 @@ export function createCustomConfigLoader({
       reportThemeCheck(configPath, themeCheck.errors, themeCheck.warnings);
 
       setMaxSubagents(getConfiguredMaxSubagents(loadedConfig));
-      loadedConfig = migrateRetiredFallback(loadedConfig);
+      loadedConfig = retireInertFreeInferenceKeys(migrateRetiredFallback(loadedConfig));
       const result = configSchema.strict().safeParse(loadedConfig);
       if (
         result.error?.issues.some(

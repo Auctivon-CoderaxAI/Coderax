@@ -260,7 +260,6 @@ export function selectStandingAuthorization(
 export interface ToolStandingAuthorizationStorage {
   listToolStandingAuthorizations: (
     scope: ToolStandingAuthorizationScope,
-    options?: { includeRevoked?: boolean },
   ) => Promise<ToolStandingAuthorization[]>;
   createToolStandingAuthorization: (
     scope: ToolStandingAuthorizationScope,

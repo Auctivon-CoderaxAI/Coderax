@@ -29,6 +29,8 @@ export type EngineWorkChatStore = {
     parentMessageId: string;
     conversationId: string;
     text: string;
+    /** Content parts the turn streamed, so a reload renders the same message. */
+    content?: Array<Record<string, unknown>>;
     isCreatedByUser: boolean;
     unfinished?: boolean;
     error?: boolean | string;
@@ -46,7 +48,12 @@ export type RunScope = {
 
 export type EngineWorkChatRunner = {
   start: (
-    input: RunScope & { prompt: string; engine?: EngineId },
+    input: RunScope & {
+      prompt: string;
+      engine?: EngineId;
+      signal?: AbortSignal;
+      beforeDispatch?: () => Promise<void>;
+    },
   ) => Promise<EngineResult<EngineRunHandle>>;
   /** Durable: a run outlives the process that started it, so this reads the lease store. */
   state: (input: RunScope) => Promise<string | null>;

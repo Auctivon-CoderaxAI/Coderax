@@ -223,16 +223,21 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let generation: string | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
+    const startup = new AbortController();
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
-      if (!activeHandle || closeCancelled) {
+      if (closeCancelled) {
         return;
       }
       closeCancelled = true;
-      void activeHandle
-        .cancel()
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+      if (activeHandle) {
+        void activeHandle
+          .cancel()
+          .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+        return;
+      }
+      startup.abort();
     };
     res.on('close', () => {
       if (!finished) {
@@ -287,7 +292,30 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       } catch {
         // The current request is still enough to start; history is an enhancement.
       }
+      if (closed) return;
+      let recorded = false;
       const started = await runtime.start({
+        signal: startup.signal,
+        beforeDispatch: async () => {
+          if (closed) throw new Error('Work request closed');
+          try {
+            await store.saveConversation({
+              conversationId,
+              title,
+              workAgent: engine,
+              workState: 'running',
+              create: existing == null,
+            });
+            recorded = true;
+            if (closed) {
+              await store.saveConversation({ conversationId, workState: 'cancelled' });
+            }
+          } catch (error) {
+            storeUnavailable = true;
+            throw error;
+          }
+          if (closed) throw new Error('Work request closed');
+        },
         userId,
         tenantId,
         conversationId,
@@ -298,7 +326,13 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
           try {
-            await store.saveConversation({ conversationId, workState: 'failed' });
+            await store.saveConversation({
+              conversationId,
+              /** A start refused because the owner cancelled is a cancelled
+               *  run, not a failure of the task. */
+              workState: started.error.code === 'cancelled' ? 'cancelled' : 'failed',
+              ...(!recorded && existing == null ? { title, create: true } : {}),
+            });
           } catch (error) {
             storeUnavailable = true;
             throw error;
@@ -335,18 +369,19 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         runGeneration == null
           ? { conversationId, workState }
           : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
-      try {
-        await store.saveConversation({
-          conversationId,
-          title,
-          workAgent: engine,
-          workState: 'running',
-          create: existing == null,
-          ...(runGeneration == null ? {} : { workRunId: runGeneration }),
-        });
-      } catch (error) {
-        storeUnavailable = true;
-        throw error;
+      if (runGeneration != null) {
+        /** The running row was created before dispatch, so this only binds it to the
+         *  run's generation; writing `create` again could add a second conversation. */
+        try {
+          await store.saveConversation({
+            conversationId,
+            workState: 'running',
+            workRunId: runGeneration,
+          });
+        } catch (error) {
+          storeUnavailable = true;
+          throw error;
+        }
       }
       if (closed) {
         await started.value.cancel();
@@ -421,21 +456,63 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       });
 
       let text = '';
+      /** The turn streams as content parts so the client renders the reply text
+       *  and every tool call in one message: the text keeps index 0 and each
+       *  call owns an index, which lets its settled result replace the call in
+       *  place. Parts are also carried by the final frame, because the client
+       *  substitutes that message for the streamed one. */
+      const parts: Array<Record<string, unknown> | undefined> = [];
+      const partIndexes = new Map<string, number>();
+      const calls = new Map<string, Record<string, unknown>>();
+      const sendPart = (index: number, part: Record<string, unknown>): void => {
+        parts[index] = part;
+        send({
+          ...part,
+          index,
+          messageId: responseMessageId,
+          conversationId,
+          stream: true,
+        });
+      };
+      const toolIndex = (callId: string): number => {
+        const known = partIndexes.get(callId);
+        if (known !== undefined) {
+          return known;
+        }
+        const index = partIndexes.size + 1;
+        partIndexes.set(callId, index);
+        return index;
+      };
       let approvalRequired = false;
       let streamError: string | undefined;
       try {
         for await (const event of started.value.events) {
           if (event.type === 'text_delta' || event.type === 'text_replace') {
-            const initial = text === '';
             text = event.type === 'text_delta' ? text + event.text : event.text;
-            send({
-              message: true,
-              initial,
-              text,
-              messageId: responseMessageId,
-              parentMessageId: userMessageId,
-              conversationId,
-            });
+            sendPart(0, { type: 'text', text });
+          } else if (event.type === 'tool_call') {
+            const call = {
+              id: event.callId,
+              name: event.tool,
+              type: 'tool_call',
+              progress: 0.1,
+              args: event.input ?? '',
+            };
+            calls.set(event.callId, call);
+            sendPart(toolIndex(event.callId), { type: 'tool_call', tool_call: call });
+          } else if (event.type === 'tool_result') {
+            const index = partIndexes.get(event.callId);
+            const call = calls.get(event.callId);
+            if (index !== undefined && call !== undefined) {
+              const settled = {
+                ...call,
+                progress: 1,
+                runStepStatus: event.ok ? 'completed' : 'failed',
+                ...(event.output ? { output: event.output } : {}),
+              };
+              calls.set(event.callId, settled);
+              sendPart(index, { type: 'tool_call', tool_call: settled });
+            }
           } else if (event.type === 'approval_required') {
             approvalRequired = true;
             await started.value.cancel();
@@ -451,6 +528,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         }
       }
 
+      const content = parts.filter((part) => part !== undefined);
       let result: EngineResult<EngineRunSummary>;
       try {
         result = await started.value.result;
@@ -481,6 +559,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
@@ -518,6 +597,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           parentMessageId: userMessageId,
           conversationId,
           text,
+          ...(content.length > 0 ? { content } : {}),
           sender: engineLabel(engine),
           isCreatedByUser: false,
           unfinished: cancelled || failed || approvalRequired || !persisted,
@@ -527,6 +607,8 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         },
         conversation: { conversationId, title, workAgent: engine },
         title,
+        /** What the engine actually ran, so a turn's tool activity is observable. */
+        ...(result.ok ? { toolCalls: result.value.toolCalls, edits: result.value.edits } : {}),
         ...(cancelled ? { aborted: true } : {}),
         ...(error || !persisted
           ? { error: { message: error ?? 'The engine reply could not be saved.' } }

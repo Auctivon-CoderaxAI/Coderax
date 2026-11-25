@@ -1,5 +1,13 @@
 import type { AxiosResponse } from 'axios';
 import type {
+  TCreateResearchProjectRequest,
+  TResearchAccess,
+  TResearchDossier,
+  TResearchProjectListParams,
+  TResearchProjectListResponse,
+  TSaveResearchProjectRequest,
+} from './research';
+import type {
   TTracePage,
   TTracePageParams,
   TTraceAvailability,
@@ -8,6 +16,7 @@ import type {
 } from './types/traces';
 import type { TInsightsAccessResponse, TInsightsParams, TInsightsResponse } from './types/insights';
 import type { ScheduleMCPConsentView, ConfirmScheduleMCPConsent } from './types/scheduleConsent';
+import type { ToolStandingAuthorization, ToolStandingAuthorizationInput } from './standing';
 import type { TFileConfig } from './file-config';
 import type * as tl from './types/tools';
 import type * as t from './types';
@@ -594,6 +603,20 @@ export const resetToolApprovalGrants = (params: {
   toolName?: string;
 }): Promise<{ reset: true }> => request.post(endpoints.resetToolApprovalGrants(), params);
 
+export const getToolStandingAuthorizations = (): Promise<{
+  authorizations: ToolStandingAuthorization[];
+}> => request.get(endpoints.toolStandingAuthorizations());
+
+export const createToolStandingAuthorization = (
+  params: ToolStandingAuthorizationInput,
+): Promise<{ authorization: ToolStandingAuthorization }> =>
+  request.post(endpoints.toolStandingAuthorizations(), params);
+
+export const revokeToolStandingAuthorization = (
+  authorizationId: string,
+): Promise<{ revoked: true }> =>
+  request.delete(endpoints.toolStandingAuthorizationById(authorizationId));
+
 export const getToolCalls = (params: q.GetToolCallParams): Promise<q.ToolCallResults> => {
   return request.get(
     endpoints.agents({
@@ -1144,6 +1167,37 @@ export function saveGameSpec(payload: t.TSaveGameSpecRequest): Promise<t.TGamePr
 
 export function getGameCapabilities(): Promise<t.TGameCapabilities> {
   return request.get(endpoints.gameCapabilities());
+}
+
+export function listResearchProjects(
+  params: TResearchProjectListParams = {},
+): Promise<TResearchProjectListResponse> {
+  return request.get(endpoints.researchProjects(params));
+}
+
+export function createResearchProject(
+  payload: TCreateResearchProjectRequest,
+): Promise<TResearchDossier> {
+  return request.post(endpoints.researchProjects(), payload);
+}
+
+export function getResearchProjectById(researchId: string): Promise<TResearchDossier> {
+  return request.get(endpoints.researchProjectById(researchId));
+}
+
+export function saveResearchProject(
+  payload: TSaveResearchProjectRequest,
+): Promise<TResearchDossier> {
+  const { researchId, ...data } = payload;
+  return request.put(endpoints.researchProjectById(researchId), data);
+}
+
+export function deleteResearchProject(researchId: string): Promise<{ deleted: boolean }> {
+  return request.delete(endpoints.researchProjectById(researchId));
+}
+
+export function getResearchCapabilities(): Promise<TResearchAccess> {
+  return request.get(endpoints.researchCapabilities());
 }
 
 export function getProjectFiles(projectId: string): Promise<t.TChatProjectFile[]> {

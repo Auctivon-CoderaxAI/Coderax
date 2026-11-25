@@ -14,11 +14,13 @@ configured into existence.
 | Model identity guard  | same                                                                     | Accepts only the full R1 checkpoint; every `distill`, `lite`, Qwen or Llama derivative is rejected as the preferred model |
 | Zero-cost enforcement | same                                                                     | Rejects unknown providers, unverified pricing, trial credits and any non-zero rate                                        |
 | Router                | `packages/api/src/routing/router.ts`                                     | Orders primary then fallbacks, reserves budget before each attempt, records health, bounds retries to `maxRetries + 1`    |
-| Quota ledger          | `packages/api/src/routing/quota.ts`                                      | Per-endpoint daily request and token budgets with reservations and settlement                                             |
+| Quota ledger          | `packages/api/src/routing/quota.ts`, `budget.ts`                         | Per-endpoint daily request and token budgets with reservations and settlement                                             |
 | Cooldowns             | `packages/api/src/routing/health.ts`                                     | An endpoint that fails `failureThreshold` times is skipped until its cooldown expires                                     |
 | Safe checkpoints      | `packages/api/src/routing/checkpoint.ts`                                 | A model switch is allowed only at `turn_start` or `between_tool_calls`                                                    |
-| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     || Status endpoint | `GET /api/work/routing` | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads |
-| Composer badge | `client/src/components/Chat/Input/WorkRoutingBadge.tsx` | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled |
+| Live probe            | `packages/api/src/routing/probe.ts`, `scripts/verify-free-inference.mjs` | One authenticated inference request validates credential, model id and response shape                                     |
+| Transport budget      | `packages/api/src/endpoints/openai/freeOpenRouter.ts`                    | Each native free completion debits the deployment ledger before the provider call; exhaustion fails closed                |
+| Status endpoint       | `GET /api/work/routing`                                                  | Active provider and model, primary availability and reason, per-endpoint quota; no credentials or provider payloads       |
+| Composer badge        | `client/src/components/Chat/Input/WorkRoutingBadge.tsx`                  | Names the active provider and model, and the preferred model's absence; renders nothing while routing is disabled         |
 | Config                | `freeInference` in `coderax.yaml`                                        | Disabled by default; budgets, retries, cooldown and timeouts are operator levers                                          |
 
 ## Routing planner order
@@ -47,7 +49,6 @@ flowchart TD
 freeInference:
   enabled: false # opt in; nothing hosted is called while false
   allowFallback: true
-  allowToolsInFallback: false
   maxRequestsPerDay: 200
   maxTokensPerDay: 400000
   openRouterMaxOutputTokens: 4096 # per native FreeOpenRouter completion
@@ -56,6 +57,18 @@ freeInference:
   cooldownMs: 60000
   requestTimeoutMs: 60000
 ```
+
+`maxRequestsPerDay` and `maxTokensPerDay` are enforced twice against one shared
+ledger: the routing planner reserves before an attempt, and the native
+FreeOpenRouter transport reserves before every completion it sends. A turn that
+the planner never saw still cannot exceed the day's allowance, and the status
+endpoint reports the requests and tokens those turns actually spent.
+
+A turn that requires tools is never routed to a text-only endpoint, and no
+setting relaxes that: dropping native Work's tool definitions is a correctness
+failure, not a cost trade-off. `freeInference.allowToolsInFallback` from earlier
+versions never changed a route, so it is retired — a YAML that still sets it
+loads with the key ignored and a warning.
 
 For native Work, set `freeInference.enabled: true` in the backend's active YAML
 and supply `OPENROUTER_API_KEY` as a server-only secret. Coderax registers
@@ -129,7 +142,8 @@ alone.
 - Trial credits, unverified pricing and any non-zero `promptCostPerMillion` or
   `completionCostPerMillion` are rejection reasons.
 - A supplied `estimatedTokens` value is reserved again at execution time, even for stale plans and concurrent turns. Measured usage reconciles the reservation (no double counting); unknown usage keeps it reserved, and actual overruns block subsequent attempts.
-- **Limit:** token estimates alone cannot strictly cap a single provider response. A future transport adapter must enforce provider output-token limits, durable atomic quotas across workers/restarts, and authorized credential probes before enabling hosted routing. The in-memory ledger is not a 24/7 distributed spending guarantee.
+- Every native FreeOpenRouter completion reserves one request and the prompt's estimated tokens in the shared ledger. When either budget is spent the transport throws before contacting the provider, so there is no paid or over-budget fallback. A declined response releases its token reservation; a measured non-streaming usage reconciles it.
+- **Limit:** a streaming response reports no usage to the transport, so its prompt estimate stays reserved for the day rather than being replaced by measured tokens. The estimate plus the per-request output ceiling keeps the ledger on the safe side, but it is not a token-exact cap. The ledger is process-local, so it is not a multi-worker or restart-durable spending guarantee, and provider output-token limits remain the final authority.
 - `paidRoutesEnabled` is a literal `false` in every snapshot; there is no field
   that turns a paid provider on.
 - When every free option is exhausted the router returns

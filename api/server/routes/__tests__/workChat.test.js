@@ -80,11 +80,13 @@ test('auto resolves through the configured default when it is offered', () => {
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
   });
   assert.deepEqual(resolveWorkContext([PAID, FREE, LOCAL], 'auto', 'free/alpha'), {
     isWork: true,
     workModel: 'free/alpha',
     workProvider: 'custom',
+    workAgent: 'coderax',
   });
 });
 
@@ -94,6 +96,7 @@ test('auto ranks a free/local model when no default is configured', () => {
       isWork: true,
       workModel: 'llama3:latest',
       workProvider: 'ollama',
+      workAgent: 'coderax',
     });
   }
 });
@@ -103,6 +106,7 @@ test('falls back to a free/local model when the configured default is not eligib
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
   });
 });
 
@@ -117,6 +121,7 @@ test('an allowed pick is kept even when a different default exists', () => {
     isWork: true,
     workModel: 'free/alpha',
     workProvider: 'custom',
+    workAgent: 'coderax',
   });
 });
 
@@ -159,6 +164,7 @@ test('the alias middleware sets server-owned context and strips client claims', 
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
     allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.isWork, undefined);
@@ -485,6 +491,29 @@ test('admits an owned Chat conversation through the Work model gate and native a
   assert.equal(db.saves.length, 1);
 });
 
+test('rejects a normal conversation before it reaches the Work agent router', async () => {
+  const db = fakeDb({ conversationId: 'chat-1', isWork: false });
+  const middleware = workContextMiddleware(
+    async () => ({ ollama: [{ model: 'llama3:latest' }] }),
+    () => 'llama3:latest',
+    (req, context) => seedWorkConversation(req, context, db),
+  );
+  const req = {
+    body: { text: 'plan', model: 'auto', conversationId: 'chat-1' },
+    user: { id: 'user-1' },
+  };
+  const res = response();
+  let continued = false;
+  await middleware(req, res, () => {
+    continued = true;
+  });
+
+  assert.equal(continued, false);
+  assert.equal(res.statusCode, 409);
+  assert.equal(res.payload.error, 'WORK_CONVERSATION_REQUIRED');
+  assert.equal(db.saves.length, 0);
+});
+
 test('reads the hard default spec model from the real app config shape', () => {
   const config = {
     modelSpecs: {
@@ -778,6 +807,7 @@ test('keeps the selected native agent and its own model on the Work path', async
     isWork: true,
     workModel: 'llama3:latest',
     workProvider: 'ollama',
+    workAgent: 'coderax',
     allowedModels: [{ id: 'llama3:latest', provider: 'ollama' }],
   });
   assert.equal(req.body.model, 'llama3:latest');
@@ -1050,7 +1080,7 @@ test('/api/work/chat checks access to the selected agent before reading its mode
   }
 });
 
-test('the shared reservation blocks a native Work run while another runner owns the task', () => {
+test('the shared reservation blocks a native Work run while another runner owns the task', async () => {
   const conversationId = '44444444-4444-4444-8444-444444444444';
   const scope = { userId: 'reservation-user', tenantId: 'tenant-r', conversationId };
   assert.equal(reserveWorkRun(scope), true);
@@ -1075,22 +1105,109 @@ test('the shared reservation blocks a native Work run while another runner owns 
   assert.equal(releaseWorkRun(scope), true);
 
   const second = response();
-  second.once = () => undefined;
+  const events = new (require('node:events').EventEmitter)();
+  second.once = events.once.bind(events);
+  const req = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
   let secondNextCalls = 0;
-  workChatRunReservationMiddleware(
-    {
-      method: 'POST',
-      path: '/chat',
-      body: { conversationId },
-      user: { id: scope.userId, tenantId: scope.tenantId },
-    },
-    second,
-    () => {
-      secondNextCalls += 1;
-    },
-  );
+  workChatRunReservationMiddleware(req, second, () => {
+    secondNextCalls++;
+  });
+  const settled = req.claimWorkRun();
+  settled.markStarted();
+  events.emit('finish');
+  events.emit('close');
   assert.equal(secondNextCalls, 1);
   assert.equal(reserveWorkRun(scope), false);
+  let finishWrite;
+  const terminalWrite = require('@coderax/api').trackWorkTerminalWrite(
+    { ...scope, streamId: conversationId },
+    new Promise((resolve) => {
+      finishWrite = resolve;
+    }),
+  );
+  const drained = settled();
+  assert.equal(reserveWorkRun(scope), false);
+  finishWrite();
+  await terminalWrite;
+  await drained;
+  assert.equal(reserveWorkRun(scope), true);
+  settled();
+  assert.equal(releaseWorkRun(scope), true);
+  workChatRunReservationMiddleware(req, second, () => {});
+  events.emit('close');
+  assert.throws(() => req.claimWorkRun());
+  assert.equal(reserveWorkRun(scope), true);
+  assert.equal(releaseWorkRun(scope), true);
+});
+
+test('same-key retries reach idempotency while a native lease waits for late terminal writes', async () => {
+  const conversationId = '55555555-5555-4555-8555-555555555555';
+  const scope = { userId: 'retry-user', tenantId: 'tenant-r', conversationId };
+  const events = new (require('node:events').EventEmitter)();
+  const firstResponse = response();
+  firstResponse.once = events.once.bind(events);
+  const firstRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'same-turn-1' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  workChatRunReservationMiddleware(firstRequest, firstResponse, () => {});
+  const release = firstRequest.claimWorkRun();
+  release.markStarted();
+  events.emit('finish');
+  events.emit('close');
+
+  const retryResponse = response();
+  const retryRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'same-turn-1' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  let retryNextCalls = 0;
+  workChatRunReservationMiddleware(retryRequest, retryResponse, () => retryNextCalls++);
+  assert.equal(retryNextCalls, 1);
+  assert.equal(retryResponse.statusCode, 0);
+
+  const competingResponse = response();
+  const competingRequest = {
+    method: 'POST',
+    path: '/chat',
+    body: { conversationId, clientRequestId: 'different-turn' },
+    user: { id: scope.userId, tenantId: scope.tenantId },
+  };
+  let competingNextCalls = 0;
+  workChatRunReservationMiddleware(competingRequest, competingResponse, () => competingNextCalls++);
+  assert.equal(competingResponse.statusCode, 409);
+  assert.equal(competingNextCalls, 0);
+
+  const drained = release();
+  let released = false;
+  void drained.then(() => {
+    released = true;
+  });
+  await Promise.resolve();
+  assert.equal(released, false);
+  assert.equal(reserveWorkRun(scope), false);
+
+  let finishWrite;
+  const terminalWrite = require('@coderax/api').trackWorkTerminalWrite(
+    { ...scope, streamId: conversationId },
+    new Promise((resolve) => {
+      finishWrite = resolve;
+    }),
+  );
+  assert.equal(reserveWorkRun(scope), false);
+  finishWrite();
+  await Promise.all([terminalWrite, drained]);
+  assert.equal(released, true);
+  assert.equal(reserveWorkRun(scope), true);
   assert.equal(releaseWorkRun(scope), true);
 });
 

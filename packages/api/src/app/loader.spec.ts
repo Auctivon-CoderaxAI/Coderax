@@ -211,6 +211,37 @@ describe('createCustomConfigLoader interface.theme', () => {
   });
 });
 
+describe('retired free inference config', () => {
+  const load = (freeInference: unknown, mode: 'startup' | 'reload' = 'reload') =>
+    createCustomConfigLoader({
+      loadLocal: () => ({ version: '1.0', cache: true, freeInference }),
+      defaultConfigPath: fixture('valid'),
+      redactConfig: (config) => config,
+    })(false, { mode });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['startup', 'reload'] as const)(
+    'drops the retired tool-fallback lever instead of rejecting the config during %s',
+    async (mode) => {
+      const warn = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+      const config = await load({ enabled: true, allowToolsInFallback: true }, mode);
+
+      expect(config?.freeInference).toEqual({ enabled: true });
+      expect(config?.freeInference).not.toHaveProperty('allowToolsInFallback');
+      expect(warnings(warn)).toContain('Ignoring retired freeInference.allowToolsInFallback');
+    },
+  );
+
+  it('keeps a valid free inference block without warning', async () => {
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const config = await load({ enabled: true, maxRetries: 1 });
+
+    expect(config?.freeInference).toMatchObject({ enabled: true, maxRetries: 1 });
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('retired provider fallback config', () => {
   const load = (providerFallback: unknown, mode: 'startup' | 'reload' = 'reload') =>
     createCustomConfigLoader({

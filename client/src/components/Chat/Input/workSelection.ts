@@ -151,6 +151,18 @@ export function workAgentOf(selection: WorkSelection | null | undefined): TWorkA
     : 'coderax';
 }
 
+/** The model chip value shown while an external agent owns the model choice. */
+export const EXTERNAL_WORK_MODEL = 'work-agent-external-model' as const;
+
+/**
+ * External engines resolve their own model, so the model control must not keep
+ * naming the last native model: that would display a model this turn does not
+ * run. It reports the engine that owns the choice instead.
+ */
+export function workModelChipValue(selection: WorkSelection): string {
+  return workAgentOf(selection) === 'coderax' ? selection.modelKey : EXTERNAL_WORK_MODEL;
+}
+
 export function workIdentities(options: WorkOptions): readonly TWorkAgentIdentity[] {
   return options.identities && options.identities.length > 0
     ? options.identities

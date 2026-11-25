@@ -6,12 +6,20 @@ import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
 import type { WorkRunLeaseStore } from './leases';
+import type { EngineRetryPolicy } from '../retry';
 import {
   DEFAULT_WORK_RUN_LEASE_TTL_MS,
   DEFAULT_WORK_RUN_RETENTION_MS,
   WORK_RUN_SWEEP_LIMIT,
   memoryWorkRunLeases,
 } from './leases';
+import {
+  DEFAULT_ENGINE_RETRY_POLICY,
+  canRetryWithin,
+  isRetryableStartFailure,
+  normalizeEngineRetryPolicy,
+  wait,
+} from '../retry';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
@@ -37,7 +45,32 @@ function activeRunKey(input: RunScope): string {
   return JSON.stringify([input.tenantId, input.userId, input.conversationId]);
 }
 
+/**
+ * The model each engine is dispatched with. A run is pinned to the model its own
+ * engine approved, so selecting OpenCode Agent never runs the FreeBuff model (or
+ * the reverse) just because a different engine is the configured default.
+ *
+ * Only engines that accept a per-run model appear here. FreeBuff resolves its
+ * model from its adapter configuration, so a request-level model would describe
+ * that run inaccurately.
+ */
+export type EngineRunModels = Partial<Record<EngineId, EngineModelRef>>;
+
+export function engineRunModels(
+  engines: NonNullable<EngineWorkChatConfig>['engines'] | null | undefined,
+): EngineRunModels {
+  const model = parseEngineModel(engines?.opencode?.model);
+  return model ? { opencode: model } : {};
+}
+
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
+  private readonly registry: EngineRegistryApi;
+  private readonly roots: { private: string; cloud: string };
+  private readonly mode: DataMode;
+  private readonly models: EngineRunModels;
+  private readonly defaultEngine: EngineId;
+  private readonly leases: WorkRunLeaseStore;
+  private readonly retry: EngineRetryPolicy;
   private readonly instanceId = randomUUID();
   private readonly leaseTtlMs: number;
   private readonly heartbeatMs: number;
@@ -46,14 +79,23 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private sweeping = false;
 
   constructor(
-    private readonly registry: EngineRegistryApi,
-    private readonly roots: { private: string; cloud: string },
-    private readonly mode: DataMode = 'private',
-    private readonly model?: EngineModelRef,
-    private readonly leases: WorkRunLeaseStore = memoryWorkRunLeases,
+    registry: EngineRegistryApi,
+    roots: { private: string; cloud: string },
+    mode: DataMode = 'private',
+    models: EngineRunModels = {},
+    defaultEngine: EngineId = 'opencode',
+    leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry: EngineRetryPolicy = DEFAULT_ENGINE_RETRY_POLICY,
   ) {
+    this.registry = registry;
+    this.roots = roots;
+    this.mode = mode;
+    this.models = models;
+    this.defaultEngine = defaultEngine;
+    this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
+    this.retry = normalizeEngineRetryPolicy(retry);
     this.heartbeatMs = Math.max(5, Math.floor(leaseTtlMs / 3));
   }
 
@@ -125,21 +167,24 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   async start(
-    input: RunScope & { prompt: string; engine?: EngineId },
+    input: RunScope & {
+      prompt: string;
+      engine?: EngineId;
+      signal?: AbortSignal;
+      beforeDispatch?: () => Promise<void>;
+    },
   ): Promise<EngineResult<EngineRunHandle>> {
-    if (input.engine !== 'opencode' && input.engine !== 'freebuff') {
+    const engine = input.engine ?? this.defaultEngine;
+    if (engine !== 'opencode' && engine !== 'freebuff') {
       return engineFailure(
         'not_configured',
-        'An explicit OpenCode Agent or FreeBuff Agent selection is required.',
+        'An OpenCode Agent or FreeBuff Agent selection is required.',
       );
     }
-    const engine = input.engine;
     const key = activeRunKey(input);
     if (activeRuns.has(key)) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
-    this.sweepDeadLeases();
-
     let workspaceRoot = this.roots[this.mode];
     if (!workspaceRoot) {
       return engineFailure(
@@ -161,6 +206,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
         return engineFailure('workspace_denied', 'The agent workspace could not be created.');
       }
     }
+    this.sweepDeadLeases();
 
     /** Claim before starting so a second replica cannot run the same task. */
     const token = randomUUID();
@@ -176,24 +222,107 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
 
-    const started = await this.registry.start({
-      engine,
-      request: {
-        taskKey: this.mode === 'cloud' ? key : input.conversationId,
-        conversationId: input.conversationId,
-        prompt: input.prompt,
-        mode: this.mode,
-        workspaceRoot,
-        ...(engine === 'opencode' && this.model ? { model: this.model } : {}),
-      },
-    });
-    if (!started.ok) {
+    const model = this.models[engine];
+    /**
+     * The conversation row is written once, before a successful dispatch. A
+     * readiness refusal runs before the callback, so the callback stays on the
+     * retry until it has completed; afterwards it is omitted so the row is not
+     * written again. The wrapper keeps a retry idempotent even when the
+     * registry repeats the callback.
+     */
+    const beforeDispatch = input.beforeDispatch;
+    let recorded = false;
+    const writeOnce =
+      beforeDispatch == null
+        ? undefined
+        : async (): Promise<void> => {
+            if (recorded) {
+              return;
+            }
+            await beforeDispatch();
+            recorded = true;
+          };
+    const dispatch = async () => {
+      if (input.signal?.aborted) return engineFailure('cancelled');
+      try {
+        return await this.registry.start({
+          engine,
+          ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
+          request: {
+            taskKey: this.mode === 'cloud' ? key : input.conversationId,
+            conversationId: input.conversationId,
+            prompt: input.prompt,
+            signal: input.signal,
+            mode: this.mode,
+            workspaceRoot,
+            ...(model ? { model } : {}),
+          },
+        });
+      } catch (error) {
+        await this.leases.release(input, token).catch(() => false);
+        throw error;
+      }
+    };
+
+    let started = await dispatch();
+    for (let attempt = 1; ; attempt += 1) {
+      if (
+        started.ok ||
+        attempt >= this.retry.maxAttempts ||
+        !isRetryableStartFailure(started) ||
+        !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
+      ) {
+        break;
+      }
+      await wait(this.retry.delayMs);
       /**
-       * The engine never ran, so there is nothing to report but its own typed
-       * failure. A release that fails must not replace it with a thrown error;
-       * the unclaimed lease simply expires.
+       * The delay is time in which the owner can cancel and another replica
+       * can claim an expired lease. Re-read the lease before dispatching again:
+       * an engine must not start for a cancelled task or one this run no longer
+       * owns. `renew` also extends the lease so the retry stays fenced.
        */
-      await this.leases.release(input, token).catch(() => false);
+      const retryAt = new Date();
+      let lease: { renewed: boolean; cancelRequested: boolean };
+      try {
+        lease = await this.leases.renew(
+          input,
+          token,
+          retryAt,
+          new Date(retryAt.getTime() + this.leaseTtlMs),
+        );
+      } catch {
+        lease = { renewed: false, cancelRequested: false };
+      }
+      if (lease.cancelRequested) {
+        await this.leases.release(input, token).catch(() => false);
+        return engineFailure('cancelled', 'The run was cancelled before it started.');
+      }
+      if (!lease.renewed) {
+        return engineFailure('busy', 'This run no longer owns the task.');
+      }
+      started = await dispatch();
+    }
+    if (!started.ok) {
+      if (started.cleanup) {
+        // A different replica uses the shared lease, not the registry's local lock.
+        const renew = async () => {
+          const at = new Date();
+          const lease = await this.leases.renew(input, token, at, new Date(+at + this.leaseTtlMs));
+          if (!lease.renewed) clearInterval(timer);
+        };
+        const timer = setInterval(() => void renew().catch(() => undefined), this.heartbeatMs);
+        timer.unref?.();
+        void renew().catch(() => undefined);
+        void started.cleanup.then(
+          async () => {
+            clearInterval(timer);
+            await this.leases.release(input, token).catch(() => false);
+          },
+          () => undefined,
+        );
+      } else {
+        await this.leases.release(input, token).catch(() => false);
+      }
       return started;
     }
 
@@ -296,6 +425,7 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     openhands: engines?.openhands ?? null,
     freebuff: engines?.freebuff ?? null,
     defaultEngine: engines?.defaultEngine ?? null,
+    retry: engines?.retry ?? null,
   });
 }
 
@@ -324,13 +454,19 @@ export function getEngineWorkChatRuntime(
   };
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
-  const modelConfig = engines?.opencode?.model;
+  const workEngine = engines?.defaultEngine ?? 'opencode';
+  /** Each engine keeps the model its own configuration approved. */
+  const models = engineRunModels(engines);
+  const retry = normalizeEngineRetryPolicy(engines?.retry);
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
-    parseEngineModel(modelConfig) ?? undefined,
+    models,
+    workEngine,
     leases,
+    DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry,
   );
   cache.set(key, runtime);
   return runtime;

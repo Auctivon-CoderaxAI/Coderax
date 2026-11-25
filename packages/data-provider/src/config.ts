@@ -22,6 +22,13 @@ import {
   MAX_PII_PATTERN_LENGTH,
 } from './filters';
 import {
+  DEFAULT_RESEARCH_PROJECTS_PER_OWNER,
+  MAX_RESEARCH_CLAIMS,
+  MAX_RESEARCH_PROJECTS_PER_OWNER_CEILING,
+  MAX_RESEARCH_QUESTION_LENGTH,
+  MAX_RESEARCH_SOURCES,
+} from './research';
+import {
   REFILL_INTERVAL_UNITS,
   BALANCE_DISPLAY_MODES,
   BALANCE_REFILL_MODES,
@@ -3872,6 +3879,31 @@ export const gamesConfigSchema = z
 
 export type TGamesConfig = z.infer<typeof gamesConfigSchema>;
 
+/** The research ledger is owner-only by default, matching Game Studio. */
+export const researchConfigSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    ownerOnly: z.boolean().default(true),
+    maxProjectsPerOwner: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_RESEARCH_PROJECTS_PER_OWNER_CEILING)
+      .default(DEFAULT_RESEARCH_PROJECTS_PER_OWNER),
+    maxSources: z.number().int().positive().max(MAX_RESEARCH_SOURCES).default(MAX_RESEARCH_SOURCES),
+    maxClaims: z.number().int().positive().max(MAX_RESEARCH_CLAIMS).default(MAX_RESEARCH_CLAIMS),
+    maxQuestionLength: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_RESEARCH_QUESTION_LENGTH)
+      .default(MAX_RESEARCH_QUESTION_LENGTH),
+  })
+  .strict()
+  .prefault({});
+
+export type TResearchConfig = z.infer<typeof researchConfigSchema>;
+
 /** Maximum CAS attempts per ACL document, including the initial attempt. */
 export const permissionWriteAttemptsSchema = z.number().int().min(1).max(100).default(3);
 
@@ -3933,6 +3965,11 @@ export const DEFAULT_ENGINE_TIMEOUT_MS = 15 * 60_000;
 export const DEFAULT_ENGINE_MAX_SUMMARY_CHARS = 4_000;
 export const DEFAULT_FREEBUFF_MIN_CONTEXT_TOKENS = 16_384;
 export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
+/** One attempt is the pre-retry behavior: a run fails where it would have failed before. */
+export const DEFAULT_ENGINE_MAX_ATTEMPTS = 1;
+export const DEFAULT_ENGINE_RETRY_DELAY_MS = 250;
+export const MAX_ENGINE_MAX_ATTEMPTS = 5;
+export const MAX_ENGINE_RETRY_DELAY_MS = 1_000;
 
 /**
  * Coding-agent execution engines. Both are disabled by default, which keeps the
@@ -3943,6 +3980,27 @@ export const DEFAULT_FREEBUFF_PROBE_TIMEOUT_MS = 5_000;
 export const enginesConfigSchema = z
   .object({
     defaultEngine: z.enum(['opencode', 'openhands', 'freebuff']).default('opencode'),
+    /**
+     * Bounded retry for a run that failed before any engine side effect. The
+     * engine never changes between attempts: a fallback to another engine stays
+     * an explicit owner choice. `maxAttempts: 1` preserves the previous behavior.
+     */
+    retry: z
+      .object({
+        maxAttempts: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_ENGINE_MAX_ATTEMPTS)
+          .default(DEFAULT_ENGINE_MAX_ATTEMPTS),
+        delayMs: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_ENGINE_RETRY_DELAY_MS)
+          .default(DEFAULT_ENGINE_RETRY_DELAY_MS),
+      })
+      .prefault({}),
     /** Separate real roots; an engine is confined to the root for its data mode. */
     workspaces: z
       .object({
@@ -4076,12 +4134,6 @@ export const freeInferenceConfigSchema = z
     enabled: z.boolean().default(false),
     /** A turn may continue on another verified free endpoint after a failure. */
     allowFallback: z.boolean().default(true),
-    /**
-     * A Work turn prefers an endpoint with native tool calling; when true a
-     * text-only endpoint may still serve it as a last resort. The run is told
-     * the tools are unavailable rather than silently dropping them.
-     */
-    allowToolsInFallback: z.boolean().default(false),
     maxRequestsPerDay: z
       .number()
       .int()
@@ -4204,6 +4256,7 @@ export const configSchema = z.object({
   cache: z.boolean().default(true),
   projects: chatProjectsConfigSchema,
   games: gamesConfigSchema,
+  research: researchConfigSchema,
   /** Durable workflow runner limits; omitted fields keep built-in defaults. */
   workflows: z
     .object({

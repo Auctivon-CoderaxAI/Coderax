@@ -196,14 +196,13 @@ export function describeFreebuff(options: FreebuffAdapterOptions): EngineAvailab
       detail: nonLoopbackEndpointDetail(options.baseURL, options.allowedHosts),
     };
   }
-  /** The private gate rejects hosted models; cloud mode admits zero-cost ones. */
   if (!isModelAllowedForMode(options.model, mode)) {
     return {
       available: false,
       reason: 'not_configured',
       detail:
         mode === 'cloud'
-          ? 'Freebuff Work requires a zero-cost model: an allowlisted free OpenCode model or local ollama or lmstudio weights.'
+          ? 'Freebuff Work in cloud mode requires a zero-cost model: an allowlisted free OpenCode model or local ollama or lmstudio weights.'
           : 'Freebuff Work requires a local ollama or lmstudio model in provider/model form.',
     };
   }

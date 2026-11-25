@@ -114,7 +114,8 @@ import {
   type ParentSubagentThreadRecord,
 } from './conversation';
 import { createChatProjectMethods, type ChatProjectMethods } from './chatProject';
-import { createGameProjectMethods } from './gameProject';
+import { createGameProjectMethods, type GameProjectMethods } from './gameProject';
+import { createResearchProjectMethods, type ResearchProjectMethods } from './researchProject';
 export type {
   AssignConversationToProjectResult,
   ChatProjectSortBy,
@@ -135,6 +136,16 @@ export type {
   SaveGameSpecResult,
   UpdateGameProjectInput,
 } from './gameProject';
+export type {
+  CreateResearchProjectInput,
+  CreateResearchProjectResult,
+  ListResearchProjectsOptions,
+  ListResearchProjectsResult,
+  ResearchProjectLimits,
+  ResearchProjectMethods,
+  SaveResearchProjectInput,
+  SaveResearchProjectResult,
+} from './researchProject';
 /* Tier 3 — Complex (heavier injection) */
 import {
   createTxMethods,
@@ -311,6 +322,8 @@ export type AllMethods = ToolApprovalGrantStorage &
   MessageMethods &
   ConversationMethods &
   ChatProjectMethods &
+  GameProjectMethods &
+  ResearchProjectMethods &
   TxMethods &
   TransactionMethods &
   SpendTokensMethods &
@@ -555,6 +568,7 @@ export function createMethods(
     ...conversationMethods,
     ...createChatProjectMethods(mongoose),
     ...createGameProjectMethods(mongoose),
+    ...createResearchProjectMethods(mongoose),
     /* Tier 3 */
     ...txMethods,
     ...transactionMethods,
