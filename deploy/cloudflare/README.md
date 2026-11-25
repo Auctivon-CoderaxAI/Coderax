@@ -37,8 +37,11 @@ release gate passes.
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
 hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. The
 `deploy:cloudflare` command verifies that marker against the current checkout and refuses a missing
-or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The
-deploy command pins Wrangler 4.168.0; change the pin in `package.json` and this table together.
+or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The gate
+also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
+HEAD`; untracked build output is ignored. If Workers Builds, GitHub and Vercel expose conflicting
+commit values, the script fails instead of choosing one. The deploy command pins Wrangler 4.168.0;
+change the pin in `package.json` and this table together.
 
 ### Committed configuration
 

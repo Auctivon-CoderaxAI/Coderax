@@ -24,7 +24,10 @@ services:
       SESSION_COOKIE_SECURE: "true"
       ALLOW_REGISTRATION: "false"
       ALLOW_SOCIAL_REGISTRATION: "false"
-      ENABLE_GUEST_ACCESS: "true"
+      # Owner-only runtime: password login is the only entry path. The legacy
+      # Vercel frontend shares this backend until the owner authorizes retirement;
+      # no guest path exists on either origin.
+      ENABLE_GUEST_ACCESS: "false"
       REGISTER_WINDOW: "60"
       REGISTER_MAX: "5"
       NO_INDEX: "true"
