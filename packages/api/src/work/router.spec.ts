@@ -341,6 +341,28 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
+  it('serves every valid task when a legacy row has a non-string title', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'c-valid', title: 'Plan', isWork: true, updatedAt: '2026-02-01' },
+        {
+          conversationId: 'c-legacy',
+          title: 42 as unknown as string,
+          isWork: true,
+          updatedAt: '2026-01-01',
+        },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(
+      res.body.tasks.map((task: { id: string; title: string }) => [task.id, task.title]),
+    ).toEqual([
+      ['c-valid', 'Plan'],
+      ['c-legacy', 'c-legacy'],
+    ]);
+  });
+
   it('serves history when stored timestamps are Date objects', async () => {
     const server = app({
       listConversations: async () => [

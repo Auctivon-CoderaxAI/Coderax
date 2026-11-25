@@ -135,6 +135,15 @@ function toIsoDate(value: string | Date | undefined): string | undefined {
 }
 
 /**
+ * A persisted title is not trusted to be a string: legacy and imported rows can
+ * hold another type, and one such row must not fail the entire history read.
+ */
+function taskTitle(conversation: WorkConversation): string {
+  const title = typeof conversation.title === 'string' ? conversation.title.trim() : '';
+  return title || conversation.conversationId;
+}
+
+/**
  * Project a persisted conversation into the shape the Work surface renders.
  * `state` wins when the caller has live run state; otherwise the stored state
  * is used, and a row that has neither reports `unknown`.
@@ -145,7 +154,7 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
   }
   return {
     id: conversation.conversationId,
-    title: conversation.title?.trim() || conversation.conversationId,
+    title: taskTitle(conversation),
     state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
     createdAt: toIsoDate(conversation.createdAt),
     updatedAt: toIsoDate(conversation.updatedAt),
