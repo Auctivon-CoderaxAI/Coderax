@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, realpath, rm, symlink, rmdir } from 'node:fs/promises';
+import type { OpenCodeTransport } from '../opencode/adapter';
 import type { EngineRegistryApi } from '../registry';
 import type { EngineRunHandle } from '../types';
 import {
@@ -9,6 +10,8 @@ import {
   createMemoryWorkRunLeaseStore,
 } from './leases';
 import { EngineWorkChatRuntime, engineRunModels } from './runtime';
+import { createOpenCodeAdapter } from '../opencode/adapter';
+import { createEngineRegistry } from '../registry';
 
 let cloudRoot = '';
 const roots = {
@@ -414,9 +417,10 @@ describe('engineRunModels', () => {
 });
 
 describe('engine run retries', () => {
+  /** Only an adapter-declared pre-dispatch failure is replayable. */
   const refused = (code: 'server_unavailable' | 'provider_error') => ({
     ok: false as const,
-    error: { code },
+    error: { code, retryable: true },
   });
 
   it('makes a single attempt with the default policy', async () => {
@@ -466,10 +470,95 @@ describe('engine run retries', () => {
       'freebuff',
     ]);
     expect(beforeDispatch).toHaveBeenCalledTimes(1);
-    expect(start.mock.calls[0]?.[0].beforeDispatch).toBe(beforeDispatch);
-    expect(start.mock.calls[1]?.[0].beforeDispatch).toBeUndefined();
-    expect(start.mock.calls[2]?.[0].beforeDispatch).toBeUndefined();
+    /** The retry keeps the write until it has completed, then repeats it idempotently. */
+    for (const [input] of start.mock.calls) {
+      await input.beforeDispatch?.();
+    }
+    expect(beforeDispatch).toHaveBeenCalledTimes(1);
     await runtime.release(scope(conversation));
+  });
+
+  it('writes the conversation before a start that is refused ahead of dispatch', async () => {
+    const beforeDispatch = jest.fn(async () => undefined);
+    let attempts = 0;
+    const start = jest.fn(async (input: Parameters<EngineRegistryApi['start']>[0]) => {
+      attempts += 1;
+      if (attempts === 1) {
+        /** A readiness refusal runs before the registry reaches the callback. */
+        return refused('server_unavailable');
+      }
+      await input.beforeDispatch?.();
+      return { ok: true as const, value: handle('session-written') };
+    });
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      createMemoryWorkRunLeaseStore(),
+      30_000,
+      { maxAttempts: 2, delayMs: 0 },
+    );
+    const conversation = 'conversation-written';
+
+    const started = await runtime.start({
+      ...scope(conversation),
+      prompt: 'Fix it',
+      beforeDispatch,
+    });
+
+    expect(started.ok).toBe(true);
+    expect(beforeDispatch).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[1]?.[0].beforeDispatch).toBeDefined();
+    await runtime.release(scope(conversation));
+  });
+
+  it('does not dispatch a retry once the owner cancels during the delay', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const start = jest.fn(async () => refused('server_unavailable'));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      leases,
+      30_000,
+      { maxAttempts: 3, delayMs: 40 },
+    );
+    const conversation = 'conversation-cancel-delay';
+
+    const pending = runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(leases.cancel(scope(conversation), new Date())).resolves.toBe('requested');
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'cancelled' } });
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not dispatch a retry after another owner takes the lease', async () => {
+    const memory = createMemoryWorkRunLeaseStore();
+    const leases = {
+      ...memory,
+      renew: jest.fn(async () => ({ renewed: false, cancelRequested: false })),
+    };
+    const start = jest.fn(async () => refused('server_unavailable'));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      {},
+      'opencode',
+      leases,
+      30_000,
+      { maxAttempts: 3, delayMs: 0 },
+    );
+
+    await expect(
+      runtime.start({ ...scope('conversation-lease-lost'), prompt: 'Fix it' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'busy' } });
+    expect(start).toHaveBeenCalledTimes(1);
   });
 
   it('stops at the configured attempt count and releases the lease', async () => {
@@ -497,7 +586,10 @@ describe('engine run retries', () => {
   it.each(['busy', 'cancelled', 'workspace_denied', 'disabled', 'protocol_error'] as const)(
     'does not retry a %s failure',
     async (code) => {
-      const start = jest.fn(async () => ({ ok: false as const, error: { code } }));
+      const start = jest.fn(async () => ({
+        ok: false as const,
+        error: { code, retryable: true },
+      }));
       const runtime = new EngineWorkChatRuntime(
         fakeRegistry(start),
         roots,
@@ -517,7 +609,7 @@ describe('engine run retries', () => {
   it('does not retry a failure that still has cleanup to settle', async () => {
     const start = jest.fn(async () => ({
       ok: false as const,
-      error: { code: 'server_unavailable' as const },
+      error: { code: 'server_unavailable' as const, retryable: true },
       cleanup: Promise.resolve(),
     }));
     const runtime = new EngineWorkChatRuntime(
@@ -550,5 +642,85 @@ describe('engine run retries', () => {
 
     await runtime.start({ ...scope('conversation-lease-bound'), prompt: 'Fix it' });
     expect(start).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('start safety through the real registry and OpenCode adapter', () => {
+  const emptyStream = async (): Promise<AsyncIterable<unknown>> =>
+    (async function* () {
+      // The run pump reports an end without a terminal event; only dispatch is asserted.
+    })();
+
+  function transport(): OpenCodeTransport {
+    return {
+      createSession: jest.fn(async () => ({ id: 'session-real' })),
+      subscribe: jest.fn(emptyStream),
+      prompt: jest.fn(async () => undefined),
+      abort: jest.fn(async () => undefined),
+    };
+  }
+
+  async function realRuntime(openCode: OpenCodeTransport, retry = { maxAttempts: 2, delayMs: 0 }) {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'coderax-adapter-')));
+    const registry = createEngineRegistry({
+      defaultEngine: 'opencode',
+      adapters: {
+        opencode: createOpenCodeAdapter({
+          enabled: true,
+          transport: openCode,
+          roots: { private: root, cloud: '' },
+          limits: { timeoutMs: 100, maxSummaryChars: 200 },
+        }),
+      },
+    });
+    const runtime = new EngineWorkChatRuntime(
+      registry,
+      { private: root, cloud: '' },
+      'private',
+      {},
+      'opencode',
+      createMemoryWorkRunLeaseStore(),
+      30_000,
+      retry,
+    );
+    return { runtime, root };
+  }
+
+  it('retries a rejected session request that dispatched nothing', async () => {
+    const openCode = transport();
+    (openCode.createSession as jest.Mock)
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+      .mockResolvedValue({ id: 'session-retried' });
+    const { runtime, root } = await realRuntime(openCode);
+
+    const started = await runtime.start({
+      ...scope('conversation-adapter-retry'),
+      prompt: 'Fix it',
+    });
+    expect(started.ok).toBe(true);
+    if (started.ok) {
+      await started.value.close();
+    }
+    expect(openCode.createSession).toHaveBeenCalledTimes(2);
+    expect(openCode.prompt).toHaveBeenCalledTimes(1);
+
+    await runtime.release(scope('conversation-adapter-retry'));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('never replays a prompt the OpenCode server may have accepted', async () => {
+    const openCode = transport();
+    (openCode.prompt as jest.Mock).mockRejectedValue(new Error('socket hang up'));
+    const { runtime, root } = await realRuntime(openCode, { maxAttempts: 3, delayMs: 0 });
+    const conversation = 'conversation-adapter-prompt';
+
+    await expect(
+      runtime.start({ ...scope(conversation), prompt: 'Fix it' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'server_unavailable' } });
+    expect(openCode.createSession).toHaveBeenCalledTimes(1);
+    expect(openCode.prompt).toHaveBeenCalledTimes(1);
+    await expect(runtime.state(scope(conversation))).resolves.toBeNull();
+
+    await rm(root, { recursive: true, force: true });
   });
 });
