@@ -70,6 +70,7 @@ function failureFor(availability: EngineAvailability): EngineFailure | null {
 export type EngineRunInput = {
   engine?: EngineId | null;
   request: EngineRunRequest;
+  beforeDispatch?: () => Promise<void>;
 };
 
 export type EngineRegistryApi = {
@@ -118,6 +119,12 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
       arbiter.release(input.request.taskKey, id);
     };
 
+    try {
+      await input.beforeDispatch?.();
+    } catch (error) {
+      release();
+      throw error;
+    }
     let started: EngineResult<EngineRunHandle>;
     try {
       started = await adapter.start(input.request);

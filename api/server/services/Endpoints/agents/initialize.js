@@ -58,6 +58,7 @@ const {
   applyAutomaticDelegation,
   latestUserRequest,
   enforceWorkRunAllowance,
+  createModelTimingTracker,
 } = require('@coderax/api');
 const {
   ErrorTypes,
@@ -630,6 +631,10 @@ const initializeClientWithProvider = async ({
   const contextUsageSink = { latest: null, count: 0 };
   /** @type {Array<import('coderax-data-provider').TTokenUsageEvent>} */
   const usageEmitSink = [];
+  /** Latency windows for this response's model calls, opened and closed by the
+   *  handlers and persisted on `metadata.modelTiming` — the only per-message
+   *  record of how long a reply spent before its first token. */
+  const modelTimingSink = createModelTimingTracker();
 
   const chatProjectContextPromise = resolveInitializationProjectContext(
     { req, endpointOption, conversationId, conversationPromise: requestConversationPromise },
@@ -1905,10 +1910,7 @@ const initializeClientWithProvider = async ({
    *  the selected one, must stay inside that set before any model is called. */
   enforceWorkRunAllowance(
     req.workContext,
-    [
-      primaryConfig,
-      ...agentConfigs.values(),
-    ],
+    [primaryConfig, ...agentConfigs.values()],
     ErrorTypes.WORK_MODEL_NOT_ALLOWED,
     (violation) => {
       logger.warn('[initializeClient] Work run prepared an agent outside its admitted models', {
@@ -2078,6 +2080,7 @@ const initializeClientWithProvider = async ({
     usageCost,
     contextUsageSink,
     usageEmitSink,
+    modelTimingSink,
     eventChildActivity,
     resolveMcpServerName,
     toolTimingReplayEvents,
@@ -2123,6 +2126,7 @@ const initializeClientWithProvider = async ({
      *  them to persist the breakdown + usage rollup on the response message. */
     contextUsageSink,
     usageEmitSink,
+    modelTimingSink,
     startupTelemetry,
     toolInputValidationErrors,
     jobCreatedAt,

@@ -13,4 +13,5 @@ export * from './answers';
 export * from './byom';
 export * from './modes';
 export * from './controller';
+export * from './authorizations';
 export * from './metadata';

@@ -30,6 +30,7 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
     data,
     isFetching,
     error: startupConfigError,
+    refetch: refetchStartupConfig,
   } = useGetStartupConfig({
     enabled: isAuthenticated ? startupConfig === null : true,
   });
@@ -86,6 +87,7 @@ export default function StartupLayout({ isAuthenticated }: { isAuthenticated?: b
     headerText,
     setHeaderText,
     startupConfigError,
+    refetchStartupConfig,
     startupConfig,
     isFetching,
   };

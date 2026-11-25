@@ -6,6 +6,8 @@ import {
   KnownEndpoints,
   EModelEndpoint,
   ReasoningEffort,
+  isFreeOpenRouterEndpoint,
+  isFreeOpenRouterModel,
   MAX_SUBAGENT_DEPTH,
   MAX_SUBAGENT_RUN_CONFIGS,
   extractEnvVariable,
@@ -141,6 +143,7 @@ import { getBuiltInBaseURL } from '~/endpoints/openai/initialize';
 import { getProviderConfig } from '~/endpoints/config/providers';
 import { buildToolApprovalHooks } from '~/agents/hitl/hooks';
 import { getAgentCheckpointer } from '~/agents/checkpointer';
+import { createFreeInferenceBudget } from '~/routing/budget';
 import { getPluginHookSource } from '~/agents/hooks/source';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { createStepBudgetHook } from '~/agents/stepBudget';
@@ -1310,6 +1313,15 @@ function resolveSummarizationProvider(
         directEndpoint: customEndpointConfig.directEndpoint,
         transportTimeouts: resolveModelTransportTimeouts(appConfig?.endpoints?.agents),
         freeOpenRouterMaxOutputTokens: appConfig.config?.freeInference?.openRouterMaxOutputTokens,
+        freeInferenceBudget:
+          isFreeOpenRouterEndpoint(rawProvider) &&
+          typeof target.model === 'string' &&
+          isFreeOpenRouterModel(target.model)
+            ? createFreeInferenceBudget({
+                config: { freeInference: appConfig.config?.freeInference },
+                modelId: target.model,
+              })
+            : undefined,
       },
       rawProvider,
     );
@@ -2369,9 +2381,8 @@ export async function createRun({
    * Reuse them here so a context-aware factory is evaluated exactly once for the run.
    */
   resolvedToolApprovalHooks?: readonly ResolvedToolApprovalHook[];
-  toolApprovalStorage?: ToolApprovalGrantStorage & {
-    listToolStandingAuthorizations?: ToolStandingAuthorizationStorage['listToolStandingAuthorizations'];
-  };
+  toolApprovalStorage?: ToolApprovalGrantStorage &
+    Partial<Pick<ToolStandingAuthorizationStorage, 'listToolStandingAuthorizations'>>;
   reviewedToolApprovals?: ReviewedToolApprovals;
   scheduledMCPExecution?: ScheduleMCPExecution;
   recordScheduledMCPDenial?: (error: ScheduledMCPPolicyError) => Promise<boolean>;
@@ -2889,10 +2900,8 @@ export async function createRun({
     scope: user?.id != null ? { userId: user.id, tenantId: tenantId ?? user.tenantId } : undefined,
     timeoutMs: toolApprovalPolicy?.standingAuthorizationLookupTimeoutMs,
   });
-  const effectiveToolApprovalPolicy = () => {
-    const policy = baselineToolApprovalPolicy();
-    return applyStandingToolAllows(policy, standingAuthorization.patterns) ?? policy;
-  };
+  const effectiveToolApprovalPolicy = () =>
+    applyStandingToolAllows(baselineToolApprovalPolicy(), standingAuthorization.patterns);
   const nativeEditFileAgentIds = collectNativeEditFileAgentIds(agents);
   const agentApprovalSession = createAgentToolApprovalSession({
     agents: [...codeFileAgents.values()],

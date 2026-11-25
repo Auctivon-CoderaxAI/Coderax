@@ -13,6 +13,7 @@ const {
   createWorkAgentPageLoader,
   GenerationJobManager,
   persistTerminalWorkState,
+  trackWorkTerminalWrite,
   workStateForJobStatus,
   getFreeRouterForConfig,
   createEngineWorkChatHandler,
@@ -45,7 +46,10 @@ const listAgentPages = createWorkAgentPageLoader((input) => db.getListAgentsByAc
 /** The native generation record is transient; persist its terminal outcome on
  * the existing owner-scoped Work conversation before the manager deletes it. */
 GenerationJobManager.onGenerationSettled((event) => {
-  void persistTerminalWorkState(event, db).catch(() => {
+  void trackWorkTerminalWrite(
+    event,
+    Promise.resolve().then(() => persistTerminalWorkState(event, db)),
+  ).catch(() => {
     logger.warn('[Work] Could not persist terminal task state.');
   });
 });

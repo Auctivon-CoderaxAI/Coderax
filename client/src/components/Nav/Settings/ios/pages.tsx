@@ -20,6 +20,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type { SectionId, SettingsContextValue, SettingsTab, SettingEntry } from '../types';
 import type { TranslationKeys } from '~/hooks';
 import StorageUsage from './StorageUsage';
+import { matchesQuery } from '../search';
 import { registry } from '../registry';
 
 export type IosPageId =
@@ -222,4 +223,46 @@ export function pageVisible(page: IosPage, ctx: SettingsContextValue): boolean {
 
 export function findPage(id: IosPageId): IosPage | undefined {
   return IOS_PAGES.find((page) => page.id === id);
+}
+
+export interface PageSearchResult {
+  page: IosPage;
+  /** The rows on this page that matched; empty when only the page title did. */
+  matches: { entry: SettingEntry; label: string }[];
+}
+
+/**
+ * Search every visible page, not the desktop tab the dialog happens to be on, so
+ * the mobile index can offer whole destinations instead of loose controls. A page
+ * matches on its own title as well as its rows, because several pages label their
+ * rows by what they change rather than by the concern the page is named after.
+ */
+export function searchPages(
+  query: string,
+  ctx: SettingsContextValue,
+  localize: (key: TranslationKeys) => string,
+): PageSearchResult[] {
+  if (query.trim() === '') {
+    return [];
+  }
+  const results: PageSearchResult[] = [];
+  for (const page of IOS_PAGES) {
+    if (page.show && !page.show(ctx)) {
+      continue;
+    }
+    const matches = pageEntries(page, ctx)
+      .filter((entry) =>
+        matchesQuery(query, { label: localize(entry.labelKey), keywords: entry.keywords }),
+      )
+      .map((entry) => ({ entry, label: localize(entry.labelKey) }));
+    const titleMatches = matchesQuery(query, {
+      label: localize(page.labelKey),
+      keywords: page.descriptionKey != null ? [localize(page.descriptionKey)] : undefined,
+    });
+    if (matches.length === 0 && !titleMatches) {
+      continue;
+    }
+    results.push({ page, matches });
+  }
+  return results;
 }

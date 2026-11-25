@@ -23,7 +23,8 @@ import { useLocalize } from '~/hooks';
 export default function GuestEntry() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const { startupConfig, startupConfigError, isFetching } = useOutletContext<TLoginLayoutContext>();
+  const { startupConfig, startupConfigError, isFetching, refetchStartupConfig } =
+    useOutletContext<TLoginLayoutContext>();
   const { isAuthReady, isAuthenticated, user } = useAuthContext();
   const localize = useLocalize();
   const configReady = startupConfig != null && startupConfigError == null && !isFetching;
@@ -65,6 +66,26 @@ export default function GuestEntry() {
       <div role="status" className="text-text-secondary space-y-2 text-center">
         <p className="text-text-primary text-lg font-semibold">Opening Coderax…</p>
         <p>Connecting to your workspace.</p>
+      </div>
+    );
+  }
+
+  /**
+   * Unknown config is not evidence that passwordless guest access is enabled,
+   * so an owner password is asked for until the server answers. An OAuth error
+   * still belongs to the sign-in surface and is reported below.
+   */
+  if (startupConfig == null && startupConfigError == null && !oauthErrorKey) {
+    return (
+      <div className="space-y-4">
+        <PasswordLoginForm />
+        <button
+          className="bg-surface-tertiary text-text-primary rounded-lg px-4 py-2 font-medium"
+          type="button"
+          onClick={() => void refetchStartupConfig()}
+        >
+          {localize('com_ui_retry')}
+        </button>
       </div>
     );
   }

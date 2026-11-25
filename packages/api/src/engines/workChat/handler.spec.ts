@@ -28,8 +28,8 @@ function fakeStore() {
     async (_conversationId: string): Promise<StoredConversation> => null,
   );
   const saveConversation = jest.fn(
-    async (_input: Parameters<EngineWorkChatStore['saveConversation']>[0]): Promise<void> =>
-      undefined,
+    async (_input: Parameters<EngineWorkChatStore['saveConversation']>[0]): Promise<boolean> =>
+      true,
   );
   const saveMessage = jest.fn(
     async (_input: Parameters<EngineWorkChatStore['saveMessage']>[0]): Promise<void> => undefined,
@@ -73,11 +73,18 @@ function fakeHandle(
   };
 }
 
-function fakeRunner(events: EngineEvent[] = [{ type: 'text_delta', text: 'hello' }]) {
+function fakeRunner(
+  events: EngineEvent[] = [{ type: 'text_delta', text: 'hello' }],
+  options: { generation?: string | null; replaces?: string | null } = {},
+) {
   const handle = fakeHandle(events);
-  const start = jest.fn(
-    async (_input: StartScope): Promise<StartResult> => ({ ok: true, value: handle }),
-  );
+  const start = jest.fn(async (input: StartScope): Promise<StartResult> => {
+    await input.beforeDispatch?.({
+      generation: options.generation ?? null,
+      replaces: options.replaces ?? null,
+    });
+    return { ok: true, value: handle };
+  });
   const state = jest.fn(async (_input: RunScope): Promise<string | null> => null);
   const release = jest.fn(async (_input: ReleaseScope): Promise<boolean> => true);
   const runner: EngineWorkChatRunner = {
@@ -459,6 +466,8 @@ describe('createEngineWorkChatHandler', () => {
     });
     expect(store.saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
+      title: 'Fix it',
+      create: true,
       workState: 'failed',
     });
   });
@@ -587,6 +596,78 @@ describe('createEngineWorkChatHandler', () => {
       conversationId: CONVERSATION_ID,
     });
     expect(response.ended).toBe(true);
+  });
+
+  it('streams each tool call with its arguments and replaces it with its result', async () => {
+    const { store, saveMessage } = fakeStore();
+    const { runner } = fakeRunner([
+      { type: 'tool_call', callId: 'call-1', tool: 'bash', input: { command: 'ls' } },
+      { type: 'tool_result', callId: 'call-1', tool: 'bash', ok: true, output: 'a.txt' },
+      { type: 'text_delta', text: 'Listed it.' },
+    ]);
+    const content = [
+      { type: 'text', text: 'Listed it.' },
+      {
+        type: 'tool_call',
+        tool_call: {
+          id: 'call-1',
+          name: 'bash',
+          type: 'tool_call',
+          progress: 1,
+          args: { command: 'ls' },
+          runStepStatus: 'completed',
+          output: 'a.txt',
+        },
+      },
+    ];
+
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'List the files', conversationId: CONVERSATION_ID, messageId: USER_MESSAGE_ID },
+    });
+
+    const events = sseEvents(response);
+    const toolParts = events.filter((event) => event.type === 'tool_call');
+    expect(toolParts[0]).toMatchObject({
+      index: 1,
+      tool_call: {
+        id: 'call-1',
+        name: 'bash',
+        type: 'tool_call',
+        args: { command: 'ls' },
+      },
+    });
+    expect(toolParts[toolParts.length - 1]).toMatchObject({
+      index: 1,
+      tool_call: {
+        args: { command: 'ls' },
+        output: 'a.txt',
+        runStepStatus: 'completed',
+      },
+    });
+    /* The final frame carries the same parts, because the client replaces the
+     * streamed message with it. */
+    expect(events.find((event) => event.final === true)?.responseMessage).toEqual({
+      messageId: `${USER_MESSAGE_ID}_`,
+      parentMessageId: USER_MESSAGE_ID,
+      conversationId: CONVERSATION_ID,
+      text: 'Listed it.',
+      content,
+      sender: 'OpenCode Agent',
+      isCreatedByUser: false,
+      unfinished: false,
+    });
+    /* The stored reply keeps those parts, so a reload renders the same turn. */
+    expect(saveMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        messageId: `${USER_MESSAGE_ID}_`,
+        text: 'Listed it.',
+        content,
+        isCreatedByUser: false,
+      }),
+    );
   });
 
   it('generates a message id and defaults a missing parent to 0', async () => {
@@ -740,10 +821,11 @@ describe('createEngineWorkChatHandler', () => {
     });
   });
 
-  it('cancels and releases when the running-state conversation save fails', async () => {
+  it('prevents dispatch and releases when the running-state conversation save fails', async () => {
     const { store, saveConversation } = fakeStore();
     saveConversation.mockImplementation(async (input) => {
       if (input.workState === 'running') throw new Error('database offline');
+      return true;
     });
     const { runner, handle, release } = fakeRunner();
     const reserveRun = jest.fn(() => true);
@@ -760,10 +842,8 @@ describe('createEngineWorkChatHandler', () => {
     expect(response.body).toMatchObject({ code: 'WORK_ENGINE_STORE_UNAVAILABLE' });
     expect(response.chunks).toHaveLength(0);
     expect(saveConversation).toHaveBeenCalledTimes(1);
-    expect(handle.cancel).toHaveBeenCalled();
-    expect(release).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId: CONVERSATION_ID, handle }),
-    );
+    expect(handle.cancel).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
     expect(releaseRun).toHaveBeenCalledWith({
       userId: 'owner',
       tenantId: 'tenant-1',
@@ -775,6 +855,7 @@ describe('createEngineWorkChatHandler', () => {
     const { store, saveConversation, saveMessage } = fakeStore();
     saveConversation.mockImplementation(async (input) => {
       if (input.workState === 'completed') throw new Error('database offline');
+      return true;
     });
     const { runner, handle, release } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
     const reserveRun = jest.fn(() => true);
@@ -986,6 +1067,23 @@ describe('createEngineWorkChatHandler', () => {
     }
   });
 
+  it('does not dispatch after disconnect during transcript loading', async () => {
+    const response = fakeResponse();
+    const { store, loadTranscript } = fakeStore();
+    const { runner, start } = fakeRunner();
+    loadTranscript.mockImplementationOnce(async () => {
+      response.listeners.close.forEach((listener) => listener());
+      return [];
+    });
+    await createEngineWorkChatHandler({ storeFor: () => store, runtimeFor: () => runner })(
+      fakeRequest({ body: { text: 'Fix it', conversationId: CONVERSATION_ID } }),
+      response as unknown as Response,
+      jest.fn(),
+    );
+    expect(start).not.toHaveBeenCalled();
+    expect(store.saveConversation).not.toHaveBeenCalled();
+  });
+
   it('cancels a run when the client disconnects before startup finishes', async () => {
     const { store } = fakeStore();
     const handle = fakeHandle([]);
@@ -1046,10 +1144,12 @@ describe('createEngineWorkChatHandler', () => {
     }
   });
 
-  it('stamps the run generation and fences every terminal write to it', async () => {
+  it('stamps the generation handed over before dispatch and fences every terminal write to it', async () => {
     const { store, saveConversation } = fakeStore();
-    const { runner, start } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
-    runner.generation = jest.fn(async () => 'run-1');
+    const { runner, start } = fakeRunner([{ type: 'text_delta', text: 'hello' }], {
+      generation: 'run-1',
+      replaces: 'dead-run',
+    });
     const { response } = await runHandler({
       store,
       runner,
@@ -1058,14 +1158,69 @@ describe('createEngineWorkChatHandler', () => {
 
     expect(start).toHaveBeenCalledTimes(1);
     expect(response.statusCode).toBe(200);
-    expect(saveConversation).toHaveBeenCalledWith(
-      expect.objectContaining({ workState: 'running', workRunId: 'run-1' }),
-    );
+    /** One startup write, stamped with the exact claim; there is no second one. */
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      title: 'Fix it',
+      workAgent: 'opencode',
+      workState: 'running',
+      create: true,
+      workRunId: 'run-1',
+      claimWorkRun: { generation: 'run-1', replaces: 'dead-run' },
+    });
+    expect(
+      saveConversation.mock.calls.filter(([input]) => input.workState === 'running'),
+    ).toHaveLength(1);
     expect(saveConversation).toHaveBeenCalledWith({
       conversationId: CONVERSATION_ID,
       workState: 'completed',
       workRunId: null,
       fenceWorkRun: 'run-1',
+    });
+  });
+
+  it('stops without an unfenced write when a newer run owns the conversation', async () => {
+    const { store, saveConversation } = fakeStore();
+    saveConversation.mockImplementation(async (input) => input.claimWorkRun == null);
+    const { runner, start } = fakeRunner([], { generation: 'run-1' });
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_BUSY' });
+    /** The newer run's row is never touched by the superseded startup. */
+    expect(saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'failed' }),
+    );
+    expect(saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'completed' }),
+    );
+  });
+
+  it('releases the handler reservation even when the lease release throws', async () => {
+    const { store } = fakeStore();
+    const { runner, release } = fakeRunner();
+    release.mockRejectedValueOnce(new Error('lease store down'));
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(release).toHaveBeenCalled();
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
     });
   });
 });

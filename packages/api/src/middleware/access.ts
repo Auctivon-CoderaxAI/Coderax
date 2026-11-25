@@ -8,6 +8,7 @@ import {
 } from 'coderax-data-provider';
 import type { NextFunction, Request as ServerRequest, Response as ServerResponse } from 'express';
 import type { IRole, IUser } from '@coderax/data-schemas';
+import { getSafeErrorMetadata } from '~/utils/errors';
 
 export function skipAgentCheck(req?: ServerRequest): boolean {
   if (!req || !req?.body?.endpoint) {
@@ -248,10 +249,19 @@ export const generateCheckAccess = ({
       );
       return res.status(403).json({ message: 'Forbidden: Insufficient permissions' });
     } catch (error) {
-      logger.error(error);
-      return res.status(500).json({
-        message: `Server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      /**
+       * The permission check is an authorization boundary, so its failure must
+       * not disclose the internal message: a database or role-read error can
+       * carry query text, driver details or an upstream payload. Log bounded
+       * metadata and answer with a fixed, non-identifying body.
+       */
+      logger.error('[access] Permission check failed', {
+        ...getSafeErrorMetadata(error),
+        permission_type: permissionType,
+        permission: permissions.join(','),
+        ...(req.baseUrl ? { path: req.baseUrl } : {}),
       });
+      return res.status(500).json({ message: 'Server error' });
     }
   };
 };

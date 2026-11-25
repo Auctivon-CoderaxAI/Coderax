@@ -341,6 +341,57 @@ describe('native Work router', () => {
     expect(res.body.tasks[0].state).toBe('unknown');
   });
 
+  it('serves every task when legacy rows have missing, null or non-string titles', async () => {
+    const server = app({
+      listConversations: async () => [
+        { conversationId: 'c-valid', title: 'Plan', isWork: true, updatedAt: '2026-02-02' },
+        {
+          conversationId: 'c-object',
+          title: { en: 'Plan' },
+          isWork: true,
+          updatedAt: '2026-02-01',
+        },
+        { conversationId: 'c-number', title: 42, isWork: true, updatedAt: '2026-02-03' },
+        { conversationId: 'c-null', title: null, isWork: true, updatedAt: '2026-02-04' },
+        { conversationId: 'c-missing', isWork: true },
+      ],
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(200);
+    expect(
+      res.body.tasks.map((task: { id: string; title: string }) => [task.id, task.title]),
+    ).toEqual([
+      ['c-null', 'c-null'],
+      ['c-number', 'c-number'],
+      ['c-valid', 'Plan'],
+      ['c-object', 'c-object'],
+      ['c-missing', 'c-missing'],
+    ]);
+  });
+
+  it('reads only the authenticated owner’s rows when a legacy title is malformed', async () => {
+    const listConversations = jest.fn(async ({ userId }: { userId: string }) =>
+      [
+        { conversationId: 'mine-valid', title: 'Plan', isWork: true, userId: 'user-a' },
+        {
+          conversationId: 'mine-object',
+          title: { en: 'Plan' },
+          isWork: true,
+          userId: 'user-a',
+        },
+        { conversationId: 'theirs', title: null, isWork: true, userId: 'user-b' },
+      ].filter((row) => row.userId === userId),
+    );
+    const server = app({ listConversations });
+    const res = await request(server).get('/api/work/tasks?userId=user-b');
+    expect(res.status).toBe(200);
+    expect(res.body.tasks.map((task: { id: string }) => task.id).sort()).toEqual([
+      'mine-object',
+      'mine-valid',
+    ]);
+    expect(listConversations).toHaveBeenCalledWith({ userId: 'user-a', limit: 50 });
+  });
+
   it('serves history when stored timestamps are Date objects', async () => {
     const server = app({
       listConversations: async () => [
@@ -444,6 +495,7 @@ describe('native Work router', () => {
       { private: '/private', cloud: '/cloud' },
       'private',
       undefined,
+      'opencode',
       leases,
     );
     const server = app({
@@ -551,6 +603,20 @@ describe('native Work router', () => {
     const res = await request(server).get('/api/work/tasks');
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('WORK_HISTORY_UNAVAILABLE');
+  });
+
+  it('logs a fixed diagnostic for a history failure without its error text', async () => {
+    const warn = jest.fn();
+    const server = app({
+      logger: { warn },
+      listConversations: async () => {
+        throw new Error('db down: transcript for secret-plan');
+      },
+    });
+    const res = await request(server).get('/api/work/tasks');
+    expect(res.status).toBe(503);
+    expect(warn).toHaveBeenCalledWith('[Work] Could not read task history.');
+    expect(JSON.stringify(res.body)).not.toContain('secret-plan');
   });
 
   it('names the model the automatic option resolves to', async () => {

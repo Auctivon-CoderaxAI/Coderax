@@ -3,8 +3,8 @@ import { SystemRoles } from 'coderax-data-provider';
 import type { BalanceConfig, CreateUserRequest } from '@coderax/data-schemas';
 import type { Request, Response } from 'express';
 import { sanitizeUserForAuthResponse } from './localRefresh';
+import { canCreateGuestSession } from './guestAccess';
 import { getSafeErrorMetadata } from '~/utils/errors';
-import { isEnabled } from '~/utils/common';
 
 type UserId = string | { toString(): string };
 
@@ -33,7 +33,13 @@ export function createGuestSessionHandler(
 ): (req: Request, res: Response) => Promise<Response> {
   return async (req: Request, res: Response) => {
     const { passwordLoginEnabled, guestAccess, enforceTwoFactor } = deps.getAccessConfig();
-    if (passwordLoginEnabled || !isEnabled(guestAccess) || isEnabled(enforceTwoFactor)) {
+    if (
+      !canCreateGuestSession({
+        passwordLoginEnabled,
+        guestAccessEnabled: guestAccess,
+        enforceTwoFactorAuthentication: enforceTwoFactor,
+      })
+    ) {
       return res.sendStatus(404);
     }
 

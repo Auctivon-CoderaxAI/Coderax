@@ -140,13 +140,14 @@ export type ChatTextFrame = {
 };
 
 /**
- * A content part streamed with its message ids (Assistants). Unlike
- * `TContentData`, `userMessageId` is optional: the Assistants emitters omit it.
+ * A content part streamed with its message ids (Assistants, and the Work engine
+ * stream). Unlike `TContentData`, the thread and user ids are optional: the
+ * Assistants emitters omit `userMessageId`, and a Work turn has no thread.
  */
 export type ChatContentFrame = StreamContentData & {
   messageId: string;
   conversationId: string;
-  thread_id: string;
+  thread_id?: string;
   userMessageId?: string;
   stream?: boolean;
 };

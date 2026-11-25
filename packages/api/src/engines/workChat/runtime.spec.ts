@@ -68,6 +68,20 @@ async function waitFor(check: () => boolean): Promise<void> {
   throw new Error('The expected run state never arrived.');
 }
 
+async function waitForState(
+  runtime: EngineWorkChatRuntime,
+  runScope: Parameters<EngineWorkChatRuntime['state']>[0],
+  expected: string | null,
+): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await runtime.state(runScope)) === expected) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`The run state never became ${expected}.`);
+}
+
 describe('EngineWorkChatRuntime', () => {
   it('maps a private run onto the canonical engine request', async () => {
     const run = handle('session-private');
@@ -163,6 +177,11 @@ describe('EngineWorkChatRuntime', () => {
       scopes.map(() => cloudRoot),
     );
 
+    await runtime.release(scope('conversation-d'));
+    await runtime.release(scope('conversation-d', { tenantId: 'tenant-2' }));
+    await runtime.release(scope('conversation-d', { userId: 'other' }));
+    await runtime.release(scope('conversation-e'));
+
     await runtime.start({ ...scopes[0], prompt: 'Continue' });
     expect(start.mock.lastCall?.[0].request.workspaceRoot).toBe(workspaces[0]);
     await runtime.release(scopes[0]);
@@ -233,6 +252,7 @@ describe('EngineWorkChatRuntime', () => {
       roots,
       'private',
       undefined,
+      'opencode',
       leases,
       LEASE_TTL_MS,
     );
@@ -261,6 +281,7 @@ describe('EngineWorkChatRuntime', () => {
       roots,
       'private',
       undefined,
+      'opencode',
       leases,
       LEASE_TTL_MS,
     );
@@ -293,6 +314,7 @@ describe('EngineWorkChatRuntime', () => {
       roots,
       'private',
       undefined,
+      'opencode',
       leases,
       LEASE_TTL_MS,
     );
@@ -326,6 +348,7 @@ describe('EngineWorkChatRuntime', () => {
       roots,
       'private',
       undefined,
+      'opencode',
       leases,
       LEASE_TTL_MS,
     );
@@ -339,7 +362,7 @@ describe('EngineWorkChatRuntime', () => {
     await expect(runtime.state(scope(conversation))).resolves.toBeNull();
   });
 
-  it('exposes the claimed lease token as the generation that fences writes', async () => {
+  it('reads the claimed lease token and the run state from one snapshot', async () => {
     const leases = createMemoryWorkRunLeaseStore();
     const start = jest.fn(async () => ({ ok: true as const, value: handle('session-generation') }));
     const runtime = new EngineWorkChatRuntime(
@@ -347,18 +370,253 @@ describe('EngineWorkChatRuntime', () => {
       roots,
       'private',
       undefined,
+      'opencode',
       leases,
       LEASE_TTL_MS,
     );
     const conversation = 'conversation-generation';
 
-    await expect(runtime.generation(scope(conversation))).resolves.toBeNull();
+    await expect(runtime.inspect(scope(conversation))).resolves.toEqual({
+      state: null,
+      generation: null,
+    });
     await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
     const lease = await leases.read(scope(conversation), new Date());
     expect(lease?.token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    await expect(runtime.generation(scope(conversation))).resolves.toBe(lease?.token);
+    await expect(runtime.inspect(scope(conversation))).resolves.toEqual({
+      state: 'running',
+      generation: lease?.token,
+    });
 
     await runtime.release(scope(conversation));
-    await expect(runtime.generation(scope(conversation))).resolves.toBeNull();
+    await expect(runtime.inspect(scope(conversation))).resolves.toEqual({
+      state: null,
+      generation: null,
+    });
+  });
+
+  it('refuses a second replica that shares the same lease store', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const start = jest.fn(async () => ({ ok: true as const, value: handle('session-replica-a') }));
+    const first = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const second = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-replicas';
+
+    await expect(first.start({ ...scope(conversation), prompt: 'First' })).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(second.start({ ...scope(conversation), prompt: 'Second' })).resolves.toMatchObject(
+      {
+        ok: false,
+        error: { code: 'busy' },
+      },
+    );
+
+    await first.release(scope(conversation));
+  });
+
+  it('keeps renewing the lease while startup outlasts the lease TTL', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const run = handle('session-slow-start');
+    const start = jest.fn(async (input: Parameters<EngineRegistryApi['start']>[0]) => {
+      await input.beforeDispatch?.();
+      return { ok: true as const, value: run };
+    });
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-slow-start';
+    let ownership: { generation: string | null; replaces: string | null } | undefined;
+
+    const started = await runtime.start({
+      ...scope(conversation),
+      prompt: 'Fix it',
+      beforeDispatch: async (claimed) => {
+        ownership = claimed;
+        await new Promise((resolve) => setTimeout(resolve, LEASE_TTL_MS * 4));
+      },
+    });
+
+    expect(started.ok).toBe(true);
+    expect(ownership?.generation).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    /** The heartbeat renewed through startup, so the task never became claimable. */
+    await expect(runtime.state(scope(conversation))).resolves.toBe('running');
+    await expect(
+      new EngineWorkChatRuntime(
+        fakeRegistry(start),
+        roots,
+        'private',
+        undefined,
+        'opencode',
+        leases,
+        LEASE_TTL_MS,
+      ).start({ ...scope(conversation), prompt: 'Second' }),
+    ).resolves.toMatchObject({ ok: false, error: { code: 'busy' } });
+
+    await runtime.release(scope(conversation));
+  });
+
+  it('reports the expired generation a takeover replaced', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const start = jest.fn(async (input: Parameters<EngineRegistryApi['start']>[0]) => {
+      await input.beforeDispatch?.();
+      return { ok: true as const, value: handle('session-takeover') };
+    });
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-takeover';
+    await leases.claim(scope(conversation), {
+      token: 'dead-token',
+      owner: 'previous-boot',
+      now: new Date(Date.now() - 120_000),
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    let ownership: { generation: string | null; replaces: string | null } | undefined;
+
+    await runtime.start({
+      ...scope(conversation),
+      prompt: 'Resume',
+      beforeDispatch: async (claimed) => {
+        ownership = claimed;
+      },
+    });
+
+    expect(ownership?.replaces).toBe('dead-token');
+    expect(ownership?.generation).not.toBe('dead-token');
+    await runtime.release(scope(conversation));
+  });
+
+  it('cancels only the generation the caller observed', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const run = handle('session-bound-cancel');
+    const start = jest.fn(async () => ({ ok: true as const, value: run }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-bound-cancel';
+    await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    const snapshot = await runtime.inspect(scope(conversation));
+
+    await expect(runtime.cancel(scope(conversation), 'replacement-token')).resolves.toBe(false);
+    expect(run.cancel).not.toHaveBeenCalled();
+    await expect(
+      runtime.cancel(scope(conversation), snapshot.generation ?? undefined),
+    ).resolves.toBe(true);
+    expect(run.cancel).toHaveBeenCalled();
+
+    await runtime.release(scope(conversation));
+  });
+
+  it('keeps the lease until engine-side cleanup settles', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const run = handle('session-cleanup');
+    let finishCleanup!: () => void;
+    run.cleanup = new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    });
+    const start = jest.fn(async () => ({ ok: true as const, value: run }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-cleanup';
+
+    await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    await expect(runtime.release(scope(conversation))).resolves.toBe(true);
+    /** Another replica must not start beside an abort that is still cleaning up. */
+    await expect(runtime.state(scope(conversation))).resolves.toBe('running');
+
+    finishCleanup();
+    await waitForState(runtime, scope(conversation), null);
+  });
+
+  it('releases the lease after a failed engine cleanup', async () => {
+    const leases = createMemoryWorkRunLeaseStore();
+    const run = handle('session-failed-cleanup');
+    run.cleanup = Promise.reject(new Error('cleanup failed'));
+    await run.cleanup.catch(() => undefined);
+    const start = jest.fn(async () => ({ ok: true as const, value: run }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-failed-cleanup';
+
+    await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    await expect(runtime.release(scope(conversation))).resolves.toBe(true);
+    await waitForState(runtime, scope(conversation), null);
+  });
+
+  it('stops the run when a lease-store outage outlasts the confirmed expiry', async () => {
+    const memory = createMemoryWorkRunLeaseStore();
+    const leases = {
+      ...memory,
+      renew: jest.fn(async () => {
+        throw new Error('lease store down');
+      }),
+    };
+    const run = handle('session-outage');
+    const start = jest.fn(async () => ({ ok: true as const, value: run }));
+    const runtime = new EngineWorkChatRuntime(
+      fakeRegistry(start),
+      roots,
+      'private',
+      undefined,
+      'opencode',
+      leases,
+      LEASE_TTL_MS,
+    );
+    const conversation = 'conversation-outage';
+
+    await runtime.start({ ...scope(conversation), prompt: 'Fix it' });
+    await waitFor(() => (run.cancel as jest.Mock).mock.calls.length > 0);
+    await expect(runtime.state(scope(conversation))).resolves.toBe('failed');
   });
 });

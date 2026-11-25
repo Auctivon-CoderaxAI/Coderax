@@ -49,7 +49,8 @@ export function createEngineWorkChatPersistence(input: {
     create?: boolean;
     workRunId?: string | null;
     fenceWorkRun?: string;
-  }): Promise<void> {
+    claimWorkRun?: { generation: string; replaces: string | null };
+  }): Promise<boolean> {
     const saved = await db.saveConvo(
       context,
       {
@@ -66,12 +67,14 @@ export function createEngineWorkChatPersistence(input: {
         context: `Work ${labels.label} chat conversation`,
         ...(fields.create ? {} : { noUpsert: true }),
         ...(fields.fenceWorkRun ? { workRunGeneration: fields.fenceWorkRun } : {}),
+        ...(fields.claimWorkRun ? { workRunClaim: fields.claimWorkRun } : {}),
       },
     );
-    /** A fenced save that matched nothing belongs to a superseded run, not to a lost row. */
-    if (!saved && !fields.fenceWorkRun) {
+    /** A fenced or claimed save that matched nothing belongs to a superseded run, not to a lost row. */
+    if (!saved && !fields.fenceWorkRun && !fields.claimWorkRun) {
       throw new Error('Work conversation could not be saved');
     }
+    return saved != null;
   }
 
   return {
@@ -103,6 +106,9 @@ export function createEngineWorkChatPersistence(input: {
           parentMessageId: message.parentMessageId,
           conversationId: message.conversationId,
           text: message.text,
+          /** The reply's parts, so the stored row renders the same text and tool
+           *  cards the stream showed. A user message never carries them. */
+          ...(message.content ? { content: message.content } : {}),
           sender: message.isCreatedByUser ? 'User' : labels.sender,
           isCreatedByUser: message.isCreatedByUser,
           model: labels.model,

@@ -5654,6 +5654,68 @@ describe('Conversation Operations', () => {
         Conversation.findOne({ conversationId }).lean<{ workState?: string }>(),
       ).resolves.toMatchObject({ workState: 'completed' });
     });
+
+    it('stamps a takeover only for the replaced or absent generation', async () => {
+      const conversationId = await createRunningWork('run-1');
+
+      const applied = await methods.saveConvo(
+        { userId: 'user123' },
+        { conversationId, workState: 'running', workRunId: 'run-2' },
+        { noUpsert: true, workRunClaim: { generation: 'run-2', replaces: 'run-1' } },
+      );
+
+      expect(applied).not.toBeNull();
+      await expect(
+        Conversation.findOne({ conversationId }).lean<{
+          workState?: string;
+          workRunId?: string | null;
+        }>(),
+      ).resolves.toMatchObject({ workState: 'running', workRunId: 'run-2' });
+    });
+
+    it('refuses a startup stamp once a newer run owns the row', async () => {
+      const conversationId = await createRunningWork('run-3');
+
+      const applied = await methods.saveConvo(
+        { userId: 'user123' },
+        { conversationId, workState: 'running', workRunId: 'run-2' },
+        { noUpsert: true, workRunClaim: { generation: 'run-2', replaces: 'run-1' } },
+      );
+
+      expect(applied).toBeNull();
+      await expect(
+        Conversation.findOne({ conversationId }).lean<{
+          workState?: string;
+          workRunId?: string | null;
+        }>(),
+      ).resolves.toMatchObject({ workState: 'running', workRunId: 'run-3' });
+    });
+
+    it('does not reopen a settled row even when its generation still matches', async () => {
+      for (const workState of ['completed', 'failed', 'cancelled'] as const) {
+        const conversationId = uuidv4();
+        await Conversation.create({
+          conversationId,
+          user: 'user123',
+          title: 'Work task',
+          endpoint: EModelEndpoint.openAI,
+          isWork: true,
+          workState,
+          workRunId: 'run-1',
+        });
+
+        const applied = await methods.saveConvo(
+          { userId: 'user123' },
+          { conversationId, workState: 'failed', workRunId: null },
+          { noUpsert: true, workRunGeneration: 'run-1', unsettledWorkRun: true },
+        );
+
+        expect(applied).toBeNull();
+        await expect(
+          Conversation.findOne({ conversationId }).lean<{ workState?: string }>(),
+        ).resolves.toMatchObject({ workState });
+      }
+    });
   });
 
   describe('getConvosByCursor archivedAt sorting', () => {

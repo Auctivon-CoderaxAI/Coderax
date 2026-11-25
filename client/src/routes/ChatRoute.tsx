@@ -328,8 +328,9 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         transport: baseChatTransport,
         selection: automaticChatSelection,
         endpointsConfig: endpointsQuery.data,
+        workMode: isWorkMode,
       }),
-    [baseChatTransport, automaticChatSelection, endpointsQuery.data],
+    [baseChatTransport, automaticChatSelection, endpointsQuery.data, isWorkMode],
   );
   const chatModelRouting = useMemo(
     () => ({

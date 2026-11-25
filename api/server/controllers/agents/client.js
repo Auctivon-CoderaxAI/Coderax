@@ -238,14 +238,13 @@ const {
   stripLangChainTroubleshootingUrl,
   DEFAULT_MEMORY_MAX_INPUT_TOKENS,
 } = require('coderax-data-provider');
-const { filterFilesByAgentAccess } = require('~/server/services/Files/permissions');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
 const { buildAgentDbMethods } = require('~/server/services/Endpoints/agents/dbMethodsFactory');
 const {
   getLinkedInstructionsResolver,
 } = require('~/server/services/Endpoints/agents/linkedInstructions');
-const { resolveConfigServers, getAccessibleMcpServerNames } = require('~/server/services/MCP');
+const { resolveConfigServers } = require('~/server/services/MCP');
 const { getMCPServerTools } = require('~/server/services/Config');
 const { getAccessibleMCPServers } = require('~/server/services/MCP');
 const BaseClient = require('~/app/clients/BaseClient');
@@ -644,6 +643,7 @@ class AgentClient extends BaseClient {
       subagentAggregatorsByToolCallId,
       contextUsageSink,
       usageEmitSink,
+      modelTimingSink,
       toolInputValidationErrors,
       ...clientOptions
     } = options;
@@ -662,6 +662,10 @@ class AgentClient extends BaseClient {
      *  persisted on `metadata.usage`.
      *  @type {Array<import('coderax-data-provider').TTokenUsageEvent> | undefined} */
     this.usageEmitSink = usageEmitSink;
+    /** Latency windows the handlers opened and closed for this response's model
+     *  calls; drained into `metadata.modelTiming` at save time.
+     *  @type {import('@coderax/api').ModelTimingTracker | undefined} */
+    this.modelTimingSink = modelTimingSink;
     /** Schema-validation exceptions keyed by tool-call ID. The completion
      *  handler consumes these to distinguish execution failures from tool
      *  output that merely contains similar text.
@@ -3767,6 +3771,13 @@ class AgentClient extends BaseClient {
     const usage = aggregateEmittedUsage(usageEvents);
     if (usage) {
       metadata.usage = usage;
+    }
+    /** Measured, not inferred: one entry per model call the host saw start and
+     *  finish, with the time before that call's first token. Empty when the
+     *  handlers recorded nothing, in which case the field is simply absent. */
+    const modelTiming = this.modelTimingSink?.take();
+    if (modelTiming != null && modelTiming.length > 0) {
+      metadata.modelTiming = modelTiming;
     }
     return Object.keys(metadata).length > 0 ? metadata : undefined;
   }

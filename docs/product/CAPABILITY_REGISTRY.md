@@ -56,6 +56,11 @@ The bounded audit covered the root README, AGENTS.md, route inventory, App shell
 | CX-38 | Cloud Resource Governor | Blocked | $0/cloud requirement exists; verified capacity contract absent from audit | Verify free quota, admission, cleanup and stop | P0 |
 | CX-39 | Original differentiators | Unverified | Vision names 18 services; service-backed status not audited | Map each to source, receipt, owner and criteria | P5 |
 | CX-40 | Competitive intelligence | Planned | Permanent source-to-registry workflow not verified | Establish primary-source scan and deduplication process | P5 |
+| CX-41 | Cloudflare canonical edge | Blocked | Worker host gate, client-IP forwarding and fail-closed proxy are tested (17/17); anonymous access gate passes 8/8 and the full `npm run verify` gate passes. Live API is still `503` until the owner sets `CODERAX_API_ORIGIN` and `CODERAX_PROXY_SECRET`; the Oracle public host is not recorded in the repository. `--live-url` still rejects the canonical origin until PR #302 merges, and full release verification also needs PR #303. | Owner sets the two Worker bindings and the VM canonical origin, merges PR #302 and #303, then runs an authenticated journey on `https://coderax.nnabdelshahid.workers.dev`. | P0 |
+
+CX-41 was added on 2026-11-25 against `main` at `7c9147e7460d6b2e987b7294da49c6a4c20293cd`. Its `Blocked` status covers the
+infrastructure/credential boundary and the unmerged verifier and release-gate changes in PR #302 and #303, not source
+completeness; the Worker and access tests are recorded in the evidence section of [`docs/ROADMAP.md`](../ROADMAP.md).
 
 ## Evidence rules
 

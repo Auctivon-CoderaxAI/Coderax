@@ -48,6 +48,7 @@ function fakeStore(overrides: Partial<EngineWorkChatStore> = {}) {
         ...(input.workAgent ? { workAgent: input.workAgent } : {}),
         isWork: true,
       } as never);
+      return true;
     },
     saveMessage: async (message) => {
       messages.push(message as unknown as Record<string, unknown>);
@@ -82,7 +83,10 @@ function fakeRunner(
     result: Promise.resolve(result),
     close: jest.fn(async () => undefined),
   };
-  const start = jest.fn(async () => ({ ok: true as const, value: handle }));
+  const start = jest.fn(async (input: Parameters<EngineWorkChatRunner['start']>[0]) => {
+    await input.beforeDispatch?.({ generation: null, replaces: null });
+    return { ok: true as const, value: handle };
+  });
   const runner: EngineWorkChatRunner = {
     start,
     state: jest.fn(async () => null),

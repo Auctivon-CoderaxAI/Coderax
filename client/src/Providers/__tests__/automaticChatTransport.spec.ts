@@ -130,17 +130,101 @@ describe('automatic Chat model transport', () => {
     );
   });
 
-  it('keeps native agent and assistant conversations on their configured execution path', async () => {
-    const start = jest.fn().mockResolvedValue({ generationId: 'agent-generation' });
+  it('routes a loaded Work conversation through automatic Chat after switching modes', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'chat-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'chat-free:free', provider: 'openrouter' }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+      workMode: false,
+    });
+    const request = {
+      ...makeRequest(EModelEndpoint.agents),
+      server: 'https://coderax.example/api/agents/chat',
+      payload: {
+        ...makeRequest(EModelEndpoint.agents).payload,
+        agent_id: 'work-agent',
+        spec: 'work-agent-spec',
+      },
+    };
+
+    await controller.transport.start(request);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      server: 'https://coderax.example/api/agents/chat/openrouter',
+      payload: { endpoint: 'openrouter', model: 'chat-free:free', endpointType: 'custom' },
+    });
+    expect(start.mock.calls[0]?.[0].payload).not.toHaveProperty('agent_id');
+    expect(start.mock.calls[0]?.[0].payload).not.toHaveProperty('spec');
+  });
+
+  it('preserves a configured model spec instead of replacing its endpoint with the automatic model', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'spec-generation' });
     const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
     const controller = createAutomaticChatTransport({
       transport: makeTransport(start),
       selection,
       endpointsConfig,
     });
+    const request = makeRequest(EModelEndpoint.openAI);
+    request.payload.spec = 'e2e-icon-spec';
+
+    await controller.transport.start(request);
+    expect(start).toHaveBeenCalledWith(request, undefined);
+  });
+
+  it('keeps native agent conversations on their configured execution path in Work mode', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'agent-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+      workMode: true,
+    });
     const request = makeRequest(EModelEndpoint.agents);
 
     await controller.transport.start(request);
     expect(start).toHaveBeenCalledWith(request, undefined);
+  });
+
+  it('forwards explicit model specs and saved agents unchanged', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'explicit-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+    });
+    const specRequest = makeRequest();
+    specRequest.payload.spec = 'fast-qwen';
+    const agentRequest = makeRequest();
+    agentRequest.payload.agent_id = 'agent-1';
+
+    await controller.transport.start(specRequest);
+    await controller.transport.start(agentRequest);
+
+    expect(start).toHaveBeenNthCalledWith(1, specRequest, undefined);
+    expect(start).toHaveBeenNthCalledWith(2, agentRequest, undefined);
+  });
+
+  it('keeps routing requests that carry only ephemeral tool state', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'tool-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'local', provider: 'ollama', local: true }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+    });
+    const request = makeRequest();
+    request.payload.ephemeralAgent = { skills: true };
+
+    await controller.transport.start(request);
+
+    expect(start.mock.calls[0]?.[0]).toMatchObject({
+      server: 'https://coderax.example/api/agents/chat/ollama',
+      payload: { endpoint: 'ollama', model: 'local', ephemeralAgent: { skills: true } },
+    });
   });
 });
