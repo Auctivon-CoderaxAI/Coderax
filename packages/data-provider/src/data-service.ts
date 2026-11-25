@@ -1,7 +1,7 @@
 import type { AxiosResponse } from 'axios';
 import type {
   TCreateResearchProjectRequest,
-  TResearchCapabilities,
+  TResearchAccess,
   TResearchDossier,
   TResearchProjectListParams,
   TResearchProjectListResponse,
@@ -1196,7 +1196,7 @@ export function deleteResearchProject(researchId: string): Promise<{ deleted: bo
   return request.delete(endpoints.researchProjectById(researchId));
 }
 
-export function getResearchCapabilities(): Promise<TResearchCapabilities> {
+export function getResearchCapabilities(): Promise<TResearchAccess> {
   return request.get(endpoints.researchCapabilities());
 }
 

@@ -94,14 +94,37 @@ describe('Research handlers', () => {
     expect(deps.listResearchProjects).not.toHaveBeenCalled();
   });
 
-  it('denies access when research is disabled in config', () => {
-    const { handlers } = setup();
+  it('reads the research block from the nested resolved config', async () => {
+    const { handlers, deps } = setup();
     const { res, result } = response();
 
-    handlers.getCapabilities(request({ config: { research: { enabled: false } } }), res);
+    await handlers.listProjects(
+      request({ config: { config: { research: { enabled: false } } } }),
+      res,
+    );
 
     expect(result.statusCode).toBe(403);
     expect(result.body).toEqual({ error: 'Research is disabled', code: 'RESEARCH_DISABLED' });
+    expect(deps.listResearchProjects).not.toHaveBeenCalled();
+  });
+
+  it('passes the configured limits from the nested config to storage', async () => {
+    const { handlers, deps } = setup();
+    const { res } = response();
+
+    await handlers.createProject(
+      request({
+        config: { config: { research: { maxProjectsPerOwner: 3 } } },
+        body: { title: 'One' },
+      }),
+      res,
+    );
+
+    expect(deps.createResearchProject).toHaveBeenCalledWith(
+      'owner',
+      expect.objectContaining({ title: 'One' }),
+      { maxProjectsPerOwner: 3 },
+    );
   });
 
   it('reports automated fetching and verification as unavailable', () => {
@@ -116,8 +139,57 @@ describe('Research handlers', () => {
         ledger: true,
         automatedFetch: false,
         automatedVerification: false,
+        enabled: true,
+        ownerOnly: true,
+        canAccess: true,
       }),
     );
+  });
+
+  it('reports the effective policy to an account that may not open dossiers', () => {
+    const { handlers } = setup();
+    const { res, result } = response();
+
+    handlers.getCapabilities(request({ user: { id: 'member', role: 'USER' } }), res);
+
+    expect(result.statusCode).toBe(200);
+    expect(result.body).toEqual(
+      expect.objectContaining({ ownerOnly: true, enabled: true, canAccess: false }),
+    );
+  });
+
+  it('admits non-admin accounts when the deployment disables ownerOnly', async () => {
+    const { handlers, deps } = setup();
+    const { res, result } = response();
+
+    await handlers.listProjects(
+      request({
+        user: { id: 'member', role: 'USER' },
+        config: { config: { research: { ownerOnly: false } } },
+      }),
+      res,
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(deps.listResearchProjects).toHaveBeenCalledWith('member', expect.any(Object));
+  });
+
+  it('maps a read-only completed dossier to its own conflict code', async () => {
+    const { handlers } = setup({
+      saveResearchProject: jest.fn().mockResolvedValue({ ok: false, code: 'READ_ONLY', project }),
+    });
+    const { res, result } = response();
+
+    await handlers.saveProject(
+      request({ params: { researchId }, body: saveBody({ status: 'complete' }) }),
+      res,
+    );
+
+    expect(result.statusCode).toBe(409);
+    expect(result.body).toEqual({
+      error: 'Completed research dossiers are read-only until reopened',
+      code: 'RESEARCH_READ_ONLY',
+    });
   });
 
   it('returns the derived audit with a dossier', async () => {
@@ -148,6 +220,30 @@ describe('Research handlers', () => {
     );
 
     expect(result.statusCode).toBe(400);
+    expect(deps.saveResearchProject).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed save input and dossier ids before storage', async () => {
+    const { handlers, deps } = setup();
+
+    const badRevision = response();
+    await handlers.saveProject(
+      request({ params: { researchId }, body: saveBody({ expectedRevision: '3' }) }),
+      badRevision.res,
+    );
+    expect(badRevision.result.statusCode).toBe(400);
+
+    const badSources = response();
+    await handlers.saveProject(
+      request({ params: { researchId }, body: saveBody({ sources: 'nope' }) }),
+      badSources.res,
+    );
+    expect(badSources.result.statusCode).toBe(400);
+
+    const badId = response();
+    await handlers.getProject(request({ params: { researchId: 'not-an-object-id' } }), badId.res);
+    expect(badId.result.statusCode).toBe(404);
+
     expect(deps.saveResearchProject).not.toHaveBeenCalled();
   });
 

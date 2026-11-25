@@ -37,6 +37,8 @@ export const useSaveResearchProjectMutation = (): UseMutationResult<
     (payload: TSaveResearchProjectRequest) => dataService.saveResearchProject(payload),
     {
       onSuccess: (project) => {
+        /* An older detail fetch settling after the save must not restore the previous revision. */
+        void queryClient.cancelQueries([QueryKeys.researchProject, project._id]);
         queryClient.setQueryData([QueryKeys.researchProject, project._id], project);
         queryClient.invalidateQueries([QueryKeys.researchProjects]);
       },

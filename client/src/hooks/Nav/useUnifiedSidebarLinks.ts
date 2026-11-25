@@ -4,6 +4,7 @@ import { SystemRoles } from 'coderax-data-provider';
 import { Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
 import type { NavLink } from '~/common';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
+import { useResearchCapabilitiesQuery } from '~/data-provider';
 import { useAuthContext } from '~/hooks';
 
 /**
@@ -17,7 +18,9 @@ import { useAuthContext } from '~/hooks';
 export default function useUnifiedSidebarLinks() {
   const navigate = useNavigate();
   const { user } = useAuthContext();
+  const { data: researchAccess } = useResearchCapabilitiesQuery();
   const isOwner = user?.role === SystemRoles.ADMIN;
+  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   return useMemo<NavLink[]>(() => {
     const links: NavLink[] = [
       {
@@ -36,6 +39,8 @@ export default function useUnifiedSidebarLinks() {
         id: 'games',
         onClick: () => navigate('/games'),
       });
+    }
+    if (canAccessResearch) {
       links.push({
         title: 'com_research_title',
         label: '',
@@ -45,5 +50,5 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [isOwner, navigate]);
+  }, [canAccessResearch, isOwner, navigate]);
 }

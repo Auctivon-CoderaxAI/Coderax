@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@coderax/client';
 import {
@@ -17,7 +17,8 @@ const FIELD_CLASS =
 type ClaimFormProps = {
   sources: TResearchSource[];
   disabled: boolean;
-  onAdd: (claim: TResearchClaim) => void;
+  /** Resolves true once the dossier with this claim has been persisted. */
+  onAdd: (claim: TResearchClaim) => Promise<boolean>;
 };
 
 export default function ClaimForm({ sources, disabled, onAdd }: ClaimFormProps) {
@@ -28,6 +29,16 @@ export default function ClaimForm({ sources, disabled, onAdd }: ClaimFormProps) 
   const [status, setStatus] = useState<TResearchClaimStatus>('supported');
   const [sourceIds, setSourceIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  /* A removed source must not survive as an invisible citation in the draft. */
+  useEffect(() => {
+    setSourceIds((current) => {
+      const available = new Set(sources.map((source) => source.id));
+      const next = current.filter((sourceId) => available.has(sourceId));
+      return next.length === current.length ? current : next;
+    });
+  }, [sources]);
 
   const toggleSource = (sourceId: string, checked: boolean) => {
     setSourceIds((current) => {
@@ -40,7 +51,7 @@ export default function ClaimForm({ sources, disabled, onAdd }: ClaimFormProps) 
     });
   };
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = text.trim();
     if (!trimmed) {
@@ -48,12 +59,24 @@ export default function ClaimForm({ sources, disabled, onAdd }: ClaimFormProps) 
       return;
     }
     setError(null);
-    onAdd({
-      id: newResearchId(),
-      text: trimmed,
-      status,
-      sourceIds,
-    });
+    const currentSourceIds = sourceIds.filter((sourceId) =>
+      sources.some((source) => source.id === sourceId),
+    );
+    setPending(true);
+    let saved = false;
+    try {
+      saved = await onAdd({
+        id: newResearchId(),
+        text: trimmed,
+        status,
+        sourceIds: currentSourceIds,
+      });
+    } finally {
+      setPending(false);
+    }
+    if (!saved) {
+      return;
+    }
     setText('');
     setStatus('supported');
     setSourceIds([]);
@@ -139,9 +162,13 @@ export default function ClaimForm({ sources, disabled, onAdd }: ClaimFormProps) 
           {error}
         </p>
       ) : null}
-      <Button type="submit" variant="outline" disabled={disabled || sources.length === 0}>
+      <Button
+        type="submit"
+        variant="outline"
+        disabled={disabled || pending || sources.length === 0}
+      >
         <Plus className="size-4" aria-hidden="true" />
-        {localize('com_research_claim_add')}
+        {pending ? localize('com_research_saving') : localize('com_research_claim_add')}
       </Button>
     </form>
   );

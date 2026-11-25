@@ -24,3 +24,16 @@ export interface IResearchProject {
 }
 
 export interface IResearchProjectDocument extends Omit<IResearchProject, '_id'>, Document {}
+
+/** Atomic per-owner admission counter for the project limit. */
+export interface IResearchProjectQuota {
+  _id?: Types.ObjectId;
+  user: string;
+  count: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IResearchProjectQuotaDocument
+  extends Omit<IResearchProjectQuota, '_id'>,
+    Document {}

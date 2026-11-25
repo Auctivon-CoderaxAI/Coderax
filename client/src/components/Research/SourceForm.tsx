@@ -20,7 +20,8 @@ const FIELD_CLASS =
 
 type SourceFormProps = {
   disabled: boolean;
-  onAdd: (source: TResearchSource) => void;
+  /** Resolves true once the dossier with this source has been persisted. */
+  onAdd: (source: TResearchSource) => Promise<boolean>;
 };
 
 export default function SourceForm({ disabled, onAdd }: SourceFormProps) {
@@ -38,8 +39,9 @@ export default function SourceForm({ disabled, onAdd }: SourceFormProps) {
   const [excerpt, setExcerpt] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  const submit = (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedTitle = title.trim();
     const trimmedUrl = url.trim();
@@ -52,16 +54,25 @@ export default function SourceForm({ disabled, onAdd }: SourceFormProps) {
       return;
     }
     setError(null);
-    onAdd({
-      id: newResearchId(),
-      title: trimmedTitle,
-      url: trimmedUrl,
-      publisher: publisher.trim(),
-      kind,
-      excerpt: excerpt.trim(),
-      note: note.trim(),
-      retrievedAt: new Date().toISOString().slice(0, 10),
-    });
+    setPending(true);
+    let saved = false;
+    try {
+      saved = await onAdd({
+        id: newResearchId(),
+        title: trimmedTitle,
+        url: trimmedUrl,
+        publisher: publisher.trim(),
+        kind,
+        excerpt: excerpt.trim(),
+        note: note.trim(),
+        retrievedAt: new Date().toISOString().slice(0, 10),
+      });
+    } finally {
+      setPending(false);
+    }
+    if (!saved) {
+      return;
+    }
     setTitle('');
     setUrl('');
     setPublisher('');
@@ -171,9 +182,9 @@ export default function SourceForm({ disabled, onAdd }: SourceFormProps) {
           {error}
         </p>
       ) : null}
-      <Button type="submit" variant="outline" disabled={disabled}>
+      <Button type="submit" variant="outline" disabled={disabled || pending}>
         <Plus className="size-4" aria-hidden="true" />
-        {localize('com_research_source_add')}
+        {pending ? localize('com_research_saving') : localize('com_research_source_add')}
       </Button>
     </form>
   );

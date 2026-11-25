@@ -8,6 +8,7 @@ import type {
   IResearchClaim,
   IResearchProject,
   IResearchProjectDocument,
+  IResearchProjectQuotaDocument,
   IResearchSource,
 } from '~/types';
 import { isValidObjectIdString } from '~/utils/objectId';
@@ -46,6 +47,7 @@ export type SaveResearchProjectResult =
   | { ok: true; project: IResearchProject }
   | { ok: false; code: 'NOT_FOUND' }
   | { ok: false; code: 'NOT_READY' }
+  | { ok: false; code: 'READ_ONLY'; project: IResearchProject }
   | { ok: false; code: 'CONFLICT'; project: IResearchProject };
 
 export type ResearchProjectLimits = {
@@ -113,6 +115,9 @@ function parseCursor(cursor?: string | null): ResearchProjectCursor | null {
   }
 }
 
+const isDuplicateKeyError = (error: unknown): boolean =>
+  (error as { code?: number } | null)?.code === 11000;
+
 function encodeCursor(project: ResearchProjectLean): string | null {
   if (!project.createdAt) {
     return null;
@@ -139,6 +144,57 @@ export function createResearchProjectMethods(
     }).lean<IResearchProject>();
   }
 
+  /**
+   * Reserves one owner slot with a conditional increment, so concurrent creates
+   * cannot both read the same count and exceed the limit. The first reservation
+   * seeds the counter from the projects that already exist.
+   */
+  async function reserveProjectSlot(user: string, maxProjects: number): Promise<boolean> {
+    const ResearchProjectQuota = mongoose.models
+      .ResearchProjectQuota as Model<IResearchProjectQuotaDocument>;
+    const ResearchProject = mongoose.models.ResearchProject as Model<IResearchProjectDocument>;
+
+    const reserved = await ResearchProjectQuota.findOneAndUpdate(
+      { user, count: { $lt: maxProjects } },
+      { $inc: { count: 1 } },
+      { new: true },
+    ).lean();
+    if (reserved) {
+      return true;
+    }
+
+    if (await ResearchProjectQuota.exists({ user })) {
+      return false;
+    }
+
+    const existing = await ResearchProject.countDocuments({ user });
+    if (existing >= maxProjects) {
+      return false;
+    }
+
+    try {
+      await ResearchProjectQuota.create({ user, count: existing + 1 });
+      return true;
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) {
+        throw error;
+      }
+      /* Another first create seeded the counter; retry against the seeded value. */
+      const retried = await ResearchProjectQuota.findOneAndUpdate(
+        { user, count: { $lt: maxProjects } },
+        { $inc: { count: 1 } },
+        { new: true },
+      ).lean();
+      return Boolean(retried);
+    }
+  }
+
+  async function releaseProjectSlot(user: string): Promise<void> {
+    const ResearchProjectQuota = mongoose.models
+      .ResearchProjectQuota as Model<IResearchProjectQuotaDocument>;
+    await ResearchProjectQuota.updateOne({ user, count: { $gt: 0 } }, { $inc: { count: -1 } });
+  }
+
   async function createResearchProject(
     user: string,
     input: CreateResearchProjectInput,
@@ -146,21 +202,28 @@ export function createResearchProjectMethods(
   ): Promise<CreateResearchProjectResult> {
     const ResearchProject = mongoose.models.ResearchProject as Model<IResearchProjectDocument>;
     const maxProjects = limits?.maxProjectsPerOwner ?? DEFAULT_RESEARCH_PROJECTS_PER_OWNER;
-    const existing = await ResearchProject.countDocuments({ user });
-    if (existing >= maxProjects) {
+    const title = sanitizeTitle(input.title);
+    const question = typeof input.question === 'string' ? input.question.trim() : '';
+
+    if (!(await reserveProjectSlot(user, maxProjects))) {
       return { ok: false, code: 'LIMIT_REACHED' };
     }
 
-    const project = await ResearchProject.create({
-      title: sanitizeTitle(input.title),
-      question: typeof input.question === 'string' ? input.question.trim() : '',
-      status: 'draft',
-      revision: 1,
-      sources: [],
-      claims: [],
-      user,
-    });
-    return { ok: true, project: project.toObject() as IResearchProject };
+    try {
+      const project = await ResearchProject.create({
+        title,
+        question,
+        status: 'draft',
+        revision: 1,
+        sources: [],
+        claims: [],
+        user,
+      });
+      return { ok: true, project: project.toObject() as IResearchProject };
+    } catch (error) {
+      await releaseProjectSlot(user);
+      throw error;
+    }
   }
 
   async function listResearchProjects(
@@ -222,12 +285,18 @@ export function createResearchProjectMethods(
     }
 
     const ResearchProject = mongoose.models.ResearchProject as Model<IResearchProjectDocument>;
+    const filter: Record<string, unknown> = {
+      _id: new mongoose.Types.ObjectId(researchId),
+      user,
+      revision: expectedRevision,
+    };
+    /* A completed dossier is read-only; reopening it (any other status) still matches. */
+    if (input.status === 'complete') {
+      filter.status = { $ne: 'complete' };
+    }
+
     const project = await ResearchProject.findOneAndUpdate(
-      {
-        _id: new mongoose.Types.ObjectId(researchId),
-        user,
-        revision: expectedRevision,
-      },
+      filter,
       {
         $set: {
           title: sanitizeTitle(input.title),
@@ -248,6 +317,13 @@ export function createResearchProjectMethods(
     if (!current) {
       return { ok: false, code: 'NOT_FOUND' };
     }
+    if (
+      input.status === 'complete' &&
+      current.status === 'complete' &&
+      current.revision === expectedRevision
+    ) {
+      return { ok: false, code: 'READ_ONLY', project: current };
+    }
     return { ok: false, code: 'CONFLICT', project: current };
   }
 
@@ -260,7 +336,11 @@ export function createResearchProjectMethods(
       _id: new mongoose.Types.ObjectId(researchId),
       user,
     });
-    return (result.deletedCount ?? 0) > 0;
+    if ((result.deletedCount ?? 0) > 0) {
+      await releaseProjectSlot(user);
+      return true;
+    }
+    return false;
   }
 
   return {

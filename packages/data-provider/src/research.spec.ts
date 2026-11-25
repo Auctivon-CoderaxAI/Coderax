@@ -156,6 +156,18 @@ describe('renderResearchReport', () => {
     expect(report).toContain('has not fetched, summarised or independently verified');
   });
 
+  it('keeps a destination with parentheses inside the link', () => {
+    const report = renderResearchReport({
+      title: 'Parentheses',
+      question: '',
+      status: 'collecting',
+      sources: [source({ url: 'https://example.com/a)b' })],
+      claims: [claim()],
+    });
+
+    expect(report).toContain('(https://example.com/a\\)b)');
+  });
+
   it('never renders a citation for an unknown source', () => {
     const report = renderResearchReport({
       title: 'Missing source',

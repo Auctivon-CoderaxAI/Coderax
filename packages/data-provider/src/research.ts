@@ -149,6 +149,17 @@ export const RESEARCH_CAPABILITIES: TResearchCapabilities = {
     'This dossier records the sources and citations you enter. Coderax does not fetch, summarise or independently verify external pages in this deployment.',
 };
 
+/**
+ * The signed-in account's effective research policy, so navigation and the
+ * workspace can follow the same gate the server enforces instead of assuming
+ * `ownerOnly`. `canAccess` already includes `enabled`.
+ */
+export type TResearchAccess = TResearchCapabilities & {
+  enabled: boolean;
+  ownerOnly: boolean;
+  canAccess: boolean;
+};
+
 export const RESEARCH_SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Returns the lowercased host without a leading `www.`, or null for a non-http(s) URL. */
@@ -322,6 +333,10 @@ const EFFECTIVE_LABEL: Record<TResearchEffectiveClaimStatus, string> = {
 
 const escapeInline = (value: string): string => value.replace(/\r?\n+/g, ' ').trim();
 
+/** Parentheses are the only destination characters that would end the link early. */
+const escapeMarkdownDestination = (url: string): string =>
+  /[()]/.test(url) ? url.replace(/([()])/g, '\\$1') : url;
+
 /**
  * Renders the dossier as a citable Markdown report. Claims keep their order and
  * appear under their evidence status; only citations that resolve to a recorded
@@ -376,7 +391,7 @@ export function renderResearchReport({
         ? `, retrieved ${escapeInline(source.retrievedAt)}`
         : '';
       lines.push(
-        `${index + 1}. [${escapeInline(source.title) || 'Untitled source'}](${source.url})${publisher} (${kind}${retrieved})`,
+        `${index + 1}. [${escapeInline(source.title) || 'Untitled source'}](${escapeMarkdownDestination(source.url)})${publisher} (${kind}${retrieved})`,
       );
       if (source.note.trim()) {
         lines.push(`   - Note: ${escapeInline(source.note)}`);

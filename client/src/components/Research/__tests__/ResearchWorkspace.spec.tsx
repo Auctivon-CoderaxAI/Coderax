@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type * as ReactModule from 'react';
 import type { ReactNode } from 'react';
 import ResearchWorkspace from '../ResearchWorkspace';
@@ -46,7 +46,12 @@ jest.mock('~/data-provider', () => {
       error: null,
       refetch: jest.fn(),
     }),
-    useSaveResearchProjectMutation: () => ({ mutate: jest.fn(), isLoading: false, error: null }),
+    useSaveResearchProjectMutation: () => ({
+      mutate: jest.fn(),
+      mutateAsync: jest.fn().mockRejectedValue({ response: { status: 500 } }),
+      isLoading: false,
+      error: null,
+    }),
     useDeleteResearchProjectMutation: () => ({ mutate: jest.fn(), isLoading: false }),
   };
 });
@@ -96,6 +101,19 @@ describe('ResearchWorkspace', () => {
       screen.getByRole('heading', { name: 'com_research_claim_add_title' }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('com_research_status_label')).toBeEnabled();
+  });
+
+  it('keeps a source draft when the save is rejected', async () => {
+    renderWorkspace();
+
+    const title = screen.getByLabelText('com_research_source_title_label');
+    const url = screen.getByLabelText('com_research_source_url_label');
+    fireEvent.change(title, { target: { value: 'A source' } });
+    fireEvent.change(url, { target: { value: 'https://example.com/a' } });
+    fireEvent.click(screen.getByRole('button', { name: 'com_research_source_add' }));
+
+    await waitFor(() => expect(title).toHaveValue('A source'));
+    expect(url).toHaveValue('https://example.com/a');
   });
 
   it('renders a readable report with the recorded source', () => {

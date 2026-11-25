@@ -18,6 +18,7 @@ import {
   RESEARCH_SOURCE_KINDS,
   SystemRoles,
   auditResearch,
+  researchConfigSchema,
   researchUrlHost,
 } from 'coderax-data-provider';
 import type {
@@ -27,6 +28,7 @@ import type {
   SaveResearchProjectInput,
 } from '@coderax/data-schemas';
 import type {
+  TResearchAccess,
   TResearchClaim,
   TResearchConfig,
   TResearchProjectStatus,
@@ -38,6 +40,10 @@ import { normalizeLimit, queryString } from '~/utils';
 const RESEARCH_NOT_FOUND = { error: 'Research dossier not found', code: 'RESEARCH_NOT_FOUND' };
 const RESEARCH_DISABLED = { error: 'Research is disabled', code: 'RESEARCH_DISABLED' };
 const RESEARCH_OWNER_ONLY = { error: 'Research is owner-only', code: 'RESEARCH_OWNER_ONLY' };
+const RESEARCH_UNAUTHENTICATED = {
+  error: 'Authentication required',
+  code: 'RESEARCH_UNAUTHENTICATED',
+};
 const RESEARCH_LIMIT_REACHED = {
   error: 'Research dossier limit reached',
   code: 'RESEARCH_PROJECT_LIMIT_REACHED',
@@ -45,6 +51,10 @@ const RESEARCH_LIMIT_REACHED = {
 const RESEARCH_REVISION_CONFLICT = {
   error: 'Research dossier was changed by another session',
   code: 'RESEARCH_REVISION_CONFLICT',
+};
+const RESEARCH_READ_ONLY = {
+  error: 'Completed research dossiers are read-only until reopened',
+  code: 'RESEARCH_READ_ONLY',
 };
 
 interface ResearchUser {
@@ -56,7 +66,8 @@ interface ResearchUser {
 
 interface ResearchRequest extends Request {
   user?: ResearchUser;
-  config?: { research?: TResearchConfig };
+  /* The resolved AppConfig keeps the deployment's custom config nested. */
+  config?: { config?: { research?: unknown } };
 }
 
 type ResearchHandlerDependencies = Pick<
@@ -70,14 +81,27 @@ type ResearchHandlerDependencies = Pick<
 
 const getUserId = (req: ResearchRequest): string => req.user?.id ?? req.user?._id?.toString() ?? '';
 
-const isOwner = (req: ResearchRequest): boolean =>
-  req.config?.research?.ownerOnly === false || req.user?.role === SystemRoles.ADMIN;
+/** Resolves the nested block with the schema defaults the deployment config declares. */
+const resolveResearchConfig = (req: ResearchRequest): TResearchConfig => {
+  const parsed = researchConfigSchema.safeParse(req.config?.config?.research ?? {});
+  return parsed.success ? parsed.data : researchConfigSchema.parse({});
+};
 
-const requireOwner = (req: ResearchRequest, res: Response): Response | null => {
-  if (req.config?.research?.enabled === false) {
+const isOwner = (req: ResearchRequest, config: TResearchConfig): boolean =>
+  config.ownerOnly === false || req.user?.role === SystemRoles.ADMIN;
+
+const requireOwner = (
+  req: ResearchRequest,
+  res: Response,
+  config: TResearchConfig,
+): Response | null => {
+  if (!getUserId(req)) {
+    return res.status(401).json(RESEARCH_UNAUTHENTICATED);
+  }
+  if (!config.enabled) {
     return res.status(403).json(RESEARCH_DISABLED);
   }
-  if (!isOwner(req)) {
+  if (!isOwner(req, config)) {
     return res.status(403).json(RESEARCH_OWNER_ONLY);
   }
   return null;
@@ -254,16 +278,21 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
   saveProject: (req: ResearchRequest, res: Response) => Promise<Response>;
   deleteProject: (req: ResearchRequest, res: Response) => Promise<Response>;
 } {
+  /* Every authenticated account may ask what it can do; only an owner gets data routes. */
   function getCapabilities(req: ResearchRequest, res: Response): Response {
-    const denied = requireOwner(req, res);
-    if (denied) {
-      return denied;
-    }
-    return res.status(200).json(RESEARCH_CAPABILITIES);
+    const config = resolveResearchConfig(req);
+    const access: TResearchAccess = {
+      ...RESEARCH_CAPABILITIES,
+      enabled: config.enabled,
+      ownerOnly: config.ownerOnly,
+      canAccess: Boolean(getUserId(req)) && config.enabled && isOwner(req, config),
+    };
+    return res.status(200).json(access);
   }
 
   async function listProjects(req: ResearchRequest, res: Response): Promise<Response> {
-    const denied = requireOwner(req, res);
+    const config = resolveResearchConfig(req);
+    const denied = requireOwner(req, res, config);
     if (denied) {
       return denied;
     }
@@ -291,7 +320,8 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
   }
 
   async function createProject(req: ResearchRequest, res: Response): Promise<Response> {
-    const denied = requireOwner(req, res);
+    const config = resolveResearchConfig(req);
+    const denied = requireOwner(req, res, config);
     if (denied) {
       return denied;
     }
@@ -299,10 +329,7 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
     if (!title) {
       return res.status(400).json({ error: 'title is required' });
     }
-    const maxQuestion = Math.min(
-      req.config?.research?.maxQuestionLength ?? MAX_RESEARCH_QUESTION_LENGTH,
-      MAX_RESEARCH_QUESTION_LENGTH,
-    );
+    const maxQuestion = Math.min(config.maxQuestionLength, MAX_RESEARCH_QUESTION_LENGTH);
     const question = boundedText(req.body?.question ?? '', maxQuestion);
     if (question == null) {
       return res.status(400).json({ error: `question cannot exceed ${maxQuestion} characters` });
@@ -311,7 +338,7 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
     const input: CreateResearchProjectInput = { title, question };
     try {
       const result = await deps.createResearchProject(getUserId(req), input, {
-        maxProjectsPerOwner: req.config?.research?.maxProjectsPerOwner,
+        maxProjectsPerOwner: config.maxProjectsPerOwner,
       });
       if (!result.ok) {
         return res.status(409).json(RESEARCH_LIMIT_REACHED);
@@ -330,7 +357,8 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
   }
 
   async function getProject(req: ResearchRequest, res: Response): Promise<Response> {
-    const denied = requireOwner(req, res);
+    const config = resolveResearchConfig(req);
+    const denied = requireOwner(req, res, config);
     if (denied) {
       return denied;
     }
@@ -357,7 +385,8 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
   }
 
   async function saveProject(req: ResearchRequest, res: Response): Promise<Response> {
-    const denied = requireOwner(req, res);
+    const config = resolveResearchConfig(req);
+    const denied = requireOwner(req, res, config);
     if (denied) {
       return denied;
     }
@@ -369,7 +398,7 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
       return res.status(400).json({ error: 'expectedRevision must be a positive integer' });
     }
-    const parsed = parseDossier(req.body, req.config?.research);
+    const parsed = parseDossier(req.body, config);
     if ('error' in parsed) {
       return res.status(400).json({ error: parsed.error });
     }
@@ -405,6 +434,9 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
           issues: audit.issues,
         });
       }
+      if (result.code === 'READ_ONLY') {
+        return res.status(409).json(RESEARCH_READ_ONLY);
+      }
       return res.status(409).json(RESEARCH_REVISION_CONFLICT);
     } catch (error) {
       logger.error('[research] Error saving research dossier', error);
@@ -413,7 +445,8 @@ export function createResearchHandlers(deps: ResearchHandlerDependencies): {
   }
 
   async function deleteProject(req: ResearchRequest, res: Response): Promise<Response> {
-    const denied = requireOwner(req, res);
+    const config = resolveResearchConfig(req);
+    const denied = requireOwner(req, res, config);
     if (denied) {
       return denied;
     }

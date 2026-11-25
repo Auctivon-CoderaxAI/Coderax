@@ -39,6 +39,9 @@ const FIELD_CLASS =
 const responseStatus = (error: unknown): number | undefined =>
   (error as { response?: { status?: number } } | null)?.response?.status;
 
+const responseCode = (error: unknown): string | undefined =>
+  (error as { response?: { data?: { code?: string } } } | null)?.response?.data?.code;
+
 type SavePatch = Partial<
   Pick<TSaveResearchProjectRequest, 'title' | 'question' | 'status' | 'sources' | 'claims'>
 >;
@@ -180,7 +183,7 @@ export default function ResearchWorkspace() {
   const knownSourceIds = new Set(project.sources.map((source) => source.id));
   const sourceTitles = new Map(project.sources.map((source) => [source.id, source.title]));
 
-  const save = (patch: SavePatch) => {
+  const save = async (patch: SavePatch): Promise<boolean> => {
     setSaveNotice(null);
     const payload: TSaveResearchProjectRequest = {
       researchId: project._id,
@@ -192,17 +195,20 @@ export default function ResearchWorkspace() {
       ...patch,
       expectedRevision: project.revision,
     };
-    saveMutation.mutate(payload, {
-      onSuccess: () => setSaveNotice(localize('com_research_saved')),
-      onError: (error) => {
-        const status = responseStatus(error);
-        if (status === 409) {
-          setSaveNotice(localize('com_research_conflict'));
-        } else {
-          setSaveNotice(localize('com_research_save_error'));
-        }
-      },
-    });
+    try {
+      await saveMutation.mutateAsync(payload);
+      setSaveNotice(localize('com_research_saved'));
+      return true;
+    } catch (error) {
+      if (responseCode(error) === 'RESEARCH_READ_ONLY') {
+        setSaveNotice(localize('com_research_read_only'));
+      } else if (responseStatus(error) === 409) {
+        setSaveNotice(localize('com_research_conflict'));
+      } else {
+        setSaveNotice(localize('com_research_save_error'));
+      }
+      return false;
+    }
   };
 
   const addSource = (source: TResearchSource) => save({ sources: [...project.sources, source] });
@@ -312,7 +318,7 @@ export default function ResearchWorkspace() {
               {localize('com_research_details_title')}
             </h2>
             <DetailsForm
-              key={project.revision}
+              key={project._id}
               project={project}
               disabled={saving || isComplete}
               onSave={save}

@@ -1,7 +1,7 @@
 import { dataService, QueryKeys } from 'coderax-data-provider';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type {
-  TResearchCapabilities,
+  TResearchAccess,
   TResearchDossier,
   TResearchProjectListParams,
   TResearchProjectListResponse,
@@ -52,9 +52,9 @@ export const useResearchProjectQuery = (
 };
 
 export const useResearchCapabilitiesQuery = (
-  config?: UseQueryOptions<TResearchCapabilities>,
-): QueryObserverResult<TResearchCapabilities, unknown> => {
-  return useQuery<TResearchCapabilities>(
+  config?: UseQueryOptions<TResearchAccess>,
+): QueryObserverResult<TResearchAccess, unknown> => {
+  return useQuery<TResearchAccess>(
     [QueryKeys.researchCapabilities],
     () => dataService.getResearchCapabilities(),
     {

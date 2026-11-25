@@ -70,6 +70,29 @@ export default function ResearchView() {
   const isLoading = query.isLoading && projects.length === 0;
   const isEmpty = !isLoading && !query.isError && projects.length === 0;
 
+  if (capability.isSuccess && !capability.data.canAccess) {
+    return (
+      <main className="bg-surface-primary h-full min-h-0 w-full overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-4 py-10 md:px-8">
+          <div className="border-border-light bg-surface-secondary rounded-2xl border px-5 py-6">
+            <h1 className="text-text-primary flex items-center gap-2 text-sm font-semibold">
+              <Microscope className="size-4" aria-hidden="true" />
+              {localize('com_research_access_denied_title')}
+            </h1>
+            <p className="text-text-secondary mt-1 text-sm leading-6">
+              {localize('com_research_access_denied_body')}
+            </p>
+          </div>
+          <div className="mt-4">
+            <Button type="button" variant="outline" onClick={() => navigate('/')}>
+              {localize('com_research_back_to_chat')}
+            </Button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const renderProjects = () => {
     if (isLoading) {
       return (

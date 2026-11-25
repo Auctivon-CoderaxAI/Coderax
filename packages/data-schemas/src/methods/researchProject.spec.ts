@@ -30,12 +30,14 @@ const claim: TResearchClaim = {
 let mongoServer: MongoMemoryServer;
 let methods: ReturnType<typeof createResearchProjectMethods>;
 let ResearchProject: mongoose.Model<unknown>;
+let ResearchProjectQuota: mongoose.Model<unknown>;
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   await mongoose.connect(mongoServer.getUri());
   createModels(mongoose);
   ResearchProject = mongoose.models.ResearchProject;
+  ResearchProjectQuota = mongoose.models.ResearchProjectQuota;
   methods = createResearchProjectMethods(mongoose);
 });
 
@@ -45,7 +47,7 @@ afterAll(async () => {
 });
 
 afterEach(async () => {
-  await ResearchProject.deleteMany({});
+  await Promise.all([ResearchProject.deleteMany({}), ResearchProjectQuota.deleteMany({})]);
 });
 
 const idOf = (project: { _id?: mongoose.Types.ObjectId }): string => project._id?.toString() ?? '';
@@ -150,6 +152,106 @@ describe('research project methods', () => {
       1,
     );
     expect(ready).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it('keeps a completed dossier read-only until it is reopened', async () => {
+    const project = await create();
+    const researchId = idOf(project);
+    const ready = {
+      title: 'Free tool calling',
+      question: '',
+      status: 'complete' as const,
+      sources: [source],
+      claims: [claim],
+    };
+
+    const completed = await methods.saveResearchProject(owner, researchId, ready, 1);
+    if (!completed.ok) {
+      throw new Error('completion failed');
+    }
+
+    const edit = await methods.saveResearchProject(
+      owner,
+      researchId,
+      { ...ready, claims: [{ ...claim, text: 'Changed after completion.' }] },
+      completed.project.revision,
+    );
+    expect(edit).toEqual(
+      expect.objectContaining({ ok: false, code: 'READ_ONLY', project: expect.anything() }),
+    );
+
+    const reopened = await methods.saveResearchProject(
+      owner,
+      researchId,
+      { ...ready, status: 'review' },
+      completed.project.revision,
+    );
+    expect(reopened).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it('enforces the owner limit atomically and releases a slot on delete', async () => {
+    const first = await methods.createResearchProject(
+      owner,
+      { title: 'One' },
+      { maxProjectsPerOwner: 2 },
+    );
+    const second = await methods.createResearchProject(
+      owner,
+      { title: 'Two' },
+      { maxProjectsPerOwner: 2 },
+    );
+    if (!first.ok || !second.ok) {
+      throw new Error('setup creates failed');
+    }
+
+    expect(
+      await methods.createResearchProject(owner, { title: 'Three' }, { maxProjectsPerOwner: 2 }),
+    ).toEqual({ ok: false, code: 'LIMIT_REACHED' });
+    expect(
+      await methods.createResearchProject(other, { title: 'Other' }, { maxProjectsPerOwner: 2 }),
+    ).toEqual(expect.objectContaining({ ok: true }));
+
+    await methods.deleteResearchProject(owner, idOf(first.project));
+    expect(
+      await methods.createResearchProject(owner, { title: 'Three' }, { maxProjectsPerOwner: 2 }),
+    ).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it('never lets concurrent creates exceed the owner limit', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        methods.createResearchProject(
+          owner,
+          { title: `Concurrent ${index}` },
+          { maxProjectsPerOwner: 3 },
+        ),
+      ),
+    );
+
+    expect(results.filter((result) => result.ok)).toHaveLength(3);
+    expect(await ResearchProject.countDocuments({ user: owner })).toBe(3);
+  });
+
+  it('scopes saves and lists to the dossier owner', async () => {
+    const project = await create();
+    const otherSave = await methods.saveResearchProject(
+      other,
+      idOf(project),
+      {
+        title: 'Hijacked',
+        question: '',
+        status: 'collecting',
+        sources: [],
+        claims: [],
+      },
+      1,
+    );
+    expect(otherSave).toEqual({ ok: false, code: 'NOT_FOUND' });
+
+    await create(other);
+    const ownerList = await methods.listResearchProjects(owner, { limit: 10 });
+    expect(ownerList.projects).toHaveLength(1);
+    expect(ownerList.projects.every((entry) => entry.user === owner)).toBe(true);
   });
 
   it('deletes only the owner dossier', async () => {

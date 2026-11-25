@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
 import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
+import { useResearchCapabilitiesQuery } from '~/data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
 
 interface QuickLink {
@@ -32,7 +33,9 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSettingsTab = useSetAtom(settingsTabAtom);
   const { user } = useAuthContext();
+  const { data: researchAccess } = useResearchCapabilitiesQuery();
   const isOwner = user?.role === SystemRoles.ADMIN;
+  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   const gamesLink: QuickLink = {
     id: 'games',
     labelKey: 'com_games_title',
@@ -53,7 +56,8 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
       icon: FolderKanban,
       onSelect: () => navigate('/projects'),
     },
-    ...(isOwner ? [gamesLink, researchLink] : []),
+    ...(isOwner ? [gamesLink] : []),
+    ...(canAccessResearch ? [researchLink] : []),
     {
       id: 'skills',
       labelKey: 'com_ui_skills',

@@ -4,6 +4,7 @@ import { createAgentTriggerLaneSequenceModel } from './triggerLaneSequence';
 import { createScheduleModel, createScheduleRunModel } from './schedule';
 import { createWorkflowModel, createWorkflowRunModel } from './workflow';
 import { getTenantIndexMigrationHint } from '~/migrations/tenantIndexes';
+import { createResearchProjectQuotaModel } from './researchProjectQuota';
 import { createSkillSyncCredentialModel } from './skillSyncCredential';
 import { createOpenIDRefreshFlightModel } from './openidRefreshFlight';
 import { createAgentTriggerUserPurgeModel } from './triggerUserPurge';
@@ -68,6 +69,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
   ChatProject: ReturnType<typeof createChatProjectModel>;
   GameProject: ReturnType<typeof createGameProjectModel>;
   ResearchProject: ReturnType<typeof createResearchProjectModel>;
+  ResearchProjectQuota: ReturnType<typeof createResearchProjectQuotaModel>;
   CodeEnvironment: ReturnType<typeof createCodeEnvironmentModel>;
   Message: ReturnType<typeof createMessageModel>;
   Agent: ReturnType<typeof createAgentModel>;
@@ -125,6 +127,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
     ChatProject: createChatProjectModel(mongoose),
     GameProject: createGameProjectModel(mongoose),
     ResearchProject: createResearchProjectModel(mongoose),
+    ResearchProjectQuota: createResearchProjectQuotaModel(mongoose),
     CodeEnvironment: createCodeEnvironmentModel(mongoose),
     Message: createMessageModel(mongoose),
     Agent: createAgentModel(mongoose),
