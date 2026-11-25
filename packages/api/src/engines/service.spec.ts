@@ -94,6 +94,74 @@ describe('config-driven execution engines', () => {
     expect(enabled.engines[0]?.availability).toEqual({ available: true, reason: 'ready' });
   });
 
+  it('requires the configured server password before loading the SDK', () => {
+    const loadSdk = jest.fn();
+    const snapshot = describeExecutionEngines(
+      config({
+        engines: {
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'ollama/qwen2.5-coder:7b',
+            passwordEnv: 'OPENCODE_SERVER_PASSWORD',
+          },
+        },
+      }),
+      loadSdk,
+      null,
+      undefined,
+      {},
+    );
+
+    expect(loadSdk).not.toHaveBeenCalled();
+    expect(snapshot.engines[0]?.availability).toEqual(
+      expect.objectContaining({
+        available: false,
+        detail: expect.stringContaining('OPENCODE_SERVER_PASSWORD'),
+      }),
+    );
+    expect(JSON.stringify(snapshot)).not.toContain('s3cret');
+  });
+
+  it('passes the password by value and admits the cloud auto plan', () => {
+    const loadSdk = jest.fn(() => ({
+      ok: true as const,
+      value: {
+        module: { createOpencodeClient: jest.fn() },
+        transport: {
+          createSession: jest.fn(),
+          subscribe: jest.fn(),
+          prompt: jest.fn(),
+          abort: jest.fn(),
+        },
+      },
+    }));
+    const snapshot = describeExecutionEngines(
+      config({
+        engines: {
+          workChat: { enabled: true, mode: 'cloud' },
+          opencode: {
+            enabled: true,
+            baseURL: 'http://127.0.0.1:4096',
+            model: 'auto',
+            passwordEnv: 'OPENCODE_SERVER_PASSWORD',
+          },
+        },
+      }),
+      loadSdk,
+      null,
+      undefined,
+      { OPENROUTER_API_KEY: 'free-key', OPENCODE_SERVER_PASSWORD: 's3cret' },
+    );
+
+    expect(loadSdk).toHaveBeenCalledWith({
+      baseURL: 'http://127.0.0.1:4096',
+      directory: '/srv/coderax/cloud',
+      password: 's3cret',
+    });
+    expect(snapshot.engines[0]?.availability).toEqual({ available: true, reason: 'ready' });
+  });
+
   it('uses an OpenHands transport supplied by the caller', () => {
     const transport: OpenHandsTransport = {
       start: jest.fn(),
