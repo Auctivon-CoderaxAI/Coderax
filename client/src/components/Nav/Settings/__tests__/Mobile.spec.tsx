@@ -56,15 +56,25 @@ describe('SettingsDialog at the mobile breakpoint', () => {
     expect(screen.getByTestId('ios-settings-general')).toBeInTheDocument();
   });
 
-  it('replaces an open page with search results while typing', async () => {
+  it('replaces an open page with page results while typing', async () => {
     render(<SettingsDialog open onOpenChange={jest.fn()} />);
 
     await userEvent.click(screen.getByTestId('ios-settings-storage'));
     expect(screen.getByTestId('ios-page')).toBeInTheDocument();
 
     await userEvent.type(screen.getByRole('textbox'), 'files');
-    expect(screen.getByLabelText('Search results')).toBeInTheDocument();
+    expect(screen.getByTestId('ios-search-result-storage')).toBeInTheDocument();
     expect(screen.queryByTestId('ios-page')).not.toBeInTheDocument();
+  });
+
+  it('opens the page a result belongs to', async () => {
+    render(<SettingsDialog open onOpenChange={jest.fn()} />);
+
+    await userEvent.type(screen.getByRole('textbox'), 'files');
+    await userEvent.click(screen.getByTestId('ios-search-result-storage'));
+
+    expect(screen.getByTestId('ios-page')).toHaveTextContent('storage');
+    expect(screen.getByRole('textbox')).toHaveValue('');
   });
 
   it('closes the dialog from the header control', async () => {

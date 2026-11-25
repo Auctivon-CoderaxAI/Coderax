@@ -17,6 +17,7 @@ import type { SettingsTab } from './types';
 import { IOS_PAGES, findPage, pageVisible } from './ios/pages';
 import { useSettingsContext } from './context';
 import { settingsTabAtom } from './state';
+import SearchResults from './ios/Search';
 import { useLocalize } from '~/hooks';
 import Overview from './ios/Overview';
 import PageContent from './ios/Page';
@@ -69,8 +70,15 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
     setActiveTab(tab);
   };
 
-  const mobileTitle =
-    effectiveIosPage != null ? localize(effectiveIosPage.labelKey) : localize('com_nav_settings');
+  /** Results stand in for the open page, so the header keeps the index title (and
+   *  no back control) until a result opens the page it belongs to. */
+  const openPage = searching ? undefined : effectiveIosPage;
+  const mobileTitle = openPage != null ? localize(openPage.labelKey) : localize('com_nav_settings');
+
+  const openSearchResult = (id: IosPageId) => {
+    setIosPage(id);
+    setQuery('');
+  };
 
   let mobileBody = (
     <Overview
@@ -81,7 +89,7 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
     />
   );
   if (searching) {
-    mobileBody = <Content activeTab={effectiveTab} query={query} ctx={ctx} />;
+    mobileBody = <SearchResults ctx={ctx} query={query} onOpen={openSearchResult} />;
   } else if (effectiveIosPage != null) {
     mobileBody = <PageContent page={effectiveIosPage} ctx={ctx} />;
   }
@@ -133,7 +141,7 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
               >
                 {isSmallScreen ? (
                   <div className="grid w-full grid-cols-[2.5rem_1fr_2.5rem] items-center">
-                    {effectiveIosPage != null ? (
+                    {openPage != null ? (
                       <button
                         type="button"
                         onClick={() => {
