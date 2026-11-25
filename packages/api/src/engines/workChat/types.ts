@@ -44,7 +44,12 @@ export type RunScope = {
 
 export type EngineWorkChatRunner = {
   start: (
-    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
+    input: RunScope & {
+      prompt: string;
+      engine?: EngineId;
+      signal?: AbortSignal;
+      beforeDispatch?: () => Promise<void>;
+    },
   ) => Promise<EngineResult<EngineRunHandle>>;
   /** Durable: a run outlives the process that started it, so this reads the lease store. */
   state: (input: RunScope) => Promise<string | null>;

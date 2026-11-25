@@ -16,12 +16,14 @@ import type { WorkOptions, WorkSelection } from './workSelection';
 import type { WorkMode } from './workSelection';
 import {
   workSelectionFromConversation,
+  workModelChipValue,
   sanitizeWorkSelection,
   resolveWorkSelection,
   getWorkModelKey,
   selectWorkAgent,
   selectWorkAgentIdentity,
   selectWorkMode,
+  EXTERNAL_WORK_MODEL,
   isWorkMode,
   workAgentOf,
   workIdentities,
@@ -339,6 +341,11 @@ export function WorkModelSelect({
   } else if (agent) {
     modelTitle = localize('com_work_model_set_by_agent');
   }
+  /** An external engine picks its own model; naming the last native model here
+   *  would show a model this turn does not run. */
+  const shownOptions: WorkSelectOption[] = externalAgent
+    ? [{ value: EXTERNAL_WORK_MODEL, label: localize('com_work_agent_model_external') }]
+    : selectOptions;
 
   return (
     <WorkSelect
@@ -346,8 +353,8 @@ export function WorkModelSelect({
       label={localize('com_ui_model')}
       title={modelTitle}
       details={<WorkProviderStatus />}
-      value={selection.modelKey}
-      options={selectOptions}
+      value={workModelChipValue(selection)}
+      options={shownOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}
       disabled={disabled || externalAgent || agent != null || !hasSelectableModel}
       className={className}
