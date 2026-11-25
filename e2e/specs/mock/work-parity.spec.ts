@@ -13,6 +13,12 @@ const LOCAL_MODEL_B = 'e2e-work-local-b';
 const modeNav = (page: Page) => page.getByRole('navigation', { name: 'Conversation mode' });
 const composer = (page: Page) => page.getByTestId('composer-surface');
 const input = (page: Page) => page.getByRole('textbox', { name: 'Message input' });
+const workSelection = (page: Page) => page.getByTestId('work-agent-selection');
+
+async function selectWorkOption(page: Page, control: 'Model' | 'Work agent', option: RegExp) {
+  await workSelection(page).getByRole('button', { name: control, exact: true }).click();
+  await page.getByRole('menuitemradio', { name: option }).click();
+}
 
 async function switchMode(page: Page, mode: 'Chat' | 'Work') {
   const url = page.url();
@@ -25,12 +31,21 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
     'true',
   );
   if (mode === 'Work') {
-    await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible();
+    await expect(
+      workSelection(page).getByRole('button', { name: 'Model', exact: true }),
+    ).toBeVisible();
   }
   await expect(page).toHaveURL(url);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
   expect(await composer(page).evaluate((node, original) => node === original, element)).toBe(true);
-  await expect.poll(() => composer(page).boundingBox()).toEqual(before);
+  /** Work adds its model controls inside the same composer, so only the
+   * horizontal geometry must stay fixed; the height may grow on narrow screens. */
+  await expect
+    .poll(async () => {
+      const after = await composer(page).boundingBox();
+      return after && { x: after.x, width: after.width };
+    })
+    .toEqual(before && { x: before.x, width: before.width });
   await expect(page.locator('main')).toHaveCount(1);
   await expect(modeNav(page)).toHaveCount(1);
 }
@@ -104,7 +119,7 @@ test.describe('continuous Chat and Work conversation', () => {
     const url = page.url();
     const id = new URL(url).pathname.split('/').at(-1)!;
     await switchMode(page, 'Work');
-    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: LOCAL_MODEL_B });
+    await selectWorkOption(page, 'Model', new RegExp(LOCAL_MODEL_B));
     const replies = await mockReply(page).count();
     const start = await workStart(page, 'Reply with the mock result.');
     expect(start.request().postDataJSON().conversationId).toBe(id);
@@ -143,7 +158,7 @@ test.describe('continuous Chat and Work conversation', () => {
     await switchMode(page, 'Work');
     expect(controls.filter((path) => path.startsWith('/api/work/chat'))).toHaveLength(1);
     expect(controls.some((path) => path.endsWith('/abort'))).toBe(false);
-    await expect(page.getByText(/E2E slow reply continuous-work.*chunk-159/)).toBeVisible({
+    await expect(page.getByText(/E2E slow reply continuous-work.*chunk-159/).first()).toBeVisible({
       timeout: 30_000,
     });
   });
@@ -208,13 +223,13 @@ test.describe('continuous Chat and Work conversation', () => {
   }) => {
     await page.goto(NEW_CHAT_PATH);
     const token = await getAccessToken(page);
-    const agent = await requestJson<{ id: string }>(page, {
+    const agent = await requestJson<{ id: string; name?: string }>(page, {
       path: '/api/agents',
       method: 'POST',
       token,
       body: {
         name: `Free Work reviewer ${Date.now()}`,
-        provider: 'Ollama',
+        provider: 'ollama',
         model: LOCAL_MODEL_B,
         tools: [],
         model_parameters: {},
@@ -222,7 +237,7 @@ test.describe('continuous Chat and Work conversation', () => {
     });
     try {
       await switchMode(page, 'Work');
-      await page.getByRole('combobox', { name: 'Work agent' }).selectOption(agent.id);
+      await selectWorkOption(page, 'Work agent', new RegExp(agent.name ?? agent.id));
       const start = await workStart(page, 'Reply with the mock result.');
       expect(start.request().postDataJSON()).toMatchObject({
         agent_id: agent.id,
