@@ -224,13 +224,25 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
-      if (!activeHandle || closeCancelled) {
+      if (closeCancelled) {
         return;
       }
       closeCancelled = true;
-      void activeHandle
-        .cancel()
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+      if (activeHandle) {
+        void activeHandle
+          .cancel()
+          .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+        return;
+      }
+      /**
+       * No handle exists yet, so the start is still waiting or between retry
+       * attempts. Recording the cancellation on the runtime makes the retry
+       * loop refuse the next dispatch instead of starting an engine for a
+       * request nobody is reading.
+       */
+      void runtime
+        .cancel({ userId, tenantId, conversationId, engine })
+        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed Work start.'));
     };
     res.on('close', () => {
       if (!finished) {
