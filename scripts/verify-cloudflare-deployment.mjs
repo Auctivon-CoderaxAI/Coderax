@@ -207,6 +207,11 @@ export function verifyRepositoryConfig(root = repoRoot) {
   );
   assert.match(
     pkg.scripts?.['deploy:cloudflare'] ?? '',
+    /^node scripts\/verify-cloudflare-deployment\.mjs --config-only\s+&&\s+/,
+    'the Cloudflare deploy command must verify repository config before deploying',
+  );
+  assert.match(
+    pkg.scripts?.['deploy:cloudflare'] ?? '',
     /wrangler@4\.168\.0/,
     'the Cloudflare deploy command must pin Wrangler',
   );

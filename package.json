@@ -131,7 +131,7 @@
     "verify": "node scripts/verify.mjs",
     "verify:release-gate": "node scripts/verify-release-gate.mjs",
     "smoke:deployed": "node scripts/smoke-deployed.mjs",
-    "deploy:cloudflare": "node scripts/write-deployment-metadata.mjs --verify && npx --yes wrangler@4.168.0 deploy",
+    "deploy:cloudflare": "node scripts/verify-cloudflare-deployment.mjs --config-only && node scripts/write-deployment-metadata.mjs --verify && npx --yes wrangler@4.168.0 deploy",
     "verify:cloudflare": "node scripts/verify-cloudflare-deployment.mjs",
     "test:cloudflare": "node --test worker/index.test.mjs scripts/verify-cloudflare-deployment.test.mjs",
     "format": "npx prettier --write \"{,!(node_modules|venv)/**/}*.{js,jsx,ts,tsx}\"",
