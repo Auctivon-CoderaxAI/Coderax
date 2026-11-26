@@ -24,6 +24,13 @@ it.each(['', '\n\n'])('rejects a frame over its UTF-8 byte limit (suffix %j)', a
   await expect(frames(['data: €€€€' + suffix]).next()).rejects.toBeInstanceOf(SseProtocolError);
 });
 
-it('does not yield an event body missing its final delimiter', async () => {
-  await expect(frames(['data: unfinished']).next()).rejects.toBeInstanceOf(SseFramingError);
+it.each(['data: unfinished', 'data: 1234567890\n'])(
+  'reports a truncated frame as recoverable (%j)',
+  async (chunk) => {
+    await expect(frames([chunk]).next()).rejects.toBeInstanceOf(SseFramingError);
+  },
+);
+
+it('rejects a truncated frame that exceeds the byte limit without its newline', async () => {
+  await expect(frames(['data: 12345678901\n']).next()).rejects.toBeInstanceOf(SseProtocolError);
 });

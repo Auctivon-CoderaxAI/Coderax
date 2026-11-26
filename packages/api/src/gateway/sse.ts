@@ -113,6 +113,7 @@ export async function* readSseFrames(
       const chunk = await readWithTimeout();
       if (chunk.done) {
         finished = true;
+        buffer += decoder.decode();
       } else if (chunk.value != null) {
         buffer += decoder.decode(chunk.value, { stream: true });
       }
@@ -131,17 +132,13 @@ export async function* readSseFrames(
         boundary = buffer.indexOf('\n\n');
       }
 
-      // A trailing newline may be the first half of a delimiter split across chunks.
-      const partial = !finished && buffer.endsWith('\n') ? buffer.slice(0, -1) : buffer;
+      // A trailing newline may be the first half of a delimiter, even at EOF.
+      const partial = buffer.endsWith('\n') ? buffer.slice(0, -1) : buffer;
       if (Buffer.byteLength(partial) > maxFrameBytes) {
         throw new SseProtocolError('The engine event frame exceeded the size limit.');
       }
     }
 
-    buffer += decoder.decode();
-    if (Buffer.byteLength(buffer) > maxFrameBytes) {
-      throw new SseProtocolError('The engine event frame exceeded the size limit.');
-    }
     if (buffer.length > 0) {
       throw new SseFramingError('The engine event stream ended before the frame delimiter.');
     }

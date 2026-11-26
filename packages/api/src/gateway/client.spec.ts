@@ -1,5 +1,6 @@
 import type { GatewayFetch } from './client';
 import { GatewayTransportError, createEngineClient } from './client';
+import * as sse from './sse';
 
 const at = '2026-11-26T00:00:00.000Z';
 const chat = {
@@ -276,11 +277,20 @@ describe('WorkflowEngine client', () => {
         type: finish ? 'task.completed' : 'text.delta',
         payload: finish ? {} : { text: 'x' },
       })}`;
-    const fetch = jest.fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>(async (url) => {
-      return url.endsWith('after=0')
-        ? sseResponse([event(1, false) + '\n\n' + event(2, true)])
-        : sseResponse([event(2, true) + '\n\n']);
-    });
+    const readSseFrames = sse.readSseFrames;
+    const fetch = jest
+      .fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>()
+      .mockResolvedValueOnce(sseResponse([event(1, false) + '\n\n' + event(2, true)]))
+      .mockImplementationOnce(async () => {
+        // Apply the small limit only to the interrupted stream. A valid event exceeds 16 bytes.
+        jest
+          .spyOn(sse, 'readSseFrames')
+          .mockImplementationOnce((body, options) =>
+            readSseFrames(body, { ...options, maxFrameBytes: 16 }),
+          );
+        return sseResponse(['data: 1234567890\n']);
+      })
+      .mockResolvedValueOnce(sseResponse([event(2, true) + '\n\n']));
     const collected: number[] = [];
     for await (const item of clientWith(fetch).streamTaskEvents('task_1', 0)) {
       collected.push(item.seq);
@@ -288,6 +298,7 @@ describe('WorkflowEngine client', () => {
     expect(collected).toEqual([1, 2]);
     expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('after'))).toEqual([
       '0',
+      '1',
       '1',
     ]);
   });

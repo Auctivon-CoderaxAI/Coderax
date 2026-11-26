@@ -58,6 +58,7 @@ export type GatewayFetch = (
 export type GatewayTransportErrorCode =
   | 'engine_unreachable'
   | 'engine_timeout'
+  | 'submission_outcome_unknown'
   | 'protocol_error'
   | 'engine_unavailable'
   | 'unauthorized'
@@ -367,7 +368,18 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       } catch (cause) {
         throw networkError(cause);
       }
-      const text = await readBoundedBody(response.body, link.signal);
+      let text: string;
+      try {
+        text = await readBoundedBody(response.body, link.signal);
+      } catch (cause) {
+        if (path === '/v1/work' && init.method === 'POST') {
+          // The engine may have created a task. The contract has no submission deduplication.
+          const detail =
+            'The engine may have accepted the work, but its response could not be read.';
+          throw new GatewayTransportError('submission_outcome_unknown', detail, { detail });
+        }
+        throw cause;
+      }
       if (!response.ok && !init.acceptNonOk?.(response.status, text)) {
         throw errorFromResponse(response.status, text);
       }

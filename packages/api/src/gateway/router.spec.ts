@@ -217,6 +217,48 @@ describe('workflow engine gateway routes', () => {
     expect(response.body.content).toBe('unsupported');
   });
 
+  it('reports unknown Work submission outcomes without offering a retry', async () => {
+    const fetch: GatewayFetch = jest.fn(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new TypeError('connection lost'));
+        },
+      });
+      return new Response(body, { status: 202 });
+    });
+    const { app } = appFor(fetch);
+
+    const response = await request(app).post('/work').send({ objective: 'do the thing' });
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      code: 'WORKFLOW_ENGINE_ERROR',
+      engineCode: 'submission_outcome_unknown',
+      retryable: false,
+      detail: 'The engine may have accepted the work, but its response could not be read.',
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves the transport failure when Work cannot connect', async () => {
+    const { app } = appFor(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      throw new TypeError('connection refused');
+    });
+
+    const response = await request(app).post('/work').send({ objective: 'do the thing' });
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+      code: 'WORKFLOW_ENGINE_ERROR',
+      engineCode: 'engine_unreachable',
+      retryable: true,
+    });
+  });
+
   it('refuses an engine without the capabilities a Work task needs', async () => {
     const withoutDurable = health();
     withoutDurable.engines[0].capabilities.durable = false;
