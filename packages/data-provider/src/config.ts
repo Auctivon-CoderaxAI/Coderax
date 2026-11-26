@@ -4202,6 +4202,11 @@ export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
 export const providerFallbackConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+    /**
+     * Default true: only a verified $0 model may be used. Setting this false is
+     * an explicit owner decision to allow account-tier billing.
+     */
+    zeroCostOnly: z.boolean().default(true),
     order: z
       .array(z.enum([...PROVIDER_FALLBACK_IDS]))
       .min(1)

@@ -1,5 +1,6 @@
 import { Providers } from '@librechat/agents';
 import {
+  isProviderFallbackAllowed,
   isProviderFallbackEnabled,
   providerFallbackBaseURL,
   providerFallbackEndpointMatches,
@@ -89,10 +90,12 @@ export function buildProviderFallbackOptions({
 
   const fallbacks: FallbackConfig[] = [];
   for (const provider of providerFallbackOrder(config, primary.id)) {
-    if (provider.id === primary.id) {
+    if (provider.id === primary.id || !isProviderFallbackAllowed(config, provider)) {
       continue;
     }
-    const apiKey = env?.[provider.apiKeyEnv];
+    const apiKey = [provider.apiKeyEnv, ...(provider.legacyApiKeyEnv ?? [])]
+      .map((name) => env?.[name])
+      .find((value): value is string => Boolean(value));
     if (!apiKey) {
       continue;
     }
