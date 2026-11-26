@@ -1,5 +1,7 @@
 import express from 'express';
+import { get } from 'node:http';
 import request from 'supertest';
+import { once } from 'node:events';
 import type { WorkflowEngineGatewayDeps } from './router';
 import type { GatewayFetch } from './client';
 import { createWorkflowEngineGateway } from './router';
@@ -287,21 +289,23 @@ describe('workflow engine gateway routes', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('reports an unknown submission outcome when Work cannot connect', async () => {
+  it.each([
+    ['refused before connection', 'ECONNREFUSED', 'engine_unreachable', true],
+    ['reset before headers', 'ECONNRESET', 'submission_outcome_unknown', false],
+  ])('classifies a Work request %s', async (_label, code, engineCode, retryable) => {
     const { app } = appFor(async (url) => {
       if (url.endsWith('/v1/health')) {
         return jsonResponse(health());
       }
-      throw new TypeError('connection refused');
+      throw new TypeError('fetch failed', { cause: { code } });
     });
 
     const response = await request(app).post('/work').send({ objective: 'do the thing' });
     expect(response.status).toBe(502);
-    expect(response.body).toEqual({
+    expect(response.body).toMatchObject({
       code: 'WORKFLOW_ENGINE_ERROR',
-      engineCode: 'submission_outcome_unknown',
-      retryable: false,
-      detail: 'The engine may have accepted the work, but the request outcome is unknown.',
+      engineCode,
+      retryable,
     });
   });
 
@@ -339,10 +343,45 @@ describe('workflow engine gateway routes', () => {
     });
 
     const response = await request(app).get('/conversations/%2e%2e');
-    // Express normalises the dot segment before routing; the gateway guard is a
-    // second layer for engines reached through a different path normaliser.
+    // The client normalizes the path before Express receives it.
     expect(response.status).toBe(404);
     expect(calls).toBe(1);
+  });
+
+  it('rejects a decoded dot-only conversation id at the route guard', async () => {
+    const fetch = jest.fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>(async () =>
+      jsonResponse(health()),
+    );
+    const { app } = appFor(fetch);
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await once(server, 'listening');
+      const address = server.address();
+      if (address == null || typeof address === 'string') {
+        throw new Error('Expected a listening TCP address');
+      }
+      // Send the path as written, without URL dot segment normalization.
+      const response = await new Promise<{ status: number | undefined; body: string }>(
+        (resolve, reject) => {
+          get(
+            { host: address.address, port: address.port, path: '/conversations/%2e%2e' },
+            (res) => {
+              let body = '';
+              res.setEncoding('utf8');
+              res.on('data', (chunk: string) => (body += chunk));
+              res.on('end', () => resolve({ status: res.statusCode, body }));
+              res.on('error', reject);
+            },
+          ).on('error', reject);
+        },
+      );
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({ code: 'WORKFLOW_ENGINE_INVALID_REQUEST' });
+      expect(fetch.mock.calls).toEqual([['https://engine.example/v1/health', expect.any(Object)]]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it.each([false, true])(
@@ -478,7 +517,7 @@ describe('workflow engine gateway routes', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a decoded dot-only conversation id at the route guard', async () => {
+  it('rejects a rewritten dot-only conversation id at the route guard', async () => {
     const fetch = jest.fn(async (url: string) =>
       url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}),
     );

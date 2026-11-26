@@ -281,6 +281,34 @@ function networkError(cause: unknown): GatewayTransportError {
   });
 }
 
+const PRE_CONNECT_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+function isPreConnectFailure(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause == null) {
+    return false;
+  }
+  // Node fetch wraps its socket error in a TypeError; injected transports may throw it directly.
+  const error = 'cause' in cause && cause.cause != null ? cause.cause : cause;
+  return (
+    typeof error === 'object' &&
+    error != null &&
+    !('errors' in error) &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    PRE_CONNECT_ERROR_CODES.has(error.code)
+  );
+}
+
+function unknownWorkSubmission(detail: string): GatewayTransportError {
+  // The engine may have created a task. The contract has no submission deduplication.
+  return new GatewayTransportError('submission_outcome_unknown', detail, { detail });
+}
+
 type BodyReader = {
   getReader: () => {
     read: () => Promise<{ done: boolean; value?: Uint8Array }>;
@@ -416,6 +444,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     },
   ): Promise<z.infer<T>> {
     const link = linkedController(init.signal, init.timeoutMs ?? options.requestTimeoutMs);
+    const submitsWork = path === '/v1/work' && init.method === 'POST';
     try {
       const headers: Record<string, string> = {
         accept: 'application/json',
@@ -438,13 +467,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           redirect: 'error',
         });
       } catch (cause) {
-        if (path === '/v1/work' && init.method === 'POST') {
-          // A rejected fetch does not establish that the engine did not receive
-          // and accept the submission. The contract has no deduplication key, so
-          // this is an unknown outcome and must not be advertised as retryable.
-          const detail =
-            'The engine may have accepted the work, but the request outcome is unknown.';
-          throw new GatewayTransportError('submission_outcome_unknown', detail, { detail });
+        if (submitsWork && !isPreConnectFailure(cause)) {
+          throw unknownWorkSubmission(
+            'The engine may have accepted the work, but no response was received.',
+          );
         }
         throw networkError(cause);
       }
@@ -457,11 +483,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           maxResponseBytes,
         );
       } catch (cause) {
-        if (path === '/v1/work' && init.method === 'POST') {
-          // The engine may have created a task. The contract has no submission deduplication.
-          const detail =
-            'The engine may have accepted the work, but its response could not be read.';
-          throw new GatewayTransportError('submission_outcome_unknown', detail, { detail });
+        if (submitsWork) {
+          throw unknownWorkSubmission(
+            'The engine may have accepted the work, but its response could not be read.',
+          );
         }
         throw cause;
       }
