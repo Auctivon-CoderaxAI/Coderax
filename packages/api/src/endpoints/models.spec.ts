@@ -1135,6 +1135,35 @@ describe('fetchModels caching behavior', () => {
     expect(mockCacheSet).not.toHaveBeenCalled();
   });
 
+  it('reuses cached models only for the same endpoint, credential, and deployment key', async () => {
+    const originalKey = process.env.CREDS_KEY;
+    const entries = new Map<string, string[]>();
+    mockCacheGet.mockImplementation(async (key: string) => entries.get(key));
+    mockCacheSet.mockImplementation(async (key: string, models: string[]) => {
+      entries.set(key, models);
+      return true;
+    });
+    const route = { baseURL: 'https://api.test.com', apiKey: 'provider-key' };
+    try {
+      process.env.CREDS_KEY = 'ab'.repeat(32);
+      await fetchModels(route);
+      await fetchModels(route);
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+
+      await fetchModels({ ...route, apiKey: 'another-provider-key' });
+      await fetchModels({ ...route, baseURL: 'https://other.test.com' });
+      process.env.CREDS_KEY = 'cd'.repeat(32);
+      await fetchModels(route);
+      expect(mockedAxios.get).toHaveBeenCalledTimes(4);
+    } finally {
+      if (originalKey == null) {
+        delete process.env.CREDS_KEY;
+      } else {
+        process.env.CREDS_KEY = originalKey;
+      }
+    }
+  });
+
   it('does not read or write cache when skipCache is true', async () => {
     await fetchModels({
       apiKey: 'key',

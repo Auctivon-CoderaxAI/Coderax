@@ -25,6 +25,7 @@ import { createSSRFSafeAgents, validateEndpointURL } from '~/auth';
 import { standardCache, tokenConfigCache } from '~/cache';
 
 type SSRFSafeAgents = ReturnType<typeof createSSRFSafeAgents>;
+const localModelCacheSecret = crypto.randomBytes(32);
 
 export interface FetchModelsParams {
   /** User ID for API requests */
@@ -316,7 +317,16 @@ export async function fetchModels({
 }
 
 function modelsCacheKey(baseURL: string, apiKey: string): string {
-  return crypto.createHash('sha256').update(`${baseURL}:${apiKey}`).digest('hex').slice(0, 32);
+  // Replicas share cache entries when configured with the same deployment key.
+  // Without it, keep cache keys stable only for the lifetime of this process.
+  const secret = process.env.CREDS_KEY;
+  const key =
+    secret && /^[a-f\d]{64}$/i.test(secret) ? Buffer.from(secret, 'hex') : localModelCacheSecret;
+  return crypto
+    .createHmac('sha256', key)
+    .update(JSON.stringify(['model-cache-v1', baseURL, apiKey]))
+    .digest('hex')
+    .slice(0, 32);
 }
 
 /** Options for fetching OpenAI models */
