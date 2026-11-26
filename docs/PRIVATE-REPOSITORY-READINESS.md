@@ -23,8 +23,8 @@ Nine workflows were starter templates or leftovers that cannot apply here:
 ## Public-only features replaced
 
 - **Secret scanning / push protection** are public-only on Free. `secret-scan.yml` runs gitleaks over history. Push blocking has no free private equivalent; detection runs after the push.
-- **npm provenance** requires a public source repository. Removed from the three manual publish workflows; the protected `publish` environment and npm OIDC trusted publishing remain.
-- **GHCR storage**: private packages include 500 MB. Build cache moved from GHCR to the free 10 GB Actions cache, and automatic main-branch image publishing is gated behind `ALLOW_IMAGE_PUBLISH=true`. Tag releases still publish.
+- **npm publishing**: provenance requires a public source repository and was removed from the three manual publish workflows. They still use npm OIDC and reference the `publish` environment, but [GitHub Free ignores environment protection rules and environment secrets after privatization](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Arrange release approval before changing visibility.
+- **GHCR storage**: [Container registry image storage and bandwidth are currently free](https://docs.github.com/en/billing/concepts/product-billing/github-packages); the 500 MB GitHub Free package storage allowance does not apply to GHCR images. Build cache moved to the Actions cache. Keep automatic main-branch publishing opt-in to control when images are built and pushed to GHCR and Docker Hub. Tag releases still publish.
 - **Cross-repository fixture**: set `NATIVE_CODE_REPO_TOKEN` (read-only) and optionally `NATIVE_CODE_REPOSITORY` before privatizing.
 - **Rulesets / protected branches** are unavailable for private repos on Free. The `test` aggregation job remains advisory; enforcement needs Team or a manual merge policy.
 
@@ -37,6 +37,7 @@ Nine workflows were starter templates or leftovers that cannot apply here:
 
 ## Owner action before privatizing
 
-1. Add `NATIVE_CODE_REPO_TOKEN`.
-2. Decide whether `ALLOW_IMAGE_PUBLISH` should be enabled; if yes, monitor GHCR against 500 MB.
-3. Add a $0 billing/spending limit so overage is refused.
+1. Add `NATIVE_CODE_REPO_TOKEN` with read-only access to the fixture repository. Before privatizing, confirm that the macOS acceptance job passes for the exact revision on a trusted run. Record that result in the PR and require it manually where the hosting plan cannot enforce it. A successful `Native workspace acceptance not verified` job means the macOS tests did not run.
+2. Arrange a manual npm release approval process: have an independent reviewer record approval for the exact release commit in the release PR. An authorized maintainer dispatches the publish workflow on `main` only while that commit is its tip and confirms the run used the approved SHA. Verify the npm trusted publisher configuration and identify any dependency on environment secrets before cutover. If manual approval is insufficient, keep the repository public until an enforceable release gate is in place.
+3. Enable `ALLOW_IMAGE_PUBLISH=true` only if automatic main-branch builds and pushes to both registries are wanted.
+4. In [GitHub billing settings](https://docs.github.com/en/billing/how-tos/set-up-budgets), set a separate $0 budget for each relevant metered product (for example, Actions and Packages), scoped to the account or organization that pays for this repository. Enable **Stop usage when budget limit is reached** for each budget that offers it. If a product cannot be capped, keep its paid usage disabled. Alerts alone do not stop charges.
