@@ -128,7 +128,35 @@ pull request that introduces it. That is intentional: the rule is not relaxed fo
 6. Other pull requests update from `main` before their required check can appear. Their temporary
    block is fail-closed, not a reason to remove the rule.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:7e360c252bbd50331bfdeb4bc1c9c0b586c422971c00eeb8305e3a30dc38b1b8 -->
+
+## Reruns and later check results
+
+The aggregate result reflects the observations made during that run. A later component attempt,
+commit status update, or code owner approval does not start a new aggregate run. If a component is
+rerun, a status changes, or the guard failed while waiting for approval, rerun the aggregate job
+for the same pull request after the new result or approval is visible. Verify the new aggregate
+result on the current head before relying on it. A previous green aggregate does not cover a later
+component failure.
+
+## Rolling back the gate
+
+1. Prefer a reviewed fix or revert that keeps `CI gate (aggregate)` active and retains the compatible
+   workflow, evaluator, and self-test. Keep the required check and independent review in place.
+2. If a rollback must remove the producer, first have the repository owner stage a replacement
+   required workflow from a trusted definition. Keep the existing gate required while verifying
+   that the replacement reports on the current pull request head, including a controlled failure
+   that blocks merging.
+3. Require the verified replacement before changing the old requirement or removing its producer.
+   Confirm the effective rules still require CI and independent review, then use a reviewed pull
+   request to remove the old producer. If a verified replacement is unavailable, keep the existing
+   producer and repair it in place.
+
 ## Merge queue
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 The gate declares `merge_group` so a queue gets an explicit failing check instead of a pending one.
 It reports **failure** unless every component pull-request workflow also declares `merge_group`:
