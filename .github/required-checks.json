@@ -1,0 +1,105 @@
+{
+  "$comment": "Lanes the aggregate `CI gate` check evaluates. `patterns` are check-run name prefixes because shard jobs report the matrix expression in their name. `pathFiltered` claims are verified against the workflow's own `on.pull_request.paths` by ci-gate.test.mjs.",
+  "required": [
+    {
+      "label": "Static checks",
+      "workflow": "static-checks.yml",
+      "pathFiltered": true,
+      "patterns": ["Static checks", "ESLint config regression sweep"]
+    },
+    {
+      "label": "Client types, tests and build",
+      "workflow": "frontend-review.yml",
+      "pathFiltered": true,
+      "patterns": [
+        "TypeScript type checks (client)",
+        "Tests: @coderax/client",
+        "Vite build verification",
+        "Tests: Ubuntu",
+        "Client build recovery regression",
+        "Build packages"
+      ]
+    },
+    {
+      "label": "Backend types, tests and build",
+      "workflow": "backend-review.yml",
+      "pathFiltered": true,
+      "patterns": [
+        "TypeScript type checks",
+        "Tests: @coderax/api",
+        "Tests: api",
+        "Tests: data-provider",
+        "Tests: data-schemas",
+        "Circular dependency checks",
+        "Build packages"
+      ]
+    },
+    {
+      "label": "Cache integration",
+      "workflow": "cache-integration-tests.yml",
+      "pathFiltered": true,
+      "patterns": [
+        "Integration Tests (MongoDB and Redis)",
+        "Integration Tests that use actual Redis Cache"
+      ]
+    },
+    {
+      "label": "Accessibility lint",
+      "workflow": "a11y.yml",
+      "pathFiltered": true,
+      "patterns": ["axe-linter"]
+    },
+    {
+      "label": "Lighthouse budgets",
+      "workflow": "lighthouse.yml",
+      "pathFiltered": true,
+      "patterns": ["lighthouse"]
+    },
+    {
+      "label": "Chat and Work evidence",
+      "workflow": "ui-evidence.yml",
+      "pathFiltered": true,
+      "optional": true,
+      "patterns": ["Chat and Work evidence", "Conversation switch benchmark"]
+    }
+  ],
+  "reportOnly": [
+    {
+      "label": "Mock and Redis end-to-end",
+      "workflow": "playwright-mock.yml",
+      "pathFiltered": true,
+      "patterns": [
+        "e2e (memory, shard",
+        "e2e (redis transport, shard",
+        "MCP Apps (browser and server)",
+        "MCP list_changed"
+      ],
+      "reason": "Red on main before any of the open pull requests; the suite is being repaired separately. Enforce once green."
+    },
+    {
+      "label": "Docker images and API boot",
+      "workflow": "docker-smoke.yml",
+      "pathFiltered": true,
+      "patterns": [
+        "Node image smoke (plain Dockerfile builds)",
+        "Build Docker client package target",
+        "API runtime smoke (production image boots)"
+      ],
+      "reason": "`API runtime smoke` fails with `npm run build` inside buildx on unrelated pull requests (#310, #311); needs its own investigation before it can block merges."
+    },
+    {
+      "label": "Native workspace acceptance",
+      "workflow": "workspace-acceptance.yml",
+      "pathFiltered": true,
+      "patterns": ["Machine choices and saved chat transitions (macOS)"],
+      "reason": "macOS-only lane that needs a native worker checkout; no hosted Linux evidence to enforce from."
+    },
+    {
+      "label": "Codegraph selection",
+      "workflow": "codegraph-select.yml",
+      "pathFiltered": false,
+      "patterns": ["Codegraph select"],
+      "reason": "Observe-only by design: it writes a summary and intentionally cannot fail a pull request."
+    }
+  ]
+}
