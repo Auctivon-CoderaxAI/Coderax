@@ -16,35 +16,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  preflight:
-    name: Fixture credential check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      available: ${{ steps.check.outputs.available }}
-    steps:
-      - name: Check for a read-only cross-repository token
-        id: check
-        env:
-          TOKEN: ${{ secrets.NATIVE_CODE_REPO_TOKEN }}
-        run: |
-          if [ -n "$TOKEN" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::NATIVE_CODE_REPO_TOKEN is not configured; native workspace acceptance cannot run."
-          fi
-
   workspace:
     name: Machine choices and saved chat transitions (macOS)
-    needs: preflight
-    if: needs.preflight.outputs.available == 'true'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: native-workspace-acceptance
     runs-on: macos-latest
     timeout-minutes: 25
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
+      - name: Require the protected environment's fixture token
+        env:
+          TOKEN: ${{ secrets.NATIVE_CODE_REPO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Missing fixture token. Configure it only in the protected native-workspace-acceptance environment."
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
@@ -54,13 +44,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # Private-readiness: this fixture is a different private repository,
-          # so the repo-scoped GITHUB_TOKEN cannot read it. Set
-          # NATIVE_CODE_REPO_TOKEN (read-only, that repository only) before
-          # making Coderax private.
+          # so use the read-only token from the protected environment.
           repository: ${{ vars.NATIVE_CODE_REPOSITORY || 'Coderax-AI/code-interpreter' }}
           ref: 67d75d859aee891923c40cde1db073489d74a424
           path: .native-code
-          token: ${{ secrets.NATIVE_CODE_REPO_TOKEN || github.token }}
+          token: ${{ secrets.NATIVE_CODE_REPO_TOKEN }}
           persist-credentials: false
 
       - uses: actions/setup-node@v5
@@ -114,7 +102,7 @@ jobs:
         if: always()
         env:
           RESULT: ${{ job.status }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD: ${{ github.sha }}
         run: |
           {
             echo '### Native workspace acceptance'
@@ -126,17 +114,15 @@ jobs:
 
   not-verified:
     name: Native workspace acceptance not verified
-    needs: preflight
-    if: needs.preflight.outputs.available != 'true'
+    if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Record the missing prerequisite
+      - name: Record why fixture acceptance did not run
         run: |
           {
             echo '### Native workspace acceptance: NOT VERIFIED'
-            echo '`NATIVE_CODE_REPO_TOKEN` is not configured, so the native fixture'
-            echo 'could not be checked out and no macOS acceptance run was started.'
-            echo 'Add a read-only token scoped to the fixture repository before'
-            echo 'privatizing this repository.'
+            echo 'Hosted fixture acceptance runs only on manual dispatches from main.'
+            echo 'For a PR, run the reviewed revision on a trusted Mac and record the result.'
+            echo 'See docs/PRIVATE-REPOSITORY-READINESS.md for the fixture setup.'
           } >> "$GITHUB_STEP_SUMMARY"
