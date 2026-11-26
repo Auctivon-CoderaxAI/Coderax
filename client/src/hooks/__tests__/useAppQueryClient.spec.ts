@@ -11,9 +11,10 @@ const reportError = (client: QueryClient, error: unknown) => {
 
 describe('useAppQueryClient', () => {
   it('keeps one client when the app re-renders', () => {
-    const { result, rerender } = renderHook(({ handler }) => useAppQueryClient(handler), {
-      initialProps: { handler: jest.fn() },
-    });
+    const { result, rerender } = renderHook(
+      ({ handler }: { handler: (error: unknown) => void }) => useAppQueryClient(handler),
+      { initialProps: { handler: jest.fn() } },
+    );
     const client = result.current;
 
     rerender({ handler: jest.fn() });
@@ -24,9 +25,10 @@ describe('useAppQueryClient', () => {
   it('sends a 401 to the latest handler without replacing the client', () => {
     const first = jest.fn();
     const second = jest.fn();
-    const { result, rerender } = renderHook(({ handler }) => useAppQueryClient(handler), {
-      initialProps: { handler: first },
-    });
+    const { result, rerender } = renderHook(
+      ({ handler }: { handler: (error: unknown) => void }) => useAppQueryClient(handler),
+      { initialProps: { handler: first } },
+    );
     const client = result.current;
 
     rerender({ handler: second });

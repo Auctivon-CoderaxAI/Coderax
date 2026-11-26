@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
-import { QueryCache } from '@tanstack/react-query';
-import type { QueryClient } from '@tanstack/react-query';
+import { QueryCache, QueryClient } from '@tanstack/react-query';
 
 type UnauthorizedHandler = (error: unknown) => void;
 
@@ -42,9 +41,7 @@ const createAppQueryClient = (onUnauthorized: UnauthorizedHandler): QueryClient 
  * startup path had already resolved. The initializer keeps the client stable,
  * while the ref keeps the 401 handler current without rebuilding it.
  */
-export default function useAppQueryClient(
-  onUnauthorized: UnauthorizedHandler,
-): QueryClient {
+export default function useAppQueryClient(onUnauthorized: UnauthorizedHandler): QueryClient {
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
   const [queryClient] = useState(() =>

@@ -7,7 +7,6 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, ToastViewport, ToastProvider, useInputModality } from '@coderax/client';
 import { useApiErrorBoundary } from './hooks/ApiErrorBoundaryContext';
-import useAppQueryClient from './hooks/useAppQueryClient';
 import WakeLockManager from '~/components/System/WakeLockManager';
 import { ScreenshotProvider } from './hooks/ScreenshotContext';
 import QueryDevtoolsGate from '~/components/QueryDevtoolsGate';
@@ -15,6 +14,7 @@ import LanguageSync from '~/components/System/LanguageSync';
 import DeploymentTheme from '~/Providers/DeploymentTheme';
 import UiScaleSync from '~/components/System/UiScaleSync';
 import { initializeFontSize } from '~/store/fontSize';
+import useAppQueryClient from './hooks/useAppQueryClient';
 import { LiveAnnouncer } from '~/a11y';
 import { router } from './routes';
 
