@@ -22,6 +22,11 @@ on:
       - '.github/workflows/ui-evidence.yml'
       - '!**.md'
   workflow_dispatch:
+    inputs:
+      benchmark_ref:
+        description: Git ref to benchmark (defaults to the dispatched commit)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -75,11 +80,6 @@ jobs:
           e2e/specs/mock/work-parity.spec.ts
           --grep "modes retain URL"
 
-      - name: Measure conversation-switch latency and render work
-        env:
-          CI: 'true'
-        run: npx playwright test --config=e2e/playwright.config.navigation-perf.ts
-
       - name: Upload Playwright report and screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -90,6 +90,43 @@ jobs:
             e2e/specs/.test-results/**
           retention-days: 14
           if-no-files-found: ignore
+
+  benchmark:
+    name: Conversation switch benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout benchmark target
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.benchmark_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.16.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the application
+        run: npm run e2e:prepare
+
+      - name: Verify Chrome is present
+        run: google-chrome --version
+
+      - name: Install Playwright ffmpeg
+        run: npx playwright install ffmpeg
+
+      - name: Measure conversation-switch latency and render work
+        env:
+          CI: 'true'
+        run: npx playwright test --config=e2e/playwright.config.navigation-perf.ts
 
       - name: Upload navigation performance evidence
         if: ${{ !cancelled() }}
