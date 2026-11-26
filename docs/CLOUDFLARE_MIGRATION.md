@@ -164,6 +164,19 @@ Probes from a cloud workspace. Values are observed, not inferred.
 | Work runtime           | `deploy/oci/coderax.oci.yaml` sets `engines.opencode.baseURL: http://opencode:4096`, but `main`'s Compose file had no `opencode` service, private `engine` network or shared engine volumes. Work could not reach its engine. This branch restores them from `930043e4`; the image was not built here because Docker is unavailable.                                                                                                                                         |
 | DeploymentPlatformAI   | No interface, adapter, endpoint or credential exists in this repository. Zero-cost hosting cannot be verified, and no infrastructure was created.                                                                                                                                                                                                                                                                                                                            |
 
+### Second pass (2026-11-26, 19:20 UTC)
+
+| Check                 | Observation                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Served Worker         | Unchanged: `/deployment.json` still reports `a5d237b0ff…`, built `2026-11-25T22:59:12.475Z`. `/readyz`, `/health`, `/livez` and `/api/config` still return `503 {"error":"API proxy is not configured"}`.                                                                                                                                                                                       |
+| `main` and PR #309    | `main` is still `a5d237b0`; PR #309 is still **open** at `46ba346f`, `mergeable_state: unstable`, 4 commits, 7 files. It carries `keep_vars`, the OpenCode transport admission fix and the Worker config gate.                                                                                                                                                                                  |
+| Repository visibility | Public (`private: false`). The three source repositories are public so standard hosted runners are free.                                                                                                                                                                                                                                                                                        |
+| Hosted Actions        | Executing. 10,726 runs exist; `workflow_run` jobs on `a5d237b0` succeeded between 17:24 and 19:18 UTC, and pull-request runs for active branches were queued at 19:18 UTC. The earlier "billing-blocked" statement is stale.                                                                                                                                                                    |
+| PR #309 checks        | 42 check runs; only Workers Builds and CodeRabbit succeeded. The failures are stale, not diagnostic: jobs at 06:19 UTC show `started_at == completed_at` within two seconds, `steps: []` and no annotations, which is the signature of a runner that never started. They must be re-run at the current head.                                                                                    |
+| Workers Builds        | The Cloudflare GitHub integration reports `Workers Builds: coderax` **success** on `46ba346f` and publishes preview builds. The production Worker still serves `a5d237b0` because #309 is unmerged.                                                                                                                                                                                             |
+| Cause of the 503      | At least one of the two Worker checks fails: `CODERAX_API_ORIGIN` missing or not a valid `https://coderax-<ip>.sslip.io` origin, or `CODERAX_PROXY_SECRET` missing or shorter than 32 characters. The route returns one message for both, so the 503 alone cannot say which. No Cloudflare credential was available to read the bindings, so this remains **undetermined**, not "both missing". |
+| Oracle origin         | Still not recorded in the repository or its history. `DeploymentPlatformAI/DeploymentPlatform` returns `Not Found`, so it is private or moved and cannot be inspected without access. No probe was sent to a guessed address.                                                                                                                                                                   |
+
 ### Effective `keep_vars` behavior
 
 Wrangler deletes plain-text dashboard variables that are not declared in the configuration file; it
@@ -175,10 +188,13 @@ identically. `CODERAX_PROXY_SECRET` is already a secret and is unaffected either
 
 ### Exact remaining owner actions
 
-1. Repair Cloudflare access for inspection and binding changes: reconnect the Cloudflare integration
-   with a Global API Key (`X-Auth-Email` plus `X-Auth-Key`) or use `CLOUDFLARE_API_TOKEN` with
-   Wrangler, which sends `Authorization: Bearer`. Then confirm the `coderax` build trigger, its last
-   build for `a5d237b0`, and the failure reason if a newer build did not run.
+1. Repair Cloudflare access without a Global API Key. Either use a scoped API token with
+   `Authorization: Bearer` (Wrangler reads `CLOUDFLARE_API_TOKEN`; verify it with
+   `curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer
+$CLOUDFLARE_API_TOKEN"`), or set the two bindings in the dashboard. Do not create a Global API Key
+   to accommodate the connector's header bug: it grants account-wide authority this task does not
+   need. With access, confirm the `coderax` build trigger, its last build for `a5d237b0`, and the
+   failure reason if a newer build did not run.
 2. Store `CODERAX_API_ORIGIN` as a **secret** on the `coderax` Worker (not a text variable) with the
    value from the VM's `origin.env` (`CODERAX_API_HOST`), and store `CODERAX_PROXY_SECRET` as a
    secret with the matching value. Do not paste either value into an issue, PR or chat.

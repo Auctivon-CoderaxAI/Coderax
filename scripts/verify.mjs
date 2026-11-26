@@ -325,7 +325,7 @@ const warnings = [...checkoutWarnings];
 if (options.manual.length === 0) warnings.push('- Warning: no manual observation was supplied.');
 
 const artifact = [
-  '### Local verification (hosted CI is billing-blocked)',
+  '### Local verification',
   '',
   `- Commit before gates: \`${head.slice(0, 12)}\` on \`${branch}\``,
   `- Base: \`${base}\` (merge base \`${mergeBase.slice(0, 12)}\`)`,

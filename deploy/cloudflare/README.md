@@ -99,25 +99,33 @@ coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 | `CODERAX_PROXY_SECRET` | secret        | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
 
 Wrangler's default is `keep_vars = false`: a deploy deletes plain-text dashboard variables that are
-not declared in the configuration file, while secrets are never deleted. [PR
-#309](https://github.com/Auctivon-CoderaxAI/Coderax/pull/309) adds top-level `"keep_vars": true` to
-[`wrangler.jsonc`](../../wrangler.jsonc) and makes `--config-only` fail if it is removed, but that PR
-is **open**, not merged: `main` and the deployed Worker were both `a5d237b0` on 2026-11-26, and the
-setting is absent from `main`.
+not declared in the configuration file, while secrets are never deleted. This branch carries [PR
+#309](https://github.com/Auctivon-CoderaxAI/Coderax/pull/309), which adds top-level `"keep_vars":
+true` to [`wrangler.jsonc`](../../wrangler.jsonc) and makes `--config-only` fail if it is removed.
+`main` still lacks the setting — both `main` and the deployed Worker were `a5d237b0` on 2026-11-26 —
+so it takes effect only when that pull request merges and Workers Builds deploys the merge.
 
-Until #309 merges and a Worker built from the merge is serving, do not store `CODERAX_API_ORIGIN` as
-a dashboard text variable — the next deploy deletes it and every API route returns
-`503 {"error":"API proxy is not configured"}` again. Store the origin with `wrangler secret put
-CODERAX_API_ORIGIN` (or the dashboard's **Secret** type) instead; the Worker reads it from `env`
-exactly like a variable, and a deploy never deletes it. After #309 is serving, a text variable is
-safe again. `CODERAX_PROXY_SECRET` is a secret and survives either way.
+The 503 does not depend on that merge. `CODERAX_PROXY_SECRET` is already a secret, and
+`CODERAX_API_ORIGIN` can be stored as a **secret** too: the Worker reads `env.CODERAX_API_ORIGIN`
+identically, and a deploy never deletes a secret. Storing both as secrets fixes the 503 whether or
+not #309 has merged, and keeps it fixed across deploys. Only a plain-text origin needs `keep_vars`.
 
-`keep_vars` is enabled in [`wrangler.jsonc`](../../wrangler.jsonc). A Wrangler deploy deletes
-plain-text variables that are not declared in the configuration file, so without it the dashboard-set
-`CODERAX_API_ORIGIN` would disappear on the next Workers Builds run and every API route would answer
-`503 {"error":"API proxy is not configured"}` again. Secrets such as `CODERAX_PROXY_SECRET` are
-never deleted by a deploy. `scripts/verify-cloudflare-deployment.mjs --config-only` fails if this
-setting is removed.
+Do not add a secret while a plain-text variable of the same name exists: Cloudflare rejects it with a
+binding-name conflict. Delete the variable first, then add the secret. With a scoped API token
+(`Authorization: Bearer`, never `X-Auth-Key`), both bindings can be set in one call that leaves every
+other binding untouched:
+
+```sh
+curl -sS -X PATCH \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'content-type: application/json' \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/coderax/secrets-bulk" \
+  --data @bindings.json
+```
+
+`bindings.json` maps each name to `{"type":"secret_text","name":"<NAME>","text":"<value>"}`. Create
+it under `umask 077`, delete it after the call, and never commit, echo or paste it. Setting the same
+two values in the dashboard's **Variables and Secrets** panel is equivalent and needs no token.
 
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and

@@ -1,5 +1,20 @@
 # CI unblock: billing, visibility, and runner startup
 
+## State on 2026-11-26: resolved
+
+The organization made the three Coderax source repositories public, and hosted Actions now execute.
+Verified at 19:20 UTC on `Auctivon-CoderaxAI/Coderax`:
+
+- Repository API reports `private: false`, `visibility: public`.
+- 10,726 workflow runs exist; `workflow_run` jobs on `a5d237b0` succeeded repeatedly between 17:24
+  and 19:18 UTC, and pull-request runs for active branches were queued at 19:18 UTC.
+- Older failing checks are not evidence of broken code. Jobs at `46ba346f` (06:19 UTC) report
+  `started_at == completed_at` within two seconds, `steps: []`, and no annotations — the runner
+  never started. Re-run those checks; do not fix code against them.
+
+The symptom and diagnostics below remain accurate for a genuine runner-startup failure. Billing is no
+longer the cause on this repository.
+
 ## Symptom
 
 Workflow runs fail before `Set up job` with `startup_failure`, `steps=0`, and no
@@ -21,9 +36,9 @@ multi-agent certification cell remain **UNVERIFIED**.
 
 ## Paid plan / spending limit
 
-An organization owner raises or removes the Actions spending limit, or upgrades
-the plan. Then trigger `ci-canary.yml` and confirm runner startup before running
-the full matrix.
+This applied while the repositories were private. It is no longer the unblock path here: the three
+source repositories are public, so standard hosted runners are free. Trigger `ci-canary.yml` and
+confirm runner startup before running the full matrix.
 
 ## Self-hosted runner
 
