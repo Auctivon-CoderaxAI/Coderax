@@ -25,8 +25,9 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
     'true',
   );
   if (mode === 'Work') {
-    await expect(page.getByRole('button', { name: 'Model' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Model' })).toBeEnabled();
+    const modelControl = page.getByRole('button', { name: 'Model', exact: true });
+    await expect(modelControl).toBeVisible();
+    await expect(modelControl).toBeEnabled();
   }
   await expect(page).toHaveURL(url);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -113,7 +114,7 @@ test.describe('continuous Chat and Work conversation', () => {
     const url = page.url();
     const id = new URL(url).pathname.split('/').at(-1)!;
     await switchMode(page, 'Work');
-    await page.getByRole('button', { name: 'Model' }).click();
+    await page.getByRole('button', { name: 'Model', exact: true }).click();
     await page.getByRole('menuitemradio').filter({ hasText: LOCAL_MODEL_B }).click();
     const replies = await mockReply(page).count();
     const start = await workStart(page, 'Reply with the mock result.');
