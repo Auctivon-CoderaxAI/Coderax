@@ -205,25 +205,10 @@ export function verifyRepositoryConfig(root = repoRoot) {
     /write-deployment-metadata\.mjs/,
     'npm run frontend must write the served revision',
   );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /^node scripts\/verify-cloudflare-deployment\.mjs --config-only\s+&&\s+/,
-    'the Cloudflare deploy command must verify repository config before deploying',
-  );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /wrangler@4\.168\.0/,
-    'the Cloudflare deploy command must pin Wrangler',
-  );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /write-deployment-metadata\.mjs/,
-    'the Cloudflare deploy command must write the revision marker',
-  );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /--verify/,
-    'the Cloudflare deploy command must verify build provenance',
+  assert.equal(
+    pkg.scripts?.['deploy:cloudflare'],
+    'node scripts/deploy-cloudflare.mjs',
+    'the Cloudflare deploy command must use the checked deploy script',
   );
   return {
     worker: 'coderax',

@@ -14,6 +14,10 @@ release gate passes.
 
 ## Connected deployment
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:496f22815a052d2749b7987ef308602c82d76019f92b2e4b77f7066a9739530a -->
+
 | Setting | Value |
 | --- | --- |
 | GitHub repository | `Auctivon-CoderaxAI/Coderax` (private, default branch `main`) |
@@ -30,7 +34,7 @@ release gate passes.
 | Root directory | repository root (`/`) |
 | Install command | `npm ci` |
 | Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
-| Deploy command | `npm run deploy:cloudflare` (checks the Worker configuration and revision marker before running `npx --yes wrangler@4.168.0 deploy`) |
+| Deploy command | `npm run deploy:cloudflare` (checks the Worker configuration and revision marker before running Wrangler 4.168.0 with the same config file) |
 | Branch | `main` |
 | Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
@@ -44,7 +48,10 @@ null or stale marker, so a manual deploy cannot claim a revision its assets were
 gate also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
 HEAD`; untracked build output is ignored. If Workers Builds, GitHub and Vercel expose conflicting
 commit values, the script fails instead of choosing one. The deploy command pins Wrangler 4.168.0;
-change the pin in `package.json` and this table together.
+change the pin in `scripts/verify-cloudflare-deployment.mjs` and this table together. The command
+rejects extra arguments so the deploy always uses the checked `wrangler.jsonc`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Committed configuration
 
@@ -63,12 +70,25 @@ coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 | `CODERAX_API_ORIGIN` | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port. |
 | `CODERAX_PROXY_SECRET` | secret | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e19a74824c1dfde1dbebbc5ce65e2d21d8119bf42bee4f25faf6cdb1d9245350 -->
+
 `keep_vars` is enabled in [`wrangler.jsonc`](../../wrangler.jsonc). A Wrangler deploy deletes
 plain-text variables that are not declared in the configuration file, so without it the dashboard-set
 `CODERAX_API_ORIGIN` would disappear on the next Workers Builds run and every API route would answer
 `503 {"error":"API proxy is not configured"}` again. Secrets such as `CODERAX_PROXY_SECRET` are
 never deleted by a deploy. `scripts/verify-cloudflare-deployment.mjs --config-only` fails if this
 setting is removed.
+
+Before retiring a backend, set `CODERAX_API_ORIGIN` to the authorized replacement and confirm live
+verification passes before releasing the old address. If there is no replacement, remove the
+binding before releasing that address; proxied routes will be unavailable until a valid origin is
+configured. After a cutover or Worker rollback, confirm the effective origin in the Worker settings
+and run the live release gate. Rotate `CODERAX_PROXY_SECRET` on both the Worker and the backend if
+the old endpoint may have received it after leaving operator control.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and
