@@ -21,7 +21,7 @@
  *     manifest says that workflow is path-filtered and the settle window has
  *     elapsed, so the workflow could have started
  *   - the check never appeared although its
- *     workflow did run                       -> fail
+ *     workflow finished                      -> fail after a confirming poll
  *
  * Presence is decided from GitHub's own evaluation of each workflow's
  * `paths:` filter, never from a second copy of those filters that could drift.
@@ -50,10 +50,11 @@ export function loadManifest(root) {
  *
  * `runs` is the set of workflow runs GitHub created for this head at all,
  * keyed by the workflow file name in `.github/workflows/`. `checks` is every
- * check run reported for this head. `settled` says whether enough time has
+ * check run reported for this head, with its suite ID. `settled` says whether enough time has
  * passed that a path-filtered workflow would already have appeared.
  */
-export function evaluate({ manifest, checks, runs, settled }) {
+export function evaluate({ manifest, checks, runs, settled, previousMissing = new Set() }) {
+  const observedMissing = new Set();
   const required = [];
   const reportOnly = [];
 
@@ -72,27 +73,38 @@ export function evaluate({ manifest, checks, runs, settled }) {
       };
     }
 
+    const ownerRuns = runs.get(lane.workflow) ?? [];
+    const suites = new Set(ownerRuns.map((run) => run.suiteId));
+    const ownedChecks = checks.filter((check) => suites.has(check.suiteId));
+
     for (const pattern of patterns) {
-      const matches = checks.filter((check) => check.name.startsWith(pattern));
+      const matches = ownedChecks.filter((check) => check.name.startsWith(pattern));
       if (matches.length === 0) {
-        const ownerRan = (runs[lane.workflow] ?? 0) > 0;
-        if (ownerRan) {
+        if (ownerRuns.length > 0) {
+          const key = JSON.stringify([lane.workflow, pattern, [...suites].sort()]);
+          // Workflow and check listings are separate snapshots. Confirm absence
+          // on a later poll, and only after the workflow has finished.
+          const complete = ownerRuns.every((run) => run.status === 'completed');
+          if (complete) observedMissing.add(key);
+          const missing = complete && previousMissing.has(key);
           findings.push({
             pattern,
-            state: 'missing',
-            detail: `${lane.workflow} ran at this head but never reported a check named "${pattern}"`,
-          });
-        } else if (!lane.pathFiltered) {
-          findings.push({
-            pattern,
-            state: 'missing',
-            detail: `${lane.workflow} declares no path filter, so "${pattern}" must always report`,
+            state: missing ? 'missing' : 'pending',
+            detail: missing
+              ? `${lane.workflow} ran at this head but never reported a check named "${pattern}"`
+              : `waiting for ${lane.workflow} to report "${pattern}"`,
           });
         } else if (!settled) {
           findings.push({
             pattern,
             state: 'pending',
             detail: `${lane.workflow} has not started yet`,
+          });
+        } else if (!lane.pathFiltered) {
+          findings.push({
+            pattern,
+            state: 'missing',
+            detail: `${lane.workflow} declares no path filter, so "${pattern}" must always report`,
           });
         } else {
           findings.push({
@@ -160,7 +172,7 @@ export function evaluate({ manifest, checks, runs, settled }) {
       .filter((finding) => finding.state !== 'passed' && finding.state !== 'filtered')
       .map((finding) => ({ workflow: lane.workflow, reason: lane.reason, ...finding })),
   );
-  return { required, reportOnly, pending, failures, notable };
+  return { required, reportOnly, pending, failures, notable, settled, observedMissing };
 }
 
 export function render({ required, reportOnly, failures, notable, settled }) {
@@ -235,7 +247,7 @@ async function api(path, token) {
   return response.json();
 }
 
-async function collect(repo, sha, token) {
+export async function collect(repo, sha, token) {
   const checks = [];
   for (let page = 1; ; page += 1) {
     const body = await api(
@@ -245,6 +257,7 @@ async function collect(repo, sha, token) {
     checks.push(
       ...body.check_runs.map((run) => ({
         name: run.name,
+        suiteId: run.check_suite?.id,
         status: run.status,
         conclusion: run.conclusion,
       })),
@@ -252,15 +265,19 @@ async function collect(repo, sha, token) {
     if (body.check_runs.length < 100) break;
   }
 
-  const runs = {};
-  for (let page = 1; page <= 5; page += 1) {
+  const runs = new Map();
+  for (let page = 1; ; page += 1) {
     const body = await api(
       `/repos/${repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=100&page=${page}`,
       token,
     );
     for (const run of body.workflow_runs) {
-      runs[run.path.replace('.github/workflows/', '')] =
-        (runs[run.path.replace('.github/workflows/', '')] ?? 0) + 1;
+      const workflow = run.path.replace('.github/workflows/', '');
+      if (!Number.isSafeInteger(run.check_suite_id)) {
+        throw new Error(`Workflow run ${run.id} did not report a check suite ID`);
+      }
+      if (!runs.has(workflow)) runs.set(workflow, []);
+      runs.get(workflow).push({ suiteId: run.check_suite_id, status: run.status });
     }
     if (body.workflow_runs.length < 100) break;
   }
@@ -288,7 +305,7 @@ async function main() {
   for (;;) {
     const { checks, runs } = await collect(repo, sha, token);
     const settled = Date.now() - startedAt >= SETTLE_MS;
-    last = evaluate({ manifest, checks, runs, settled });
+    last = evaluate({ manifest, checks, runs, settled, previousMissing: last?.observedMissing });
 
     if (!last.pending) break;
     if (Date.now() - startedAt >= DEADLINE_MS) break;

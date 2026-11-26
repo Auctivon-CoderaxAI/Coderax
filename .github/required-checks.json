@@ -38,10 +38,13 @@
       "label": "Cache integration",
       "workflow": "cache-integration-tests.yml",
       "pathFiltered": true,
-      "patterns": [
-        "Integration Tests (MongoDB and Redis)",
-        "Integration Tests that use actual Redis Cache"
-      ]
+      "patterns": ["Integration Tests that use actual Redis Cache"]
+    },
+    {
+      "label": "Agent integration",
+      "workflow": "agents-integration-tests.yml",
+      "pathFiltered": true,
+      "patterns": ["Integration Tests (MongoDB and Redis)"]
     },
     {
       "label": "Accessibility lint",
@@ -98,7 +101,7 @@
       "label": "Codegraph selection",
       "workflow": "codegraph-select.yml",
       "pathFiltered": false,
-      "patterns": ["Codegraph select"],
+      "patterns": ["select"],
       "reason": "Observe-only by design: it writes a summary and intentionally cannot fail a pull request."
     }
   ]
