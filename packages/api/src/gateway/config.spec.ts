@@ -61,6 +61,16 @@ describe('WorkflowEngine gateway configuration', () => {
     expect(resolveGatewayOptions({ config: { workflowEngine: null } })).toBeUndefined();
   });
 
+  it.each([
+    ['https://engine.example///', 'https://engine.example'],
+    ['https://engine.example/proxy//engine///', 'https://engine.example/proxy//engine'],
+  ])('normalizes trailing slashes in %s without changing the path prefix', (baseURL, expected) => {
+    expect(resolveGatewayConfig({ enabled: true, baseURL }, env)).toMatchObject({
+      ok: true,
+      value: { baseURL: expected },
+    });
+  });
+
   it('defaults every transport limit to the previous behavior', () => {
     const result = resolveGatewayConfig({ enabled: true, baseURL: 'https://engine.example' }, env);
     expect(result.ok).toBe(true);

@@ -110,6 +110,32 @@ describe('WorkflowEngine client', () => {
     expect(calls.every((call) => call.url.includes('/v1/'))).toBe(true);
   });
 
+  it('preserves the engine path prefix for JSON and streaming requests', async () => {
+    const urls: string[] = [];
+    const client = createEngineClient({
+      baseURL: 'https://engine.example/proxy//engine///',
+      token: 'server-token',
+      requestTimeoutMs: 1_000,
+      streamIdleTimeoutMs: 1_000,
+      fetch: async (url) => {
+        urls.push(url);
+        return url.endsWith('/v1/health') ? healthResponse() : jsonResponse(chatReply('conv_1'));
+      },
+    });
+
+    await client.health();
+    await client.submitChat({
+      conversationId: 'conv_1',
+      message: 'hi',
+      agent: 'coderax',
+      mode: 'private',
+    });
+    expect(urls).toEqual([
+      'https://engine.example/proxy//engine/v1/health',
+      'https://engine.example/proxy//engine/v1/chat',
+    ]);
+  });
+
   it('never includes the token or the URL in an error', async () => {
     const client = clientWith(async () => jsonResponse({ error: 'nope' }, 401));
     await expect(client.listAgents()).rejects.toMatchObject({

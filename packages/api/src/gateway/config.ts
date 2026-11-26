@@ -7,6 +7,8 @@
  * name and the value is read from the process environment at call time.
  */
 
+import { stripTrailingSlashes } from './url';
+
 export const DEFAULT_ENGINE_TOKEN_ENV = 'CODERAX_ENGINE_TOKEN';
 export const DEFAULT_CONTRACT_VERSION = '1.0.0';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -226,7 +228,7 @@ export function resolveGatewayConfig(
 
   // A path prefix is preserved so a deployment can host the engine beside
   // other services without rewriting routes.
-  const basePath = parsed.url.pathname.replace(/\/+$/, '');
+  const basePath = stripTrailingSlashes(parsed.url.pathname);
   const baseURL = `${parsed.url.origin}${basePath}`;
   return {
     ok: true,

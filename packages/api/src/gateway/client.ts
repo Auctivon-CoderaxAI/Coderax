@@ -30,6 +30,7 @@ import {
 } from './config';
 import { contractSchemas, isTerminalEvent } from './contracts';
 import { readSseFrames, SseReadError } from './sse';
+import { stripTrailingSlashes } from './url';
 
 const schemas = contractSchemas();
 
@@ -188,10 +189,6 @@ const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Objec
   protocol_error: 'protocol_error',
   internal_error: 'internal_error',
 });
-
-function joinURL(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}${path}`;
-}
 
 function parseBody<T extends z.ZodTypeAny>(schema: T, text: string): z.infer<T> {
   let parsed: unknown;
@@ -407,6 +404,7 @@ async function readBoundedBody(
 }
 
 export function createEngineClient(options: EngineClientOptions): EngineClient {
+  const baseURL = stripTrailingSlashes(options.baseURL);
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
   const maxEventResyncs = options.maxEventResyncs ?? DEFAULT_MAX_EVENT_RESYNCS;
@@ -459,7 +457,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }
       let response: Awaited<ReturnType<GatewayFetch>>;
       try {
-        response = await doFetch(joinURL(options.baseURL, path), {
+        response = await doFetch(`${baseURL}${path}`, {
           method: init.method,
           headers,
           ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -514,7 +512,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     }
     const link = linkedController(init.signal, options.requestTimeoutMs);
     try {
-      return await doFetch(joinURL(options.baseURL, path), {
+      return await doFetch(`${baseURL}${path}`, {
         method: init.method,
         headers,
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
