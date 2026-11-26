@@ -23,8 +23,8 @@ import type {
   WorkSubmitRequest,
 } from './contracts';
 import { contractSchemas, isTerminalEvent } from './contracts';
+import { readSseFrames, SseProtocolError } from './sse';
 import { DEFAULT_CONTRACT_VERSION } from './config';
-import { readSseFrames } from './sse';
 
 const schemas = contractSchemas();
 
@@ -163,6 +163,7 @@ export type EngineClientOptions = {
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_EVENT_RESYNCS = 3;
+const MAX_EVENT_CONNECTIONS = 12;
 
 const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Object.freeze({
   unauthorized: 'unauthorized',
@@ -224,7 +225,6 @@ function errorFromResponse(status: number, text: string): GatewayTransportError 
         status,
         retryable: problem.retryable,
         ...(problem.requestId == null ? {} : { requestId: problem.requestId }),
-        ...(problem.detail == null ? {} : { detail: problem.detail }),
       },
     );
   }
@@ -260,6 +260,100 @@ function networkError(cause: unknown): GatewayTransportError {
   return new GatewayTransportError('engine_unreachable', 'The engine could not be reached.', {
     retryable: true,
   });
+}
+
+type BodyReader = {
+  getReader: () => {
+    read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+    cancel: (reason?: unknown) => Promise<void>;
+  };
+};
+
+/**
+ * Reads a response body under a deadline without buffering an unbounded body.
+ * `response.text()` alone cannot be cancelled, so a stalled or oversized body
+ * would otherwise outlive the configured request timeout.
+ */
+async function readBoundedBody(
+  response: { text: () => Promise<string>; body: unknown },
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const forward = (): void => controller.abort();
+  if (signal != null) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', forward, { once: true });
+    }
+  }
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const rejectAborted = (): void => reject(new Error('aborted'));
+    if (controller.signal.aborted) {
+      rejectAborted();
+      return;
+    }
+    controller.signal.addEventListener('abort', rejectAborted, { once: true });
+  });
+
+  const decode = async (): Promise<string> => {
+    const body = response.body as BodyReader | null;
+    if (body == null || typeof body.getReader !== 'function') {
+      return response.text();
+    }
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    let bytes = 0;
+    try {
+      for (;;) {
+        const chunk = await Promise.race([reader.read(), aborted]);
+        if (chunk.done) {
+          break;
+        }
+        if (chunk.value != null) {
+          bytes += chunk.value.byteLength;
+          if (bytes > MAX_JSON_BYTES) {
+            throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+          }
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+      }
+      return text + decoder.decode();
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+  };
+
+  try {
+    const raw = await Promise.race([decode(), aborted]);
+    if (Buffer.byteLength(raw, 'utf8') > MAX_JSON_BYTES) {
+      throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+    }
+    return raw;
+  } catch (cause) {
+    if (cause instanceof GatewayTransportError) {
+      throw cause;
+    }
+    if (signal?.aborted) {
+      throw new GatewayTransportError('cancelled', 'The engine request was cancelled.');
+    }
+    if (timedOut) {
+      throw new GatewayTransportError('engine_timeout', 'The engine did not answer in time.', {
+        retryable: true,
+      });
+    }
+    throw networkError(cause);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', forward);
+  }
 }
 
 export function createEngineClient(options: EngineClientOptions): EngineClient {
@@ -325,10 +419,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       } catch (cause) {
         throw networkError(cause);
       }
-      const text = await response.text().catch(() => '');
-      if (text.length > MAX_JSON_BYTES) {
-        throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
-      }
+      const text = await readBoundedBody(
+        response,
+        init.timeoutMs ?? options.requestTimeoutMs,
+        init.signal,
+      );
       if (!response.ok) {
         throw errorFromResponse(response.status, text);
       }
@@ -351,21 +446,29 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     if (init.body !== undefined) {
       headers['content-type'] = 'application/json';
     }
+    const link = linkedController(init.signal, options.requestTimeoutMs);
     try {
       return await doFetch(joinURL(options.baseURL, path), {
         method: init.method,
         headers,
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-        ...(init.signal == null ? {} : { signal: init.signal }),
+        signal: link.signal,
         redirect: 'error',
       });
     } catch (cause) {
       throw networkError(cause);
+    } finally {
+      // The deadline covers only the wait for response headers. Body lifetime is
+      // governed by caller cancellation and the SSE idle deadline.
+      link.dispose();
     }
   }
 
-  async function nonOkResponse(response: Awaited<ReturnType<GatewayFetch>>): Promise<never> {
-    const text = await response.text().catch(() => '');
+  async function nonOkResponse(
+    response: Awaited<ReturnType<GatewayFetch>>,
+    signal?: AbortSignal,
+  ): Promise<never> {
+    const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
     throw errorFromResponse(response.status, text);
   }
 
@@ -409,78 +512,105 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     signal: AbortSignal | undefined,
   ): AsyncIterable<ExecutionEvent> {
     let lastSeq = after;
-    let resyncs = 0;
+    let noProgress = 0;
+    let gaps = 0;
+    let connections = 0;
     const encoded = encodeURIComponent(taskId);
     for (;;) {
+      connections += 1;
+      if (connections > MAX_EVENT_CONNECTIONS) {
+        throw new GatewayTransportError(
+          'protocol_error',
+          'The engine event stream could not be resynchronised.',
+        );
+      }
+      const before = lastSeq;
       const response = await openStream(`/v1/work/${encoded}/events?after=${lastSeq}`, {
         method: 'GET',
         ...(signal == null ? {} : { signal }),
       });
       if (!response.ok) {
-        await nonOkResponse(response);
+        await nonOkResponse(response, signal);
       }
       let terminal = false;
       let gap = false;
       const seen = new Set<string>();
-      for await (const frame of readSseFrames(response.body, {
-        idleTimeoutMs: options.streamIdleTimeoutMs,
-        ...(signal == null ? {} : { signal }),
-      })) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(frame.data);
-        } catch {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine stream carried invalid JSON.',
-          );
+      try {
+        for await (const frame of readSseFrames(response.body, {
+          idleTimeoutMs: options.streamIdleTimeoutMs,
+          ...(signal == null ? {} : { signal }),
+        })) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(frame.data);
+          } catch {
+            throw new GatewayTransportError(
+              'protocol_error',
+              'The engine stream carried invalid JSON.',
+            );
+          }
+          const event = schemas.ExecutionEvent.safeParse(parsed);
+          if (!event.success) {
+            throw new GatewayTransportError(
+              'protocol_error',
+              'The engine event did not match the pinned contract.',
+            );
+          }
+          if (event.data.taskId !== taskId) {
+            throw new GatewayTransportError('protocol_error', 'The engine stream crossed tasks.');
+          }
+          if (seen.has(event.data.eventId)) {
+            continue;
+          }
+          seen.add(event.data.eventId);
+          // `seq <= lastSeq` is a replay of an event already delivered.
+          if (event.data.seq <= lastSeq) {
+            continue;
+          }
+          if (event.data.seq > lastSeq + 1) {
+            gap = true;
+            break;
+          }
+          lastSeq = event.data.seq;
+          yield event.data;
+          if (isTerminalEvent(event.data.type)) {
+            terminal = true;
+            break;
+          }
         }
-        const event = schemas.ExecutionEvent.safeParse(parsed);
-        if (!event.success) {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine event did not match the pinned contract.',
-          );
-        }
-        if (event.data.taskId !== taskId) {
-          throw new GatewayTransportError('protocol_error', 'The engine stream crossed tasks.');
-        }
-        if (seen.has(event.data.eventId)) {
-          continue;
-        }
-        seen.add(event.data.eventId);
-        // `seq <= lastSeq` is a replay of an event already delivered.
-        if (event.data.seq <= lastSeq) {
-          continue;
-        }
-        if (event.data.seq > lastSeq + 1) {
-          gap = true;
-          break;
-        }
-        lastSeq = event.data.seq;
-        yield event.data;
-        if (isTerminalEvent(event.data.type)) {
-          terminal = true;
-          break;
+      } catch (error) {
+        // Framing failures (idle, truncated frame, cancellation) use the same
+        // bounded recovery as a clean close. A malformed event payload is a
+        // GatewayTransportError and is never retried.
+        if (signal?.aborted || !(error instanceof SseProtocolError)) {
+          throw error;
         }
       }
       if (terminal) {
         return;
       }
-      resyncs += 1;
-      // A gap, or a close without a terminal event, is resynchronised from the
-      // exact last delivered sequence rather than silently skipped.
-      if (resyncs > MAX_EVENT_RESYNCS && !gap) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream ended without a terminal event.',
-        );
+      if (gap) {
+        gaps += 1;
+        if (gaps > MAX_EVENT_RESYNCS + 3) {
+          throw new GatewayTransportError(
+            'protocol_error',
+            'The engine event stream could not be resynchronised.',
+          );
+        }
+        continue;
       }
-      if (resyncs > MAX_EVENT_RESYNCS + 3) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream could not be resynchronised.',
-        );
+      // Only a connection that delivered nothing new consumes the retry budget;
+      // progress resets it so a long-running task is not abandoned.
+      if (lastSeq > before) {
+        noProgress = 0;
+      } else {
+        noProgress += 1;
+        if (noProgress > MAX_EVENT_RESYNCS) {
+          throw new GatewayTransportError(
+            'protocol_error',
+            'The engine event stream ended without a terminal event.',
+          );
+        }
       }
     }
   }
@@ -565,13 +695,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
       if (!response.ok) {
-        await nonOkResponse(response);
+        await nonOkResponse(response, signal);
       }
       const contentType = response.headers.get('content-type') ?? '';
       if (contentType.includes('text/event-stream')) {
         return { kind: 'stream', frames: chatFrames(response, signal) };
       }
-      const text = await response.text().catch(() => '');
+      const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
       return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),

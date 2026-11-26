@@ -4278,13 +4278,11 @@ export const workflowEngineConfigSchema = z
       .trim()
       .regex(/^[A-Z][A-Z0-9_]{0,127}$/)
       .default('CODERAX_ENGINE_TOKEN'),
-    contractVersion: z
-      .string()
-      .trim()
-      .regex(/^\d+\.\d+\.\d+$/)
-      .default('1.0.0'),
+    contractVersion: z.literal('1.0.0').default('1.0.0'),
     requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
     streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
+    /** Runs the compatibility handshake at startup; request checks always run. */
+    startupCheck: z.boolean().default(true),
   })
   .optional();
 

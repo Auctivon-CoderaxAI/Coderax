@@ -232,6 +232,34 @@ describe('workflow engine gateway routes', () => {
     expect(response.body.code).toBe('WORKFLOW_ENGINE_UNSUPPORTED');
   });
 
+  it('reports readiness from the engine, not compatibility alone', async () => {
+    const { app } = appFor(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      return jsonResponse({ ready: false, missing: ['model'], checks: [] });
+    });
+
+    const response = await request(app).get('/ready');
+    expect(response.status).toBe(503);
+    expect(response.body.ready).toBe(false);
+    expect(response.body.missing).toEqual(['model']);
+  });
+
+  it('never forwards a dot-only conversation id to the engine', async () => {
+    let calls = 0;
+    const { app } = appFor(async (url) => {
+      calls += 1;
+      return url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({});
+    });
+
+    const response = await request(app).get('/conversations/%2e%2e');
+    // Express normalises the dot segment before routing; the gateway guard is a
+    // second layer for engines reached through a different path normaliser.
+    expect(response.status).toBe(404);
+    expect(calls).toBe(1);
+  });
+
   it('reports the pinned and served contract after the handshake', async () => {
     const { app } = appFor(async () => jsonResponse(health()));
     const response = await request(app).get('/contract');

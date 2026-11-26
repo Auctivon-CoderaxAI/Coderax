@@ -37,6 +37,10 @@ type ByteStream = {
   };
 };
 
+function frameBytes(value: string): number {
+  return Buffer.byteLength(value, 'utf8');
+}
+
 function parseBlock(block: string): SseFrame | null {
   let event: string | undefined;
   let id: string | undefined;
@@ -80,20 +84,48 @@ export async function* readSseFrames(
   const decoder = new TextDecoder();
   let buffer = '';
   let finished = false;
+  let cancelled = false;
 
+  const cancel = async (): Promise<void> => {
+    if (cancelled) {
+      return;
+    }
+    cancelled = true;
+    await reader.cancel().catch(() => undefined);
+  };
+
+  /**
+   * The idle deadline and caller cancellation must win the race before the
+   * reader is cancelled: cancelling a WHATWG stream resolves a pending read with
+   * `done: true`, which would otherwise look like a clean end of stream.
+   */
   const readWithTimeout = async (): Promise<{ done: boolean; value?: Uint8Array }> => {
+    if (options.signal?.aborted) {
+      throw new SseProtocolError('The engine event stream was cancelled.');
+    }
     let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        void reader.cancel().catch(() => undefined);
-        reject(new SseProtocolError('The engine event stream went idle.'));
-      }, options.idleTimeoutMs);
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      if (options.signal == null) {
+        return;
+      }
+      onAbort = () => reject(new SseProtocolError('The engine event stream was cancelled.'));
+      options.signal.addEventListener('abort', onAbort, { once: true });
+    });
+    const timedOut = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new SseProtocolError('The engine event stream went idle.')),
+        options.idleTimeoutMs,
+      );
     });
     try {
-      return await Promise.race([reader.read(), timeout]);
+      return await Promise.race([reader.read(), timedOut, aborted]);
     } finally {
       if (timer != null) {
         clearTimeout(timer);
+      }
+      if (onAbort != null) {
+        options.signal?.removeEventListener('abort', onAbort);
       }
     }
   };
@@ -105,16 +137,15 @@ export async function* readSseFrames(
         finished = true;
       } else if (chunk.value != null) {
         buffer += decoder.decode(chunk.value, { stream: true });
-        if (buffer.length > maxFrameBytes * 2) {
-          throw new SseProtocolError('The engine event frame exceeded the size limit.');
-        }
       }
 
+      // Emit every complete frame before measuring what remains, so several
+      // valid frames arriving in one chunk are not mistaken for one oversize one.
       let boundary = buffer.indexOf('\n\n');
       while (boundary !== -1) {
         const block = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
-        if (block.length > maxFrameBytes) {
+        if (frameBytes(block) > maxFrameBytes) {
           throw new SseProtocolError('The engine event frame exceeded the size limit.');
         }
         const frame = parseBlock(block);
@@ -123,18 +154,18 @@ export async function* readSseFrames(
         }
         boundary = buffer.indexOf('\n\n');
       }
+      if (frameBytes(buffer) > maxFrameBytes) {
+        throw new SseProtocolError('The engine event frame exceeded the size limit.');
+      }
     }
 
     buffer += decoder.decode();
+    // A close before the delimiter leaves an incomplete frame; yielding it would
+    // let a task consumer accept a terminal event whose framing never completed.
     if (buffer.trim().length > 0) {
-      const frame = parseBlock(buffer);
-      if (frame != null) {
-        yield frame;
-      }
+      throw new SseProtocolError('The engine event stream ended before a frame delimiter.');
     }
   } finally {
-    if (!finished) {
-      await reader.cancel().catch(() => undefined);
-    }
+    await cancel();
   }
 }

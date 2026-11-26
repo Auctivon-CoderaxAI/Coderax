@@ -12,7 +12,9 @@ const { loadCustomConfig } = require('~/server/services/Config');
  */
 
 const gateway = createWorkflowEngineGateway({
-  resolveConfig: (req) => req.config?.workflowEngine,
+  // AppConfig keeps the YAML configuration under `config`; it does not project
+  // individual sections onto the top level.
+  resolveConfig: (req) => req.config?.config?.workflowEngine,
   env: process.env,
   logger,
 });
@@ -32,6 +34,9 @@ module.exports.gateway = gateway;
 module.exports.prewarm = async () => {
   try {
     const config = await loadCustomConfig(false);
+    if (config?.workflowEngine?.startupCheck === false) {
+      return null;
+    }
     return await gateway.prewarm(config?.workflowEngine);
   } catch (error) {
     logger.warn('[workflow-engine] startup check skipped', {

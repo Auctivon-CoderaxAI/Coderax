@@ -120,11 +120,10 @@ describe('WorkflowEngine client', () => {
         404,
       ),
     );
-    await expect(client.getTask('task_1')).rejects.toMatchObject({
-      code: 'not_found',
-      status: 404,
-      detail: 'No task with that id.',
-    });
+    const error = await client.getTask('task_1').catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ code: 'not_found', status: 404 });
+    // Raw upstream detail is not forwarded to a browser-facing error.
+    expect((error as GatewayTransportError).detail).toBeUndefined();
   });
 
   it('returns a JSON chat reply when the engine answers with JSON', async () => {
@@ -192,6 +191,8 @@ describe('WorkflowEngine client', () => {
         return sseResponse([`data: ${event(1)}\n\n`, `data: ${event(3)}\n\n`]);
       }
       return sseResponse([
+        // Replay an event the consumer already saw; it must stay deduplicated.
+        `data: ${event(1)}\n\n`,
         `data: ${event(2)}\n\n`,
         `data: ${event(3)}\n\n`,
         `data: ${event(4, 'task.completed')}\n\n`,
