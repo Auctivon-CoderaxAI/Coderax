@@ -1,0 +1,76 @@
+
+name: Cloudflare Web Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-web-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify Coderax Cloudflare Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    env:
+      CI: "true"
+      NODE_OPTIONS: --max-old-space-size=6144
+      PRODUCTION_URL: ${{ vars.CODERAX_PRODUCTION_URL || 'https://coderax.nnabdelshahid.workers.dev' }}
+      EXPECTED_COMMIT: ${{ github.sha }}
+
+    steps:
+      - name: Require main branch
+        run: test "$GITHUB_REF" = "refs/heads/main"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Cloudflare configuration
+        run: |
+          node scripts/verify-cloudflare-deployment.mjs --config-only
+
+      - name: Test Cloudflare Worker
+        run: npm run test:cloudflare
+
+      - name: Build frontend
+        run: npm run frontend
+
+      - name: Verify deployment metadata
+        run: |
+          node scripts/write-deployment-metadata.mjs --verify
+
+      - name: Verify frontend output
+        run: test -f client/dist/index.html
+
+      - name: Verify live Cloudflare deployment
+        run: |
+          node scripts/verify-cloudflare-deployment.mjs \
+            --url "$PRODUCTION_URL" \
+            --expected-commit "$EXPECTED_COMMIT"
+
+      - name: Verification summary
+        if: always()
+        run: |
+          {
+            echo "## Coderax Cloudflare Verification"
+            echo "- Commit: $EXPECTED_COMMIT"
+            echo "- Result: ${{ job.status }}"
+            echo "- Runner: GitHub-hosted"
+            echo "- Production modifications: None"
+          } >> "$GITHUB_STEP_SUMMARY"
