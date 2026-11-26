@@ -1,5 +1,7 @@
+import http from 'http';
 import express from 'express';
 import request from 'supertest';
+import type { AddressInfo } from 'net';
 import type { ConversationAuthorityStore } from './authority';
 import type { WorkflowEngineGatewayDeps } from './router';
 import type { GatewayFetch } from './client';
@@ -75,6 +77,28 @@ function appFor(fetchImpl: GatewayFetch, overrides: Partial<WorkflowEngineGatewa
   app.use(express.json());
   app.use(gateway.router);
   return { app, gateway, store };
+}
+
+/** Sends the path verbatim: supertest resolves dot segments before Express sees them. */
+async function rawGet(app: ReturnType<typeof appFor>['app'], path: string) {
+  const server = app.listen(0);
+  try {
+    const { port } = server.address() as AddressInfo;
+    return await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, path, method: 'GET' }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 }
 
 function chatReply(conversationId = 'conv_1') {
@@ -315,6 +339,67 @@ describe('workflow engine gateway routes', () => {
     // second layer for engines reached through a different path normaliser.
     expect(response.status).toBe(404);
     expect(calls).toBe(1);
+  });
+
+  it('rejects a decoded dot-segment conversation id at the router guard', async () => {
+    let conversationCalls = 0;
+    const { app } = appFor(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      conversationCalls += 1;
+      return jsonResponse({});
+    });
+
+    // Express decodes `%2e%2e` to `..` after routing, so only the router guard
+    // can refuse it; supertest would have normalised the path away first.
+    const response = await rawGet(app, '/conversations/%2e%2e');
+    expect(response.status).toBe(400);
+    expect(JSON.parse(response.body)).toEqual({
+      code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+      detail: 'The conversation id is not a valid identifier.',
+    });
+    expect(conversationCalls).toBe(0);
+  });
+
+  it('applies the configured response-size limit to engine responses', async () => {
+    const { app } = appFor(
+      async (url) =>
+        url.endsWith('/v1/health')
+          ? jsonResponse(health())
+          : jsonResponse({ agents: [], padding: 'x'.repeat(4096) }),
+      {
+        resolveConfig: () => ({
+          enabled: true,
+          baseURL: 'https://engine.example',
+          ownerUserId: 'owner_1',
+          tokenEnv: 'ENGINE_TOKEN',
+          maxResponseBytes: 1024,
+        }),
+      },
+    );
+
+    const response = await request(app).get('/agents');
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({ engineCode: 'protocol_error', retryable: false });
+  });
+
+  it('rejects an out-of-range transport limit before any engine call', async () => {
+    const fetch = jest.fn(async () => jsonResponse(health()));
+    const { app } = appFor(fetch, {
+      resolveConfig: () => ({
+        enabled: true,
+        baseURL: 'https://engine.example',
+        ownerUserId: 'owner_1',
+        tokenEnv: 'ENGINE_TOKEN',
+        maxFrameBytes: 512,
+      }),
+    });
+
+    const response = await request(app).get('/agents');
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_CONFIG');
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it.each([false, true])(

@@ -177,12 +177,16 @@ export function createWorkflowEngineGateway(
       contractVersion: config.contractVersion,
       requestTimeoutMs: config.requestTimeoutMs,
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
+      maxResponseBytes: config.maxResponseBytes,
+      maxFrameBytes: config.maxFrameBytes,
+      maxEventResyncs: config.maxEventResyncs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
     const authority = createConversationAuthority({
       store: deps.authorityStore,
       contractVersion: config.contractVersion,
       bootstrapConversations: config.conversations,
+      maxReceipts: config.maxReceipts,
     });
     cache = { fingerprint: config.fingerprint, config, client, authority };
     return cache;

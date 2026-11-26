@@ -12,7 +12,11 @@
  * record is the authority for *which* backend a conversation belongs to.
  */
 
-import { DEFAULT_MAPPING_ATTEMPTS, DEFAULT_MAPPING_RETRY_DELAY_MS } from './config';
+import {
+  DEFAULT_MAPPING_ATTEMPTS,
+  DEFAULT_MAPPING_RETRY_DELAY_MS,
+  DEFAULT_MAX_RECEIPTS,
+} from './config';
 
 export type AuthorityMode = 'private' | 'cloud';
 export type AuthorityEngine = 'native' | 'workflow-engine';
@@ -59,6 +63,8 @@ export type AuthorityAdvance = {
   generationDelta?: number;
   inFlightDelta?: number;
   receipt?: AuthorityReceipt;
+  /** Retention for this write; the store default applies when absent. */
+  maxReceipts?: number;
   /** Extra filter: refuse unless the current state and engine still match. */
   expect?: { state?: AuthorityState; engine?: AuthorityEngine; inFlight?: number };
 };
@@ -123,10 +129,10 @@ export type ConversationAuthorityDeps = {
   contractVersion: string;
   /** Conversations the migration may move on first dispatch. */
   bootstrapConversations: readonly string[];
+  /** Receipts retained per conversation; stores keep their default when absent. */
+  maxReceipts?: number;
   now?: () => Date;
 };
-
-const DEFAULT_MAX_RECEIPTS = 20;
 
 /**
  * Records a conversation the engine created. A storage failure is transient, so
@@ -178,7 +184,10 @@ function trimReceipts(receipts: AuthorityReceipt[], max: number): AuthorityRecei
  * authority rules can be tested without a database. Production uses the Mongo
  * store from `packages/data-schemas`.
  */
-export function createMemoryAuthorityStore(): ConversationAuthorityStore {
+export function createMemoryAuthorityStore(
+  options: { maxReceipts?: number } = {},
+): ConversationAuthorityStore {
+  const maxReceipts = options.maxReceipts ?? DEFAULT_MAX_RECEIPTS;
   const records = new Map<string, ConversationAuthorityRecord>();
   const keyOf = (ownerId: string, conversationId: string): string =>
     `${ownerId}\u0000${conversationId}`;
@@ -223,7 +232,7 @@ export function createMemoryAuthorityStore(): ConversationAuthorityStore {
         inFlight: current.inFlight + (input.inFlightDelta ?? 0),
         receipts: trimReceipts(
           input.receipt == null ? current.receipts : [...current.receipts, input.receipt],
-          DEFAULT_MAX_RECEIPTS,
+          Math.max(1, input.maxReceipts ?? maxReceipts),
         ),
         updatedAt: input.receipt?.at ?? current.updatedAt,
       };
@@ -241,6 +250,14 @@ export function createConversationAuthority(
 ): ConversationAuthority {
   const now = deps.now ?? ((): Date => new Date());
   const bootstrap = new Set(deps.bootstrapConversations);
+  /** Every advance carries the deployment's receipt retention to the store. */
+  const storeAdvance = (
+    input: Parameters<ConversationAuthorityStore['advance']>[0],
+  ): ReturnType<ConversationAuthorityStore['advance']> =>
+    deps.store.advance({
+      ...input,
+      ...(deps.maxReceipts == null ? {} : { maxReceipts: deps.maxReceipts }),
+    });
   const stamp = (): string => now().toISOString();
   const receipt = (
     outcome: AuthorityReceiptOutcome,
@@ -307,7 +324,7 @@ export function createConversationAuthority(
       return refusal('WORKFLOW_ENGINE_AUTHORITY_CONFLICT');
     }
     const generation = current.generation + 1;
-    const next = await deps.store.advance({
+    const next = await storeAdvance({
       ownerId: input.ownerId,
       conversationId: input.conversationId,
       expectedGeneration: current.generation,
@@ -343,7 +360,7 @@ export function createConversationAuthority(
     },
 
     settle: async (input) => {
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: input.generation,
@@ -367,7 +384,7 @@ export function createConversationAuthority(
         return { ok: true, generation: current.generation };
       }
       const generation = current.generation + 1;
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: current.generation,
@@ -380,7 +397,7 @@ export function createConversationAuthority(
     },
 
     completeMigration: async (input) => {
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: input.generation,

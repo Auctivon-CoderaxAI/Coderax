@@ -22,8 +22,13 @@ import type {
   TaskStatus,
   WorkSubmitRequest,
 } from './contracts';
+import {
+  DEFAULT_CONTRACT_VERSION,
+  DEFAULT_MAX_EVENT_RESYNCS,
+  DEFAULT_MAX_FRAME_BYTES,
+  DEFAULT_MAX_RESPONSE_BYTES,
+} from './config';
 import { contractSchemas, isTerminalEvent } from './contracts';
-import { DEFAULT_CONTRACT_VERSION } from './config';
 import { readSseFrames, SseReadError } from './sse';
 
 const schemas = contractSchemas();
@@ -158,11 +163,14 @@ export type EngineClientOptions = {
   contractVersion?: string;
   requestTimeoutMs: number;
   streamIdleTimeoutMs: number;
+  /** Largest JSON response body read from the engine. */
+  maxResponseBytes?: number;
+  /** Largest single SSE frame accepted from the engine. */
+  maxFrameBytes?: number;
+  /** Stalled stream resynchronisations tolerated before the feed is refused. */
+  maxEventResyncs?: number;
   fetch?: GatewayFetch;
 };
-
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
-const MAX_EVENT_RESYNCS = 3;
 
 const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Object.freeze({
   unauthorized: 'unauthorized',
@@ -306,6 +314,7 @@ async function readBoundedBody(
   response: { text?: () => Promise<string>; body: unknown },
   timeoutMs: number,
   signal: AbortSignal | undefined,
+  maxBytes: number,
 ): Promise<string> {
   const controller = new AbortController();
   let timedOut = false;
@@ -347,7 +356,7 @@ async function readBoundedBody(
         }
         if (chunk.value != null) {
           bytes += chunk.value.byteLength;
-          if (bytes > MAX_JSON_BYTES) {
+          if (bytes > maxBytes) {
             throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
           }
           text += decoder.decode(chunk.value, { stream: true });
@@ -362,7 +371,7 @@ async function readBoundedBody(
 
   try {
     const raw = await Promise.race([decode(), aborted]);
-    if (Buffer.byteLength(raw, 'utf8') > MAX_JSON_BYTES) {
+    if (Buffer.byteLength(raw, 'utf8') > maxBytes) {
       throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
     }
     return raw;
@@ -397,6 +406,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       'Unsupported WorkflowEngine contract version.',
     );
   }
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+  const maxEventResyncs = options.maxEventResyncs ?? DEFAULT_MAX_EVENT_RESYNCS;
 
   function linkedController(signal: AbortSignal | undefined, timeoutMs: number) {
     const controller = new AbortController();
@@ -460,6 +472,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           response,
           init.timeoutMs ?? options.requestTimeoutMs,
           init.signal,
+          maxResponseBytes,
         );
       } catch (cause) {
         if (submission) {
@@ -524,7 +537,12 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     response: Awaited<ReturnType<GatewayFetch>>,
     signal?: AbortSignal,
   ): Promise<never> {
-    const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
+    const text = await readBoundedBody(
+      response,
+      options.requestTimeoutMs,
+      signal,
+      maxResponseBytes,
+    );
     throw errorFromResponse(response.status, text);
   }
 
@@ -534,6 +552,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   ): AsyncIterable<ChatStreamFrame> {
     for await (const frame of readSseFrames(response.body, {
       idleTimeoutMs: options.streamIdleTimeoutMs,
+      maxFrameBytes,
       ...(signal == null ? {} : { signal }),
     })) {
       let parsed: unknown;
@@ -588,6 +607,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       try {
         for await (const frame of readSseFrames(response.body, {
           idleTimeoutMs: options.streamIdleTimeoutMs,
+          maxFrameBytes,
           ...(signal == null ? {} : { signal }),
         })) {
           let parsed: unknown;
@@ -640,13 +660,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
       // A gap, or a close without a terminal event, is resynchronised from the
       // exact last delivered sequence rather than silently skipped.
-      if (stalledResyncs > MAX_EVENT_RESYNCS && !gap) {
+      if (stalledResyncs > maxEventResyncs && !gap) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream ended without a terminal event.',
         );
       }
-      if (stalledResyncs > MAX_EVENT_RESYNCS + 3) {
+      if (stalledResyncs > maxEventResyncs + 3) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream could not be resynchronised.',
@@ -754,7 +774,12 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       if (contentType.includes('text/event-stream')) {
         return { kind: 'stream', frames: chatFrames(response, signal) };
       }
-      const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
+      const text = await readBoundedBody(
+        response,
+        options.requestTimeoutMs,
+        signal,
+        maxResponseBytes,
+      );
       return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),

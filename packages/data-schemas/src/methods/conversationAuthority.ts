@@ -34,6 +34,8 @@ export type AuthorityAdvanceInput = {
   generationDelta?: number;
   inFlightDelta?: number;
   receipt?: AuthorityReceipt;
+  /** Retention for this write; older receipts are discarded on write. */
+  maxReceipts?: number;
   expect?: { state?: AuthorityState; engine?: AuthorityEngine; inFlight?: number };
 };
 
@@ -186,8 +188,9 @@ export function createConversationAuthorityMethods(
       update.$set = input.set;
     }
     if (input.receipt != null) {
+      const maxReceipts = Math.min(Math.max(input.maxReceipts ?? MAX_RECEIPTS, 1), 500);
       update.$push = {
-        receipts: { $each: [input.receipt], $slice: -MAX_RECEIPTS },
+        receipts: { $each: [input.receipt], $slice: -maxReceipts },
       };
     }
     if (Object.keys(update).length === 0) {

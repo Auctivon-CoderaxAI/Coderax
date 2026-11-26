@@ -1,6 +1,10 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { createWorkflowEngineGateway } = require('@coderax/api/gateway');
+const {
+  createWorkflowEngineGateway,
+  prewarmWorkflowEngine,
+  startWorkflowEnginePrewarm,
+} = require('@coderax/api/gateway');
 const { createConversationAuthorityMethods, logger } = require('@coderax/data-schemas');
 const { requireJwtAuth } = require('~/server/middleware');
 const { getAppConfig } = require('~/server/services/Config');
@@ -38,25 +42,10 @@ module.exports = router;
 module.exports.gateway = gateway;
 
 /**
- * The startup compatibility handshake runs without a request. It is deliberately
- * fire-and-forget and fail-closed: a failed check leaves every gateway route
- * answering 503, and it never blocks or rewrites an existing Coderax route.
+ * Startup orchestration lives in `@coderax/api/gateway`; this file only hands it
+ * the deployment config and the mounted gateway. Kept as an export so an
+ * operator or test harness can run the check on demand.
  */
-module.exports.prewarm = async () => {
-  try {
-    const config = await resolveConfig();
-    if (config?.startupCheck === false) {
-      return null;
-    }
-    return await gateway.prewarm(config);
-  } catch (error) {
-    logger.warn('[workflow-engine] startup check skipped', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-};
-
-if (process.env.NODE_ENV !== 'test') {
-  void module.exports.prewarm();
-}
+const startup = { resolveConfig, gateway, logger, env: process.env };
+module.exports.prewarm = () => prewarmWorkflowEngine(startup);
+startWorkflowEnginePrewarm(startup);

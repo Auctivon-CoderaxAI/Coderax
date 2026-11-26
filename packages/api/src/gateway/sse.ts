@@ -7,6 +7,8 @@
  * interprets a payload: validation belongs to the contract schemas.
  */
 
+import { DEFAULT_MAX_FRAME_BYTES } from './config';
+
 export type SseFrame = {
   event?: string;
   id?: string;
@@ -33,8 +35,6 @@ export type SseReadOptions = {
   maxFrameBytes?: number;
   signal?: AbortSignal;
 };
-
-const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 
 type ByteStream = {
   getReader: () => {

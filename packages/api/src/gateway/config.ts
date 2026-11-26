@@ -13,6 +13,10 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
 export const DEFAULT_MAPPING_ATTEMPTS = 3;
 export const DEFAULT_MAPPING_RETRY_DELAY_MS = 100;
+export const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
+export const DEFAULT_MAX_EVENT_RESYNCS = 3;
+export const DEFAULT_MAX_RECEIPTS = 20;
 
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
@@ -30,6 +34,14 @@ export type WorkflowEngineGatewayOptions = {
   mappingAttempts?: number;
   /** Backoff between mapping attempts; multiplies by the attempt number. */
   mappingRetryDelayMs?: number;
+  /** Largest JSON response body read from the engine. */
+  maxResponseBytes?: number;
+  /** Largest single SSE frame accepted from the engine. */
+  maxFrameBytes?: number;
+  /** Stalled stream resynchronisations tolerated before the feed is refused. */
+  maxEventResyncs?: number;
+  /** Authority receipts retained per conversation; older ones are discarded. */
+  maxReceipts?: number;
   /** Runs the compatibility handshake at startup; request checks always run. */
   startupCheck?: boolean;
 };
@@ -48,6 +60,10 @@ export type ResolvedGatewayConfig =
       streamIdleTimeoutMs: number;
       mappingAttempts: number;
       mappingRetryDelayMs: number;
+      maxResponseBytes: number;
+      maxFrameBytes: number;
+      maxEventResyncs: number;
+      maxReceipts: number;
       startupCheck: boolean;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
@@ -71,6 +87,18 @@ function positiveInteger(value: number | undefined, fallback: number): number | 
     return fallback;
   }
   return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function boundedInteger(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number | null {
+  if (value == null) {
+    return fallback;
+  }
+  return Number.isSafeInteger(value) && value >= min && value <= max ? value : null;
 }
 
 function isLoopback(hostname: string): boolean {
@@ -219,6 +247,50 @@ export function resolveGatewayConfig(
       detail: 'workflowEngine.mappingRetryDelayMs must be an integer between 0 and 10000.',
     };
   }
+  // Transport limits are deployment policy, not request input: an operator can
+  // bound a slow or hostile engine, and a caller cannot widen the bound.
+  const maxResponseBytes = boundedInteger(
+    options.maxResponseBytes,
+    DEFAULT_MAX_RESPONSE_BYTES,
+    1_024,
+    64 * 1024 * 1024,
+  );
+  if (maxResponseBytes == null) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.maxResponseBytes must be an integer between 1024 and 67108864.',
+    };
+  }
+  const maxFrameBytes = boundedInteger(
+    options.maxFrameBytes,
+    DEFAULT_MAX_FRAME_BYTES,
+    1_024,
+    16 * 1024 * 1024,
+  );
+  if (maxFrameBytes == null) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.maxFrameBytes must be an integer between 1024 and 16777216.',
+    };
+  }
+  const maxEventResyncs = boundedInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS, 0, 20);
+  if (maxEventResyncs == null) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.maxEventResyncs must be an integer between 0 and 20.',
+    };
+  }
+  const maxReceipts = boundedInteger(options.maxReceipts, DEFAULT_MAX_RECEIPTS, 1, 500);
+  if (maxReceipts == null) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.maxReceipts must be an integer between 1 and 500.',
+    };
+  }
 
   /**
    * The gateway validates against its compiled-in schemas. Accepting another
@@ -252,8 +324,12 @@ export function resolveGatewayConfig(
       streamIdleTimeoutMs,
       mappingAttempts,
       mappingRetryDelayMs,
+      maxResponseBytes,
+      maxFrameBytes,
+      maxEventResyncs,
+      maxReceipts,
       startupCheck: options.startupCheck !== false,
-      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${mappingAttempts}|${mappingRetryDelayMs}`,
+      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${mappingAttempts}|${mappingRetryDelayMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}|${maxReceipts}`,
     },
   };
 }

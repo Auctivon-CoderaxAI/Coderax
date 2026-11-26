@@ -55,6 +55,31 @@ describe('conversation authority', () => {
     });
   });
 
+  it('retains only the configured number of receipts', async () => {
+    const store = createMemoryAuthorityStore();
+    const authority = createConversationAuthority({
+      store,
+      contractVersion: '1.0.0',
+      bootstrapConversations: ['conv_1'],
+      maxReceipts: 2,
+    });
+    for (const outcome of ['settled', 'settled'] as const) {
+      const claim = await authority.admit({ ...scope, conversationId: 'conv_1' });
+      if (!claim.ok) {
+        throw new Error('claim refused');
+      }
+      await authority.settle({
+        ownerId: 'owner_1',
+        conversationId: 'conv_1',
+        generation: claim.generation,
+        outcome,
+      });
+    }
+
+    const record = await store.read('owner_1', 'conv_1');
+    expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual(['dispatched', 'settled']);
+  });
+
   it('refuses a conversation the native engine owns', async () => {
     const store = createMemoryAuthorityStore();
     await store.create({

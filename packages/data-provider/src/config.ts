@@ -4294,6 +4294,14 @@ export const workflowEngineConfigSchema = z
     /** Retry budget for recording a conversation the engine itself created. */
     mappingAttempts: z.number().int().min(1).max(10).default(3),
     mappingRetryDelayMs: z.number().int().min(0).max(10_000).default(100),
+    /** Largest JSON response body accepted from the engine, in bytes. */
+    maxResponseBytes: z.number().int().min(1_024).max(67_108_864).default(4_194_304),
+    /** Largest single SSE frame accepted from the engine, in bytes. */
+    maxFrameBytes: z.number().int().min(1_024).max(16_777_216).default(1_048_576),
+    /** Stalled stream resynchronisations tolerated before the feed is refused. */
+    maxEventResyncs: z.number().int().min(0).max(20).default(3),
+    /** Authority receipts retained per conversation; older ones are discarded. */
+    maxReceipts: z.number().int().min(1).max(500).default(20),
     /** Runs the compatibility handshake at startup; request checks always run. */
     startupCheck: z.boolean().default(true),
   })

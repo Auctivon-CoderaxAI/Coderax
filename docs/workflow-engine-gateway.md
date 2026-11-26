@@ -41,9 +41,17 @@ workflowEngine:
   contractVersion: 1.0.0
   requestTimeoutMs: 30000
   streamIdleTimeoutMs: 120000
+  maxResponseBytes: 4194304
+  maxFrameBytes: 1048576
+  maxEventResyncs: 3
+  maxReceipts: 20
 ```
 
 `baseURL` must be https unless it points at loopback. A path prefix is preserved.
+`maxResponseBytes` and `maxFrameBytes` bound one response body and one streamed
+frame; `maxEventResyncs` bounds stalled resynchronisation of the event feed; and
+`maxReceipts` sets how many authority receipts a conversation retains. Each
+defaults to the value above, so omitting them reproduces the previous behavior.
 The transport is reversible: disabling the gateway removes the proxy surface and
 leaves every existing Coderax route untouched. No data migration is involved and
 no engine state is deleted.
