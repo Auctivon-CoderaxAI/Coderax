@@ -33,12 +33,14 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
   expect(await composer(page).evaluate((node, original) => node === original, element)).toBe(true);
   // Work's composer carries the agent and model rail, so it is taller than Chat's.
-  // The approved layout keeps its top and width anchored; only the height grows.
-  await expect.poll(() => composer(page).boundingBox()).toMatchObject({
-    x: before?.x,
-    y: before?.y,
-    width: before?.width,
-  });
+  // It is bottom-anchored: the width and bottom edge stay fixed while the taller
+  // Work rail grows upward.
+  const after = await composer(page).boundingBox();
+  expect(after?.x).toBe(before?.x);
+  expect(after?.width).toBe(before?.width);
+  expect((after?.y ?? 0) + (after?.height ?? 0)).toBe(
+    (before?.y ?? 0) + (before?.height ?? 0),
+  );
   await expect(page.locator('main')).toHaveCount(1);
   await expect(modeNav(page)).toHaveCount(1);
 }
