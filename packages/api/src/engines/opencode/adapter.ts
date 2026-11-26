@@ -600,7 +600,13 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions): EngineAd
       }
       await statusProbe;
     },
+    // Only an adapter with an endpoint can probe readiness. A transport-only
+    // caller has already supplied its own connection, so start admission is the
+    // configuration check, exactly as `startOpenCodeRun` handles that case.
     start: (request) =>
-      startOpenCodeRun({ ...options, probe: () => refresh(request.signal) }, request),
+      startOpenCodeRun(
+        options.baseURL == null ? options : { ...options, probe: () => refresh(request.signal) },
+        request,
+      ),
   };
 }
