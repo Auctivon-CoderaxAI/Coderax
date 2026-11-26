@@ -4,9 +4,10 @@ import { DndProvider } from 'react-dnd';
 import { RouterProvider } from 'react-router-dom';
 import * as RadixToast from '@radix-ui/react-toast';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Toast, ToastViewport, ToastProvider, useInputModality } from '@coderax/client';
 import { useApiErrorBoundary } from './hooks/ApiErrorBoundaryContext';
+import useAppQueryClient from './hooks/useAppQueryClient';
 import WakeLockManager from '~/components/System/WakeLockManager';
 import { ScreenshotProvider } from './hooks/ScreenshotContext';
 import QueryDevtoolsGate from '~/components/QueryDevtoolsGate';
@@ -21,25 +22,7 @@ const App = () => {
   const { setError } = useApiErrorBoundary();
   useInputModality();
 
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        // Always attempt network requests, even when navigator.onLine is false
-        // This is needed because localhost is reachable without WiFi
-        networkMode: 'always',
-      },
-      mutations: {
-        networkMode: 'always',
-      },
-    },
-    queryCache: new QueryCache({
-      onError: (error) => {
-        if (error?.response?.status === 401) {
-          setError(error);
-        }
-      },
-    }),
-  });
+  const queryClient = useAppQueryClient(setError);
 
   useEffect(() => {
     initializeFontSize();
