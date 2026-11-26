@@ -71,76 +71,147 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          password="$(openssl rand -hex 32)"
-          network="coderax-engine-ci"
-          container="coderax-engine-ci"
+
+          image='coderax-opencode:ci'
+          network='coderax-engine-ci'
+          container='coderax-engine-ci'
+          probe_image='curlimages/curl:8.11.1'
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          sha="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+
+          die() {
+            echo "::error::$*"
+            exit 1
+          }
+
           cleanup() {
             docker rm --force "$container" >/dev/null 2>&1 || true
             docker network rm "$network" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
-          wait_healthy() {
-            local status="starting"
-            local deadline=$((SECONDS + 150))
-            while [ "$SECONDS" -lt "$deadline" ]; do
-              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container")"
-              [ "$status" = healthy ] && break
-              [ "$status" = unhealthy ] && break
-              sleep 5
-            done
-            printf '%s' "$status"
+          dump_logs() {
+            echo '::group::engine container logs'
+            docker logs --tail 100 "$container" 2>&1 || true
+            echo '::endgroup::'
           }
 
-          docker network create "$network"
+          # Liveness and readiness come from one inspect, so an exited container
+          # fails immediately instead of waiting out the readiness deadline.
+          container_state() {
+            docker inspect --format '{{.State.Running}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null
+          }
+
+          wait_healthy() {
+            local state running status deadline
+            deadline=$((SECONDS + 150))
+            while [ "$SECONDS" -lt "$deadline" ]; do
+              state="$(container_state)" || state='false/missing'
+              running="${state%%/*}"
+              status="${state#*/}"
+              if [ "$running" != true ]; then
+                printf '%s' 'exited'
+                return 1
+              fi
+              case "$status" in
+                healthy)
+                  printf '%s' healthy
+                  return 0
+                  ;;
+                unhealthy | none)
+                  printf '%s' "$status"
+                  return 1
+                  ;;
+              esac
+              sleep 5
+            done
+            printf '%s' 'timed-out'
+            return 1
+          }
+
+          # A non-zero docker run is a failed probe, never a silent "not 200":
+          # curl exits non-zero when the connection itself fails.
+          http_probe() {
+            docker run --rm --network "$network" "$probe_image" \
+              --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --max-time 5 "$@"
+          }
+
+          password="$(openssl rand -hex 32)" || die 'could not generate the engine password'
+
+          docker network create "$network" >/dev/null \
+            || die "could not create the $network network"
+
           docker run --detach --name "$container" \
             --network "$network" \
             --env "OPENCODE_SERVER_PASSWORD=$password" \
             --env OPENROUTER_API_KEY=ci-not-a-real-key \
-            coderax-opencode:ci
+            "$image" >/dev/null \
+            || { dump_logs; die 'the engine container failed to start'; }
 
-          status="$(wait_healthy)"
-          docker logs "$container" || true
+          status="$(wait_healthy)" || true
           if [ "$status" != healthy ]; then
-            echo "::error::the engine never became healthy (last: $status)"
-            exit 1
+            dump_logs
+            die "the engine never became healthy (last: $status)"
           fi
 
-          published="$(docker port "$container" || true)"
+          published="$(docker port "$container")" \
+            || die 'could not read the published ports of the engine'
           if [ -n "$published" ]; then
-            echo "::error::the engine publishes a host port: $published"
-            exit 1
+            die "the engine publishes a host port: $published"
           fi
 
-          ip="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container")"
-          anonymous="$(docker run --rm --network "$network" curlimages/curl:8.11.1 \
-            -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$ip:4096/global/health" || true)"
-          authenticated="$(docker run --rm --network "$network" curlimages/curl:8.11.1 \
-            -s -o /dev/null -w '%{http_code}' --max-time 5 -u "opencode:$password" \
-            "http://$ip:4096/global/health" || true)"
-          echo "anonymous=$anonymous authenticated=$authenticated"
-          if [ "$anonymous" = 200 ]; then
-            echo "::error::the engine answered an unauthenticated request with 200"
-            exit 1
+          ip="$(docker inspect --format "{{with index .NetworkSettings.Networks \"$network\"}}{{.IPAddress}}{{end}}" "$container")" \
+            || die 'could not read the engine container address'
+          if [[ ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            die "the engine has no IPv4 address on $network (got '$ip')"
           fi
+
+          anonymous="$(http_probe "http://$ip:4096/global/health")" \
+            || die 'the unauthenticated probe could not reach the engine'
+          wrong_password="$(http_probe -u "opencode:wrong-$password" "http://$ip:4096/global/health")" \
+            || die 'the wrong-password probe could not reach the engine'
+          authenticated="$(http_probe -u "opencode:$password" "http://$ip:4096/global/health")" \
+            || die 'the authenticated probe could not reach the engine'
+          echo "anonymous=$anonymous wrong-password=$wrong_password authenticated=$authenticated"
+
+          case "$anonymous" in
+            401 | 403) ;;
+            200) die 'the engine answered an unauthenticated request with 200' ;;
+            *) die "the unauthenticated request was not cleanly rejected (got '$anonymous')" ;;
+          esac
+          case "$wrong_password" in
+            401 | 403) ;;
+            200) die 'the engine accepted an incorrect password' ;;
+            *) die "an incorrect password was not cleanly rejected (got '$wrong_password')" ;;
+          esac
           if [ "$authenticated" != 200 ]; then
-            echo "::error::the configured password did not authenticate (got $authenticated)"
-            exit 1
+            die "the configured password did not authenticate (got '$authenticated')"
           fi
 
-          docker restart "$container" >/dev/null
-          status="$(wait_healthy)"
+          started_before="$(docker inspect --format '{{.State.StartedAt}}' "$container")" \
+            || die 'could not read the engine start time'
+          docker restart "$container" >/dev/null \
+            || die 'the engine container did not restart'
+          started_after="$(docker inspect --format '{{.State.StartedAt}}' "$container")" \
+            || die 'could not read the engine start time after the restart'
+          if [ "$started_after" = "$started_before" ]; then
+            die 'the engine reported the same start time; restart recovery is unproven'
+          fi
+
+          status="$(wait_healthy)" || true
           if [ "$status" != healthy ]; then
-            echo "::error::the engine did not recover after a restart (last: $status)"
-            exit 1
+            dump_logs
+            die "the engine did not recover after a restart (last: $status)"
           fi
 
           {
             echo '### Private engine container'
             echo ''
-            echo "- Image: \`deploy/oci/opencode\`, built from \`$GITHUB_SHA\`"
-            echo '- Health: healthy after start and after restart'
+            echo "- Image: \`deploy/oci/opencode\`, built from \`$sha\`"
+            echo '- Health: healthy after start and after a verified restart'
             echo '- Published host ports: none'
-            echo "- Anonymous request: \`$anonymous\` (a 200 would be a failure)"
+            echo "- Anonymous request: \`$anonymous\` (401/403 required)"
+            echo "- Incorrect password: \`$wrong_password\` (401/403 required)"
             echo "- Authenticated request: \`$authenticated\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          } >> "$summary"

@@ -23,7 +23,8 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 `deploy/oci/opencode` is the only image in this stack that CI builds. The `engine-image` job in
 [`coderax-oci-proxy.yml`](../../.github/workflows/coderax-oci-proxy.yml) builds it on a hosted runner
 and proves what a parsed Compose file cannot: the container becomes healthy, publishes no host port,
-refuses an unauthenticated request, accepts the configured password, and recovers after a restart.
+rejects anonymous and wrong-password requests with a `401`/`403`, accepts the configured password,
+and is healthy again after a restart whose start time actually changed.
 Run it without a pull request through **Actions → Coderax API proxy and free-host contracts → Run
 workflow** on the branch you want to test. A green Compose parse is not that evidence, and the job
 does not prove the deployed VM behavior.
