@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Local acceptance gate for a change that cannot rely on hosted CI.
+ * Local acceptance gate for a pull request.
  *
- * This repository's GitHub Actions runs are blocked at the account billing
- * layer: a failing check never reaches a runner, so it proves nothing about the
- * commit. Until that is resolved, the evidence a reviewer gets is this script's
- * output, pasted into the pull request.
+ * Hosted CI runs on the three intentionally public repositories. This script
+ * remains the local evidence a reviewer gets, pasted into the pull request,
+ * alongside the required `CI gate (aggregate)` check at the exact head.
  *
  * One command runs the four gates a merge has to show against the merge base:
  *
@@ -325,7 +324,7 @@ const warnings = [...checkoutWarnings];
 if (options.manual.length === 0) warnings.push('- Warning: no manual observation was supplied.');
 
 const artifact = [
-  '### Local verification (hosted CI is billing-blocked)',
+  '### Local verification (local gates; hosted CI runs separately)',
   '',
   `- Commit before gates: \`${head.slice(0, 12)}\` on \`${branch}\``,
   `- Base: \`${base}\` (merge base \`${mergeBase.slice(0, 12)}\`)`,

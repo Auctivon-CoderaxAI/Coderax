@@ -142,7 +142,7 @@ inference and do not bypass release security checks.
 
 [Download Coderax for Windows x64](https://github.com/CoderaxAI/Coderax/releases/download/desktop-v1.0.0/Coderax-Windows-x64.exe) · [Release details and SHA-256 checksum](https://github.com/CoderaxAI/Coderax/releases/tag/desktop-v1.0.0)
 
-On first launch, enter the URL of your Coderax deployment. Remote servers require HTTPS; HTTP is accepted only for local loopback development. The installer is unsigned, and downloads require access to this private repository.
+On first launch, enter the URL of your Coderax deployment. Remote servers require HTTPS; HTTP is accepted only for local loopback development. The installer is unsigned, and downloads are published from this repository's releases.
 
 ## 🚀 What's New in v0.8.8
 

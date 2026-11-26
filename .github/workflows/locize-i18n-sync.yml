@@ -125,7 +125,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.create-pull-request.outputs.pull-request-number }}
-          REVIEWER: danny-avila
+          # The repository's code owner. An upstream contributor name here would
+          # request a reviewer who has no access to this organization, and the
+          # request would fail the job.
+          REVIEWER: nnabdelshahid
         run: |
           author="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json author --jq '.author.login')"
 

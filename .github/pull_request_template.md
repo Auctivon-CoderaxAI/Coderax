@@ -135,7 +135,7 @@ Examples:
 - `npm run test:client`
 - `npm run test:api`
 - Added tests in `foo.spec.ts`
-- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Hosted CI is billing-blocked on this repository, so paste it verbatim; it is the PR's acceptance artifact and the evidence a reviewer has.
+- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Hosted CI also runs on the public repositories, so paste the block verbatim as local evidence and confirm the required `CI gate (aggregate)` check is green at the exact pushed head.
 
 Write "Not applicable" when appropriate.
 -->

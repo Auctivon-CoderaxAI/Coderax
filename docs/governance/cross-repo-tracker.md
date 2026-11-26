@@ -1,145 +1,198 @@
-# Cross-repository tracker
+# Cross-repository governance tracker
 
-Owner: repository governance and CI. Updated 2026-11-26 18:11 UTC.
-Snapshot of the three public repositories in the `Auctivon-CoderaxAI` organization. Every SHA is
-the exact head the status beside it belongs to; a status at an earlier head is not evidence for a
-later one.
+Owner: repository governance and CI. Updated 2026-11-26.
+
+This page is the single status record for branch protection, the aggregate CI gate, the governance
+bootstrap and the security posture across the three `Auctivon-CoderaxAI` repositories. A field marked
+**owner-recorded** was not readable from this cloud session without an admin token; it is not a claim
+that the value is absent or unsafe.
+
+## Public visibility is intentional
+
+All three repositories are **intentionally public**. Public visibility is what enables free
+GitHub-hosted Actions minutes, branch protection, secret scanning and push protection at the $0
+budget. Public **source** visibility is authorized.
+
+That authorization does not extend to the running application or to data:
+
+- No public sign-up, guest access or anonymous application session.
+- No credential, token, private key, customer record or production dataset in a public repository,
+  workflow log, artifact or job summary.
+- The gate workflow uses the read-only `GITHUB_TOKEN` and **no repository secret**.
+- Production deployment credentials remain scoped to `push`, `tag` or `workflow_dispatch`
+  workflows, never to a pull-request-triggered job.
 
 ## Repositories
 
-| Repository | Visibility | `main` SHA | Actions | Secret scanning | Push protection |
-|---|---|---|---|---|---|
-| `Coderax` | public | `a5d237b0ff672356374849d565363955df69d298` | enabled | enabled | enabled |
-| `Coderax-WorkflowEngine` | public | `808dfd3797f9b1d7647ebd14bd395806fc4ab9bd` | enabled | enabled | enabled |
-| `CoderaxCLI` | public | `1b7c8e0a429755502f7563b16a8a09db899452d8` | enabled | enabled | enabled |
+| Repository               | Visibility           | `main` SHA                                 | Hosted Actions | Secret scanning          | Push protection          |
+| ------------------------ | -------------------- | ------------------------------------------ | -------------- | ------------------------ | ------------------------ |
+| `Coderax`                | public (intentional) | `a5d237b0ff672356374849d565363955df69d298` | enabled        | enabled (owner-recorded) | enabled (owner-recorded) |
+| `Coderax-WorkflowEngine` | public (intentional) | `808dfd3797f9b1d7647ebd14bd395806fc4ab9bd` | enabled        | enabled (owner-recorded) | enabled (owner-recorded) |
+| `CoderaxCLI`             | public (intentional) | `1b7c8e0a429755502f7563b16a8a09db899452d8` | enabled        | enabled (owner-recorded) | enabled (owner-recorded) |
 
 Organization plan: **free**, two members (`nnabdelshahid` admin, `AICoderax`). Public repositories
-get branch protection, secret scanning and push protection on this plan at no cost.
+include branch protection, secret scanning and push protection at no cost. The unauthenticated
+repository response does not expose `security_and_analysis`, so enablement is owner-recorded rather
+than re-read here; do not disable either feature to work around a push.
 
-## Hosted Actions
+## Branch protection
 
-GitHub-hosted runners execute on all three repositories as of 2026-11-26. The billing block that
-ended every job within seconds on 2026-11-21 is gone; what remains is runner **capacity**, not
-billing — a queued job is waiting for a slot, not failing.
+### Coderax
 
-<!-- coderabbit-ai-generated:v1 -->
+The public branch API confirms the required check; the remaining rows are owner-recorded and need an
+admin read to re-verify.
 
-<!-- coderabbit-ai-generated-section:v1:1a66ef1e864a3fd1eb8842ded22f067ce550b3f1f8bf7fb2b81358fd8dd0f0b9 -->
+| Rule                              | Value                               | Source            |
+| --------------------------------- | ----------------------------------- | ----------------- |
+| Protected                         | yes                                 | public branch API |
+| Required check                    | `CI gate (aggregate)`               | public branch API |
+| Required app                      | GitHub Actions, `app_id` 15368      | public branch API |
+| Enforcement                       | everyone                            | public branch API |
+| Strict / up-to-date head          | yes                                 | owner-recorded    |
+| Required approving reviews        | 1                                   | owner-recorded    |
+| Dismiss stale approvals           | yes                                 | owner-recorded    |
+| Require approval of the last push | yes                                 | owner-recorded    |
+| Code-owner review                 | no — sole code owner would deadlock | owner-recorded    |
+| Conversation resolution           | yes                                 | owner-recorded    |
+| Enforce for administrators        | yes                                 | owner-recorded    |
+| Force pushes / deletion           | blocked                             | owner-recorded    |
 
-| Repository | Evidence that hosted runners work |
-|---|---|
-| `Coderax` | PR #312 and #313 jobs were assigned runners and ran; "Build Docker client package target" succeeded. |
-| `Coderax-WorkflowEngine` | `verify` succeeded in run 45869651614 at `2072df89093e09ff8248a5ea416c9476da9c8dde`. |
-| `CoderaxCLI` | Re-dispatched run 44924568808 (attempt 2) was assigned a runner: `Set up job`, checkout, Set up Node and Syntax check all succeeded. |
+`CI gate (aggregate)` is the **only** required check. Component workflows stay path-filtered and stay
+individually visible; they are not required by name.
 
-<!-- /coderabbit-ai-generated:v1 -->
+### Coderax-WorkflowEngine and CoderaxCLI
 
-The 2026-11-21 `CoderaxCLI` failure was the billing signature (every step skipped, ~3s). The rerun
-**reached the tests**, which is how the real defect below became visible.
+Both repositories already have one unfiltered workflow, so one required check can always report:
+WorkflowEngine requires `verify`; CLI requires `test`. These are owner-recorded; re-read them with an
+admin token before treating them as current.
+
+## The aggregate gate
+
+Implementation: [`.github/workflows/ci-gate.yml`](../../.github/workflows/ci-gate.yml),
+[`.github/scripts/ci-gate.mjs`](../../.github/scripts/ci-gate.mjs),
+[`.github/scripts/ci-gate.test.mjs`](../../.github/scripts/ci-gate.test.mjs). Design and operations:
+[`ci-gate.md`](ci-gate.md).
+
+The consolidated implementation in PR #314:
+
+- runs on every pull request to `main` with no path filter;
+- uses gate logic, tests and workflow filters from the **base** revision;
+- evaluates the latest workflow-run attempt at the **exact head SHA**;
+- fails on failure, cancellation, timeout, `action_required`, `startup_failure`, `stale`, `neutral`,
+  `skipped` and a completed run with no conclusion;
+- rejects an applicable workflow that never registers after the start grace;
+- evaluates commit statuses at the same SHA;
+- evaluates only base-revision workflows, so a pull request cannot add a required lane;
+- excludes its own workflow, so it cannot deadlock on itself;
+- follows pagination and never evaluates a failed or partial API read as an empty pass;
+- fails closed on `merge_group` unless every component declares that trigger;
+- requires an owner approval at the exact head when an external contributor changes the CI control
+  plane that judges their pull request.
+
+PR #317's separate gate was not adopted: its job was named `CI gate`, which does not satisfy the
+required `CI gate (aggregate)` context, and its curated `reportOnly` manifest would let a failing test
+lane pass. The Redis and locize fixes from `governance/ci-gate-and-security` were reconciled into
+PR #314; its `merge_group` success path and its treatment of `skipped`/`neutral` as passing were not.
+
+## Bootstrap state
+
+Branch protection **already requires** `CI gate (aggregate)` while the workflow exists only in the
+bootstrap pull request (#314). This is the intended fail-closed state, not a reason to relax the rule.
+
+| Step                                                           | State                                                                                                             |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Required check registered before the workflow exists on `main` | yes — verified in the public branch API                                                                           |
+| Bootstrap pull request carrying the workflow                   | #314                                                                                                              |
+| Bootstrap run uses the pull request's gate copy                | yes — base has no gate; owner author only; warned and manually reviewable                                         |
+| Trusted base copy used after merge                             | yes — fallback requires the base to have **neither** workflow nor script                                          |
+| Post-merge installation verification                           | `CI gate (installation)` runs on `push` to `main`, self-tests the gate and asserts no path filter + `merge_group` |
+| Other open pull requests                                       | blocked until they update from `main`; that is fail-closed                                                        |
+
+Do not merge #314 on the strength of the bootstrap run alone. Review the bootstrap copy and the job
+summary, confirm the required check is green at the exact head, and keep the independent-approval and
+administrator-enforcement rules unchanged.
 
 ## Open pull requests
 
-| Repository | PR | Head SHA | Owner (branch) | Latest exact-head CI | Independent approval | Review findings |
-|---|---|---|---|---|---|---|
-| `Coderax` | [#314](https://github.com/Auctivon-CoderaxAI/Coderax/pull/314) `ci: aggregate required CI gate` | `00b8d05a32d0dd4aeed2aab4f6def750115b46f2` | this session (`freebuff/3dd95d103e2681b57d0a12f9`) | 19 checks created at 18:01, queued/running; `CI gate (aggregate)` **queued** | none | none raised yet |
-| `Coderax` | [#312](https://github.com/Auctivon-CoderaxAI/Coderax/pull/312) `test(ci): Chat and Work evidence` | `b80b5799f728b237ff636126f4b26c9bafc3575a` | UI evidence session (`test/ui-evidence`) | queued since 17:57 UTC | none | 8 review comments, 4 conversation comments |
-| `Coderax` | [#313](https://github.com/Auctivon-CoderaxAI/Coderax/pull/313) `fix(ui): fit Work composer controls` | `094bdd98e6d64dd61caddbd9ea60ab908bb12842` | UI session (`fix/work-composer-controls`) | Docker client target passed; tests and API smoke in progress | none | 4 conversation comments, 0 inline |
-| `Coderax` | Dependabot: `i18next` 24.2.2 → 26.3.4 | — | `dependabot[bot]` | not captured | none | automated changelog only |
-| `Coderax-WorkflowEngine` | [#2](https://github.com/Auctivon-CoderaxAI/Coderax-WorkflowEngine/pull/2) `feat(intelligence)` | `2072df89093e09ff8248a5ea416c9476da9c8dde` | engine session (`feat/intelligence-core`) | **`verify` success** (run 45869651614) | none | 4 conversation comments |
-| `CoderaxCLI` | [#4](https://github.com/Auctivon-CoderaxAI/CoderaxCLI/pull/4) `test(cli): real newlines in Work SSE fixtures` | `093225927a4eab27b9b8460492e6d860c5c93c40` | this session (`ci/fix-work-sse-fixtures`) | **`test` success** (run 45873236965, 18:07 UTC) | none | none |
+Head SHAs move; re-read them before acting.
 
-<!-- coderabbit-ai-generated:v1 -->
+| PR                                                             | Title                                                                  | Head        | Governance state                                                                                                                |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| [#314](https://github.com/Auctivon-CoderaxAI/Coderax/pull/314) | `ci: aggregate required CI gate and remove credential-shaped fixtures` | this branch | **Authoritative container.** Consolidated gate, Redis persistence, locize reviewer fix, docs.                                   |
+| [#317](https://github.com/Auctivon-CoderaxAI/Coderax/pull/317) | `ci: one always-on gate instead of required checks that never run`     | `6a6ee0bd`  | Superseded by #314. Its check name does not match the required context; report-only lanes not adopted. Close after #314 merges. |
+| [#312](https://github.com/Auctivon-CoderaxAI/Coderax/pull/312) | `test(ci): capture Chat and Work evidence on hosted runners`           | `ef518c42`  | Not governance. Blocked until it updates from `main` after #314.                                                                |
+| [#313](https://github.com/Auctivon-CoderaxAI/Coderax/pull/313) | `fix(ui): fit Work composer controls`                                  | `93eaa5f5`  | Not governance. Blocked until it updates from `main` after #314.                                                                |
+| [#316](https://github.com/Auctivon-CoderaxAI/Coderax/pull/316) | `fix(ci): make the UI evidence lane produce the artifacts it claims`   | `d44fde91`  | Separate evidence-lane repair; not part of the aggregate gate.                                                                  |
+| [#310](https://github.com/Auctivon-CoderaxAI/Coderax/pull/310) | Dependabot i18next bump                                                | `777c3f7f`  | Dependency update; subject to the same gate.                                                                                    |
 
-<!-- coderabbit-ai-generated-section:v1:627c8727b89d70b9569621ba2d63b74bc4a8e8c2a7e03a08f9cc80619b7df43e -->
+## Security posture
 
-No pull request in any repository carries an independent approval. Independent review is still required before merging; required CI must also pass on the
-current head. The **free** plan enforces required reviews on public repositories.
+### Fixed or verified
 
-<!-- /coderabbit-ai-generated:v1 -->
+| Item                                                                          | State                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Credential-shaped fixtures (`ghp_…`, `AKIA…`, private-key-like test literals) | Removed in PR #314 by assembling them at runtime. Redaction tests still exercise the real formats.                                                                                                                                       |
+| Gate workflow permissions                                                     | Read-only `contents`, `actions`, `statuses`, `pull-requests`; no secrets; no `checks: write`.                                                                                                                                            |
+| `pull_request_target`                                                         | Not used.                                                                                                                                                                                                                                |
+| Gate self-deadlock                                                            | Own workflow path excluded; verified by test.                                                                                                                                                                                            |
+| Merge-group false pass                                                        | Removed. The gate fails closed until component workflows declare `merge_group` and the candidate is genuinely verified.                                                                                                                  |
+| Skipped/neutral masking                                                       | Removed. Only `success` passes.                                                                                                                                                                                                          |
+| Stale/unrelated results                                                       | Latest attempt at the exact head only; wrong SHA, event, repository or pull request is rejected.                                                                                                                                         |
+| Redis persistence                                                             | Preserved: `save 900 1`, `save 300 10`, `save 60 10000`, `stop-writes-on-bgsave-error`, `rdbcompression`, `rdbchecksum`, `dbfilename`, `dir`. The TLS path fix only rewrites certificate locations and the launcher's working directory. |
+| Personal absolute TLS paths                                                   | Removed; certificate paths resolve beside `redis-config/`, and the launcher changes into that directory.                                                                                                                                 |
+| Locize reviewer request                                                       | Points at the repository code owner instead of an upstream account with no access to this organization.                                                                                                                                  |
 
-## Required checks and branch protection
+### Open or owner-recorded
 
-`Coderax` — configured 2026-11-26 on `main`:
+| Item                                                                                      | State                                                   | Owner action                                                                                                                   |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| A contributor can still replace the gate workflow with a same-named job that fakes a pass | Residual, bounded by review                             | Configure an organization ruleset **required workflow** for `ci-gate.yml`; GitHub takes that definition from a trusted source. |
+| Sole code owner; platform code-owner review disabled to avoid deadlock                    | Open                                                    | Add a second trusted collaborator to `.github/CODEOWNERS`; do not disable the review requirement.                              |
+| Organization secrets not enumerable without org-admin access                              | Unverified                                              | Read names only in Settings → Secrets; never print values.                                                                     |
+| Secret scanning and push protection enablement                                            | Owner-recorded enabled on all three public repositories | Keep enabled; enable the organization default so new repositories inherit it.                                                  |
+| `main` review/admin/force-push fields                                                     | Owner-recorded                                          | Re-read with an admin token; do not relax them.                                                                                |
 
-| Rule | Value |
-|---|---|
-| Required check | `CI gate (aggregate)` (GitHub Actions, `app_id` 15368) |
-| Strict (up-to-date head) | yes |
-| Required approving reviews | 1 |
-| Dismiss stale approvals | yes |
-| Require approval of the last push | yes |
-| Code-owner review | no — `CODEOWNERS` names the sole owner, so requiring it would deadlock |
-| Conversation resolution | yes |
-| Enforce for administrators | **yes** |
-| Force pushes | blocked |
-| Deletion | blocked |
-| Push restriction | `nnabdelshahid` (unchanged) |
+## Branches reconciled
 
-`Coderax-WorkflowEngine` — required check `verify`; `verify.yml` job id `verify`, no path filter,
-runs on every pull request. Name matches the actual job.
+| Branch                                         | State                                                                                                                                                                                                                                  |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `governance/ci-gate-and-security` (`2ab4af9c`) | Superseded by PR #314. Trusted-base logic, path-filter parsing, Redis persistence fix and locize reviewer fix were reconciled. Its `merge_group` success path, skipped-as-pass rule, and `CI Gate / Aggregate gate` name were removed. |
+| `ci/aggregate-gate` / PR #317 (`6a6ee0bd`)     | Superseded by PR #314. The curated manifest and report-only lanes were not adopted; the required check name did not match branch protection.                                                                                           |
+| `fix/shared-baseline-ci` (`c1841ac9`)          | Not consolidated. It carries a separate promotion/dev-branch CI architecture that conflicts with the main-only branch policy. Left intact; do not merge it into the governance change.                                                 |
+| `preserve/audit-20261123/*`                    | Explicit preservation branches. Left intact.                                                                                                                                                                                           |
 
-`CoderaxCLI` — required check `test`; `ci.yml` job id `test`, no path filter, runs on every pull
-request. Name matches the actual job.
+No competing governance pull request is created by this work. #314 is the container.
 
-### Known CI failures
+## Owner steps
 
-| Repository | Check | Cause | State |
-|---|---|---|---|
-| `CoderaxCLI` | `test` | The two native-Work snapshot tests double-escaped the SSE frame terminator, so each fixture held the literal characters `\n\n` instead of a blank line. No frame boundary was found, the command correctly reported that nothing was streamed, and both tests failed asserting exit code 0. | **Fixed** in PR #4 — 85/85 locally on Node 24.22.1, and hosted `test` **succeeded** at `09322592` (run 45873236965). |
+1. **Merge order.** Keep branch protection, reviews and administrator enforcement unchanged. Merge
+   #314 only after the required check is green at its exact head and an independent approval exists.
+   Then let the other pull requests update from `main`.
+2. **Verify the bootstrap separately.** Inspect the #314 bootstrap run's summary and the trusted
+   script; then confirm `CI gate (installation)` is green on the resulting `main` push.
+3. **Close #317** as superseded after #314 merges.
+4. **Add a trusted required workflow** at the organization level so a pull request cannot replace the
+   gate definition. This is the durable fix for the residual workflow-weakening risk.
+5. **Add a second collaborator/code owner** so independent approval and code-owner review are both
+   satisfiable without disabling administrator enforcement.
+6. **Keep the public-source boundary.** Do not add credentials, private data or public application
+   access in exchange for CI minutes. Secret scanning and push protection stay on.
 
-Before this change `Coderax` required **no status checks at all**, so no CI gate blocked a merge
-and no path-filtered workflow could leave a pending check either. Requiring the component
-workflows by name would have introduced that problem: `Static checks`, `Tests: Ubuntu`, `e2e`,
-`Lighthouse`, `a11y` and the rest are path-filtered and produce no check run when their paths are
-untouched. `CI gate (aggregate)` runs unconditionally and evaluates only the checks that exist, so
-it aggregates without ever waiting on a workflow that will not run.
+## Verification log
 
-<!-- coderabbit-ai-generated:v1 -->
+Local gate suite:
 
-<!-- coderabbit-ai-generated-section:v1:461baa969ebcca3b552c3b93b4d5f1e3c18d1de6aa52dbb4585297df5446c659 -->
+```text
+node --test .github/scripts/ci-gate.test.mjs
+tests 42
+pass 42
+fail 0
+```
 
-## Security findings
+The suite exercises the real workflow filters, positive and deliberately failing components,
+skipped/cancelled/timed-out lanes, missing workflows, stale runs, wrong pull requests, pagination,
+API failures, the bootstrap guard, the control-plane guard and merge-group fail-closed behavior.
 
-| # | Finding | State |
-|---|---|---|
-| S1 | `Coderax-WorkflowEngine` and `CoderaxCLI` had secret scanning **and** push protection disabled on public repositories. | **Fixed** — both enabled 2026-11-26, verified in the API response. |
-| S2 | Credential-shaped literals committed: `ghp_…` PAT in `mcp.spec.ts`, `ghp_…` in `verify.spec.ts`, `AKIA…` / `ghp_…` in `security-lab-core`, `AKIAIOSFODNN7EXAMPLE` in `redact.spec.ts`. Push protection would flag any of them. | **Fixed** in PR #314 — assembled at runtime, so the redaction tests still match the real formats. A repository-wide grep now returns nothing. |
-| S3 | Organization defaults for **new** repositories leave secret scanning, push protection, Dependabot alerts and the dependency graph disabled. | **Owner step** — Settings → Code security: enable all four. |
-| S4 | Organization does not require two-factor authentication. | **Owner step** — Settings → Authentication security → require 2FA. |
-| S5 | Organization secrets could not be enumerated: the API returns `403 You must be an org admin or have the actions secrets fine-grained permission`. This is an authorization limit, not evidence that none exist. | **Blocked** — needs an org-admin token or the owner reading Settings → Secrets → Actions. |
-| S6 | No repository secrets exist in any of the three repositories, and no environment secrets exist in `production` or `copilot` (both read as `total_count: 0`). Workflows reference `DOCKERHUB_*`, `CODEGRAPH_*`, `LOCIZE_*`, `OPENAI_API_KEY`, `MONGO_URI`, `CODERAX_SMOKE_*`, `AXE_LINTER_API_KEY`. The values available to those lanes are unknown because organization secrets could not be inventoried. | **Open** — availability unverified. Zero repository secrets does **not** establish zero credential exposure: organization secrets are a separate store, and that list is blocked (S5). |
-| S7 | `retry-docker-builds.yml` uses `workflow_run` with `actions: write`. | **Reviewed, acceptable** — it never checks out pull-request code, only reads run metadata and re-runs the run id from the event, so an untrusted fork cannot execute code in the privileged context. |
-| S8 | OIDC (`id-token: write`) appears only in the three npm publish jobs, each scoped to `environment: publish`. | **Correct** — no long-lived token, no OIDC in pull-request jobs. |
-| S9 | `deployed-smoke.yml` reads production secrets under `environment: production`. | **Safe** — `schedule` and `workflow_dispatch` only; never triggered by a pull request, so a fork cannot reach it. |
-| S10 | Third-party actions are pinned by tag (`actions/checkout@v5`, `docker/*@v4`, `dorny/paths-filter@v4`), and `sha_pinning_required` is `false` on all three repositories. | **Residual supply-chain risk** — `CoderaxCLI` pins by commit SHA; the other two do not. Enabling `sha_pinning_required` would break them, so pinning has to land first. |
-| S11 | `pull_request_target` is not used anywhere. Default `GITHUB_TOKEN` is read-only and cannot approve pull requests, on all three repositories. | **Verified good.** |
-| S12 | `helmcharts.yml` was the only workflow without a top-level `permissions:`. | **Fixed** — `contents: read` baseline. |
-
-## Deployment readiness
-
-| Repository | State |
-|---|---|
-| `Coderax` | PR #314 is pending independent review and a passing required CI gate. No repository secrets or `production` environment secrets were found; whether organization secrets let `deployed-smoke.yml` authenticate is unknown (S5). The three npm publish jobs depend on OIDC trusted publishing and the `publish` environment, which does not yet exist (it is created on first use). |
-| `Coderax-WorkflowEngine` | `verify` green at `2072df89093e09ff8248a5ea416c9476da9c8dde`. No deployment workflow; engine is a library/service contract. |
-| `CoderaxCLI` | `main` is red on a real test defect, not billing: the rerun reached the tests and failed two native-Work snapshot assertions. PR #4 fixes the fixtures; merging is what restores a green `main`. |
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-## Integration dependencies
-
-- `CoderaxCLI` ≥ `1b7c8e0a` targets the native Work SSE endpoint and cumulative stream handling from
-  `Coderax`; a `Coderax` change to that stream is a `CoderaxCLI` release dependency. The 2-test
-  failure on `CoderaxCLI` `main` sits in exactly that integration and must not be read as a
-  `Coderax` defect — the parser is correct and the fixtures were malformed.
-- `Coderax-WorkflowEngine` PR #2 raises `CONTRACT_VERSION` to 1.1.0 with additive operations only;
-  `Coderax` consumes that contract, so the engine PR should land before `Coderax` adopts 1.1.0.
-- The `CI gate` check must exist on `main` before it can be satisfied by a branch. PRs #312 and #313
-  predate the workflow, so they need an update-from-`main` (which `strict` already requires) before
-  their head will report it.
-
-## Notes and limits
-
-- Review-thread **resolution** state is not available through the available REST surface; only
-  comment counts are. A GraphQL-capable token is needed to record which threads are still open.
-- Exact-head CI status is a point-in-time reading. Re-read `gh pr checks <n>` before acting on it.
-- This tracker is updated through reviewed pull requests only. Do not edit `main` directly.
+Hosted evidence is recorded at the exact head after the push; an earlier run is not evidence for a
+later head. See the pull request's `CI gate (aggregate)` check and the `CI gate (installation)` push
+run on `main`.

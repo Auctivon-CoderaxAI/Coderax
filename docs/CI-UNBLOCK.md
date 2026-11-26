@@ -1,5 +1,10 @@
 # CI unblock: billing, visibility, and runner startup
 
+> **Status 2026-11-26:** resolved for these repositories. All three are intentionally public to
+> enable free GitHub-hosted Actions; branch protection, secret scanning and push protection are
+> enabled at no cost. The billing guidance below is retained for historical diagnosis, not as the
+> current repository state.
+
 ## Symptom
 
 Workflow runs fail before `Set up job` with `startup_failure`, `steps=0`, and no

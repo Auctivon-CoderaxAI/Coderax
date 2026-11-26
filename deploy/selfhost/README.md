@@ -4,7 +4,7 @@ This deployment path builds the **same Coderax Dockerfile** as the source reposi
 
 ## Prerequisites
 
-A continuously running Linux machine with Docker Compose v2, sufficient memory/disk for the Node build and persistent MongoDB data, Git credentials for this private repository, and a reverse proxy/tunnel for public HTTPS. Use a dedicated deployment host with durable volumes and backups. DeploymentPlatform's Vercel dashboard alone is not a persistent Docker host.
+A continuously running Linux machine with Docker Compose v2, sufficient memory/disk for the Node build and persistent MongoDB data, Git access to this repository, and a reverse proxy/tunnel for public HTTPS. Use a dedicated deployment host with durable volumes and backups. DeploymentPlatform's Vercel dashboard alone is not a persistent Docker host.
 
 1. Clone this repository on the authorized Linux host.
 2. Copy the repository's `.env.example` to `.env` and configure `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDS_KEY`, `CREDS_IV`, `DOMAIN_CLIENT`, `DOMAIN_SERVER` and one working AI inference provider. Do **not** commit `.env` or paste its values into a PR.

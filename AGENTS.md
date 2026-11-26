@@ -80,8 +80,9 @@ Run `npm run static-checks -- --against origin/main` to reproduce the PR's stati
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
 
-Hosted CI is billing-blocked on this repository, so `npm run verify` is the acceptance gate for a
-pull request. One command runs the four gates a merge has to show, in order:
+Hosted CI runs on the three intentionally public repositories. `npm run verify` remains the local
+acceptance artifact for a pull request, and the required `CI gate (aggregate)` check must also be
+green at the exact pushed head. One command runs the four gates a merge has to show, in order:
 
 1. TypeScript for every workspace affected by the committed diff, staged or unstaged edits,
    or non-ignored untracked files.
