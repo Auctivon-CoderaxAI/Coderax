@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QueryCache, QueryClient } from '@tanstack/react-query';
 
 type UnauthorizedHandler = (error: unknown) => void;
@@ -40,10 +40,18 @@ const createAppQueryClient = (onUnauthorized: UnauthorizedHandler): QueryClient 
  * 401. That would drop every cached conversation and restart the requests the
  * startup path had already resolved. The initializer keeps the client stable,
  * while the ref keeps the 401 handler current without rebuilding it.
+ *
+ * The ref is updated in an effect, not during render: a render can be thrown
+ * away or repeated, and a cache entry that reports while the committed tree
+ * still owns the previous handler would then have called a discarded one.
+ * Updates only land after commit, so the handler the visible tree rendered is
+ * the one a 401 reaches.
  */
 export default function useAppQueryClient(onUnauthorized: UnauthorizedHandler): QueryClient {
   const onUnauthorizedRef = useRef(onUnauthorized);
-  onUnauthorizedRef.current = onUnauthorized;
+  useEffect(() => {
+    onUnauthorizedRef.current = onUnauthorized;
+  }, [onUnauthorized]);
   const [queryClient] = useState(() =>
     createAppQueryClient((error) => onUnauthorizedRef.current(error)),
   );
