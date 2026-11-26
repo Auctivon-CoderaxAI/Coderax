@@ -64,6 +64,9 @@ jobs:
       - name: Verify Chrome is present
         run: google-chrome --version
 
+      - name: Install Playwright ffmpeg for retry videos
+        run: npx playwright install ffmpeg
+
       - name: Capture Chat and Work at desktop and mobile sizes
         env:
           CI: 'true'

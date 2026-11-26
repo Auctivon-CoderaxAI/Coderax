@@ -25,12 +25,19 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
     'true',
   );
   if (mode === 'Work') {
-    await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Model' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Model' })).toBeEnabled();
   }
   await expect(page).toHaveURL(url);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
   expect(await composer(page).evaluate((node, original) => node === original, element)).toBe(true);
-  await expect.poll(() => composer(page).boundingBox()).toEqual(before);
+  // Work's composer carries the agent and model rail, so it is taller than Chat's.
+  // The approved layout keeps its top and width anchored; only the height grows.
+  await expect.poll(() => composer(page).boundingBox()).toMatchObject({
+    x: before?.x,
+    y: before?.y,
+    width: before?.width,
+  });
   await expect(page.locator('main')).toHaveCount(1);
   await expect(modeNav(page)).toHaveCount(1);
 }
@@ -81,6 +88,7 @@ test.describe('continuous Chat and Work conversation', () => {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(NEW_CHAT_PATH);
       await input(page).fill('Keep this unsent draft.');
+      const chatComposer = await composer(page).boundingBox();
       await test.info().attach(`${viewport.name}-chat`, {
         body: await page.screenshot(),
         contentType: 'image/png',
@@ -93,6 +101,7 @@ test.describe('continuous Chat and Work conversation', () => {
       });
       await switchMode(page, 'Chat');
       await expect(input(page)).toHaveValue('Keep this unsent draft.');
+      await expect.poll(() => composer(page).boundingBox()).toEqual(chatComposer);
     });
   }
 
@@ -104,7 +113,8 @@ test.describe('continuous Chat and Work conversation', () => {
     const url = page.url();
     const id = new URL(url).pathname.split('/').at(-1)!;
     await switchMode(page, 'Work');
-    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: LOCAL_MODEL_B });
+    await page.getByRole('button', { name: 'Model' }).click();
+    await page.getByRole('menuitemradio').filter({ hasText: LOCAL_MODEL_B }).click();
     const replies = await mockReply(page).count();
     const start = await workStart(page, 'Reply with the mock result.');
     expect(start.request().postDataJSON().conversationId).toBe(id);
