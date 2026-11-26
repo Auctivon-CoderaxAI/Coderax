@@ -30,7 +30,7 @@ release gate passes.
 | Root directory  | repository root (`/`)                                                                                                                                                                                                                                                       |
 | Install command | `npm ci`                                                                                                                                                                                                                                                                    |
 | Build command   | `npm run frontend` (must leave the built SPA in `client/dist`)                                                                                                                                                                                                              |
-| Deploy command  | `npm run deploy:cloudflare` (verifies the revision marker matches the checkout, then `npx --yes wrangler@4.168.0 deploy`)                                                                                                                                                   |
+| Deploy command  | `npm run deploy:cloudflare` (checks the Worker configuration and revision marker before running `npx --yes wrangler@4.168.0 deploy`)                                                                                                                                        |
 | Branch          | `main`                                                                                                                                                                                                                                                                      |
 | Preview builds  | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
@@ -38,7 +38,8 @@ release gate passes.
 hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. A
 clean tracked tree records the full commit; a dirty tracked tree still builds for local development
 and e2e, but writes `commit: null` so the artifact is explicitly unverifiable. The
-`deploy:cloudflare` command verifies that marker against the current checkout and refuses a missing,
+`deploy:cloudflare` command first checks the Worker configuration, including `keep_vars`. It then
+verifies that marker against the current checkout and refuses a missing,
 null or stale marker, so a manual deploy cannot claim a revision its assets were not built from. The
 gate also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
 HEAD`; untracked build output is ignored. If Workers Builds, GitHub and Vercel expose conflicting
@@ -111,6 +112,13 @@ CODERAX_API_ORIGIN` (or the dashboard's **Secret** type) instead; the Worker rea
 exactly like a variable, and a deploy never deletes it. After #309 is serving, a text variable is
 safe again. `CODERAX_PROXY_SECRET` is a secret and survives either way.
 
+`keep_vars` is enabled in [`wrangler.jsonc`](../../wrangler.jsonc). A Wrangler deploy deletes
+plain-text variables that are not declared in the configuration file, so without it the dashboard-set
+`CODERAX_API_ORIGIN` would disappear on the next Workers Builds run and every API route would answer
+`503 {"error":"API proxy is not configured"}` again. Secrets such as `CODERAX_PROXY_SECRET` are
+never deleted by a deploy. `scripts/verify-cloudflare-deployment.mjs --config-only` fails if this
+setting is removed.
+
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and
 does not override `DOMAIN_CLIENT` or `DOMAIN_SERVER`.
@@ -137,7 +145,7 @@ complete.
 push to main
   └─ Workers Builds: npm ci
        └─ npm run frontend                 -> client/dist (client postbuild writes deployment.json)
-            └─ npm run deploy:cloudflare   -> verify deployment.json + wrangler@4.168.0 deploy
+            └─ npm run deploy:cloudflare   -> check Worker config, verify deployment.json, deploy
                  └─ Cloudflare serves the new version
                       └─ Cloudflare production verification (GitHub Actions)
                            └─ polls /deployment.json for the merged commit
@@ -201,8 +209,9 @@ Use a previous Worker version; never rebuild a rollback from an unreviewed worki
    though the Worker rollback succeeded. Restore the matching OCI image/commit, or record the
    mismatch as an incident; do not treat that gate failure as a failed Worker rollback.
 
-3. Open a reviewed revert pull request so `main` and the deployed version converge again. A rollback
-   is an incident response, not the permanent fix.
+3. Open a reviewed revert pull request so `main` and the deployed version converge again. Keep
+   `keep_vars: true` and the predeploy check in the revert so the next Workers Builds deploy
+   preserves the dashboard variables. A rollback is an incident response, not the permanent fix.
 
 **Tested where safe:** the committed configuration, the Worker unit suite and the release gate are
 covered by `node --test worker/index.test.mjs scripts/verify-cloudflare-deployment.test.mjs` and
