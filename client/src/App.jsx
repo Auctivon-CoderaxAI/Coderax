@@ -11,10 +11,10 @@ import WakeLockManager from '~/components/System/WakeLockManager';
 import { ScreenshotProvider } from './hooks/ScreenshotContext';
 import QueryDevtoolsGate from '~/components/QueryDevtoolsGate';
 import LanguageSync from '~/components/System/LanguageSync';
+import useAppQueryClient from './hooks/useAppQueryClient';
 import DeploymentTheme from '~/Providers/DeploymentTheme';
 import UiScaleSync from '~/components/System/UiScaleSync';
 import { initializeFontSize } from '~/store/fontSize';
-import useAppQueryClient from './hooks/useAppQueryClient';
 import { LiveAnnouncer } from '~/a11y';
 import { router } from './routes';
 

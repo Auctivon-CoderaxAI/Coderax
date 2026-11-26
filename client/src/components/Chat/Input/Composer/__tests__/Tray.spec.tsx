@@ -67,8 +67,8 @@ describe('Tray', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders nothing when no context is staged, even when a model is attached', () => {
-    const { container } = renderTray([], new Map(), undefined, {
+  it('shows the active model without rendering a staged context tray', () => {
+    renderTray([], new Map(), undefined, {
       title: null,
       conversationId: null,
       endpoint: null,
@@ -77,7 +77,8 @@ describe('Tray', () => {
       model: 'qwen2.5-coder:7b',
     } as TConversation);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByTestId('composer-model-bar')).toHaveTextContent('qwen2.5-coder:7b');
+    expect(screen.queryByTestId('composer-tray')).not.toBeInTheDocument();
   });
 
   it('groups every staged kind under one labelled chip list', () => {
