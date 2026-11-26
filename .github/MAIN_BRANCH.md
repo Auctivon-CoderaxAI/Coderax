@@ -13,8 +13,12 @@ Configure rulesets/branch protection for `main` with:
 - Every change through a pull request; direct pushes denied, including for administrators.
 - At least one independent approval, with approval of the most recent reviewable push by someone
   other than its author and stale approvals dismissed when the pull request changes.
-- Required status checks for the backend, frontend, static-check, integration, security and e2e
-  workflows, evaluated at the exact head SHA. A passing run at an earlier head is not a pass.
+- Required status checks at the exact head SHA, through one always-running aggregate check,
+  `CI gate (aggregate)` (`.github/workflows/ci-gate.yml`). A passing run at an earlier head is not a
+  pass. The gate evaluates every GitHub Actions check run that exists at the head, so a path-filtered
+  component that did not apply is a pass and one that ran and failed is a failure. Do not add the
+  component workflows as separate required checks: they are path-filtered, and a required check that
+  never runs leaves the pull request permanently pending on an expected status.
 - Code-owner review for `.github/workflows/`, `.github/scripts/` and `.github/CODEOWNERS`.
 - All review threads resolved before merge.
 - Force pushes and branch deletion disallowed.
@@ -27,6 +31,12 @@ those changes are to merge through the normal path.
 
 Where the hosting plan cannot enforce a rule, record the equivalent review step in the pull request
 instead of claiming platform enforcement. Do not relax the remaining rules to compensate.
+
+On the free plan, public repositories still enforce every rule above. The binding constraint is
+review capacity, not the plan: the organization has two members, and an approval from the second
+member is the zero-cost independent review. A bot whose review event is a comment rather than an
+approval does not satisfy the required review and must not be treated as one; never self-approve,
+and do not disable administrator enforcement because no second reviewer is available.
 
 ## Releases
 
