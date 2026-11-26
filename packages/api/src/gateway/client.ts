@@ -23,8 +23,8 @@ import type {
   WorkSubmitRequest,
 } from './contracts';
 import { contractSchemas, isTerminalEvent } from './contracts';
-import { readSseFrames, SseProtocolError } from './sse';
 import { DEFAULT_CONTRACT_VERSION } from './config';
+import { readSseFrames, SseReadError } from './sse';
 
 const schemas = contractSchemas();
 
@@ -52,8 +52,7 @@ export type GatewayFetch = (
   ok: boolean;
   status: number;
   headers: { get: (name: string) => string | null };
-  text: () => Promise<string>;
-  body: unknown;
+  body: ReadableStream<Uint8Array> | null;
 }>;
 
 export type GatewayTransportErrorCode =
@@ -163,7 +162,6 @@ export type EngineClientOptions = {
 
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_EVENT_RESYNCS = 3;
-const MAX_EVENT_CONNECTIONS = 12;
 
 const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Object.freeze({
   unauthorized: 'unauthorized',
@@ -251,7 +249,7 @@ function networkError(cause: unknown): GatewayTransportError {
   if (cause instanceof GatewayTransportError) {
     return cause;
   }
-  const name = cause instanceof Error ? cause.name : '';
+  const name = typeof cause === 'object' && cause != null && 'name' in cause ? cause.name : '';
   if (name === 'AbortError' || name === 'TimeoutError') {
     return new GatewayTransportError('engine_timeout', 'The engine did not answer in time.', {
       retryable: true,
@@ -266,6 +264,7 @@ type BodyReader = {
   getReader: () => {
     read: () => Promise<{ done: boolean; value?: Uint8Array }>;
     cancel: (reason?: unknown) => Promise<void>;
+    releaseLock: () => void;
   };
 };
 
@@ -275,7 +274,7 @@ type BodyReader = {
  * would otherwise outlive the configured request timeout.
  */
 async function readBoundedBody(
-  response: { text: () => Promise<string>; body: unknown },
+  response: { text?: () => Promise<string>; body: unknown },
   timeoutMs: number,
   signal: AbortSignal | undefined,
 ): Promise<string> {
@@ -305,7 +304,7 @@ async function readBoundedBody(
   const decode = async (): Promise<string> => {
     const body = response.body as BodyReader | null;
     if (body == null || typeof body.getReader !== 'function') {
-      return response.text();
+      return response.text?.() ?? '';
     }
     const reader = body.getReader();
     const decoder = new TextDecoder();
@@ -328,6 +327,7 @@ async function readBoundedBody(
       return text + decoder.decode();
     } finally {
       await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
     }
   };
 
@@ -361,25 +361,20 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   if (typeof doFetch !== 'function') {
     throw new GatewayTransportError('engine_unreachable', 'No HTTP transport is available.');
   }
-  const expectedContractVersion = options.contractVersion ?? DEFAULT_CONTRACT_VERSION;
+  const expectedContractVersion = DEFAULT_CONTRACT_VERSION;
+  if (options.contractVersion != null && options.contractVersion !== expectedContractVersion) {
+    throw new GatewayTransportError(
+      'protocol_error',
+      'Unsupported WorkflowEngine contract version.',
+    );
+  }
 
   function linkedController(signal: AbortSignal | undefined, timeoutMs: number) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const forward = (): void => controller.abort();
-    if (signal != null) {
-      if (signal.aborted) {
-        controller.abort();
-      } else {
-        signal.addEventListener('abort', forward, { once: true });
-      }
-    }
     return {
-      signal: controller.signal,
-      dispose: () => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', forward);
-      },
+      signal: signal == null ? controller.signal : AbortSignal.any([signal, controller.signal]),
+      dispose: () => clearTimeout(timer),
     };
   }
 
@@ -392,6 +387,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       auth: 'owner' | 'public';
       signal?: AbortSignal;
       timeoutMs?: number;
+      acceptNonOk?: (status: number, text: string) => boolean;
     },
   ): Promise<z.infer<T>> {
     const link = linkedController(init.signal, init.timeoutMs ?? options.requestTimeoutMs);
@@ -424,7 +420,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         init.timeoutMs ?? options.requestTimeoutMs,
         init.signal,
       );
-      if (!response.ok) {
+      if (!response.ok && !init.acceptNonOk?.(response.status, text)) {
         throw errorFromResponse(response.status, text);
       }
       return parseBody(schema, text);
@@ -512,19 +508,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     signal: AbortSignal | undefined,
   ): AsyncIterable<ExecutionEvent> {
     let lastSeq = after;
-    let noProgress = 0;
-    let gaps = 0;
-    let connections = 0;
+    let stalledResyncs = 0;
     const encoded = encodeURIComponent(taskId);
     for (;;) {
-      connections += 1;
-      if (connections > MAX_EVENT_CONNECTIONS) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream could not be resynchronised.',
-        );
+      if (signal?.aborted) {
+        return;
       }
-      const before = lastSeq;
+      const previousSeq = lastSeq;
       const response = await openStream(`/v1/work/${encoded}/events?after=${lastSeq}`, {
         method: 'GET',
         ...(signal == null ? {} : { signal }),
@@ -579,38 +569,28 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           }
         }
       } catch (error) {
-        // Framing failures (idle, truncated frame, cancellation) use the same
-        // bounded recovery as a clean close. A malformed event payload is a
-        // GatewayTransportError and is never retried.
-        if (signal?.aborted || !(error instanceof SseProtocolError)) {
+        if (signal?.aborted || !(error instanceof SseReadError)) {
           throw error;
         }
+        // A failed body read or partial frame can replay from the same cursor as an early EOF.
       }
-      if (terminal) {
+      if (terminal || signal?.aborted) {
         return;
       }
-      if (gap) {
-        gaps += 1;
-        if (gaps > MAX_EVENT_RESYNCS + 3) {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine event stream could not be resynchronised.',
-          );
-        }
-        continue;
+      stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
+      // A gap, or a close without a terminal event, is resynchronised from the
+      // exact last delivered sequence rather than silently skipped.
+      if (stalledResyncs > MAX_EVENT_RESYNCS && !gap) {
+        throw new GatewayTransportError(
+          'protocol_error',
+          'The engine event stream ended without a terminal event.',
+        );
       }
-      // Only a connection that delivered nothing new consumes the retry budget;
-      // progress resets it so a long-running task is not abandoned.
-      if (lastSeq > before) {
-        noProgress = 0;
-      } else {
-        noProgress += 1;
-        if (noProgress > MAX_EVENT_RESYNCS) {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine event stream ended without a terminal event.',
-          );
-        }
+      if (stalledResyncs > MAX_EVENT_RESYNCS + 3) {
+        throw new GatewayTransportError(
+          'protocol_error',
+          'The engine event stream could not be resynchronised.',
+        );
       }
     }
   }
@@ -621,7 +601,20 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     health: (signal) =>
       request('/v1/health', schemas.HealthReport, { method: 'GET', auth: 'public', signal }),
     readiness: (signal) =>
-      request('/v1/ready', schemas.ReadinessReport, { method: 'GET', auth: 'public', signal }),
+      request('/v1/ready', schemas.ReadinessReport, {
+        method: 'GET',
+        auth: 'public',
+        signal,
+        acceptNonOk: (status, text) => {
+          if (status !== 503) return false;
+          try {
+            const report = schemas.ReadinessReport.safeParse(JSON.parse(text));
+            return report.success && !report.data.ready;
+          } catch {
+            return false;
+          }
+        },
+      }),
     listAgents: (signal) =>
       request('/v1/agents', schemas.AgentList, { method: 'GET', auth: 'owner', signal }),
     listModels: (signal) =>

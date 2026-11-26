@@ -9,7 +9,7 @@ import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
 import { createEngineClient, GatewayTransportError } from './client';
 import { resolveGatewayConfig } from './config';
-import { checkCompatibility } from './compat';
+import { WORK_CAPABILITIES, checkCompatibility, missingCapabilities } from './compat';
 import { contractSchemas } from './contracts';
 import { requireOwner } from './auth';
 
@@ -36,7 +36,13 @@ export type WorkflowEngineGatewayLogger = {
 };
 
 export type WorkflowEngineGatewayDeps = {
-  resolveConfig: (req: Request) => WorkflowEngineGatewayOptions | null | undefined;
+  resolveConfig: (
+    req: Request,
+  ) =>
+    | WorkflowEngineGatewayOptions
+    | null
+    | undefined
+    | Promise<WorkflowEngineGatewayOptions | null | undefined>;
   env?: NodeJS.ProcessEnv;
   fetch?: GatewayFetch;
   logger?: WorkflowEngineGatewayLogger;
@@ -59,7 +65,6 @@ type GatewayContext = {
 };
 
 const CONTEXT = 'workflowEngine';
-const COMPATIBILITY_TTL_MS = 60_000;
 const NO_STORE = { 'Cache-Control': 'no-store' };
 
 class GatewayRequestError extends Error {
@@ -120,26 +125,17 @@ export function createWorkflowEngineGateway(
     fingerprint: string;
     config: Extract<ResolvedGatewayConfig, { enabled: true }>;
     client: ReturnType<typeof createEngineClient>;
-    compatibility: Promise<CompatibilityReport>;
-    checkedAtMs: number;
+    pending?: Promise<CompatibilityReport>;
   } | null = null;
 
+  // The token is compared separately so a rotated credential rebuilds the
+  // client without putting the secret value into the cache key.
   function contextFor(config: Extract<ResolvedGatewayConfig, { enabled: true }>) {
-    // The token is compared separately so a rotated credential rebuilds the
-    // client without putting the secret value into the cache key.
     if (
       cache != null &&
       cache.fingerprint === config.fingerprint &&
       cache.config.token === config.token
     ) {
-      if (Date.now() - cache.checkedAtMs > COMPATIBILITY_TTL_MS) {
-        const entry = cache;
-        entry.checkedAtMs = Date.now();
-        entry.compatibility = checkCompatibility(entry.client).catch((error: unknown) => {
-          cache = null;
-          throw error;
-        });
-      }
       return cache;
     }
     const client = createEngineClient({
@@ -150,20 +146,17 @@ export function createWorkflowEngineGateway(
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
-    const compatibility = checkCompatibility(client).catch((error: unknown) => {
-      // A transient outage must not permanently brick the transport, but the
-      // failed check is never cached as success.
-      cache = null;
-      throw error;
-    });
-    cache = {
-      fingerprint: config.fingerprint,
-      config,
-      client,
-      compatibility,
-      checkedAtMs: Date.now(),
-    };
+    cache = { fingerprint: config.fingerprint, config, client };
+
     return cache;
+  }
+
+  function probe(entry: NonNullable<typeof cache>): Promise<CompatibilityReport> {
+    // Share only in-flight probes. Every later dispatch must observe current capabilities.
+    entry.pending ??= checkCompatibility(entry.client).finally(() => {
+      entry.pending = undefined;
+    });
+    return entry.pending;
   }
 
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -173,7 +166,7 @@ export function createWorkflowEngineGateway(
         res.set(NO_STORE).status(owner.status).json({ code: owner.code });
         return;
       }
-      const resolved = resolveGatewayConfig(deps.resolveConfig(req), env);
+      const resolved = resolveGatewayConfig(await deps.resolveConfig(req), env);
       if (!resolved.ok) {
         const failure = configFailure(resolved);
         res.set(NO_STORE).status(failure.status).json(failure.body);
@@ -187,7 +180,7 @@ export function createWorkflowEngineGateway(
         return;
       }
       const entry = contextFor(resolved.value);
-      const compatibility = await entry.compatibility;
+      const compatibility = await probe(entry);
       const context: GatewayContext = {
         owner: owner.value,
         config: entry.config,
@@ -240,7 +233,6 @@ export function createWorkflowEngineGateway(
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
-
     const write = async (chunk: string): Promise<boolean> => {
       if (res.writableEnded || signal.aborted) {
         return false;
@@ -316,28 +308,17 @@ export function createWorkflowEngineGateway(
   router.get(
     '/ready',
     handle(async (_req, res, context) => {
-      const body = {
-        contractVersion: context.compatibility.contractVersion,
-        capabilities: context.compatibility.capabilities,
-      };
-      try {
-        const readiness = await context.client.readiness();
-        res
-          .set(NO_STORE)
-          .status(readiness.ready ? 200 : 503)
-          .json({ ready: readiness.ready, missing: readiness.missing, ...body });
-      } catch (error) {
-        // A reachable-but-not-ready engine is a different answer from an
-        // unreachable one; only the latter reaches the shared error handler.
-        if (error instanceof GatewayTransportError && error.code === 'not_ready') {
-          res
-            .set(NO_STORE)
-            .status(503)
-            .json({ ready: false, missing: [], ...body });
-          return;
-        }
-        throw error;
-      }
+      const readiness = await context.client.readiness();
+      res
+        .set(NO_STORE)
+        .status(readiness.ready ? 200 : 503)
+        .json({
+          ready: readiness.ready,
+          missing: readiness.missing,
+          ...(readiness.ready ? {} : { code: 'WORKFLOW_ENGINE_ENGINE_NOT_READY' }),
+          contractVersion: context.compatibility.contractVersion,
+          capabilities: context.compatibility.capabilities,
+        });
     }),
   );
 
@@ -475,7 +456,11 @@ export function createWorkflowEngineGateway(
   router.post(
     '/work',
     handle(async (req, res, context) => {
+      const missing = missingCapabilities(context.compatibility, WORK_CAPABILITIES);
       if (!context.compatibility.workCapable) {
+        if (missing.length > 0) {
+          throw capabilityFailure(missing);
+        }
         throw unsupported(
           'No available WorkflowEngine engine advertises every Work capability (durable, cancellation, resume).',
         );
@@ -638,7 +623,7 @@ export function createWorkflowEngineGateway(
     }
     const entry = contextFor(resolved.value);
     try {
-      const report = await entry.compatibility;
+      const report = await probe(entry);
       deps.logger?.info?.(
         `[workflow-engine] contract ${report.contractVersion} verified; engine ${report.engineStatus}`,
       );

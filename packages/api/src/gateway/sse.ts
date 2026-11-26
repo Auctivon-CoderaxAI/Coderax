@@ -22,6 +22,12 @@ export class SseProtocolError extends Error {
   }
 }
 
+/** Recoverable interruption of the upstream event stream. */
+export class SseReadError extends Error {}
+
+/** EOF before the delimiter: replay can recover the missing complete frame. */
+export class SseFramingError extends SseReadError {}
+
 export type SseReadOptions = {
   idleTimeoutMs: number;
   maxFrameBytes?: number;
@@ -84,15 +90,6 @@ export async function* readSseFrames(
   const decoder = new TextDecoder();
   let buffer = '';
   let finished = false;
-  let cancelled = false;
-
-  const cancel = async (): Promise<void> => {
-    if (cancelled) {
-      return;
-    }
-    cancelled = true;
-    await reader.cancel().catch(() => undefined);
-  };
 
   /**
    * The idle deadline and caller cancellation must win the race before the
@@ -119,7 +116,13 @@ export async function* readSseFrames(
       );
     });
     try {
-      return await Promise.race([reader.read(), timedOut, aborted]);
+      return await Promise.race([
+        reader.read().catch(() => {
+          throw new SseReadError('The engine event stream could not be read.');
+        }),
+        timedOut,
+        aborted,
+      ]);
     } finally {
       if (timer != null) {
         clearTimeout(timer);
@@ -154,18 +157,23 @@ export async function* readSseFrames(
         }
         boundary = buffer.indexOf('\n\n');
       }
-      if (frameBytes(buffer) > maxFrameBytes) {
+
+      // A trailing newline may be the first half of a delimiter split across chunks.
+      const partial = !finished && buffer.endsWith('\n') ? buffer.slice(0, -1) : buffer;
+      if (frameBytes(partial) > maxFrameBytes) {
         throw new SseProtocolError('The engine event frame exceeded the size limit.');
       }
     }
 
     buffer += decoder.decode();
-    // A close before the delimiter leaves an incomplete frame; yielding it would
-    // let a task consumer accept a terminal event whose framing never completed.
+    // A close before the delimiter leaves an incomplete frame; the client can
+    // replay it from the last delivered sequence instead of accepting it.
     if (buffer.trim().length > 0) {
-      throw new SseProtocolError('The engine event stream ended before a frame delimiter.');
+      throw new SseFramingError('The engine event stream ended before the frame delimiter.');
     }
   } finally {
-    await cancel();
+    if (!finished) {
+      await reader.cancel().catch(() => undefined);
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { SseProtocolError, readSseFrames } from './sse';
+import { SseFramingError, SseProtocolError, readSseFrames } from './sse';
 
 function streamOf(chunks: string[]): ReadableStream<Uint8Array> {
   const encoded = chunks.map((chunk) => new TextEncoder().encode(chunk));
@@ -27,10 +27,27 @@ async function collect(
   return frames;
 }
 
+function frames(chunks: string[], maxFrameBytes = 16) {
+  return readSseFrames(streamOf(chunks), { idleTimeoutMs: 1_000, maxFrameBytes })[
+    Symbol.asyncIterator
+  ]();
+}
+
 describe('WorkflowEngine SSE reader', () => {
   it('emits every complete frame that arrives in one chunk', async () => {
-    const frames = await collect(streamOf(['data: one\n\ndata: two\n\n']));
-    expect(frames).toEqual(['one', 'two']);
+    const results = await collect(streamOf(['data: one\n\ndata: two\n\n']));
+    expect(results).toEqual(['one', 'two']);
+  });
+
+  it('accepts a delimiter split across chunks', async () => {
+    const iterator = frames(['data: 1234567890\n\ndata: 1234567890\n\ndata: 1234567890\n', '\n']);
+    for (let i = 0; i < 3; i++) {
+      await expect(iterator.next()).resolves.toEqual({
+        done: false,
+        value: { data: '1234567890' },
+      });
+    }
+    await expect(iterator.next()).resolves.toMatchObject({ done: true });
   });
 
   it('measures the frame limit in UTF-8 bytes', async () => {
@@ -38,6 +55,10 @@ describe('WorkflowEngine SSE reader', () => {
     await expect(
       collect(streamOf(['data: éééééééééé\n\n']), { maxFrameBytes: 10 }),
     ).rejects.toBeInstanceOf(SseProtocolError);
+  });
+
+  it.each(['', '\n\n'])('rejects an oversize frame (suffix %j)', async (suffix) => {
+    await expect(frames(['data: €€€€' + suffix]).next()).rejects.toBeInstanceOf(SseProtocolError);
   });
 
   it('rejects an idle stream instead of ending it cleanly', async () => {
@@ -55,6 +76,8 @@ describe('WorkflowEngine SSE reader', () => {
   });
 
   it('rejects a stream that closes before its frame delimiter', async () => {
-    await expect(collect(streamOf(['data: {"incomplete":true}']))).rejects.toThrow(/delimiter/);
+    await expect(collect(streamOf(['data: {"incomplete":true}']))).rejects.toBeInstanceOf(
+      SseFramingError,
+    );
   });
 });
