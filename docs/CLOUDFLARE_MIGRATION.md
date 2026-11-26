@@ -210,6 +210,11 @@ $CLOUDFLARE_API_TOKEN"`), or set the two bindings in the dashboard. Do not creat
    projects, memory, schedules and artifacts before authorizing retirement of Vercel.
 6. Review and merge PR #309 so a text `CODERAX_API_ORIGIN` survives future deploys; keep the origin
    as a secret until a build containing it is serving.
+7. Merge PR #315 **before** #309 or this branch. `main` does not typecheck:
+   `client/src/routes/ChatRoute.tsx` calls `com_work_owner_signin_required`, which
+   `client/src/locales/en/translation.json` never carried. #315 adds that key. Any pull request that
+   touches the root `package.json` — #309 does — inherits the failure, so the merge order decides
+   whether the next required check can pass.
 
 ### Cutover and rollback triggers
 
