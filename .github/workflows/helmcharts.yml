@@ -12,6 +12,11 @@ on:
         required: true
         type: string
 
+# Default the workflow token to read-only. The one job that publishes overrides
+# this with `packages: write`; nothing else needs more than a checkout.
+permissions:
+  contents: read
+
 jobs:
   release:
     permissions:

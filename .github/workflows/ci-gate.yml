@@ -1,0 +1,59 @@
+name: CI Gate
+
+# The one required status check. This workflow deliberately has no `paths`
+# filter: a required check that is itself path-filtered is pending forever on
+# every pull request it does not apply to.
+#
+# Component workflows stay path-filtered and are not required individually. The
+# gate reads each one's own `on.pull_request` filter, waits for the workflows the
+# diff actually triggers at this exact head SHA, and fails when one of them
+# failed, was cancelled, or never reported. See .github/scripts/ci-gate.mjs.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Aggregate gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          # Workflow files are read from the same merged tree GitHub used to
+          # start the component runs, so the filters evaluated here are the ones
+          # that were applied.
+          persist-credentials: false
+
+      - name: Set up Node.js 24.16.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.16.0'
+
+      # A gate that misreads a filter is worse than no gate: it either blocks
+      # every pull request or passes one it never waited on. The suite pins the
+      # parser against the repository's real workflow files and asserts that
+      # this workflow stays unfiltered.
+      - name: Self-test the gate
+        run: node --test .github/scripts/ci-gate.test.mjs
+
+      - name: Aggregate component workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: node .github/scripts/ci-gate.mjs
