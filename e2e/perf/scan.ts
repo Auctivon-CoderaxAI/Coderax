@@ -150,9 +150,18 @@ export function buildTallySetup(anchorComponent?: string): string {
 })();`;
 }
 
+/** Whether react-scan is injected. Turning it off keeps the long-task sampler
+ *  and heap/DOM readings but drops render tallies: react-scan retains render
+ *  history by design, which would otherwise be attributed to the app. */
+export function renderTrackingEnabled(): boolean {
+  return process.env.PERF_RENDER_TRACKING !== 'off';
+}
+
 /** Injects react-scan plus the tally script before any app code runs. */
 export async function installReactScan(page: Page, anchorComponent?: string): Promise<void> {
-  await page.addInitScript({ content: fs.readFileSync(resolveReactScanPath(), 'utf8') });
+  if (renderTrackingEnabled()) {
+    await page.addInitScript({ content: fs.readFileSync(resolveReactScanPath(), 'utf8') });
+  }
   await page.addInitScript({ content: buildTallySetup(anchorComponent) });
 }
 

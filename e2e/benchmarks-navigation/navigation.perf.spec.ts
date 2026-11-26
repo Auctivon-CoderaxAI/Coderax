@@ -251,6 +251,13 @@ type BrowserUsage = {
   heapTotalBytes: number;
   nodeCount: number;
   eventListeners: number;
+  documents: number;
+  /** Nodes still reachable from the document, versus the CDP total (which
+   *  includes detached nodes the page is still holding). A gap that grows
+   *  across switches is retention, not a bigger transcript. */
+  attachedNodes: number;
+  portals: number;
+  bodyChildren: number;
 };
 
 /** CPU and RAM the page is actually holding, read from the browser rather than inferred. */
@@ -260,12 +267,89 @@ async function readBrowserUsage(page: Page): Promise<BrowserUsage> {
     await session.send('Performance.enable');
     const { metrics } = await session.send('Performance.getMetrics');
     const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+    const dom = await page.evaluate(() => ({
+      attachedNodes: document.getElementsByTagName('*').length,
+      portals: document.querySelectorAll(
+        '[data-radix-portal], [data-radix-popper-content-wrapper], [data-base-ui-portal]',
+      ).length,
+      bodyChildren: document.body.children.length,
+    }));
     return {
       heapUsedBytes: Math.round(value('JSHeapUsedSize')),
       heapTotalBytes: Math.round(value('JSHeapTotalSize')),
       nodeCount: Math.round(value('Nodes')),
       eventListeners: Math.round(value('JSEventListeners')),
+      documents: Math.round(value('Documents')),
+      ...dom,
     };
+  } finally {
+    await session.detach();
+  }
+}
+
+type IdleUsage = {
+  windowMs: number;
+  cpuMs: number;
+  cpuPercent: number;
+  heapUsedBytes: number;
+  nodes: number;
+  attachedNodes: number;
+  listeners: number;
+  visibility: string;
+  hasFocus: boolean;
+};
+
+/** Main-thread CPU the page spends over a window with no app interaction. The
+ *  CDP session stays open for both readings, so TaskDuration is the delta for
+ *  this window rather than the process lifetime. */
+async function measureIdle(page: Page, windowMs: number): Promise<IdleUsage> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('Performance.enable');
+    const read = async () => {
+      const { metrics } = await session.send('Performance.getMetrics');
+      const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+      const dom = await page.evaluate(() => ({
+        attachedNodes: document.getElementsByTagName('*').length,
+        state: document.visibilityState,
+        hasFocus: document.hasFocus(),
+      }));
+      return {
+        taskSeconds: value('TaskDuration'),
+        heapUsedBytes: Math.round(value('JSHeapUsedSize')),
+        nodes: Math.round(value('Nodes')),
+        listeners: Math.round(value('JSEventListeners')),
+        ...dom,
+      };
+    };
+    const before = await read();
+    const startedAt = Date.now();
+    await page.waitForTimeout(windowMs);
+    const after = await read();
+    const windowSeconds = (Date.now() - startedAt) / 1000;
+    const cpuSeconds = Math.max(0, after.taskSeconds - before.taskSeconds);
+    return {
+      windowMs: Math.round(windowSeconds * 1000),
+      cpuMs: Math.round(cpuSeconds * 1000),
+      cpuPercent: Number(((cpuSeconds / windowSeconds) * 100).toFixed(2)),
+      heapUsedBytes: after.heapUsedBytes,
+      nodes: after.nodes,
+      attachedNodes: after.attachedNodes,
+      listeners: after.listeners,
+      visibility: after.state,
+      hasFocus: after.hasFocus,
+    };
+  } finally {
+    await session.detach();
+  }
+}
+
+/** Offer the renderer a full collection so the next reading separates garbage
+ *  the page has not reclaimed yet from memory it is still holding. */
+async function forceGarbageCollection(page: Page): Promise<void> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('HeapProfiler.collectGarbage');
   } finally {
     await session.detach();
   }
@@ -364,6 +448,8 @@ test.describe('conversation navigation perf (react-scan)', () => {
     }
     const sessionPerf = await snapshotPerf(page);
     const usageAfter = await readBrowserUsage(page);
+    await forceGarbageCollection(page);
+    const usageAfterGc = await readBrowserUsage(page);
     const sessionTotals = totals(sessionPerf);
     const sessionTasks = longTaskStats(sessionPerf);
 
@@ -372,8 +458,10 @@ test.describe('conversation navigation perf (react-scan)', () => {
     const coldTasks = longTaskStats(coldPerf);
     const warmTasks = longTaskStats(warmPerf);
 
+    const renderTracking = process.env.PERF_RENDER_TRACKING !== 'off';
     console.log(
-      `\n=== Conversation switch (${TURNS_PER_CONVO} turns / ${ROWS_PER_CONVO} rows each) ===`,
+      `\n=== Conversation switch (${TURNS_PER_CONVO} turns / ${ROWS_PER_CONVO} rows each, ` +
+        `render tracking ${renderTracking ? 'on' : 'off'}) ===`,
     );
     reportTiming('cold (uncached)', cold);
     reportTiming('warm (cached)', warm);
@@ -396,10 +484,52 @@ test.describe('conversation navigation perf (react-scan)', () => {
       `extended (8 warm)   heap=${Math.round(usageBefore.heapUsedBytes / 1024)}KiB→` +
         `${Math.round(usageAfter.heapUsedBytes / 1024)}KiB ` +
         `nodes=${usageBefore.nodeCount}→${usageAfter.nodeCount} ` +
+        `attached=${usageBefore.attachedNodes}→${usageAfter.attachedNodes} ` +
+        `documents=${usageBefore.documents}→${usageAfter.documents} ` +
+        `portals=${usageBefore.portals}→${usageAfter.portals} ` +
+        `body=${usageBefore.bodyChildren}→${usageAfter.bodyChildren} ` +
         `listeners=${usageBefore.eventListeners}→${usageAfter.eventListeners} ` +
         `longtask-total=${sessionTasks.total.toFixed(0)}ms ` +
         `renders=${sessionTotals.renders} longtask-worst=${sessionTasks.worst.toFixed(0)}ms`,
     );
+    console.log(
+      `after forced GC     heap=${Math.round(usageAfterGc.heapUsedBytes / 1024)}KiB ` +
+        `nodes=${usageAfterGc.nodeCount} attached=${usageAfterGc.attachedNodes} ` +
+        `documents=${usageAfterGc.documents} portals=${usageAfterGc.portals} ` +
+        `listeners=${usageAfterGc.eventListeners}`,
+    );
+
+    const idleVisible = await measureIdle(page, 20_000);
+    /* Chromium keeps a backgrounded page `visible` in headless mode, so this
+       lane reports the other idle condition the app branches on:
+       `document.hasFocus()` false, which is what arms the away poll. */
+    const background = await page.context().newPage();
+    let idleBackground: IdleUsage;
+    try {
+      await background.goto('about:blank');
+      await background.bringToFront();
+      idleBackground = await measureIdle(page, 20_000);
+    } finally {
+      await background.close();
+      await page.bringToFront();
+    }
+    console.log(
+      `idle visible ${idleVisible.windowMs}ms cpu=${idleVisible.cpuMs}ms ` +
+        `(${idleVisible.cpuPercent}%) heap=${Math.round(idleVisible.heapUsedBytes / 1024)}KiB ` +
+        `nodes=${idleVisible.nodes} attached=${idleVisible.attachedNodes} ` +
+        `listeners=${idleVisible.listeners}`,
+    );
+    console.log(
+      `idle background ${idleBackground.windowMs}ms cpu=${idleBackground.cpuMs}ms ` +
+        `(${idleBackground.cpuPercent}%) heap=${Math.round(idleBackground.heapUsedBytes / 1024)}KiB ` +
+        `nodes=${idleBackground.nodes} attached=${idleBackground.attachedNodes} ` +
+        `listeners=${idleBackground.listeners} visibility=${idleBackground.visibility} ` +
+        `focused=${idleBackground.hasFocus}`,
+    );
+    await testInfo.attach('idle.json', {
+      body: JSON.stringify({ focused: idleVisible, backgrounded: idleBackground }, null, 2),
+      contentType: 'application/json',
+    });
 
     await attachTiming(testInfo, 'cold-switch.json', cold);
     await attachTiming(testInfo, 'warm-switch.json', warm);
@@ -409,6 +539,8 @@ test.describe('conversation navigation perf (react-scan)', () => {
           switches: 8,
           before: usageBefore,
           after: usageAfter,
+          afterGc: usageAfterGc,
+          renderTracking,
           renders: sessionTotals.renders,
           longTaskTotalMs: Math.round(sessionTasks.total),
           longTaskWorstMs: Math.round(sessionTasks.worst),
@@ -491,7 +623,9 @@ test.describe('conversation navigation perf (react-scan)', () => {
      * route change (measured after: ~2.8k warm, ~3.4k cold, dominated by the
      * per-row hover-button chrome each message mounts).
      */
-    expect(warmTotals.renders).toBeGreaterThan(100);
-    expect(warmTotals.renders).toBeLessThan(9000);
+    if (renderTracking) {
+      expect(warmTotals.renders).toBeGreaterThan(100);
+      expect(warmTotals.renders).toBeLessThan(9000);
+    }
   });
 });
