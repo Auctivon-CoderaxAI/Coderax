@@ -1,5 +1,6 @@
 import express from 'express';
 import { z as zod } from 'zod';
+import { once } from 'node:events';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { z } from 'zod';
 import type { ResolvedGatewayConfig, WorkflowEngineGatewayOptions } from './config';
@@ -36,7 +37,13 @@ export type WorkflowEngineGatewayLogger = {
 };
 
 export type WorkflowEngineGatewayDeps = {
-  resolveConfig: (req: Request) => WorkflowEngineGatewayOptions | null | undefined;
+  resolveConfig: (
+    req: Request,
+  ) =>
+    | WorkflowEngineGatewayOptions
+    | null
+    | undefined
+    | Promise<WorkflowEngineGatewayOptions | null | undefined>;
   env?: NodeJS.ProcessEnv;
   fetch?: GatewayFetch;
   logger?: WorkflowEngineGatewayLogger;
@@ -146,7 +153,7 @@ export function createWorkflowEngineGateway(
         res.set(NO_STORE).status(owner.status).json({ code: owner.code });
         return;
       }
-      const resolved = resolveGatewayConfig(deps.resolveConfig(req), env);
+      const resolved = resolveGatewayConfig(await deps.resolveConfig(req), env);
       if (!resolved.ok) {
         const failure = configFailure(resolved);
         res.set(NO_STORE).status(failure.status).json(failure.body);
@@ -214,12 +221,24 @@ export function createWorkflowEngineGateway(
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
     for await (const frame of frames) {
-      if (res.writableEnded || signal.aborted) {
+      if (res.writableEnded || res.destroyed || signal.aborted) {
         break;
       }
-      res.write(`data: ${JSON.stringify(frame)}\n\n`);
+      if (!res.write(`data: ${JSON.stringify(frame)}\n\n`)) {
+        try {
+          // Both streaming routes abort this signal when their response closes.
+          await once(res, 'drain', { signal });
+        } catch (error) {
+          if (signal.aborted) {
+            return;
+          }
+          throw error;
+        }
+      }
     }
-    res.end();
+    if (!res.destroyed && !signal.aborted) {
+      res.end();
+    }
   };
 
   router.get(
@@ -257,11 +276,16 @@ export function createWorkflowEngineGateway(
   router.get(
     '/ready',
     handle(async (_req, res, context) => {
-      res.set(NO_STORE).status(200).json({
-        ready: true,
-        contractVersion: context.compatibility.contractVersion,
-        capabilities: context.compatibility.capabilities,
-      });
+      const readiness = await context.client.readiness();
+      res
+        .set(NO_STORE)
+        .status(readiness.ready ? 200 : 503)
+        .json({
+          ready: readiness.ready,
+          ...(readiness.ready ? {} : { code: 'WORKFLOW_ENGINE_ENGINE_NOT_READY' }),
+          contractVersion: context.compatibility.contractVersion,
+          capabilities: context.compatibility.capabilities,
+        });
     }),
   );
 
@@ -477,6 +501,9 @@ export function createWorkflowEngineGateway(
           context.client.streamTaskEvents(req.params.taskId, query.data.after, controller.signal),
         );
       } catch (error) {
+        if (controller.signal.aborted || res.destroyed) {
+          return;
+        }
         if (res.headersSent) {
           const failure =
             error instanceof GatewayTransportError

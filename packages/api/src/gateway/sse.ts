@@ -22,8 +22,11 @@ export class SseProtocolError extends Error {
   }
 }
 
-/** Only failures from reading the upstream transport may be replayed. */
+/** Recoverable interruption of the upstream event stream. */
 export class SseReadError extends Error {}
+
+/** EOF before the delimiter: replay can recover the missing complete frame. */
+export class SseFramingError extends SseReadError {}
 
 export type SseReadOptions = {
   idleTimeoutMs: number;
@@ -112,16 +115,13 @@ export async function* readSseFrames(
         finished = true;
       } else if (chunk.value != null) {
         buffer += decoder.decode(chunk.value, { stream: true });
-        if (buffer.length > maxFrameBytes * 2) {
-          throw new SseProtocolError('The engine event frame exceeded the size limit.');
-        }
       }
 
       let boundary = buffer.indexOf('\n\n');
       while (boundary !== -1) {
         const block = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
-        if (block.length > maxFrameBytes) {
+        if (Buffer.byteLength(block) > maxFrameBytes) {
           throw new SseProtocolError('The engine event frame exceeded the size limit.');
         }
         const frame = parseBlock(block);
@@ -130,14 +130,20 @@ export async function* readSseFrames(
         }
         boundary = buffer.indexOf('\n\n');
       }
+
+      // A trailing newline may be the first half of a delimiter split across chunks.
+      const partial = !finished && buffer.endsWith('\n') ? buffer.slice(0, -1) : buffer;
+      if (Buffer.byteLength(partial) > maxFrameBytes) {
+        throw new SseProtocolError('The engine event frame exceeded the size limit.');
+      }
     }
 
     buffer += decoder.decode();
-    if (buffer.trim().length > 0) {
-      const frame = parseBlock(buffer);
-      if (frame != null) {
-        yield frame;
-      }
+    if (Buffer.byteLength(buffer) > maxFrameBytes) {
+      throw new SseProtocolError('The engine event frame exceeded the size limit.');
+    }
+    if (buffer.length > 0) {
+      throw new SseFramingError('The engine event stream ended before the frame delimiter.');
     }
   } finally {
     if (!finished) {

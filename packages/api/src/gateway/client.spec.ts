@@ -263,6 +263,35 @@ describe('WorkflowEngine client', () => {
     expect(cursors).toEqual(['0', '1', '2', '3', '4', '5', '6', '7']);
   });
 
+  it('replays an unterminated terminal event from the last complete frame', async () => {
+    const event = (seq: number, finish: boolean) =>
+      `data: ${JSON.stringify({
+        v: 1,
+        eventId: `evt_${seq}`,
+        taskId: 'task_1',
+        seq,
+        at,
+        agent: 'coderax',
+        generation: 1,
+        type: finish ? 'task.completed' : 'text.delta',
+        payload: finish ? {} : { text: 'x' },
+      })}`;
+    const fetch = jest.fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>(async (url) => {
+      return url.endsWith('after=0')
+        ? sseResponse([event(1, false) + '\n\n' + event(2, true)])
+        : sseResponse([event(2, true) + '\n\n']);
+    });
+    const collected: number[] = [];
+    for await (const item of clientWith(fetch).streamTaskEvents('task_1', 0)) {
+      collected.push(item.seq);
+    }
+    expect(collected).toEqual([1, 2]);
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('after'))).toEqual([
+      '0',
+      '1',
+    ]);
+  });
+
   it('does not replay malformed events', async () => {
     const fetch = jest.fn(async () => sseResponse(['data: invalid\n\n']));
     const client = clientWith(fetch);

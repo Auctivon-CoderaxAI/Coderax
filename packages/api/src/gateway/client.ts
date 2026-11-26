@@ -339,6 +339,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       auth: 'owner' | 'public';
       signal?: AbortSignal;
       timeoutMs?: number;
+      acceptNonOk?: (status: number, text: string) => boolean;
     },
   ): Promise<z.infer<T>> {
     const link = linkedController(init.signal, init.timeoutMs ?? options.requestTimeoutMs);
@@ -367,7 +368,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         throw networkError(cause);
       }
       const text = await readBoundedBody(response.body, link.signal);
-      if (!response.ok) {
+      if (!response.ok && !init.acceptNonOk?.(response.status, text)) {
         throw errorFromResponse(response.status, text);
       }
       return parseBody(schema, text);
@@ -526,7 +527,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         if (!(error instanceof SseReadError)) {
           throw error;
         }
-        // A failed body read can replay from the same cursor as an early EOF.
+        // A failed body read or partial frame can replay from the same cursor as an early EOF.
       }
       if (terminal || signal?.aborted) {
         return;
@@ -555,7 +556,20 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     health: (signal) =>
       request('/v1/health', schemas.HealthReport, { method: 'GET', auth: 'public', signal }),
     readiness: (signal) =>
-      request('/v1/ready', schemas.ReadinessReport, { method: 'GET', auth: 'public', signal }),
+      request('/v1/ready', schemas.ReadinessReport, {
+        method: 'GET',
+        auth: 'public',
+        signal,
+        acceptNonOk: (status, text) => {
+          if (status !== 503) return false;
+          try {
+            const report = schemas.ReadinessReport.safeParse(JSON.parse(text));
+            return report.success && !report.data.ready;
+          } catch {
+            return false;
+          }
+        },
+      }),
     listAgents: (signal) =>
       request('/v1/agents', schemas.AgentList, { method: 'GET', auth: 'owner', signal }),
     listModels: (signal) =>

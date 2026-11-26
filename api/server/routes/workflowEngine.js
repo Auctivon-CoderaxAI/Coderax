@@ -1,9 +1,8 @@
 const express = require('express');
 const { createWorkflowEngineGateway } = require('@coderax/api/gateway');
 const { logger } = require('@coderax/data-schemas');
-const configMiddleware = require('~/server/middleware/config/app');
 const { requireJwtAuth } = require('~/server/middleware');
-const { loadCustomConfig } = require('~/server/services/Config');
+const { getAppConfig } = require('~/server/services/Config');
 
 /**
  * Wiring only. The gateway behavior lives in `@coderax/api/gateway`: this file
@@ -11,14 +10,17 @@ const { loadCustomConfig } = require('~/server/services/Config');
  * router. It holds no engine credential and no proxying logic.
  */
 
+// Use deployment config before the principal override and augmentation stages.
+const resolveConfig = async () => (await getAppConfig({ baseOnly: true })).config?.workflowEngine;
+
 const gateway = createWorkflowEngineGateway({
-  resolveConfig: (req) => req.config?.config?.workflowEngine,
+  resolveConfig,
   env: process.env,
   logger,
 });
 
 const router = express.Router();
-router.use(requireJwtAuth, configMiddleware);
+router.use(requireJwtAuth);
 router.use(gateway.router);
 
 module.exports = router;
@@ -31,8 +33,7 @@ module.exports.gateway = gateway;
  */
 module.exports.prewarm = async () => {
   try {
-    const config = await loadCustomConfig(false);
-    return await gateway.prewarm(config?.workflowEngine);
+    return await gateway.prewarm(await resolveConfig());
   } catch (error) {
     logger.warn('[workflow-engine] startup check skipped', {
       error: error instanceof Error ? error.message : String(error),

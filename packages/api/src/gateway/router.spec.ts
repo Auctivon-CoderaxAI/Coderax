@@ -290,6 +290,41 @@ describe('workflow engine gateway routes', () => {
     expect(credentials).toHaveLength(2);
   });
 
+  it.each([200, 503])(
+    'reports a reachable but unready engine (upstream status %i)',
+    async (status) => {
+      const { app } = appFor(async (url) =>
+        url.endsWith('/v1/ready')
+          ? jsonResponse({ ready: false, missing: [], checks: [] }, status)
+          : jsonResponse(health()),
+      );
+      const response = await request(app).get('/ready').expect(503);
+      expect(response.body).toMatchObject({
+        ready: false,
+        code: 'WORKFLOW_ENGINE_ENGINE_NOT_READY',
+      });
+    },
+  );
+
+  it('reports ready only when the upstream readiness probe passes', async () => {
+    const { app } = appFor(async (url) =>
+      url.endsWith('/v1/ready')
+        ? jsonResponse({ ready: true, missing: [], checks: [] })
+        : jsonResponse(health()),
+    );
+    const response = await request(app).get('/ready').expect(200);
+    expect(response.body).toMatchObject({ ready: true, contractVersion: '1.0.0' });
+  });
+
+  it('distinguishes a failed readiness connection from a not-ready report', async () => {
+    const { app } = appFor(async (url) => {
+      if (url.endsWith('/v1/ready')) throw new TypeError('connection lost');
+      return jsonResponse(health());
+    });
+    const response = await request(app).get('/ready').expect(502);
+    expect(response.body.engineCode).toBe('engine_unreachable');
+  });
+
   it('reports the pinned and served contract after the handshake', async () => {
     const { app } = appFor(async () => jsonResponse(health()));
     const response = await request(app).get('/contract');
