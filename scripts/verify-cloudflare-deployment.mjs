@@ -174,6 +174,7 @@ export function verifyRepositoryConfig(root = repoRoot) {
     '"/oauth/*"',
     '"/readyz"',
     '"workers_dev": true',
+    '"keep_vars": true',
   ];
   for (const needle of required) {
     assert.ok(wrangler.includes(needle), `wrangler.jsonc is missing ${needle}`);
