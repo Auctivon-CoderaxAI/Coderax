@@ -18,6 +18,16 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 - Use a database user with `readWrite` on the `Coderax` database only. Do not reuse an Atlas administrator account.
 - The app has no local model server. Its only model path is outbound HTTPS to the verified free OpenRouter endpoint.
 
+## Engine image verification
+
+`deploy/oci/opencode` is the only image in this stack that CI builds. The `engine-image` job in
+[`coderax-oci-proxy.yml`](../../.github/workflows/coderax-oci-proxy.yml) builds it on a hosted runner
+and proves what a parsed Compose file cannot: the container becomes healthy, publishes no host port,
+refuses an unauthenticated request, accepts the configured password, and recovers after a restart.
+Run it without a pull request through **Actions → Coderax API proxy and free-host contracts → Run
+workflow** on the branch you want to test. A green Compose parse is not that evidence, and the job
+does not prove the deployed VM behavior.
+
 ## First deployment
 
 1. Create an Ubuntu ARM64 A1 VM in the verified home region with 2 OCPUs, 12 GB memory, and one 50 GB boot volume. Confirm the shape says **Always Free Eligible** and stays within the tenancy's remaining Always Free capacity. Do not select an upgrade or any non-Always-Free resource.

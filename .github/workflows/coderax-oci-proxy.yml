@@ -1,6 +1,10 @@
 name: Coderax API proxy and free-host contracts
 
 on:
+  # Manual dispatch exists so the engine container proof can run at an exact
+  # branch head before a pull request exists, and so a failed contract can be
+  # re-run without an empty commit.
+  workflow_dispatch:
   pull_request:
     paths:
       - 'api/proxy.js'
@@ -130,3 +134,13 @@ jobs:
             echo "::error::the engine did not recover after a restart (last: $status)"
             exit 1
           fi
+
+          {
+            echo '### Private engine container'
+            echo ''
+            echo "- Image: \`deploy/oci/opencode\`, built from \`$GITHUB_SHA\`"
+            echo '- Health: healthy after start and after restart'
+            echo '- Published host ports: none'
+            echo "- Anonymous request: \`$anonymous\` (a 200 would be a failure)"
+            echo "- Authenticated request: \`$authenticated\`"
+          } >> "$GITHUB_STEP_SUMMARY"
