@@ -89,6 +89,7 @@ jobs:
             e2e/playwright-report/**
             e2e/specs/.test-results/**
           retention-days: 14
+          include-hidden-files: true
           if-no-files-found: ignore
 
   benchmark:
@@ -98,15 +99,19 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.pull_request.head.repo.full_name == github.repository
-    env:
-      # The build marker refuses a checkout whose HEAD differs from GITHUB_SHA.
-      GITHUB_SHA: ${{ inputs.benchmark_ref || github.sha }}
     steps:
       - name: Checkout benchmark target
         uses: actions/checkout@v5
         with:
           ref: ${{ inputs.benchmark_ref || github.sha }}
           persist-credentials: false
+
+      # The build marker refuses a checkout whose HEAD differs from GITHUB_SHA,
+      # and it only accepts a full commit id. A dispatched branch, tag or short
+      # SHA has to be resolved to the checked-out commit before the build reads it.
+      - name: Resolve the benchmark revision
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Node.js
         uses: actions/setup-node@v5
@@ -118,6 +123,8 @@ jobs:
         run: npm ci
 
       - name: Build the application
+        env:
+          GITHUB_SHA: ${{ steps.revision.outputs.sha }}
         run: npm run e2e:prepare
 
       - name: Verify Chrome is present
@@ -140,6 +147,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ui-evidence-navigation-perf
-          path: benchmarks-navigation/.test-results/**
+          # Playwright resolves the benchmark's outputDir against its config
+          # directory (`e2e/`), not the repository root, and upload-artifact
+          # drops dot-directories unless hidden files are included.
+          path: e2e/benchmarks-navigation/.test-results/**
           retention-days: 14
+          include-hidden-files: true
           if-no-files-found: ignore

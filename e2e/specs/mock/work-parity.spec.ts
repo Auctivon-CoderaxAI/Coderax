@@ -14,7 +14,13 @@ const modeNav = (page: Page) => page.getByRole('navigation', { name: 'Conversati
 const composer = (page: Page) => page.getByTestId('composer-surface');
 const input = (page: Page) => page.getByRole('textbox', { name: 'Message input' });
 
-async function switchMode(page: Page, mode: 'Chat' | 'Work') {
+async function switchMode(
+  page: Page,
+  mode: 'Chat' | 'Work',
+  // The Work model control is deliberately disabled while a reply streams, so a
+  // switch made mid-generation can only assert that the control is present.
+  { expectModelEnabled = true }: { expectModelEnabled?: boolean } = {},
+) {
   const url = page.url();
   const historyLength = await page.evaluate(() => history.length);
   const element = await composer(page).elementHandle();
@@ -27,7 +33,9 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
   if (mode === 'Work') {
     const modelControl = page.getByRole('button', { name: 'Model', exact: true });
     await expect(modelControl).toBeVisible();
-    await expect(modelControl).toBeEnabled();
+    if (expectModelEnabled) {
+      await expect(modelControl).toBeEnabled();
+    }
   }
   await expect(page).toHaveURL(url);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -38,9 +46,7 @@ async function switchMode(page: Page, mode: 'Chat' | 'Work') {
   const after = await composer(page).boundingBox();
   expect(after?.x).toBe(before?.x);
   expect(after?.width).toBe(before?.width);
-  expect((after?.y ?? 0) + (after?.height ?? 0)).toBe(
-    (before?.y ?? 0) + (before?.height ?? 0),
-  );
+  expect((after?.y ?? 0) + (after?.height ?? 0)).toBe((before?.y ?? 0) + (before?.height ?? 0));
   await expect(page.locator('main')).toHaveCount(1);
   await expect(modeNav(page)).toHaveCount(1);
 }
@@ -153,7 +159,7 @@ test.describe('continuous Chat and Work conversation', () => {
     await expect(page).not.toHaveURL(/\/work\/new$/);
     await expect(page.getByTestId('messages-view')).toBeVisible();
     await switchMode(page, 'Chat');
-    await switchMode(page, 'Work');
+    await switchMode(page, 'Work', { expectModelEnabled: false });
     expect(controls.filter((path) => path.startsWith('/api/work/chat'))).toHaveLength(1);
     expect(controls.some((path) => path.endsWith('/abort'))).toBe(false);
     await expect(page.getByText(/E2E slow reply continuous-work.*chunk-159/)).toBeVisible({
