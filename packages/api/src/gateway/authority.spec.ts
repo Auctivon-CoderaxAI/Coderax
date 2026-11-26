@@ -186,6 +186,27 @@ describe('conversation authority', () => {
     });
   });
 
+  it('settles an indeterminate dispatch without releasing it as a failure', async () => {
+    const { authority, store } = authorityFor();
+    await authority.admit({ ...scope, conversationId: 'conv_1' });
+    await expect(
+      authority.settle({
+        ownerId: 'owner_1',
+        conversationId: 'conv_1',
+        generation: 1,
+        outcome: 'indeterminate',
+      }),
+    ).resolves.toBe(true);
+    await expect(store.read('owner_1', 'conv_1')).resolves.toMatchObject({
+      inFlight: 0,
+      generation: 2,
+      receipts: [
+        expect.objectContaining({ outcome: 'dispatched' }),
+        expect.objectContaining({ outcome: 'indeterminate' }),
+      ],
+    });
+  });
+
   it('keeps conversations isolated by owner', async () => {
     const { authority, store } = authorityFor();
     await authority.admit({ ...scope, conversationId: 'conv_1' });

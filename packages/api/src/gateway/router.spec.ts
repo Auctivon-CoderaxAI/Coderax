@@ -1,5 +1,6 @@
 import express from 'express';
 import request from 'supertest';
+import type { ConversationAuthorityStore } from './authority';
 import type { WorkflowEngineGatewayDeps } from './router';
 import type { GatewayFetch } from './client';
 import { createMemoryAuthorityStore } from './authority';
@@ -56,7 +57,7 @@ function health(contractVersion = '1.0.0') {
 }
 
 function appFor(fetchImpl: GatewayFetch, overrides: Partial<WorkflowEngineGatewayDeps> = {}) {
-  const store = createMemoryAuthorityStore();
+  const store = overrides.authorityStore ?? createMemoryAuthorityStore();
   const gateway = createWorkflowEngineGateway({
     resolveConfig: () => ({
       enabled: true,
@@ -262,7 +263,9 @@ describe('workflow engine gateway routes', () => {
       if (url.endsWith('/v1/health')) {
         return jsonResponse(health());
       }
-      throw new TypeError('connection refused');
+      throw Object.assign(new TypeError('fetch failed'), {
+        cause: { code: 'ECONNREFUSED' },
+      });
     });
 
     const response = await request(app).post('/work').send({ objective: 'do the thing' });
@@ -535,5 +538,151 @@ describe('workflow engine gateway routes', () => {
       contractVersion: '1.0.0',
     });
     expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual(['dispatched', 'settled']);
+  });
+
+  it('records a Work submission with a lost response as indeterminate', async () => {
+    const fetch: GatewayFetch = jest.fn(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new TypeError('connection lost'));
+        },
+      });
+      return new Response(body, { status: 202 });
+    });
+    const { app, store } = appFor(fetch, {
+      resolveConfig: () => ({
+        enabled: true,
+        baseURL: 'https://engine.example',
+        ownerUserId: 'owner_1',
+        tokenEnv: 'ENGINE_TOKEN',
+        conversations: ['conv_work'],
+      }),
+    });
+
+    const response = await request(app)
+      .post('/work')
+      .send({ objective: 'do the thing', conversationId: 'conv_work', mode: 'private' });
+    expect(response.status).toBe(502);
+    expect(response.body.engineCode).toBe('submission_outcome_unknown');
+
+    const record = await store.read('owner_1', 'conv_work');
+    expect(record).toMatchObject({ inFlight: 0 });
+    expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual([
+      'dispatched',
+      'indeterminate',
+    ]);
+  });
+
+  it('treats a Work connection loss before headers as indeterminate', async () => {
+    const fetch: GatewayFetch = jest.fn(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      // No error code: the request may already have been written.
+      throw new TypeError('socket hang up');
+    });
+    const { app, store } = appFor(fetch, {
+      resolveConfig: () => ({
+        enabled: true,
+        baseURL: 'https://engine.example',
+        ownerUserId: 'owner_1',
+        tokenEnv: 'ENGINE_TOKEN',
+        conversations: ['conv_work'],
+      }),
+    });
+
+    const response = await request(app)
+      .post('/work')
+      .send({ objective: 'do the thing', conversationId: 'conv_work', mode: 'private' });
+    expect(response.status).toBe(502);
+    expect(response.body).toMatchObject({
+      engineCode: 'submission_outcome_unknown',
+      retryable: false,
+    });
+
+    const record = await store.read('owner_1', 'conv_work');
+    expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual([
+      'dispatched',
+      'indeterminate',
+    ]);
+  });
+
+  it('records a definitive Work rejection as failed', async () => {
+    const fetch: GatewayFetch = jest.fn(async (url) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      return jsonResponse(
+        {
+          type: 'https://coderax.dev/problems/validation_failed',
+          title: 'invalid work request',
+          status: 400,
+          code: 'validation_failed',
+          retryable: false,
+        },
+        400,
+      );
+    });
+    const { app, store } = appFor(fetch, {
+      resolveConfig: () => ({
+        enabled: true,
+        baseURL: 'https://engine.example',
+        ownerUserId: 'owner_1',
+        tokenEnv: 'ENGINE_TOKEN',
+        conversations: ['conv_work'],
+      }),
+    });
+
+    const response = await request(app)
+      .post('/work')
+      .send({ objective: 'do the thing', conversationId: 'conv_work', mode: 'private' });
+    expect(response.status).toBe(400);
+
+    const record = await store.read('owner_1', 'conv_work');
+    expect(record).toMatchObject({ inFlight: 0 });
+    expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual(['dispatched', 'failed']);
+  });
+
+  it('retries an engine-created conversation mapping instead of dropping it', async () => {
+    const inner = createMemoryAuthorityStore();
+    let creates = 0;
+    const flaky: ConversationAuthorityStore = {
+      read: inner.read,
+      create: async (record) => {
+        creates += 1;
+        if (creates < 3) {
+          throw new Error('transient authority store failure');
+        }
+        return inner.create(record);
+      },
+      advance: inner.advance,
+    };
+    const { app, store } = appFor(
+      async (url) =>
+        url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse(chatReply('conv_new')),
+      {
+        authorityStore: flaky,
+        resolveConfig: () => ({
+          enabled: true,
+          baseURL: 'https://engine.example',
+          ownerUserId: 'owner_1',
+          tokenEnv: 'ENGINE_TOKEN',
+          mappingAttempts: 3,
+          mappingRetryDelayMs: 0,
+        }),
+      },
+    );
+
+    await request(app).post('/chat').send({ message: 'hi' }).expect(200);
+
+    expect(creates).toBe(3);
+    await expect(store.read('owner_1', 'conv_new')).resolves.toMatchObject({
+      engine: 'workflow-engine',
+      state: 'active',
+      inFlight: 0,
+    });
   });
 });

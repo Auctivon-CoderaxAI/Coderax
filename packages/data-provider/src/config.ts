@@ -4291,6 +4291,9 @@ export const workflowEngineConfigSchema = z
     contractVersion: z.literal('1.0.0').default('1.0.0'),
     requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
     streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
+    /** Retry budget for recording a conversation the engine itself created. */
+    mappingAttempts: z.number().int().min(1).max(10).default(3),
+    mappingRetryDelayMs: z.number().int().min(0).max(10_000).default(100),
     /** Runs the compatibility handshake at startup; request checks always run. */
     startupCheck: z.boolean().default(true),
   })

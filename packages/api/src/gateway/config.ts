@@ -11,6 +11,8 @@ export const DEFAULT_ENGINE_TOKEN_ENV = 'CODERAX_ENGINE_TOKEN';
 export const DEFAULT_CONTRACT_VERSION = '1.0.0';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+export const DEFAULT_MAPPING_ATTEMPTS = 3;
+export const DEFAULT_MAPPING_RETRY_DELAY_MS = 100;
 
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
@@ -24,6 +26,10 @@ export type WorkflowEngineGatewayOptions = {
   contractVersion?: string;
   requestTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
+  /** Attempts to record a conversation the engine itself created. */
+  mappingAttempts?: number;
+  /** Backoff between mapping attempts; multiplies by the attempt number. */
+  mappingRetryDelayMs?: number;
   /** Runs the compatibility handshake at startup; request checks always run. */
   startupCheck?: boolean;
 };
@@ -40,6 +46,8 @@ export type ResolvedGatewayConfig =
       contractVersion: string;
       requestTimeoutMs: number;
       streamIdleTimeoutMs: number;
+      mappingAttempts: number;
+      mappingRetryDelayMs: number;
       startupCheck: boolean;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
@@ -191,6 +199,26 @@ export function resolveGatewayConfig(
       detail: 'workflowEngine timeouts must be positive integers.',
     };
   }
+  const mappingAttempts = options.mappingAttempts ?? DEFAULT_MAPPING_ATTEMPTS;
+  if (!Number.isSafeInteger(mappingAttempts) || mappingAttempts < 1 || mappingAttempts > 10) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.mappingAttempts must be an integer between 1 and 10.',
+    };
+  }
+  const mappingRetryDelayMs = options.mappingRetryDelayMs ?? DEFAULT_MAPPING_RETRY_DELAY_MS;
+  if (
+    !Number.isSafeInteger(mappingRetryDelayMs) ||
+    mappingRetryDelayMs < 0 ||
+    mappingRetryDelayMs > 10_000
+  ) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.mappingRetryDelayMs must be an integer between 0 and 10000.',
+    };
+  }
 
   /**
    * The gateway validates against its compiled-in schemas. Accepting another
@@ -222,8 +250,10 @@ export function resolveGatewayConfig(
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
+      mappingAttempts,
+      mappingRetryDelayMs,
       startupCheck: options.startupCheck !== false,
-      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
+      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${mappingAttempts}|${mappingRetryDelayMs}`,
     },
   };
 }

@@ -6,7 +6,14 @@ const receiptSchema = new Schema(
     at: { type: String, required: true },
     outcome: {
       type: String,
-      enum: ['dispatched', 'settled', 'failed', 'migration_started', 'migration_completed'],
+      enum: [
+        'dispatched',
+        'settled',
+        'failed',
+        'indeterminate',
+        'migration_started',
+        'migration_completed',
+      ],
       required: true,
     },
     contractVersion: { type: String, required: true },

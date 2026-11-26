@@ -8,9 +8,9 @@ import type { OwnerGateResult, OwnerIdentity } from './auth';
 import type { GatewayConfigFailure } from './config';
 import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
+import { createConversationAuthority, registerConversationWithRetry } from './authority';
 import { WORK_CAPABILITIES, checkCompatibility, missingCapabilities } from './compat';
 import { createEngineClient, GatewayTransportError } from './client';
-import { createConversationAuthority } from './authority';
 import { resolveGatewayConfig } from './config';
 import { contractSchemas } from './contracts';
 import { requireOwner } from './auth';
@@ -97,12 +97,14 @@ class GatewayRequestError extends Error {
 
 async function* framesWithConversation(
   frames: AsyncIterable<unknown>,
-  onConversation: (conversationId: string) => void,
+  onConversation: (conversationId: string) => Promise<void>,
 ): AsyncGenerator<unknown> {
   for await (const frame of frames) {
     const conversationId = conversationIdOf(frame);
     if (conversationId != null) {
-      onConversation(conversationId);
+      // Hold the frame until the mapping is durable: a client that learns the
+      // conversation id must not outrun the authority record for it.
+      await onConversation(conversationId);
     }
     yield frame;
   }
@@ -501,24 +503,34 @@ export function createWorkflowEngineGateway(
       const controller = new AbortController();
       res.on('close', () => controller.abort());
       let recorded = false;
-      const record = (conversationId: string): void => {
+      const record = async (conversationId: string): Promise<void> => {
         if (recorded || conversationId === body.conversationId) {
           return;
         }
         recorded = true;
-        void context.authority
-          .register({
+        const registered = await registerConversationWithRetry(
+          context.authority,
+          {
             ownerId: context.owner.userId,
             conversationId,
             mode: body.mode,
-          })
-          .catch(() => false);
+          },
+          {
+            attempts: context.config.mappingAttempts,
+            delayMs: context.config.mappingRetryDelayMs,
+          },
+        );
+        if (!registered) {
+          deps.logger?.error?.(
+            '[workflow-engine] engine-created conversation mapping was not recorded',
+          );
+        }
       };
       let completed = false;
       try {
         const outcome = await context.client.submitChat(body, controller.signal);
         if (outcome.kind === 'json') {
-          record(outcome.reply.conversationId);
+          await record(outcome.reply.conversationId);
           res.set(NO_STORE).status(200).json(outcome.reply);
           completed = true;
           return;
@@ -568,16 +580,35 @@ export function createWorkflowEngineGateway(
         throw new GatewayRequestError(claim.status, { code: claim.code });
       }
       let accepted: Awaited<ReturnType<typeof context.client.submitWork>> | null = null;
+      let settlement: 'settled' | 'failed' | 'indeterminate' = 'failed';
       try {
         accepted = await context.client.submitWork(body);
-        await context.authority
-          .register({
+        settlement = 'settled';
+        const registered = await registerConversationWithRetry(
+          context.authority,
+          {
             ownerId: context.owner.userId,
             conversationId: accepted.conversationId,
             mode: body.mode,
-          })
-          .catch(() => false);
+          },
+          {
+            attempts: context.config.mappingAttempts,
+            delayMs: context.config.mappingRetryDelayMs,
+          },
+        );
+        if (!registered) {
+          deps.logger?.error?.(
+            '[workflow-engine] engine-created conversation mapping was not recorded',
+          );
+        }
         res.set(NO_STORE).status(202).json(accepted);
+      } catch (error) {
+        // A lost response proves nothing about whether the engine accepted the
+        // work. Recording it as failed would invite a duplicate submission.
+        if (error instanceof GatewayTransportError && error.code === 'submission_outcome_unknown') {
+          settlement = 'indeterminate';
+        }
+        throw error;
       } finally {
         if (claim?.ok && body.conversationId != null) {
           await context.authority
@@ -585,7 +616,7 @@ export function createWorkflowEngineGateway(
               ownerId: context.owner.userId,
               conversationId: body.conversationId,
               generation: claim.generation,
-              outcome: accepted == null ? 'failed' : 'settled',
+              outcome: settlement,
               ...(accepted == null ? {} : { taskId: accepted.taskId }),
             })
             .catch(() => false);

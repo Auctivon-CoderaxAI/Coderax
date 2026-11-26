@@ -12,6 +12,8 @@
  * record is the authority for *which* backend a conversation belongs to.
  */
 
+import { DEFAULT_MAPPING_ATTEMPTS, DEFAULT_MAPPING_RETRY_DELAY_MS } from './config';
+
 export type AuthorityMode = 'private' | 'cloud';
 export type AuthorityEngine = 'native' | 'workflow-engine';
 export type AuthorityState = 'active' | 'migrating';
@@ -20,6 +22,8 @@ export type AuthorityReceiptOutcome =
   | 'dispatched'
   | 'settled'
   | 'failed'
+  /** The request may have reached the engine, but no outcome was observed. */
+  | 'indeterminate'
   | 'migration_started'
   | 'migration_completed';
 
@@ -93,7 +97,7 @@ export type ConversationAuthority = {
     ownerId: string;
     conversationId: string;
     generation: number;
-    outcome: 'settled' | 'failed';
+    outcome: 'settled' | 'failed' | 'indeterminate';
     taskId?: string;
   }) => Promise<boolean>;
   /** Records a conversation the engine itself created, without claiming it. */
@@ -123,6 +127,42 @@ export type ConversationAuthorityDeps = {
 };
 
 const DEFAULT_MAX_RECEIPTS = 20;
+
+/**
+ * Records a conversation the engine created. A storage failure is transient, so
+ * it is retried with a short backoff; a refusal is a durable fact and is not.
+ */
+export async function registerConversationWithRetry(
+  authority: Pick<ConversationAuthority, 'register'>,
+  input: { ownerId: string; conversationId: string; mode: AuthorityMode },
+  options: {
+    attempts?: number;
+    delayMs?: number;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<boolean> {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_MAPPING_ATTEMPTS);
+  const delayMs = Math.max(0, options.delayMs ?? DEFAULT_MAPPING_RETRY_DELAY_MS);
+  const wait =
+    options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const decision = await authority.register(input);
+      if (decision.ok) {
+        return true;
+      }
+      // Another backend owns the conversation or a migration is underway;
+      // retrying the same registration cannot change either fact.
+      return false;
+    } catch {
+      if (attempt === attempts) {
+        return false;
+      }
+      await wait(delayMs * attempt);
+    }
+  }
+  return false;
+}
 
 function refusal(code: AuthorityRefusalCode): AuthorityDecision {
   return { ok: false, status: 409, code };
