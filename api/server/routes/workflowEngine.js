@@ -1,6 +1,7 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { createWorkflowEngineGateway } = require('@coderax/api/gateway');
-const { logger } = require('@coderax/data-schemas');
+const { createConversationAuthorityMethods, logger } = require('@coderax/data-schemas');
 const { requireJwtAuth } = require('~/server/middleware');
 const { getAppConfig } = require('~/server/services/Config');
 
@@ -14,10 +15,19 @@ const { getAppConfig } = require('~/server/services/Config');
 // a request must not be able to redirect the server-held engine credential.
 const resolveConfig = async () => (await getAppConfig({ baseOnly: true })).config?.workflowEngine;
 
+const authority = createConversationAuthorityMethods(mongoose);
+
 const gateway = createWorkflowEngineGateway({
   resolveConfig,
   env: process.env,
   logger,
+  // Durable and shared by every replica: `workflowEngine.conversations` only
+  // bootstraps a mapping; the stored record is authoritative afterwards.
+  authorityStore: {
+    read: authority.readConversationAuthority,
+    create: authority.createConversationAuthority,
+    advance: authority.advanceConversationAuthority,
+  },
 });
 
 const router = express.Router();

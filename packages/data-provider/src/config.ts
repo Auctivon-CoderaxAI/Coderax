@@ -4273,6 +4273,16 @@ export const workflowEngineConfigSchema = z
     enabled: z.boolean().default(false),
     /** Engine origin, optionally with a path prefix. https unless loopback. */
     baseURL: z.string().trim().url().optional(),
+    /**
+     * The one Coderax user id allowed to reach the engine. Administrative role
+     * membership is grantable, so it is not by itself owner authorization.
+     */
+    ownerUserId: z.string().trim().min(1).max(200).optional(),
+    /**
+     * Conversations the migration may move to the engine on first dispatch.
+     * The durable authority record is authoritative afterwards.
+     */
+    conversations: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
     tokenEnv: z
       .string()
       .trim()
