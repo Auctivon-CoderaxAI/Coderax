@@ -23,16 +23,19 @@ export type OwnerGateResult =
 
 export function requireOwner(req: Pick<Request, 'user'>): OwnerGateResult {
   const user = req.user as { id?: unknown; role?: unknown; tenantId?: unknown } | undefined;
-  if (user == null || typeof user.id !== 'string' || user.id.trim().length === 0) {
+  // The authenticated session is the only identity source. A caller-supplied
+  // userId is not part of this input type and is never consulted.
+  const userId = typeof user?.id === 'string' ? user.id.trim() : '';
+  if (userId.length === 0) {
     return { ok: false, status: 401, code: 'WORKFLOW_ENGINE_UNAUTHENTICATED' };
   }
-  if (user.role !== SystemRoles.ADMIN) {
+  if (user?.role !== SystemRoles.ADMIN) {
     return { ok: false, status: 403, code: 'WORKFLOW_ENGINE_FORBIDDEN' };
   }
   return {
     ok: true,
     value: {
-      userId: user.id,
+      userId,
       ...(typeof user.tenantId === 'string' ? { tenantId: user.tenantId } : {}),
     },
   };

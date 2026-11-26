@@ -11,6 +11,9 @@ export const DEFAULT_ENGINE_TOKEN_ENV = 'CODERAX_ENGINE_TOKEN';
 export const DEFAULT_CONTRACT_VERSION = '1.0.0';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
+export const DEFAULT_MAX_EVENT_RESYNCS = 3;
 
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
@@ -20,7 +23,13 @@ export type WorkflowEngineGatewayOptions = {
   contractVersion?: string;
   requestTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
-  /** Runs the compatibility handshake at startup; request checks always run. */
+  /** JSON response budget; an oversize body is refused before it is buffered. */
+  maxResponseBytes?: number;
+  /** SSE frame budget, measured in UTF-8 bytes. */
+  maxFrameBytes?: number;
+  /** Reconnects allowed without advancing the event cursor before failing closed. */
+  maxEventResyncs?: number;
+  /** Runs the compatibility and readiness handshake at startup; request checks always run. */
   startupCheck?: boolean;
 };
 
@@ -34,6 +43,9 @@ export type ResolvedGatewayConfig =
       contractVersion: string;
       requestTimeoutMs: number;
       streamIdleTimeoutMs: number;
+      maxResponseBytes: number;
+      maxFrameBytes: number;
+      maxEventResyncs: number;
       startupCheck: boolean;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
@@ -56,6 +68,68 @@ function positiveInteger(value: number | undefined, fallback: number): number | 
     return fallback;
   }
   return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function nonNegativeInteger(value: number | undefined, fallback: number): number | null {
+  if (value == null) {
+    return fallback;
+  }
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * The AppConfig the server loads for the gateway: YAML configuration under
+ * `config`, with an optional root-level deployment override merged by the
+ * config service.
+ */
+export type GatewayConfigSource = {
+  config?: { workflowEngine?: WorkflowEngineGatewayOptions | null } | null;
+  workflowEngine?: WorkflowEngineGatewayOptions | null;
+};
+
+/**
+ * Resolve the effective gateway options from both layers.
+ *
+ * A root-level override is merged field by field over the YAML value, so a
+ * partial override such as `{ enabled: false }` keeps the YAML `baseURL` and
+ * every other transport setting. With no override the YAML value is returned
+ * unchanged. The credential comes from the named server environment variable,
+ * never from either configuration layer.
+ */
+export function resolveGatewayOptions(
+  source: GatewayConfigSource | null | undefined,
+): WorkflowEngineGatewayOptions | undefined {
+  const base = source?.config?.workflowEngine;
+  const override = source?.workflowEngine;
+  if (base == null) {
+    return override ?? undefined;
+  }
+  if (override == null) {
+    return base;
+  }
+  return {
+    ...base,
+    ...(override.enabled === undefined ? {} : { enabled: override.enabled }),
+    ...(override.baseURL === undefined ? {} : { baseURL: override.baseURL }),
+    ...(override.tokenEnv === undefined ? {} : { tokenEnv: override.tokenEnv }),
+    ...(override.contractVersion === undefined
+      ? {}
+      : { contractVersion: override.contractVersion }),
+    ...(override.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: override.requestTimeoutMs }),
+    ...(override.streamIdleTimeoutMs === undefined
+      ? {}
+      : { streamIdleTimeoutMs: override.streamIdleTimeoutMs }),
+    ...(override.maxResponseBytes === undefined
+      ? {}
+      : { maxResponseBytes: override.maxResponseBytes }),
+    ...(override.maxFrameBytes === undefined ? {} : { maxFrameBytes: override.maxFrameBytes }),
+    ...(override.maxEventResyncs === undefined
+      ? {}
+      : { maxEventResyncs: override.maxEventResyncs }),
+    ...(override.startupCheck === undefined ? {} : { startupCheck: override.startupCheck }),
+  };
 }
 
 function isLoopback(hostname: string): boolean {
@@ -95,7 +169,7 @@ function parseBaseURL(value: string): { ok: true; url: URL } | { ok: false; deta
 
 export function resolveGatewayConfig(
   options: WorkflowEngineGatewayOptions | null | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv,
 ): GatewayConfigResult {
   if (options?.enabled !== true) {
     return { ok: true, value: { enabled: false } };
@@ -139,11 +213,21 @@ export function resolveGatewayConfig(
     options.streamIdleTimeoutMs,
     DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   );
-  if (requestTimeoutMs == null || streamIdleTimeoutMs == null) {
+  const maxResponseBytes = positiveInteger(options.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+  const maxFrameBytes = positiveInteger(options.maxFrameBytes, DEFAULT_MAX_FRAME_BYTES);
+  const maxEventResyncs = nonNegativeInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS);
+  if (
+    requestTimeoutMs == null ||
+    streamIdleTimeoutMs == null ||
+    maxResponseBytes == null ||
+    maxFrameBytes == null ||
+    maxEventResyncs == null
+  ) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine timeouts must be positive integers.',
+      detail:
+        'workflowEngine timeouts and byte limits must be positive integers; resyncs may be zero.',
     };
   }
 
@@ -175,8 +259,11 @@ export function resolveGatewayConfig(
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
+      maxResponseBytes,
+      maxFrameBytes,
+      maxEventResyncs,
       startupCheck: options.startupCheck !== false,
-      fingerprint: `${baseURL}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
+      fingerprint: `${baseURL}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}`,
     },
   };
 }

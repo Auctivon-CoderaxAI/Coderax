@@ -54,6 +54,51 @@ function health(contractVersion = '1.0.0') {
   };
 }
 
+function appWithUser(fetchImpl: GatewayFetch, user: unknown) {
+  const gateway = createWorkflowEngineGateway({
+    resolveConfig: () => ({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      tokenEnv: 'ENGINE_TOKEN',
+    }),
+    env: { ENGINE_TOKEN: 'server-token' } as NodeJS.ProcessEnv,
+    fetch: fetchImpl,
+  });
+  const app = express();
+  app.use((req, _res, next) => {
+    (req as unknown as { user: unknown }).user = user;
+    next();
+  });
+  app.use(express.json());
+  app.use(gateway.router);
+  return { app, gateway };
+}
+
+function appWithRewrittenDotSegment(fetchImpl: GatewayFetch) {
+  const gateway = createWorkflowEngineGateway({
+    resolveConfig: () => ({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      tokenEnv: 'ENGINE_TOKEN',
+    }),
+    env: { ENGINE_TOKEN: 'server-token' } as NodeJS.ProcessEnv,
+    fetch: fetchImpl,
+    requireOwner: () => ({ ok: true, value: { userId: 'owner_1' } }),
+  });
+  const app = express();
+  app.use(express.json());
+  // Express normalizes dot segments in the original URL before routing. Rewriting
+  // here reaches the route with the decoded identifier the guard must reject.
+  app.use((req, _res, next) => {
+    if (req.path === '/conversations/guard') {
+      req.url = '/conversations/..';
+    }
+    next();
+  });
+  app.use(gateway.router);
+  return { app, gateway };
+}
+
 function appFor(fetchImpl: GatewayFetch, overrides: Partial<WorkflowEngineGatewayDeps> = {}) {
   const gateway = createWorkflowEngineGateway({
     resolveConfig: () => ({
@@ -242,7 +287,7 @@ describe('workflow engine gateway routes', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('preserves the transport failure when Work cannot connect', async () => {
+  it('reports an unknown submission outcome when Work cannot connect', async () => {
     const { app } = appFor(async (url) => {
       if (url.endsWith('/v1/health')) {
         return jsonResponse(health());
@@ -254,8 +299,9 @@ describe('workflow engine gateway routes', () => {
     expect(response.status).toBe(502);
     expect(response.body).toEqual({
       code: 'WORKFLOW_ENGINE_ERROR',
-      engineCode: 'engine_unreachable',
-      retryable: true,
+      engineCode: 'submission_outcome_unknown',
+      retryable: false,
+      detail: 'The engine may have accepted the work, but the request outcome is unknown.',
     });
   });
 
@@ -401,5 +447,98 @@ describe('workflow engine gateway routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.pinnedContractVersion).toBe('1.0.0');
     expect(response.body.engineContractVersion).toBe('1.0.0');
+  });
+
+  it('enforces the real owner gate before any engine call', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({ agents: [] }),
+    );
+    const denied = appWithUser(fetch, { id: 'user_1', role: 'USER' });
+    const response = await request(denied.app).get('/agents');
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
+    expect(fetch).not.toHaveBeenCalled();
+
+    const allowed = appWithUser(fetch, { id: 'owner_1', role: 'ADMIN' });
+    await request(allowed.app).get('/agents').expect(200);
+  });
+
+  it('refuses an unsafe body conversation id before dispatch', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}),
+    );
+    const { app } = appFor(fetch);
+
+    const response = await request(app)
+      .post('/chat')
+      .send({ message: 'hello', conversationId: '..' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_REQUEST');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a decoded dot-only conversation id at the route guard', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}),
+    );
+    const { app } = appWithRewrittenDotSegment(fetch);
+
+    const response = await request(app).get('/conversations/guard');
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_REQUEST');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('verifies engine readiness during the startup handshake', async () => {
+    const fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      return jsonResponse({ ready: true, missing: [], checks: [] });
+    });
+    const { gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      tokenEnv: 'ENGINE_TOKEN',
+    });
+    expect(report).not.toBeNull();
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/v1/ready'))).toBe(true);
+  });
+
+  it('does not verify startup against an engine that is not ready', async () => {
+    const fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      return jsonResponse({ ready: false, missing: ['model'], checks: [] });
+    });
+    const { gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      tokenEnv: 'ENGINE_TOKEN',
+    });
+    expect(report).toBeNull();
+  });
+
+  it('honors startupCheck: false while leaving request checks enabled', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({ agents: [] }),
+    );
+    const { app, gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      tokenEnv: 'ENGINE_TOKEN',
+      startupCheck: false,
+    });
+    expect(report).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+
+    await request(app).get('/agents').expect(200);
+    expect(fetch).toHaveBeenCalled();
   });
 });

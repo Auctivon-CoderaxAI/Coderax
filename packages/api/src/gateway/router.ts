@@ -7,7 +7,12 @@ import type { OwnerGateResult, OwnerIdentity } from './auth';
 import type { GatewayConfigFailure } from './config';
 import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
-import { WORK_CAPABILITIES, checkCompatibility, missingCapabilities } from './compat';
+import {
+  WORK_CAPABILITIES,
+  checkCompatibility,
+  checkStartupReady,
+  missingCapabilities,
+} from './compat';
 import { createEngineClient, GatewayTransportError } from './client';
 import { resolveGatewayConfig } from './config';
 import { contractSchemas } from './contracts';
@@ -144,6 +149,9 @@ export function createWorkflowEngineGateway(
       contractVersion: config.contractVersion,
       requestTimeoutMs: config.requestTimeoutMs,
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
+      maxResponseBytes: config.maxResponseBytes,
+      maxFrameBytes: config.maxFrameBytes,
+      maxEventResyncs: config.maxEventResyncs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
     cache = { fingerprint: config.fingerprint, config, client };
@@ -442,6 +450,13 @@ export function createWorkflowEngineGateway(
       if (body == null) {
         return;
       }
+      if (body.conversationId != null && !isSafePathIdentifier(body.conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
+        return;
+      }
       const controller = new AbortController();
       res.on('close', () => controller.abort());
       const outcome = await context.client.submitChat(body, controller.signal);
@@ -467,6 +482,13 @@ export function createWorkflowEngineGateway(
       }
       const body = parseBody(schemas.WorkSubmitRequest, req, res);
       if (body == null) {
+        return;
+      }
+      if (body.conversationId != null && !isSafePathIdentifier(body.conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
         return;
       }
       const accepted = await context.client.submitWork(body);
@@ -623,9 +645,11 @@ export function createWorkflowEngineGateway(
     }
     const entry = contextFor(resolved.value);
     try {
-      const report = await probe(entry);
+      // Startup is stricter than a health probe: a process that has not finished
+      // its own validation must not be reported as a verified startup.
+      const report = await checkStartupReady(entry.client);
       deps.logger?.info?.(
-        `[workflow-engine] contract ${report.contractVersion} verified; engine ${report.engineStatus}`,
+        `[workflow-engine] contract ${report.contractVersion} verified and ready; engine ${report.engineStatus}`,
       );
       return report;
     } catch (error) {

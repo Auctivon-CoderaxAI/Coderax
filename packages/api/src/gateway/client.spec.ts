@@ -60,14 +60,35 @@ function healthResponse(contractVersion = '1.0.0') {
   });
 }
 
-function clientWith(fetchImpl: GatewayFetch, token = 'server-token', timeout = 1_000) {
+function clientWith(
+  fetchImpl: GatewayFetch,
+  token = 'server-token',
+  timeout = 1_000,
+  limits: {
+    maxResponseBytes?: number;
+    maxFrameBytes?: number;
+    maxEventResyncs?: number;
+  } = {},
+) {
   return createEngineClient({
     baseURL: 'https://engine.example',
     token,
     requestTimeoutMs: timeout,
     streamIdleTimeoutMs: 1_000,
     fetch: fetchImpl,
+    ...limits,
   });
+}
+
+function chatReply(conversationId: string) {
+  return {
+    conversationId,
+    messageId: 'msg_1',
+    text: 'hi',
+    agent: 'coderax',
+    model: { providerId: 'local', modelId: 'free' },
+    createdAt: at,
+  };
 }
 
 describe('WorkflowEngine client', () => {
@@ -354,6 +375,113 @@ describe('WorkflowEngine client', () => {
     );
     await expect(client.submitChat(chat)).rejects.toMatchObject({ code: 'engine_timeout' });
     expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an engine reply in the conversation the caller addressed', async () => {
+    const client = clientWith(async () => jsonResponse(chatReply('conv_1')));
+    const outcome = await client.submitChat({
+      message: 'hi',
+      conversationId: 'conv_1',
+      agent: 'coderax',
+      mode: 'private',
+    });
+    expect(outcome.kind).toBe('json');
+  });
+
+  it('refuses a chat reply recorded in a different conversation', async () => {
+    const client = clientWith(async () => jsonResponse(chatReply('conv_other')));
+    await expect(
+      client.submitChat({
+        message: 'hi',
+        conversationId: 'conv_1',
+        agent: 'coderax',
+        mode: 'private',
+      }),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+  });
+
+  it('treats a rejected Work submission as an unknown, non-retryable outcome', async () => {
+    const client = clientWith(async () => {
+      throw new TypeError('fetch failed');
+    });
+    await expect(
+      client.submitWork({
+        objective: 'do the thing',
+        mode: 'cloud',
+        requireApproval: true,
+      }),
+    ).rejects.toMatchObject({
+      code: 'submission_outcome_unknown',
+      retryable: false,
+    });
+  });
+
+  it('refuses a Work task created in a different conversation', async () => {
+    const client = clientWith(async () =>
+      jsonResponse(
+        {
+          taskId: 'task_1',
+          conversationId: 'conv_other',
+          state: 'queued',
+          generation: 0,
+          eventsPath: '/v1/work/task_1/events',
+        },
+        202,
+      ),
+    );
+    await expect(
+      client.submitWork({
+        objective: 'do the thing',
+        conversationId: 'conv_1',
+        mode: 'cloud',
+        requireApproval: true,
+      }),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+  });
+
+  it('honors a configured JSON response budget', async () => {
+    const client = clientWith(async () => jsonResponse({ agents: [] }), 'server-token', 1_000, {
+      maxResponseBytes: 8,
+    });
+    await expect(client.listAgents()).rejects.toMatchObject({ code: 'protocol_error' });
+  });
+
+  it('honors a configured no-progress resync budget', async () => {
+    const fetch = jest.fn(async () => sseResponse([]));
+    const client = clientWith(fetch, 'server-token', 1_000, { maxEventResyncs: 0 });
+    await expect(
+      client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors a configured SSE frame budget', async () => {
+    const event = JSON.stringify({
+      v: 1,
+      eventId: 'evt_1',
+      taskId: 'task_1',
+      seq: 1,
+      at,
+      agent: 'coderax',
+      generation: 1,
+      type: 'text.delta',
+      payload: { text: 'hi' },
+    });
+    const client = clientWith(
+      async () => sseResponse([`data: ${event}\n\n`]),
+      'server-token',
+      1_000,
+      {
+        maxFrameBytes: 8,
+      },
+    );
+    const outcome = await client.submitChat(chat);
+    if (outcome.kind !== 'stream') {
+      throw new Error('expected a stream');
+    }
+    await expect(outcome.frames[Symbol.asyncIterator]().next()).rejects.toBeInstanceOf(
+      sse.SseProtocolError,
+    );
   });
 
   it.each(['ordinary JSON', 'chat JSON', 'stream error'])(
