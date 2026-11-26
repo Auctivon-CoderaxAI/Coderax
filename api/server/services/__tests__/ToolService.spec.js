@@ -230,6 +230,10 @@ function createEndpointsConfig(capabilities) {
 describe('ToolService - Action Capability Gating', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.replaceProperty(process, 'env', {
+      ...process.env,
+      LIBRECHAT_CODE_BASEURL: 'https://api.coderax/v1',
+    });
     mockLoadToolDefinitions.mockResolvedValue({
       toolDefinitions: [],
       toolRegistry: new Map(),
@@ -248,6 +252,10 @@ describe('ToolService - Action Capability Gating', () => {
     mockResolveMcpServerNames.mockResolvedValue([]);
     mockPrimeSearchFiles.mockResolvedValue({});
     mockPrimeCodeFiles.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   describe('processRequiredActions content protection', () => {
@@ -2943,7 +2951,7 @@ describe('ToolService - Action Capability Gating', () => {
       const req = createMockReq(capabilities);
       req.body = { conversationId: 'conversation-1' };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      process.env.CODERAX_CODE_BASEURL = 'http://code-default.test/v1';
+      process.env.LIBRECHAT_CODE_BASEURL = 'http://code-default.test/v1';
       process.env.CODERAX_CODE_BASEURL_STATEFUL = 'http://code-stateful.test/v1';
 
       try {
@@ -2979,7 +2987,7 @@ describe('ToolService - Action Capability Gating', () => {
           statefulSessions: true,
         });
       } finally {
-        delete process.env.CODERAX_CODE_BASEURL;
+        delete process.env.LIBRECHAT_CODE_BASEURL;
         delete process.env.CODERAX_CODE_BASEURL_STATEFUL;
       }
     });
@@ -3236,15 +3244,9 @@ describe('ToolService - Action Capability Gating', () => {
         codeWorkspaces: [{ environmentId: 'personal-machine', workspaceId: 'project-a' }],
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      mockResolveCodeExecutionContext.mockReturnValueOnce({
-        baseUrl: 'http://attached-code.test/v1',
-        codeSessionKey: 'execute_code:stateful:attached',
-        executionProfile: 'stateful',
-        statefulSessions: true,
-        environmentType: 'attached',
-        environmentId: 'personal-machine',
-        bridgeWorkerId: 'worker-abc',
-      });
+      req.config.endpoints[EModelEndpoint.agents].statefulCodeSessions = {
+        environments: [attachedEnvironment()],
+      };
       mockCreateLaneGitRecorder.mockClear();
 
       await loadToolsForExecution({
@@ -3255,6 +3257,7 @@ describe('ToolService - Action Capability Gating', () => {
           tools: [Tools.execute_code],
           stateful_code_sessions: true,
           stateful_code_environment: 'agent-user',
+          code_environment_id: 'personal-machine',
         },
         conversationId: 'resolved-convo',
         toolNames: [AgentConstants.BASH_TOOL],
@@ -3294,15 +3297,9 @@ describe('ToolService - Action Capability Gating', () => {
         codeWorkspaces: [{ environmentId: 'personal-machine', workspaceId: 'project-a' }],
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      mockResolveCodeExecutionContext.mockReturnValueOnce({
-        baseUrl: 'http://attached-code.test/v1',
-        codeSessionKey: 'execute_code:stateful:attached',
-        executionProfile: 'stateful',
-        statefulSessions: true,
-        environmentType: 'attached',
-        environmentId: 'personal-machine',
-        bridgeWorkerId: 'worker-abc',
-      });
+      req.config.endpoints[EModelEndpoint.agents].statefulCodeSessions = {
+        environments: [attachedEnvironment()],
+      };
       mockCreateLaneGitRecorder.mockClear();
 
       await loadToolsForExecution({
@@ -3313,6 +3310,7 @@ describe('ToolService - Action Capability Gating', () => {
           tools: [Tools.execute_code],
           stateful_code_sessions: true,
           stateful_code_environment: 'agent-user',
+          code_environment_id: 'personal-machine',
         },
         conversationId: 'resolved-convo',
         toolNames: [AgentConstants.BASH_TOOL],
