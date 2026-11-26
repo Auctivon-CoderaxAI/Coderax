@@ -11,9 +11,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pack:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
@@ -61,6 +66,7 @@ jobs:
           retention-days: 2
 
   publish-npm:
+    timeout-minutes: 15
     needs: pack
     if: github.ref == 'refs/heads/main' && needs.pack.outputs.skip != 'true'
     runs-on: ubuntu-latest
@@ -86,4 +92,4 @@ jobs:
 
       - name: Publish
         working-directory: npm-package
-        run: npm publish *.tgz --access public --provenance
+        run: npm publish *.tgz --access public

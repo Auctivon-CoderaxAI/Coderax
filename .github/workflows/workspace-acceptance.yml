@@ -32,9 +32,14 @@ jobs:
       # Pin the external fixture so this acceptance result has a reproducible worker revision.
       - uses: actions/checkout@v5
         with:
-          repository: Coderax-AI/code-interpreter
+          # Private-readiness: this fixture is a different private repository,
+          # so the repo-scoped GITHUB_TOKEN cannot read it. Set
+          # NATIVE_CODE_REPO_TOKEN (read-only, that repository only) before
+          # making Coderax private.
+          repository: ${{ vars.NATIVE_CODE_REPOSITORY || 'Coderax-AI/code-interpreter' }}
           ref: 67d75d859aee891923c40cde1db073489d74a424
           path: .native-code
+          token: ${{ secrets.NATIVE_CODE_REPO_TOKEN || github.token }}
           persist-credentials: false
 
       - uses: actions/setup-node@v5

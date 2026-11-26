@@ -116,8 +116,8 @@ jobs:
           file: ${{ matrix.image.file }}
           platforms: linux/${{ matrix.arch }}
           target: ${{ matrix.image.target }}
-          cache-from: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.arch }}
-          cache-to: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
+          cache-from: type=gha,scope=${{ matrix.image.image_name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.image_name }}-${{ matrix.arch }}
           outputs: type=image,"name=${{ env.GHCR_IMAGE }},docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image.image_name }}",push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BUILD_COMMIT=${{ env.BUILD_COMMIT }}

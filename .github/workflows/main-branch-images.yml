@@ -34,6 +34,10 @@ concurrency:
 
 jobs:
   publish:
+    # Private-Free guard: GHCR private packages have a 500 MB allowance, and
+    # a multi-arch image plus build cache can exceed it in one run. Automatic
+    # main-branch publishing stays off until the owner opts in.
+    if: vars.ALLOW_IMAGE_PUBLISH == 'true'
     uses: ./.github/workflows/docker-publish.yml
     with:
       images: >-

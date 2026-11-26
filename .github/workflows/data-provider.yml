@@ -11,9 +11,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pack:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -35,6 +40,7 @@ jobs:
           retention-days: 2
 
   publish-npm:
+    timeout-minutes: 15
     needs: pack
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -59,4 +65,4 @@ jobs:
 
       - name: Publish package
         working-directory: npm-package
-        run: npm publish *.tgz --provenance
+        run: npm publish *.tgz
