@@ -14,25 +14,25 @@ release gate passes.
 
 ## Connected deployment
 
-| Setting | Value |
-| --- | --- |
-| GitHub repository | `Auctivon-CoderaxAI/Coderax` (private, default branch `main`) |
-| Cloudflare account | `19f79492be7da82f6a48c2aea198ef92` |
-| Worker | `coderax` |
-| Production branch | `main` only |
-| Production origin | `https://coderax.nnabdelshahid.workers.dev` |
+| Setting              | Value                                                               |
+| -------------------- | ------------------------------------------------------------------- |
+| GitHub repository    | `Auctivon-CoderaxAI/Coderax` (private, default branch `main`)       |
+| Cloudflare account   | `19f79492be7da82f6a48c2aea198ef92`                                  |
+| Worker               | `coderax`                                                           |
+| Production branch    | `main` only                                                         |
+| Production origin    | `https://coderax.nnabdelshahid.workers.dev`                         |
 | Deployment mechanism | Workers Builds (Cloudflare GitHub App), not a GitHub Actions deploy |
 
 ### Build and deploy settings (Workers Builds → Settings → Build)
 
-| Field | Value |
-| --- | --- |
-| Root directory | repository root (`/`) |
-| Install command | `npm ci` |
-| Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
-| Deploy command | `npm run deploy:cloudflare` (verifies the revision marker matches the checkout, then `npx --yes wrangler@4.168.0 deploy`) |
-| Branch | `main` |
-| Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
+| Field           | Value                                                                                                                                                                                                                                                                       |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Root directory  | repository root (`/`)                                                                                                                                                                                                                                                       |
+| Install command | `npm ci`                                                                                                                                                                                                                                                                    |
+| Build command   | `npm run frontend` (must leave the built SPA in `client/dist`)                                                                                                                                                                                                              |
+| Deploy command  | `npm run deploy:cloudflare` (verifies the revision marker matches the checkout, then `npx --yes wrangler@4.168.0 deploy`)                                                                                                                                                   |
+| Branch          | `main`                                                                                                                                                                                                                                                                      |
+| Preview builds  | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
 hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. A
@@ -52,15 +52,63 @@ Worker entrypoint, the asset directory, SPA fallback, and the paths that run the
 asset runtime (`/api`, `/oauth`, `/health`, `/livez`, `/readyz`). `workers_dev` is explicitly enabled
 so the production host cannot disappear from an account default.
 
+## Operator API authentication
+
+Setting these variables requires an authenticated Cloudflare session. The v4 API accepts exactly one
+credential scheme per request, and the headers are not interchangeable:
+
+| Credential              | Headers                          | Current value format                             |
+| ----------------------- | -------------------------------- | ------------------------------------------------ |
+| Global API Key (legacy) | `X-Auth-Email` plus `X-Auth-Key` | `cfk_` followed by the account key               |
+| User API token          | `Authorization: Bearer <token>`  | `cfut_` followed by 40 characters and a checksum |
+| Account API token       | `Authorization: Bearer <token>`  | `cfat_` followed by 40 characters and a checksum |
+
+`Invalid format for X-Auth-Key header` is Cloudflare rejecting the header before it checks the
+credential. It means the value in `X-Auth-Key` is not a Global API Key — in practice a scoped API
+token sent with the legacy key headers. A token must be sent as `Authorization: Bearer`; never put a
+token in `X-Auth-Key`, and never pair `X-Auth-Email` with a token. Check the format without printing
+the secret:
+
+```sh
+case "${CLOUDFLARE_API_TOKEN:-}" in
+  cfut_*|cfat_*) echo 'scoped API token: use Authorization: Bearer' ;;
+  cfk_*) echo 'Global API Key: use X-Auth-Email plus X-Auth-Key' ;;
+  '') echo 'no token in this shell' ;;
+  *) echo 'unprefixed credential: verify it before use' ;;
+esac
+```
+
+A token can be verified with
+`curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"`,
+which returns only the token's status and permissions. Do not create a second credential, rotate a
+key, or widen permissions to work around the format error. Wrangler reads `CLOUDFLARE_API_TOKEN` and
+sends it as a Bearer token, which is the supported non-interactive path. A connector that sends a
+scoped token as `X-Auth-Key` fails every account-scoped call with error `6103` even though the token
+is valid; fix its header scheme instead of granting broader permissions.
+
 ## Required Worker configuration
 
 These are Worker settings, not repository values. Set them in **Cloudflare → Workers & Pages →
 coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 
-| Name | Kind | Value |
-| --- | --- | --- |
-| `CODERAX_API_ORIGIN` | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port. |
-| `CODERAX_PROXY_SECRET` | secret | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
+| Name                   | Kind          | Value                                                                                                                      |
+| ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `CODERAX_API_ORIGIN`   | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port.                               |
+| `CODERAX_PROXY_SECRET` | secret        | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
+
+Wrangler's default is `keep_vars = false`: a deploy deletes plain-text dashboard variables that are
+not declared in the configuration file, while secrets are never deleted. [PR
+#309](https://github.com/Auctivon-CoderaxAI/Coderax/pull/309) adds top-level `"keep_vars": true` to
+[`wrangler.jsonc`](../../wrangler.jsonc) and makes `--config-only` fail if it is removed, but that PR
+is **open**, not merged: `main` and the deployed Worker were both `a5d237b0` on 2026-11-26, and the
+setting is absent from `main`.
+
+Until #309 merges and a Worker built from the merge is serving, do not store `CODERAX_API_ORIGIN` as
+a dashboard text variable — the next deploy deletes it and every API route returns
+`503 {"error":"API proxy is not configured"}` again. Store the origin with `wrangler secret put
+CODERAX_API_ORIGIN` (or the dashboard's **Secret** type) instead; the Worker reads it from `env`
+exactly like a variable, and a deploy never deletes it. After #309 is serving, a text variable is
+safe again. `CODERAX_PROXY_SECRET` is a secret and survives either way.
 
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and

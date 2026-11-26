@@ -123,6 +123,11 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
   assert.match(setup, /read_secret JWT_SECRET/);
   assert.match(setup, /read_secret CREDS_KEY/);
+  assert.match(setup, /read_secret PASSWORD_LOGIN_PASSWORD/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD is required/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD must not contain a single quote or backslash/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD='\$PASSWORD_LOGIN_PASSWORD'/);
+  assert.match(setup, /unset MONGO_URI[\s\S]*?PASSWORD_LOGIN_PASSWORD/);
   assert.match(setup, /read_secret OPENROUTER_API_KEY/);
   assert.match(setup, /An OpenRouter API key is required/);
   assert.doesNotMatch(setup, /optional, press Enter to skip/);
@@ -130,7 +135,7 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.doesNotMatch(setup, /CREDS_KEY=\$\(openssl rand/);
   assert.match(setup, /openssl rand -hex 32/);
   assert.match(setup, /CODERAX_PUBLIC_HOST=coderax\.nnabdelshahid\.workers\.dev/);
-  assert.match(setup, /chmod 600 app\.env origin\.env/);
+  assert.match(setup, /chmod 600 app\.env origin\.env engine\.env/);
   assert.match(setup, /do not print or commit that file/);
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
   if (dockerIgnore) assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
