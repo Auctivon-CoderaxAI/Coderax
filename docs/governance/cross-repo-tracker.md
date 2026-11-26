@@ -1,6 +1,6 @@
 # Cross-repository tracker
 
-Owner: repository governance and CI. Updated 2026-11-26 18:05 UTC.
+Owner: repository governance and CI. Updated 2026-11-26 18:09 UTC.
 Snapshot of the three public repositories in the `Auctivon-CoderaxAI` organization. Every SHA is
 the exact head the status beside it belongs to; a status at an earlier head is not evidence for a
 later one.
@@ -16,16 +16,31 @@ later one.
 Organization plan: **free**, two members (`nnabdelshahid` admin, `AICoderax`). Public repositories
 get branch protection, secret scanning and push protection on this plan at no cost.
 
+## Hosted Actions
+
+GitHub-hosted runners execute on all three repositories as of 2026-11-26. The billing block that
+ended every job within seconds on 2026-11-21 is gone; what remains is runner **capacity**, not
+billing — a queued job is waiting for a slot, not failing.
+
+| Repository | Evidence that hosted runners work |
+|---|---|
+| `Coderax` | PR #312 and #313 jobs were assigned runners and ran; "Build Docker client package target" succeeded. |
+| `Coderax-WorkflowEngine` | `verify` succeeded in run 45869651614 at `2072df893`. |
+| `CoderaxCLI` | Re-dispatched run 44924568808 (attempt 2) was assigned a runner: `Set up job`, checkout, Set up Node and Syntax check all succeeded. |
+
+The 2026-11-21 `CoderaxCLI` failure was the billing signature (every step skipped, ~3s). The rerun
+**reached the tests**, which is how the real defect below became visible.
+
 ## Open pull requests
 
 | Repository | PR | Head SHA | Owner (branch) | Latest exact-head CI | Independent approval | Review findings |
 |---|---|---|---|---|---|---|
-| `Coderax` | [#314](https://github.com/Auctivon-CoderaxAI/Coderax/pull/314) `ci: aggregate required CI gate` | `0cff367f90084961c83b36a57aabaabf334b380f` | this session (`freebuff/3dd95d103e2681b57d0a12f9`) | running since 18:00 UTC | none | none raised yet |
+| `Coderax` | [#314](https://github.com/Auctivon-CoderaxAI/Coderax/pull/314) `ci: aggregate required CI gate` | `00b8d05a32d0dd4aeed2aab4f6def750115b46f2` | this session (`freebuff/3dd95d103e2681b57d0a12f9`) | 19 checks created at 18:01, queued/running; `CI gate (aggregate)` **queued** | none | none raised yet |
 | `Coderax` | [#312](https://github.com/Auctivon-CoderaxAI/Coderax/pull/312) `test(ci): Chat and Work evidence` | `b80b5799f728b237ff636126f4b26c9bafc3575a` | UI evidence session (`test/ui-evidence`) | queued since 17:57 UTC | none | 8 review comments, 4 conversation comments |
 | `Coderax` | [#313](https://github.com/Auctivon-CoderaxAI/Coderax/pull/313) `fix(ui): fit Work composer controls` | `094bdd98e6d64dd61caddbd9ea60ab908bb12842` | UI session (`fix/work-composer-controls`) | Docker client target passed; tests and API smoke in progress | none | 4 conversation comments, 0 inline |
 | `Coderax` | Dependabot: `i18next` 24.2.2 → 26.3.4 | — | `dependabot[bot]` | not captured | none | automated changelog only |
 | `Coderax-WorkflowEngine` | [#2](https://github.com/Auctivon-CoderaxAI/Coderax-WorkflowEngine/pull/2) `feat(intelligence)` | `2072df89093e09ff8248a5ea416c9476da9c8dde` | engine session (`feat/intelligence-core`) | **`verify` success** (run 45869651614) | none | 4 conversation comments |
-| `CoderaxCLI` | — | — | — | — | — | — |
+| `CoderaxCLI` | [#4](https://github.com/Auctivon-CoderaxAI/CoderaxCLI/pull/4) `test(cli): real newlines in Work SSE fixtures` | `093225927a4eab27b9b8460492e6d860c5c93c40` | this session (`ci/fix-work-sse-fixtures`) | `test` queued since 18:06 | none | none |
 
 No pull request in any repository carries an independent approval. That is the binding constraint
 on every merge, and it is a review-capacity problem, not a platform limit: the **free** plan
@@ -54,6 +69,12 @@ runs on every pull request. Name matches the actual job.
 
 `CoderaxCLI` — required check `test`; `ci.yml` job id `test`, no path filter, runs on every pull
 request. Name matches the actual job.
+
+### Known CI failures
+
+| Repository | Check | Cause | State |
+|---|---|---|---|
+| `CoderaxCLI` | `test` | The two native-Work snapshot tests double-escaped the SSE frame terminator, so each fixture held the literal characters `\n\n` instead of a blank line. No frame boundary was found, the command correctly reported that nothing was streamed, and both tests failed asserting exit code 0. | **Fixed** in PR #4 — 85/85 locally on Node 24.22.1; hosted `test` not yet observed green. |
 
 Before this change `Coderax` required **no status checks at all**, so no CI gate blocked a merge
 and no path-filtered workflow could leave a pending check either. Requiring the component
@@ -85,12 +106,14 @@ it aggregates without ever waiting on a workflow that will not run.
 |---|---|
 | `Coderax` | Blocked on review, not on CI. No repository or environment secrets are configured, so `deployed-smoke.yml` cannot authenticate against a deployment; the three npm publish jobs depend on OIDC trusted publishing and the `publish` environment, which does not yet exist (it is created on first use). |
 | `Coderax-WorkflowEngine` | `verify` green at `2072df893`. No deployment workflow; engine is a library/service contract. |
-| `CoderaxCLI` | Last `main` run failed at 2026-11-21 16:26:18Z, three seconds after start — the billing-block signature. Re-dispatched 2026-11-26. |
+| `CoderaxCLI` | `main` is red on a real test defect, not billing: the rerun reached the tests and failed two native-Work snapshot assertions. PR #4 fixes the fixtures; merging is what restores a green `main`. |
 
 ## Integration dependencies
 
 - `CoderaxCLI` ≥ `1b7c8e0a` targets the native Work SSE endpoint and cumulative stream handling from
-  `Coderax`; a `Coderax` change to that stream is a `CoderaxCLI` release dependency.
+  `Coderax`; a `Coderax` change to that stream is a `CoderaxCLI` release dependency. The 2-test
+  failure on `CoderaxCLI` `main` sits in exactly that integration and must not be read as a
+  `Coderax` defect — the parser is correct and the fixtures were malformed.
 - `Coderax-WorkflowEngine` PR #2 raises `CONTRACT_VERSION` to 1.1.0 with additive operations only;
   `Coderax` consumes that contract, so the engine PR should land before `Coderax` adopts 1.1.0.
 - The `CI gate` check must exist on `main` before it can be satisfied by a branch. PRs #312 and #313
