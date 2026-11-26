@@ -13,7 +13,7 @@
  *   node scripts/verify-env.mjs [--json] [--require-provider=<id>]
  *
  * Exit codes: 0 = contract valid (missing optional credentials allowed),
- * 1 = a contract violation or a required provider credential is missing.
+ * 1 = a contract violation or a required provider environment variable is missing.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -164,11 +164,21 @@ const presence = variables.map((variable) => {
 });
 
 if (requireProvider) {
-  const matches = presence.filter((entry) => entry.provider === requireProvider);
-  if (matches.length === 0) {
-    errors.push(`No environment variables are declared for provider "${requireProvider}"`);
-  } else if (!matches.some((entry) => entry.configured)) {
-    errors.push(`Provider "${requireProvider}" has no configured credential`);
+  const provider = (providerLock.providers ?? []).find((entry) => entry.id === requireProvider);
+  if (!provider) {
+    errors.push(`Unknown provider "${requireProvider}"`);
+  } else {
+    const configured = new Set(
+      presence.filter((entry) => entry.configured).map((entry) => entry.name),
+    );
+    if (!configured.has(provider.auth?.credentialEnv)) {
+      errors.push(`Provider "${requireProvider}" has no configured credential`);
+    }
+    for (const name of provider.auth?.requiredEnv ?? []) {
+      if (!configured.has(name)) {
+        errors.push(`Provider "${requireProvider}" requires configured "${name}"`);
+      }
+    }
   }
 }
 

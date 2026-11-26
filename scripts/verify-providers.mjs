@@ -202,7 +202,9 @@ for (const file of ['coderax.docker.yaml', 'coderax.example.yaml']) {
 
 // Recorded live evidence must still agree with the registry.
 try {
-  const evidence = readJson('docs/free-inference-verification.json');
+  const evidence = JSON.parse(
+    readFileSync(join(root, 'docs/free-inference-verification.json'), 'utf8'),
+  );
   for (const endpoint of evidence.endpoints ?? []) {
     // An authenticated probe proves inference, not a $0 price. Only free-model
     // evidence raises a lock entry to verified; a free-tier probe stays
@@ -234,6 +236,13 @@ if (live) {
     console.error(
       'Refusing --live outside CI. Personal-machine credentials must not be spent here.',
     );
+    process.exit(2);
+  }
+  if (errors.length > 0) {
+    for (const error of errors) {
+      console.error(`error: ${error}`);
+    }
+    console.error('Refusing --live because registry validation failed.');
     process.exit(2);
   }
   // The delegated probe reports every catalog endpoint, including free-tier

@@ -1,5 +1,6 @@
 import { Providers } from '@librechat/agents';
 import {
+  extractEnvVariable,
   isProviderFallbackAllowed,
   isProviderFallbackEnabled,
   providerFallbackBaseURL,
@@ -8,7 +9,11 @@ import {
   providerFallbackModel,
   providerFallbackOrder,
 } from 'coderax-data-provider';
-import type { ProviderFallbackConfigLike, TEndpoint } from 'coderax-data-provider';
+import type {
+  ProviderFallbackConfigLike,
+  ProviderFallbackProvider,
+  TEndpoint,
+} from 'coderax-data-provider';
 import type { FallbackConfig, OpenAIClientOptions } from '@librechat/agents';
 
 type FallbackParams = {
@@ -22,6 +27,35 @@ type FallbackParams = {
 };
 
 const ENV_PLACEHOLDER = /\$\{([A-Z0-9_]+)\}/g;
+
+function getProviderCredential(provider: ProviderFallbackProvider, env: FallbackParams['env']) {
+  return [provider.apiKeyEnv, ...(provider.legacyApiKeyEnv ?? [])]
+    .map((name) => env?.[name])
+    .find((value): value is string => Boolean(value));
+}
+
+/** Resolve legacy credentials only for managed fallback endpoints. */
+export function resolveCustomEndpointApiKey(
+  endpoint: string,
+  endpointConfig: Partial<TEndpoint>,
+  config: ProviderFallbackConfigLike,
+): string {
+  const apiKey = endpointConfig.apiKey ?? '';
+  const resolved = extractEnvVariable(apiKey);
+  if (resolved !== apiKey.trim()) {
+    return resolved;
+  }
+  const provider = providerFallbackForEndpoint(endpoint);
+  if (
+    provider?.legacyApiKeyEnv?.length &&
+    isProviderFallbackEnabled(config) &&
+    isProviderFallbackAllowed(config, provider) &&
+    providerFallbackEndpointMatches(endpointConfig, provider, config)
+  ) {
+    return getProviderCredential(provider, process.env) ?? resolved;
+  }
+  return resolved;
+}
 
 /** Resolve a configured base URL's environment references without exposing them to the client. */
 function resolveEnvPlaceholders(
@@ -93,9 +127,7 @@ export function buildProviderFallbackOptions({
     if (provider.id === primary.id || !isProviderFallbackAllowed(config, provider)) {
       continue;
     }
-    const apiKey = [provider.apiKeyEnv, ...(provider.legacyApiKeyEnv ?? [])]
-      .map((name) => env?.[name])
-      .find((value): value is string => Boolean(value));
+    const apiKey = getProviderCredential(provider, env);
     if (!apiKey) {
       continue;
     }

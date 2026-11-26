@@ -1,4 +1,9 @@
-import { AuthType, ErrorTypes, buildFreeInferenceCustomEndpoints } from 'coderax-data-provider';
+import {
+  AuthType,
+  ErrorTypes,
+  buildFreeInferenceCustomEndpoints,
+  buildProviderFallbackCustomEndpoints,
+} from 'coderax-data-provider';
 import type { BaseInitializeParams } from '~/types';
 
 const mockValidateEndpointURL = jest.fn();
@@ -103,6 +108,38 @@ describe('initializeCustom – keyless local Ollama', () => {
     });
 
     await expect(initializeCustom(params)).rejects.toThrow('API key not provided');
+  });
+});
+
+describe('initializeCustom – managed 100MillionSeek credential', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each([
+    [undefined, 'legacy-test-key'],
+    ['canonical-test-key', 'canonical-test-key'],
+  ])('initializes with the configured key (canonical key: %s)', async (canonical, expected) => {
+    const env = {
+      HMS_API_KEY: canonical,
+      '100MILLIONSEEK_API_KEY': 'legacy-test-key',
+    };
+    jest.replaceProperty(process, 'env', { ...process.env, ...env });
+    const config = { providerFallback: { enabled: true, zeroCostOnly: false } };
+    const [endpoint] = buildProviderFallbackCustomEndpoints(config, env);
+    expect(endpoint.apiKey).toBe('${HMS_API_KEY}');
+    const params = createParams({});
+    params.endpoint = endpoint.name;
+    params.req.config = { ...params.req.config, config } as typeof params.req.config;
+    params.model_parameters = { model: endpoint.models.default[0] };
+    mockGetCustomEndpointConfig.mockReturnValue(endpoint);
+    mockGetOpenAIConfig.mockClear();
+
+    await initializeCustom(params);
+    expect(mockGetOpenAIConfig).toHaveBeenCalledWith(expected, expect.any(Object), endpoint.name);
+
+    if (!canonical) {
+      mockGetCustomEndpointConfig.mockReturnValue({ ...endpoint, baseURL: 'https://example.test' });
+      await expect(initializeCustom(params)).rejects.toThrow('Missing API Key for 100MillionSeek.');
+    }
   });
 });
 
