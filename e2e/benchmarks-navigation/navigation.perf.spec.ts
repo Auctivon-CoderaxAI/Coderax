@@ -224,7 +224,8 @@ async function holdConversationRecord(page: Page, conversationId: string) {
 
   return async () => {
     release();
-    await page.unroute(pattern);
+    // Drain the held handlers before disabling interception for this page.
+    await page.unrouteAll({ behavior: 'wait' });
     return heldRequests;
   };
 }
@@ -243,6 +244,31 @@ async function switchTo(
   await expect(threadHeading(page, target.label, 1)).toBeAttached({ timeout: 60_000 });
   const samples = await page.evaluate(() => window.__NAV__.end());
   return summarize(samples, `/c/${target.id}`, convoMarker(target.label));
+}
+
+type BrowserUsage = {
+  heapUsedBytes: number;
+  heapTotalBytes: number;
+  nodeCount: number;
+  eventListeners: number;
+};
+
+/** CPU and RAM the page is actually holding, read from the browser rather than inferred. */
+async function readBrowserUsage(page: Page): Promise<BrowserUsage> {
+  const session = await page.context().newCDPSession(page);
+  try {
+    await session.send('Performance.enable');
+    const { metrics } = await session.send('Performance.getMetrics');
+    const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+    return {
+      heapUsedBytes: Math.round(value('JSHeapUsedSize')),
+      heapTotalBytes: Math.round(value('JSHeapTotalSize')),
+      nodeCount: Math.round(value('Nodes')),
+      eventListeners: Math.round(value('JSEventListeners')),
+    };
+  } finally {
+    await session.detach();
+  }
 }
 
 function reportTiming(name: string, timing: SwitchTiming): void {
@@ -324,6 +350,23 @@ test.describe('conversation navigation perf (react-scan)', () => {
     const heldRequests = await releaseRecord();
     const warmPerf = await snapshotPerf(page);
 
+    /**
+     * Extended-session evidence: eight more warm switches on the same page, with
+     * heap, DOM node, listener and cumulative main-thread task time sampled
+     * before and after. Reported, not asserted — a wall-clock bound here would
+     * be a flaky gate on shared runners, while the numbers still show whether a
+     * session retains memory or keeps growing the main thread's work.
+     */
+    const usageBefore = await readBrowserUsage(page);
+    await resetPerf(page);
+    for (let round = 0; round < 8; round += 1) {
+      await switchTo(page, round % 2 === 0 ? CONVO_A : CONVO_B);
+    }
+    const sessionPerf = await snapshotPerf(page);
+    const usageAfter = await readBrowserUsage(page);
+    const sessionTotals = totals(sessionPerf);
+    const sessionTasks = longTaskStats(sessionPerf);
+
     const coldTotals = totals(coldPerf);
     const warmTotals = totals(warmPerf);
     const coldTasks = longTaskStats(coldPerf);
@@ -349,8 +392,32 @@ test.describe('conversation navigation perf (react-scan)', () => {
       console.log(`  ${line}`);
     }
 
+    console.log(
+      `extended (8 warm)   heap=${Math.round(usageBefore.heapUsedBytes / 1024)}KiB→` +
+        `${Math.round(usageAfter.heapUsedBytes / 1024)}KiB ` +
+        `nodes=${usageBefore.nodeCount}→${usageAfter.nodeCount} ` +
+        `listeners=${usageBefore.eventListeners}→${usageAfter.eventListeners} ` +
+        `longtask-total=${sessionTasks.total.toFixed(0)}ms ` +
+        `renders=${sessionTotals.renders} longtask-worst=${sessionTasks.worst.toFixed(0)}ms`,
+    );
+
     await attachTiming(testInfo, 'cold-switch.json', cold);
     await attachTiming(testInfo, 'warm-switch.json', warm);
+    await testInfo.attach('extended-session.json', {
+      body: JSON.stringify(
+        {
+          switches: 8,
+          before: usageBefore,
+          after: usageAfter,
+          renders: sessionTotals.renders,
+          longTaskTotalMs: Math.round(sessionTasks.total),
+          longTaskWorstMs: Math.round(sessionTasks.worst),
+        },
+        null,
+        2,
+      ),
+      contentType: 'application/json',
+    });
     await attachSnapshot(testInfo, 'cold-switch-renders.json', coldPerf, {
       clickToPaintMs: cold.clickToPaintMs,
       staleAfterUrlMs: cold.staleAfterUrlMs,

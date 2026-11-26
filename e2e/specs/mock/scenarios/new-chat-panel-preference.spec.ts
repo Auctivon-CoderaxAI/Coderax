@@ -88,7 +88,7 @@ test.describe('new chat panel preference, mobile drawer', () => {
     page,
   }) => {
     const switcher = await mobileNewChat(page, true);
-    await expect(switcher).toContainText('Chat History');
+    await expect(switcher).toContainText('Recents');
   });
 
   test('with the preference off the drawer keeps its panel @scenario:mobile-new-chat-keeps-panel-when-off', async ({

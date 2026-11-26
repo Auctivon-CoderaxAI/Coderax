@@ -334,6 +334,19 @@ it('keeps external identities unavailable when the server says so', async () => 
   );
 });
 
+it('keeps every control label whole and lets the group wrap instead of clipping', async () => {
+  setup();
+  const group = await screen.findByTestId('work-agent-selection');
+  expect(group).toHaveClass('flex-wrap');
+
+  for (const name of ['Agent', 'Model', 'Work agent']) {
+    const control = screen.getByRole('button', { name });
+    expect(control).toHaveClass('shrink-0');
+    expect(control).toHaveClass('max-w-full');
+    expect(control.textContent?.trim()).not.toBe('');
+  }
+});
+
 it('does not treat an engine entry as a native model choice', async () => {
   mockRole = 'USER';
   setup();
@@ -350,7 +363,10 @@ it('does not offer an engine model without a provider', async () => {
   });
   setup();
 
-  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  /* The server's readiness check reports ready, so an engine-only catalog is a
+     configuration state the reader notices, not a failure to announce. */
+  expect(await screen.findByText('com_work_models_empty')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   await waitFor(() => expect(screen.getByRole('button', { name: 'Model' })).toBeDisabled());
 });
 

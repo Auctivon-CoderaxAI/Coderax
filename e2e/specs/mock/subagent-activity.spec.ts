@@ -141,7 +141,7 @@ test.describe('detached subagent activity', () => {
       await expect(panel.getByText('Completed', { exact: true })).toHaveCount(0);
 
       await panel.getByRole('button', { name: 'Close' }).click();
-      await page.getByRole('button', { name: 'Chat History' }).click();
+      await page.getByRole('button', { name: 'Recents' }).click();
       const conversationRows = page.getByTestId('convo-item');
       await expect(conversationRows.locator('button[aria-current="page"]')).toBeVisible();
       for (const child of children) {
