@@ -287,16 +287,20 @@ test('concurrency limit is enforced on start', () => {
 });
 
 test('secrets are redacted before anything is logged or reported', () => {
+  // Assembled at runtime so the repository keeps no credential-shaped literal,
+  // while the redactor still has to match the real provider formats.
+  const awsKey = ['AKIA', 'ABCDEFGHIJKLMNOP'].join('');
+  const githubToken = ['ghp_', 'abcdefghijklmnopqrstuvwxyz0123'].join('');
   const input = [
     'Authorization: Bearer abc123def456ghi789',
-    'aws key AKIAABCDEFGHIJKLMNOP',
-    'token=ghp_abcdefghijklmnopqrstuvwxyz0123',
+    `aws key ${awsKey}`,
+    `token=${githubToken}`,
     'jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U',
   ].join('\n');
   const out = redactSecrets(input);
   assert.equal(out.includes('abc123def456ghi789'), false);
-  assert.equal(out.includes('AKIAABCDEFGHIJKLMNOP'), false);
-  assert.equal(out.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'), false);
+  assert.equal(out.includes(awsKey), false);
+  assert.equal(out.includes(githubToken), false);
   assert.equal(out.includes('eyJhbGciOiJIUzI1NiJ9'), false);
   assert.match(out, /\[redacted/);
 });

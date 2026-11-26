@@ -12,6 +12,10 @@ on:
         required: true
         type: string
 
+# Baseline for every job; `release` widens it to packages: write where it pushes.
+permissions:
+  contents: read
+
 jobs:
   release:
     permissions:

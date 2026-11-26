@@ -1,0 +1,47 @@
+name: CI gate
+
+# The one required check on `main`.
+#
+# Component workflows are path-filtered, so requiring them individually leaves a
+# pull request permanently pending on a check that its paths never trigger. This
+# workflow runs on every pull request and evaluates every check run that exists
+# at the exact head SHA, then fails only on a real failure. Adding a component
+# workflow does not require touching this file or the protection rule.
+#
+# It needs no repository secret, so it behaves the same for fork pull requests.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  statuses: read
+
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aggregate:
+    name: CI gate (aggregate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    steps:
+      - name: Check out the gate script
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # A manual dispatch is a report-only smoke test: it evaluates whatever
+      # commit it was started from, which is usually `main` after a merge where
+      # no required check applies.
+      - name: Evaluate every check at the head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATE_ENFORCE: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+        run: node .github/scripts/ci-gate.mjs

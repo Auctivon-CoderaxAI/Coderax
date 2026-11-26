@@ -840,7 +840,7 @@ describe('Environment Variable Extraction (MCP)', () => {
         customUserVars: allCustomVarsForCall,
       });
 
-      expect('url' in result && result.url).toBe('https://ep123.example.com/users/john.doe');
+      expect('url' in result && result.url).toBe('https://ep123.example.com/users/example');
       expect('headers' in result && result.headers).toEqual({
         'X-Auth-Token': 'secretToken123!',
         'X-User-ID': 'userXYZ',
@@ -848,7 +848,7 @@ describe('Environment Variable Extraction (MCP)', () => {
       });
       expect('env' in result && result.env).toEqual({
         PROCESS_MODE: 'production',
-        USER_HOME_DIR: '/home/john.doe',
+        USER_HOME_DIR: '/home/example',
         SYSTEM_PATH: process.env.PATH, // Actual value of PATH from the test environment
       });
     });
@@ -856,7 +856,7 @@ describe('Environment Variable Extraction (MCP)', () => {
     it('should process GitHub MCP server configuration with PAT_TOKEN placeholder', () => {
       const user = createTestUser({ id: 'github-user-123', email: 'user@example.com' });
       const customUserVars = {
-        PAT_TOKEN: 'ghp_1234567890abcdef1234567890abcdef12345678', // GitHub Personal Access Token
+        PAT_TOKEN: 'example-personal-access-token',
       };
 
       // Simulate the GitHub MCP server configuration from coderax.yaml
@@ -873,7 +873,7 @@ describe('Environment Variable Extraction (MCP)', () => {
       const result = processMCPEnv({ options, user, customUserVars });
 
       expect('headers' in result && result.headers).toEqual({
-        Authorization: 'ghp_1234567890abcdef1234567890abcdef12345678',
+        Authorization: 'example-personal-access-token',
         'Content-Type': 'application/json',
         'User-Agent': 'Coderax-MCP-Client',
       });
