@@ -5,7 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-if pgrep -f redis-tls.conf > /dev/null; then
+# Redis sets its process title to the configured listening address.
+if pgrep -fx '([^[:space:]]*/)?redis-server 127[.]0[.]0[.]1:6380' > /dev/null; then
     echo "Redis with TLS is already running"
     exit 1
 fi
