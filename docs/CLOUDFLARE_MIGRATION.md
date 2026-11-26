@@ -161,6 +161,7 @@ Probes from a cloud workspace. Values are observed, not inferred.
 | Oracle Always Free     | Not verifiable without the OCI console. Oracle publishes 1,500 OCPU hours and 9,000 GB hours per month (equivalent to 2 OCPUs and 12 GB of A1) and 200 GB of block storage; the runbook's 2 OCPU, 12 GB, 50 GB target is inside that allowance.                                                                                                                                                                                                                              |
 | Streaming              | The Worker forwards `request.body` and returns `response.body` unread, and Caddy uses `flush_interval -1`. Cloudflare documents no wall-clock limit for an HTTP Worker while the client stays connected, so SSE is not cut at Vercel Hobby's 60 seconds. The exposed limit is the origin's time to first byte.                                                                                                                                                               |
 | Database persistence   | `/readyz` `OK` through Vercel implies the boot-time database connection succeeded. No authenticated request was made, so conversation, memory and project persistence is unverified.                                                                                                                                                                                                                                                                                         |
+| Work runtime           | `deploy/oci/coderax.oci.yaml` sets `engines.opencode.baseURL: http://opencode:4096`, but `main`'s Compose file had no `opencode` service, private `engine` network or shared engine volumes. Work could not reach its engine. This branch restores them from `930043e4`; the image was not built here because Docker is unavailable.                                                                                                                                         |
 | DeploymentPlatformAI   | No interface, adapter, endpoint or credential exists in this repository. Zero-cost hosting cannot be verified, and no infrastructure was created.                                                                                                                                                                                                                                                                                                                            |
 
 ### Effective `keep_vars` behavior
@@ -184,7 +185,9 @@ identically. `CODERAX_PROXY_SECRET` is already a secret and is unaffected either
 3. On the VM, keep both front-door hosts in `CODERAX_ALLOWED_HOSTS`, set
    `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev`, set `BUILD_COMMIT` to the
    deployed source commit and `BUILD_BRANCH=main`, then recreate `app` and `web` without `-v`.
-4. Verify the Oracle origin directly with `X-Coderax-Proxy-Secret`, then run
+4. Verify the Oracle origin directly with `X-Coderax-Proxy-Secret`, confirm
+   `GET /api/work/engines` reports OpenCode `available: true` after the containers are recreated (a
+   listening port is not readiness), then run
    `node scripts/verify-coderax-deployment.mjs --live-url https://coderax.nnabdelshahid.workers.dev`
    with the current `main` commit and `node scripts/verify-coderax-access.mjs`.
 5. Sign in at `/login?manual=1`, send one Work message, refresh to confirm persistence, then check
