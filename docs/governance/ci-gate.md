@@ -35,8 +35,7 @@ request at the exact head SHA:
 | `failure`, `cancelled`, `timed_out`, `action_required`, `startup_failure`, `stale` | fail                                                    |
 | `neutral`, `skipped`                                                               | fail — the lane did not affirmatively verify the change |
 | completed with no conclusion                                                       | fail                                                    |
-| not completed after the start grace                                                | fail as missing                                         |
-| not completed before the deadline                                                  | fail as timed out                                       |
+| a run exists and is still in progress at the deadline                              | fail as timed out                                       |
 | no run, and its own filter does not select this diff                               | not applicable                                          |
 | no run, and its own filter selects this diff                                       | fail after the start grace                              |
 
@@ -57,8 +56,8 @@ Only runs with all of the following are considered:
 - a `pull_requests` entry matching this pull request when GitHub supplies one;
 - a workflow path in the base revision.
 
-The latest `run_attempt` for each workflow path wins. An older successful attempt cannot mask a newer
-cancellation or failure. A run at another SHA, from another event, from another pull request, or from
+The newest run ID for each workflow path wins. Within that run, the highest `run_attempt` wins.
+An older success cannot mask a newer cancellation or failure. A run at another SHA, from another event, from another pull request, or from
 a third-party app cannot satisfy the gate.
 
 The gate excludes its own workflow path. It never waits on the `CI gate (aggregate)` check itself.
@@ -140,8 +139,8 @@ Genuine support requires:
 
 - `merge_group` on every gating component workflow;
 - component jobs that do not depend on `github.event.pull_request` context;
-- the gate's merge-candidate path, which compares the merge-group base and head, evaluates
-  `merge_group` runs at the candidate SHA, and applies the same provenance and failure rules;
+- the gate's merge-candidate path, which compares the merge-group base and head, selects lanes using their `merge_group` triggers, evaluates runs at the candidate SHA, and applies
+  the same provenance and failure rules;
 - a tested queue entry before enabling the queue for `main`.
 
 Until those hold, enabling the queue makes every candidate fail visibly. That is the intended

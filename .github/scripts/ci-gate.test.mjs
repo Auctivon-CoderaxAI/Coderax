@@ -103,8 +103,12 @@ test('glob translation keeps * inside a segment and lets ** cross segments', () 
   assert.equal(globToRegExp('**/*.md').test('README.ts'), false);
   assert.equal(globToRegExp('client/src/**').test('client/src/a/b.ts'), true);
   assert.equal(globToRegExp('client/src/*.ts').test('client/src/a/b.ts'), false);
-  assert.equal(globToRegExp('src/?.ts').test('src/a.ts'), true);
-  assert.equal(globToRegExp('src/?.ts').test('src/ab.ts'), false);
+  const jsOrJsx = globToRegExp('src/*.jsx?');
+  assert.equal(jsOrJsx.test('src/page.js'), true);
+  assert.equal(jsOrJsx.test('src/page.jsx'), true);
+  assert.equal(jsOrJsx.test('src/page.jsxz'), false);
+  assert.equal(globToRegExp('src/page[ab]?.ts').test('src/page.ts'), true);
+  assert.equal(globToRegExp('src/page[ab]?.ts').test('src/pageb.ts'), true);
   assert.equal(globToRegExp('src/[ab].ts').test('src/a.ts'), true);
   assert.equal(globToRegExp('src/[!ab].ts').test('src/c.ts'), true);
 });
@@ -120,6 +124,12 @@ test('path filters combine positive and negative patterns', () => {
   assert.equal(matchesPathFilter(['!**.md'], ['docs/a.md']), false);
   assert.equal(matchesPathFilter(['!**.md'], ['src/a.ts']), true);
   assert.equal(matchesPathFilter(null, ['anything']), true);
+  const include = 'src/**';
+  const exclude = '!src/generated/**';
+  const restore = 'src/generated/schema.ts';
+  assert.equal(matchesPathFilter([include, exclude, restore], [restore]), true);
+  assert.equal(matchesPathFilter([include, restore, exclude], [restore]), false);
+  assert.equal(matchesPathFilter([include, exclude, restore], ['src/generated/other.ts']), false);
 });
 
 test('paths-ignore skips only when every changed file is ignored', () => {
@@ -132,6 +142,13 @@ test('branch filters use the same glob rules', () => {
   assert.equal(matchesRefFilter(['main', 'release/*'], 'main'), true);
   assert.equal(matchesRefFilter(['main', 'release/*'], 'release/1.0'), true);
   assert.equal(matchesRefFilter(['main'], 'dev'), false);
+  assert.equal(
+    matchesRefFilter(
+      ['release/**', '!release/private/**', 'release/private/main'],
+      'release/private/main',
+    ),
+    true,
+  );
 });
 
 test('the workflow parser reads inline triggers, block filters and comments', () => {
@@ -163,6 +180,22 @@ test('the workflow parser reads inline triggers, block filters and comments', ()
   assert.deepEqual(block.pullRequest.pathsIgnore, ['docs/**']);
   assert.deepEqual(block.pullRequest.types, ['opened', 'synchronize']);
   assert.equal(block.mergeGroup, true);
+});
+
+test('empty inline trigger mappings work but nonempty inline filters are rejected', () => {
+  const path = '.github/workflows/inline.yml';
+  assert.equal(
+    parseWorkflow('on:\n  "pull_request": { } # no filters\n', path).pullRequest.paths,
+    null,
+  );
+  assert.throws(
+    () => parseWorkflow("on:\n  pull_request: {paths: ['src/**']}\n", path),
+    /use block syntax for pull_request filters/,
+  );
+  assert.throws(
+    () => parseWorkflow("on: {pull_request: {paths: ['src/**']}}\n", path),
+    /use block syntax for the on trigger mapping/,
+  );
 });
 
 test('the parser sees every real pull-request workflow and keeps the gate unfiltered', async () => {
@@ -292,16 +325,18 @@ test('branch filters exclude a pull request that does not target main', async ()
 });
 
 test('a workflow that started is evaluated even when its filter says otherwise', () => {
-  const workflows = [workflow('.github/workflows/alpha.yml')];
-  const plan = planGate({
-    workflows,
+  const path = '.github/workflows/alpha.yml';
+  const workflowDefinition = workflow(path, { pullRequest: { paths: ['docs/**'] } });
+  const input = {
+    workflows: [workflowDefinition],
     changedFiles: ['src/a.ts'],
     baseRef: 'main',
     action: 'synchronize',
-    observedRuns: [run({ path: '.github/workflows/alpha.yml' })],
-  });
+  };
+  assert.equal(planGate(input).expected.has(path), false);
+  const plan = planGate({ ...input, observedRuns: [run({ path })] });
   assert.equal(plan.expected.size, 1);
-  assert.equal(plan.expected.get('.github/workflows/alpha.yml').observed, true);
+  assert.equal(plan.expected.get(path).observed, true);
 });
 
 test('a workflow added by the pull request cannot become a required lane', () => {
@@ -351,9 +386,10 @@ test('an activity type the workflow excludes is not required unless it ran', () 
   assert.equal(plan.actionExcluded.length, 1);
 });
 
-test('the latest attempt wins and stale or unrelated runs are excluded', () => {
+test('the newest run wins, then its highest attempt, at the exact head', () => {
   const runs = [
-    run({ id: 1, run_attempt: 1, conclusion: 'success' }),
+    run({ id: 1, run_attempt: 3, conclusion: 'success' }),
+    run({ id: 2, run_attempt: 1, conclusion: 'success' }),
     run({ id: 2, run_attempt: 2, conclusion: 'cancelled' }),
     run({ id: 3, head_sha: 'old-sha', conclusion: 'success' }),
     run({ id: 4, event: 'workflow_dispatch', conclusion: 'success' }),
@@ -366,14 +402,27 @@ test('the latest attempt wins and stale or unrelated runs are excluded', () => {
     pullNumber: 1,
   });
   assert.equal(selected.id, 2);
+  assert.equal(selected.run_attempt, 2);
   assert.equal(selected.conclusion, 'cancelled');
 });
 
-test('a successful head passes only after the settle window', () => {
-  const early = evaluate({ now: 1_000_000, lastChangeAt: 999_990 });
-  assert.equal(early.decision, 'wait');
-  const settled = evaluate();
-  assert.equal(settled.decision, 'pass');
+test('a slow first complete snapshot starts the settle window for runs and statuses', () => {
+  for (const checks of [
+    {},
+    { expected: new Map(), runs: [], statuses: [{ context: 'legacy/ci', state: 'success' }] },
+  ]) {
+    const first = evaluate({ ...checks, now: 1_000_000 });
+    assert.equal(first.decision, 'wait');
+    assert.equal(first.lastChangeAt, 1_000_000);
+    const settled = evaluate({
+      ...checks,
+      now: 1_030_000,
+      startedAt: 970_000,
+      lastChangeAt: first.lastChangeAt,
+      previousSignature: first.signature,
+    });
+    assert.equal(settled.decision, 'pass');
+  }
 });
 
 test('every non-success conclusion fails, including skipped and neutral', () => {
@@ -398,8 +447,9 @@ test('a running lane keeps the gate waiting, then passes', () => {
   const pending = evaluate({ runs: [run({ status: 'in_progress', conclusion: null })] });
   assert.equal(pending.decision, 'wait');
   assert.match(pending.reason, /Waiting on component workflows/);
-  const done = evaluate();
-  assert.equal(done.decision, 'pass');
+  const done = evaluate({ previousSignature: pending.signature });
+  assert.equal(done.decision, 'wait');
+  assert.equal(evaluate({ previousSignature: done.signature }).decision, 'pass');
 });
 
 test('a required workflow that never registers fails after the start grace', () => {
@@ -468,7 +518,7 @@ test('commit statuses are evaluated alongside workflow runs', () => {
   const pending = evaluate({ statuses: [{ context: 'legacy/ci', state: 'pending' }] });
   assert.equal(pending.decision, 'wait');
   const passed = evaluate({ statuses: [{ context: 'legacy/ci', state: 'success' }] });
-  assert.equal(passed.decision, 'pass');
+  assert.equal(passed.decision, 'wait');
 });
 
 test('runGate discards failed observations and fails at the deadline', async () => {
@@ -516,6 +566,31 @@ test('runGate recovers from a transient observation failure', async () => {
   });
   assert.equal(result.decision, 'pass');
   assert.equal(attempts, 2);
+});
+
+test('a transient read failure restarts settling even when the next snapshot is unchanged', async () => {
+  let clock = 0;
+  const observedAt = [];
+  const result = await runGate({
+    observe: async () => {
+      observedAt.push(clock);
+      if (observedAt.length === 2) {
+        throw new Error('transient');
+      }
+      return {
+        expected: expectedOf(['.github/workflows/alpha.yml']),
+        runs: [run()],
+        headSha: 'head-sha',
+      };
+    },
+    config: { ...config, settleSeconds: 2 },
+    now: () => clock,
+    sleep: async (ms) => {
+      clock += ms;
+    },
+  });
+  assert.equal(result.decision, 'pass');
+  assert.deepEqual(observedAt, [0, 1000, 2000, 3000]);
 });
 
 test('code owners are parsed, teams are ignored', () => {
@@ -794,24 +869,18 @@ function responseJson(value, headers = {}) {
   return Response.json(value, { headers });
 }
 
-function preload(mockFetch, step = 50) {
-  return `
-    let clock = 0;
-    const realSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = (fn) => realSetTimeout(fn, 0);
-    Date.now = () => (clock += ${step});
-    globalThis.fetch = (${mockFetch});
-  `;
-}
-
 function spawnGate(fixtureInfo, mockFetch, env = {}) {
   const script = scriptPath;
   const result = spawnSync(
     process.execPath,
-    ['--import', `data:text/javascript,${encodeURIComponent(preload(mockFetch))}`, script],
+    [
+      '--import',
+      `data:text/javascript,${encodeURIComponent(`globalThis.fetch = (${mockFetch});`)}`,
+      script,
+    ],
     {
       encoding: 'utf8',
-      timeout: 15_000,
+      timeout: 8_000,
       env: {
         ...process.env,
         GH_TOKEN: 'test-token',
@@ -830,7 +899,7 @@ function spawnGate(fixtureInfo, mockFetch, env = {}) {
         WORKFLOWS_DIR: fixtureInfo.workflows,
         GATE_CODEOWNERS: path.join(fixtureInfo.directory, 'CODEOWNERS'),
         GATE_POLL_SECONDS: '1',
-        GATE_TIMEOUT_SECONDS: '2',
+        GATE_TIMEOUT_SECONDS: '4',
         GATE_START_GRACE_SECONDS: '0.2',
         GATE_SETTLE_SECONDS: '0.1',
         GATE_EMPTY_SETTLE_SECONDS: '0.1',
@@ -954,6 +1023,72 @@ test('hosted-gate harness: an API failure never becomes an empty passing snapsho
   }
 });
 
+test('hosted-gate harness: the deadline also bounds the initial changed-file read', async () => {
+  const fixtureInfo = await fixture();
+  try {
+    const mock = `(async (url, { signal }) => {
+      if (!new URL(url).pathname.endsWith('/pulls/1/files')) throw new Error('unexpected URL');
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+        reject(signal.reason);
+      }, { once: true }));
+    })`;
+    const result = spawnGate(fixtureInfo, mock, { GATE_TIMEOUT_SECONDS: '0.2' });
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /Gate deadline reached/);
+  } finally {
+    await fixtureInfo.cleanup();
+  }
+});
+
+test('hosted-gate harness: the deadline aborts a hung second page and interrupts retry backoff', async () => {
+  const fixtureInfo = await fixture();
+  try {
+    const mock = `(async (url, { signal }) => {
+      const { pathname, searchParams } = new URL(url);
+      if (pathname.endsWith('/pulls/1/files')) return Response.json([{ filename: 'src/a.ts' }]);
+      if (pathname.includes('/actions/runs')) return new Response(null, { status: 503 });
+      if (!searchParams.has('page')) {
+        return Response.json({ sha: 'head-sha', statuses: [] }, {
+          headers: { link: '<https://api.github.com/repos/owner/repo/commits/head-sha/status?page=2>; rel="next"' }
+        });
+      }
+      return new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+        console.log('Second page aborted');
+        reject(signal.reason);
+      }, { once: true }));
+    })`;
+    const result = spawnGate(fixtureInfo, mock, {
+      GATE_TIMEOUT_SECONDS: '0.2',
+      GATE_RETRY_BASE_MS: '60000',
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stdout, /Second page aborted/);
+    assert.match(result.stdout, /Timed out without a complete snapshot/);
+  } finally {
+    await fixtureInfo.cleanup();
+  }
+});
+
+test('runGate does not poll again when a poll sleep reaches the deadline', async () => {
+  let clock = 0;
+  let attempts = 0;
+  const result = await runGate({
+    observe: async () => {
+      attempts += 1;
+      return { expected: new Map() };
+    },
+    config: { ...config, timeoutSeconds: 0.1, pollSeconds: 30 },
+    now: () => clock,
+    sleep: async (milliseconds) => {
+      assert.equal(milliseconds, 100);
+      clock += milliseconds;
+    },
+  });
+  assert.equal(attempts, 1);
+  assert.equal(result.decision, 'fail');
+  assert.match(result.reason, /Timed out/);
+});
+
 test('hosted-gate harness: a transient API failure can recover', async () => {
   const fixtureInfo = await fixture();
   try {
@@ -1029,12 +1164,31 @@ test('hosted-gate harness: workflow runs on page two are counted', async () => {
   }
 });
 
+test('merge group planning uses its own branch filters and requires unregistered lanes', () => {
+  const alpha = parseWorkflow(
+    'on:\n  pull_request:\n    paths: [src/**]\n  merge_group:\n    branches: [main]\n    types: [checks_requested]\n',
+    '.github/workflows/alpha.yml',
+  );
+  const beta = parseWorkflow(
+    'on:\n  pull_request:\n    branches: [main]\n  merge_group:\n    branches-ignore: [main]\n',
+    '.github/workflows/beta.yml',
+  );
+  const plan = planGate({
+    workflows: [alpha, beta],
+    changedFiles: ['docs/a.md'],
+    baseRef: 'main',
+    action: 'merge_group',
+  });
+  assert.equal(plan.expected.get(alpha.path).requiredForMissing, true);
+  assert.equal(plan.expected.has(beta.path), false);
+});
+
 test('hosted-gate harness: merge_group verifies the candidate when every component supports it', async () => {
   const fixtureInfo = await fixture({ mergeGroup: true });
   try {
     const mock = `(async (url) => {
       const { pathname } = new URL(url);
-      if (pathname.includes('/compare/')) return Response.json({ files: [{ filename: 'src/a.ts' }] });
+      if (pathname.includes('/compare/')) return Response.json({ files: [{ filename: 'docs/a.md' }] });
       if (pathname.includes('/actions/runs')) return Response.json({ total_count: 2, workflow_runs: [
         { id: 1, path: '.github/workflows/alpha.yml', event: 'merge_group', head_sha: 'head-sha', status: 'completed', conclusion: 'success', run_attempt: 1, repository: { full_name: 'owner/repo' } },
         { id: 2, path: '.github/workflows/beta.yml', event: 'merge_group', head_sha: 'head-sha', status: 'completed', conclusion: 'success', run_attempt: 1, repository: { full_name: 'owner/repo' } }

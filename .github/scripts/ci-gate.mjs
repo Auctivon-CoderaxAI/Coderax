@@ -14,7 +14,7 @@
  *   - reads every component workflow's own `on.pull_request` filter from the
  *     base revision, so a filter is declared once, in the workflow that owns it;
  *   - evaluates only workflow runs created for this pull request at this exact
- *     head SHA, choosing the latest attempt;
+ *     head SHA, choosing the newest run and its latest attempt;
  *   - fails on failure, cancellation, timeout, action_required, startup_failure,
  *     stale, neutral, skipped, or a completed run with no conclusion;
  *   - fails when a workflow whose filter matches the diff never reports at all;
@@ -39,6 +39,7 @@
 import { appendFileSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
 export const GATE_JOB_NAME = 'CI gate (aggregate)';
@@ -79,50 +80,45 @@ export const DEFAULTS = {
   maxReviewPages: 10,
 };
 
-function sleep(milliseconds) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
-}
-
 function escapeRegExp(character) {
   return /[.*+?^${}()|[\]\\]/.test(character) ? `\\${character}` : character;
 }
 
 /**
  * Translates the GitHub path-filter subset this repository uses into an
- * anchored regular expression. `**` crosses path segments, `*` and `?` stay
- * inside one segment, and `[]` is a character class.
+ * anchored regular expression. `**` crosses path segments, `*` stays inside
+ * one segment, `[]` is a character class, and `?` makes the previous atom optional.
  */
 export function globToRegExp(glob) {
-  let source = '';
+  const atoms = [];
   let index = 0;
   while (index < glob.length) {
     const character = glob[index];
     if (character === '*') {
       if (glob[index + 1] === '*') {
         if (glob[index + 2] === '/') {
-          source += '(?:.*/)?';
+          atoms.push('(?:.*/)?');
           index += 3;
         } else {
-          source += '.*';
+          atoms.push('.*');
           index += 2;
         }
       } else {
-        source += '[^/]*';
+        atoms.push('[^/]*');
         index += 1;
       }
       continue;
     }
     if (character === '?') {
-      source += '[^/]';
+      const previous = atoms.pop();
+      atoms.push(previous === undefined ? escapeRegExp(character) : `(?:${previous})?`);
       index += 1;
       continue;
     }
     if (character === '[') {
       const end = glob.indexOf(']', index + 1);
       if (end === -1) {
-        source += '\\[';
+        atoms.push('\\[');
         index += 1;
         continue;
       }
@@ -130,37 +126,33 @@ export function globToRegExp(glob) {
       if (body.startsWith('!')) {
         body = `^${body.slice(1)}`;
       }
-      source += `[${body.replaceAll('\\', '\\\\')}]`;
+      atoms.push(`[${body.replaceAll('\\', '\\\\')}]`);
       index = end + 1;
       continue;
     }
-    source += escapeRegExp(character);
+    atoms.push(escapeRegExp(character));
     index += 1;
   }
-  return new RegExp(`^${source}$`);
+  return new RegExp(`^${atoms.join('')}$`);
 }
 
 /**
- * GitHub's `paths` semantics: a file passes when it matches at least one
- * positive pattern and no `!`-prefixed negative pattern. The workflow runs when
- * at least one changed file passes. A list with only negative patterns means
- * "everything except these".
+ * The last matching pattern decides whether a changed file is included.
+ * Preserve the gate's fallback for lists containing only exclusions.
  */
 export function matchesPathFilter(patterns, candidates) {
   if (!Array.isArray(patterns) || patterns.length === 0) {
     return true;
   }
-  const positives = patterns
-    .filter((pattern) => !pattern.startsWith('!'))
-    .map((pattern) => globToRegExp(pattern));
-  const negatives = patterns
-    .filter((pattern) => pattern.startsWith('!'))
-    .map((pattern) => globToRegExp(pattern.slice(1)));
-
-  return candidates.some((candidate) => {
-    const allowed = positives.length === 0 || positives.some((matcher) => matcher.test(candidate));
-    return allowed && !negatives.some((matcher) => matcher.test(candidate));
+  const rules = patterns.map((pattern) => {
+    const include = !pattern.startsWith('!');
+    return { include, matcher: globToRegExp(include ? pattern : pattern.slice(1)) };
   });
+  const defaultInclude = rules.every((rule) => !rule.include);
+  return candidates.some(
+    (candidate) =>
+      rules.findLast(({ matcher }) => matcher.test(candidate))?.include ?? defaultInclude,
+  );
 }
 
 /**
@@ -325,7 +317,10 @@ export function parseWorkflow(source, workflowPath) {
   const inlineTriggers = stripComment(lines[onIndex])
     .replace(/^['"]?on['"]?\s*:\s*/, '')
     .trim();
-  if (inlineTriggers.length > 0 && inlineTriggers !== '{}') {
+  if (inlineTriggers.length > 0) {
+    if (inlineTriggers.startsWith('{') && !/^\{\s*\}$/.test(inlineTriggers)) {
+      throw new Error(`${workflowPath}: use block syntax for the on trigger mapping.`);
+    }
     const triggers = parseInlineList(inlineTriggers);
     return {
       name,
@@ -341,6 +336,7 @@ export function parseWorkflow(source, workflowPath) {
   let pullRequestIndex = -1;
   let pullRequestInline = '';
   let mergeGroup = false;
+  let mergeGroupFilters;
   for (let index = onIndex + 1; index < lines.length; index += 1) {
     const line = stripComment(lines[index]);
     if (line.trim().length === 0) {
@@ -358,51 +354,48 @@ export function parseWorkflow(source, workflowPath) {
       .replace(/^['"]|['"]$/g, '');
     if (key === 'merge_group') {
       mergeGroup = true;
+      const inline = line.trim().replace(/^['"]?merge_group['"]?\s*:\s*/, '');
+      if (inline && !isEmptyTrigger(inline)) {
+        throw new Error(`${workflowPath}: use block syntax for merge_group filters.`);
+      }
+      mergeGroupFilters = readTriggerFilters(lines, index, {
+        branches: 'branches',
+        'branches-ignore': 'branchesIgnore',
+        types: 'types',
+      });
     }
     if (key === 'pull_request') {
       pullRequestIndex = index;
       pullRequestInline = line
         .trim()
-        .replace(/^pull_request\s*:\s*/, '')
+        .replace(/^['"]?pull_request['"]?\s*:\s*/, '')
         .trim();
     }
   }
 
-  if (pullRequestIndex === -1) {
-    return { name, path: workflowPath, pullRequest: null, mergeGroup, jobNames };
+  if (pullRequestInline && !isEmptyTrigger(pullRequestInline)) {
+    throw new Error(`${workflowPath}: use block syntax for pull_request filters.`);
   }
-  if (pullRequestInline.length > 0) {
-    return {
-      name,
-      path: workflowPath,
-      pullRequest: {
-        paths: null,
-        pathsIgnore: null,
-        branches: null,
-        branchesIgnore: null,
-        types: null,
-      },
-      mergeGroup,
-      jobNames,
-    };
-  }
+  const pullRequest =
+    pullRequestIndex === -1
+      ? null
+      : readTriggerFilters(lines, pullRequestIndex, {
+          paths: 'paths',
+          'paths-ignore': 'pathsIgnore',
+          branches: 'branches',
+          'branches-ignore': 'branchesIgnore',
+          types: 'types',
+        });
+  return { name, path: workflowPath, pullRequest, mergeGroup, mergeGroupFilters, jobNames };
+}
 
-  const filters = {
-    paths: null,
-    pathsIgnore: null,
-    branches: null,
-    branchesIgnore: null,
-    types: null,
-  };
-  const keys = {
-    paths: 'paths',
-    'paths-ignore': 'pathsIgnore',
-    branches: 'branches',
-    'branches-ignore': 'branchesIgnore',
-    types: 'types',
-  };
+function isEmptyTrigger(value) {
+  return /^(?:\{\s*\}|null|Null|NULL|~)$/.test(value);
+}
 
-  for (let index = pullRequestIndex + 1; index < lines.length; index += 1) {
+function readTriggerFilters(lines, triggerIndex, keys) {
+  const filters = Object.fromEntries(Object.values(keys).map((key) => [key, null]));
+  for (let index = triggerIndex + 1; index < lines.length; index += 1) {
     const line = stripComment(lines[index]);
     if (line.trim().length === 0) {
       continue;
@@ -417,10 +410,8 @@ export function parseWorkflow(source, workflowPath) {
     if (lineIndent !== 4) {
       continue;
     }
-    const match = line
-      .trim()
-      .match(/^['"]?(paths-ignore|paths|branches-ignore|branches|types)['"]?\s*:/);
-    if (!match) {
+    const match = line.trim().match(/^['"]?([a-z-]+)['"]?\s*:/);
+    if (!match || !Object.hasOwn(keys, match[1])) {
       continue;
     }
     const { values, nextIndex } = readList(lines, index, 4);
@@ -428,7 +419,7 @@ export function parseWorkflow(source, workflowPath) {
     index = nextIndex - 1;
   }
 
-  return { name, path: workflowPath, pullRequest: filters, mergeGroup, jobNames };
+  return filters;
 }
 
 export async function loadWorkflows(directory) {
@@ -476,8 +467,8 @@ export function selectRun(runs, workflowPath, { headSha, event, repository, pull
 
   candidates.sort(
     (left, right) =>
-      Number(right.run_attempt ?? 1) - Number(left.run_attempt ?? 1) ||
       Number(right.id ?? 0) - Number(left.id ?? 0) ||
+      Number(right.run_attempt ?? 1) - Number(left.run_attempt ?? 1) ||
       String(right.created_at ?? '').localeCompare(String(left.created_at ?? '')),
   );
   return candidates[0] ?? null;
@@ -511,11 +502,12 @@ export function planGate({
     if (workflow.path === selfPath) {
       continue;
     }
-    if (!workflow.pullRequest) {
+    if (action === 'merge_group' ? !workflow.mergeGroup : !workflow.pullRequest) {
       notApplicable.push({ name: workflow.name, path: workflow.path });
       continue;
     }
-    const filter = workflow.pullRequest;
+    const filter =
+      (action === 'merge_group' ? workflow.mergeGroupFilters : workflow.pullRequest) ?? {};
     if (filter.paths && filter.pathsIgnore) {
       errors.push(`${workflow.path} declares both paths and paths-ignore.`);
       continue;
@@ -541,8 +533,9 @@ export function planGate({
       continue;
     }
 
-    const types = filter.types ?? DEFAULT_PR_TYPES;
-    const actionApplies = action === 'merge_group' || types.includes(action);
+    const mergeGroup = action === 'merge_group';
+    const types = filter.types ?? (mergeGroup ? ['checks_requested'] : DEFAULT_PR_TYPES);
+    const actionApplies = types.includes(mergeGroup ? 'checks_requested' : action);
     expected.set(workflow.path, {
       name: workflow.name,
       path: workflow.path,
@@ -654,7 +647,10 @@ export function evaluateGate({
   );
   const pendingStatuses = statuses.filter((status) => status?.state === 'pending');
   const signature = runSignature(selectedRuns, statuses);
-  const changed = previousSignature !== undefined && previousSignature !== signature;
+  const changed =
+    previousSignature === undefined
+      ? selectedRuns.length > 0 || statuses.length > 0
+      : previousSignature !== signature;
   const effectiveLastChange = changed ? now : (lastChangeAt ?? startedAt);
 
   const nextMissing = new Map();
@@ -776,6 +772,19 @@ export function evaluateGate({
   };
 }
 
+function startDeadline(startedAt, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new Error('Gate deadline reached.')),
+    Math.min(timeoutMs, 2 ** 31 - 1),
+  );
+  return {
+    deadline: startedAt + timeoutMs,
+    signal: controller.signal,
+    dispose: () => clearTimeout(timer),
+  };
+}
+
 /**
  * Polls until a decision is reached. If an observation fails, it is discarded
  * rather than evaluated as an empty snapshot; the gate fails at the deadline if
@@ -784,63 +793,90 @@ export function evaluateGate({
 export async function runGate({
   observe,
   config = DEFAULTS,
+  gateDeadline,
   now = () => Date.now(),
   sleep: wait = sleep,
   log = () => {},
 }) {
   const startedAt = now();
+  const budget = gateDeadline ?? startDeadline(startedAt, config.timeoutSeconds * 1000);
+  const { deadline, signal } = budget;
   let lastChangeAt = startedAt;
   let firstMissingAt = new Map();
   let previousSignature;
   let lastResult = null;
   let lastError = null;
 
-  for (;;) {
-    let snapshot;
-    try {
-      snapshot = await observe();
-      lastError = null;
-    } catch (error) {
-      lastError = error;
-      log(`::warning title=CI gate::Could not read a complete check snapshot: ${error.message}`);
-      if (now() - startedAt >= config.timeoutSeconds * 1000) {
-        return {
-          ...(lastResult ?? {
-            expected: [],
-            passing: [],
-            failing: [],
-            pending: [],
-            missing: [],
-            statuses: { failing: [], pending: [] },
-            counts: { expected: 0, passing: 0, failing: 0, pending: 0, missing: 0 },
-          }),
-          decision: 'fail',
-          reason: `Timed out without a complete snapshot of workflow runs and commit statuses: ${lastError.message}`,
-        };
+  try {
+    while (!signal.aborted && now() < deadline) {
+      const observation = new AbortController();
+      let snapshot;
+      try {
+        snapshot = await observe(AbortSignal.any([signal, observation.signal]));
+        lastError = null;
+      } catch (error) {
+        lastError = error;
+        lastChangeAt = now();
+        log(`::warning title=CI gate::Could not read a complete check snapshot: ${error.message}`);
+      } finally {
+        // If one reader failed, cancel its sibling before retrying the snapshot.
+        observation.abort();
       }
-      await wait(config.pollSeconds * 1000);
-      continue;
+
+      if (!lastError) {
+        const result = evaluateGate({
+          ...snapshot,
+          now: now(),
+          startedAt,
+          lastChangeAt,
+          firstMissingAt,
+          previousSignature,
+          config,
+        });
+        firstMissingAt = result.firstMissingAt;
+        lastChangeAt = result.lastChangeAt;
+        previousSignature = result.signature;
+        lastResult = result;
+
+        log(`[${new Date(now()).toISOString()}] ${result.decision}: ${result.reason}`);
+        if (
+          result.decision === 'fail' ||
+          (result.decision === 'pass' && !signal.aborted && now() < deadline)
+        ) {
+          return result;
+        }
+      }
+
+      const remaining = deadline - now();
+      if (remaining > 0 && !signal.aborted) {
+        try {
+          await wait(Math.min(config.pollSeconds * 1000, remaining), undefined, { signal });
+        } catch (error) {
+          if (!signal.aborted) {
+            throw error;
+          }
+        }
+      }
     }
 
-    const result = evaluateGate({
-      ...snapshot,
-      now: now(),
-      startedAt,
-      lastChangeAt,
-      firstMissingAt,
-      previousSignature,
-      config,
-    });
-    firstMissingAt = result.firstMissingAt;
-    lastChangeAt = result.lastChangeAt;
-    previousSignature = result.signature;
-    lastResult = result;
-
-    log(`[${new Date(now()).toISOString()}] ${result.decision}: ${result.reason}`);
-    if (result.decision !== 'wait') {
-      return result;
-    }
-    await wait(config.pollSeconds * 1000);
+    return {
+      ...(lastResult ?? {
+        expected: [],
+        passing: [],
+        failing: [],
+        pending: [],
+        missing: [],
+        statuses: { failing: [], pending: [] },
+        counts: { expected: 0, passing: 0, failing: 0, pending: 0, missing: 0 },
+      }),
+      decision: 'fail',
+      reason:
+        lastError || !lastResult
+          ? `Timed out without a complete snapshot of workflow runs and commit statuses: ${lastError?.message ?? 'Gate deadline reached.'}`
+          : `Timed out with ${lastResult.counts.pending} pending and ${lastResult.counts.missing} missing.`,
+    };
+  } finally {
+    if (!gateDeadline) budget.dispose();
   }
 }
 
@@ -1066,6 +1102,7 @@ async function requestJson(url, token, options = {}) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= retries; attempt += 1) {
+    signal?.throwIfAborted();
     let response;
     try {
       response = await fetch(target, {
@@ -1078,11 +1115,12 @@ async function requestJson(url, token, options = {}) {
         signal,
       });
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
       if (attempt === retries) {
         break;
       }
-      await sleep(Math.min(retryBaseMs * attempt, 60_000));
+      await sleep(Math.min(retryBaseMs * attempt, 60_000), undefined, { signal });
       continue;
     }
 
@@ -1090,6 +1128,7 @@ async function requestJson(url, token, options = {}) {
       try {
         return { data: await response.json(), headers: response.headers };
       } catch (error) {
+        signal?.throwIfAborted();
         lastError = new ApiError(`Invalid JSON from ${target}: ${error.message}`, {
           status: response.status,
         });
@@ -1110,7 +1149,7 @@ async function requestJson(url, token, options = {}) {
       const delay = lastError.retryAt
         ? Math.max(0, lastError.retryAt - Date.now())
         : retryBaseMs * attempt;
-      await sleep(Math.min(delay, 60_000));
+      await sleep(Math.min(delay, 60_000), undefined, { signal });
     }
   }
   throw lastError;
@@ -1398,6 +1437,16 @@ async function main() {
     return;
   }
 
+  const gateDeadline = startDeadline(Date.now(), config.timeoutSeconds * 1000);
+  try {
+    await runAggregate({ env, config, workflows, gateDeadline });
+  } finally {
+    gateDeadline.dispose();
+  }
+}
+
+async function runAggregate({ env, config, workflows, gateDeadline }) {
+  const { signal } = gateDeadline;
   const token = env.GH_TOKEN ?? env.GITHUB_TOKEN;
   const repo = env.GITHUB_REPOSITORY ?? env.REPO;
   const headSha = env.HEAD_SHA;
@@ -1437,6 +1486,7 @@ async function main() {
       headSha,
       token,
       config,
+      signal,
     });
     const initialPlan = planGate({
       workflows,
@@ -1449,10 +1499,10 @@ async function main() {
       fail(initialPlan.errors.join(' '));
       return;
     }
-    const observe = async () => {
+    const observe = async (signal) => {
       const [runs, statuses] = await Promise.all([
-        listRunsAtHead({ repo, headSha, token, event: 'merge_group', config }),
-        listStatuses({ repo, headSha, token, config }),
+        listRunsAtHead({ repo, headSha, token, event: 'merge_group', config, signal }),
+        listStatuses({ repo, headSha, token, config, signal }),
       ]);
       const plan = planGate({
         workflows,
@@ -1472,7 +1522,12 @@ async function main() {
         repository: repo,
       };
     };
-    const result = await runGate({ observe, config, log: (line) => console.log(line) });
+    const result = await runGate({
+      observe,
+      config,
+      gateDeadline,
+      log: (line) => console.log(line),
+    });
     writeSummary(summarize(result, { headSha, baseRef, event }));
     if (result.decision === 'fail') {
       console.error(`::error title=CI gate::${result.reason}`);
@@ -1502,7 +1557,7 @@ async function main() {
     console.log(`::warning title=CI gate bootstrap::${bootstrap.reason}`);
   }
 
-  const changedFiles = await listChangedFiles({ repo, pullNumber, token, config });
+  const changedFiles = await listChangedFiles({ repo, pullNumber, token, config, signal });
   const initialPlan = planGate({
     workflows,
     changedFiles,
@@ -1521,7 +1576,7 @@ async function main() {
     ),
   );
   if (touchesControl) {
-    const reviews = await listReviews({ repo, pullNumber, token, config });
+    const reviews = await listReviews({ repo, pullNumber, token, config, signal });
     const owners = parseCodeOwners(
       await readFile(env.GATE_CODEOWNERS ?? new URL('../CODEOWNERS', import.meta.url), 'utf8'),
     );
@@ -1539,10 +1594,10 @@ async function main() {
     return;
   }
 
-  const observe = async () => {
+  const observe = async (signal) => {
     const [runs, statuses] = await Promise.all([
-      listRunsAtHead({ repo, headSha, token, event: 'pull_request', pullNumber, config }),
-      listStatuses({ repo, headSha, token, config }),
+      listRunsAtHead({ repo, headSha, token, event: 'pull_request', pullNumber, config, signal }),
+      listStatuses({ repo, headSha, token, config, signal }),
     ]);
     const plan = planGate({
       workflows,
@@ -1567,7 +1622,7 @@ async function main() {
     };
   };
 
-  const result = await runGate({ observe, config, log: (line) => console.log(line) });
+  const result = await runGate({ observe, config, gateDeadline, log: (line) => console.log(line) });
   writeSummary(summarize(result, { headSha, baseRef, event, bootstrap: bootstrap.bootstrap }));
 
   if (result.decision === 'fail') {
