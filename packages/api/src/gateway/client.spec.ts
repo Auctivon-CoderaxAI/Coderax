@@ -327,6 +327,25 @@ describe('WorkflowEngine client', () => {
     ).rejects.toMatchObject({ code: 'engine_timeout' });
   });
 
+  it('treats a Work header timeout as ambiguous while keeping read timeouts retryable', async () => {
+    const fetch = jest.fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>(
+      async (_url, { signal }) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        }),
+    );
+    const client = clientWith(fetch, 'server-token', 15);
+
+    await expect(
+      client.submitWork({ objective: 'test', mode: 'cloud', requireApproval: true }),
+    ).rejects.toMatchObject({ code: 'submission_outcome_unknown', retryable: false });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(client.getTask('task_1')).rejects.toMatchObject({
+      code: 'engine_timeout',
+      retryable: true,
+    });
+  });
+
   it('clears the header timer while keeping a live stream linked to caller cancellation', async () => {
     const caller = new AbortController();
     let transportSignal: AbortSignal | undefined;
