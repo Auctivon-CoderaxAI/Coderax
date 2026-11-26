@@ -78,15 +78,18 @@ export function evaluate({ manifest, checks, runs, settled, previousMissing = ne
     const ownedChecks = checks.filter((check) => suites.has(check.suiteId));
 
     for (const pattern of patterns) {
+      if (ownerRuns.some((run) => run.status !== 'completed')) {
+        findings.push({ pattern, state: 'pending', detail: `${lane.workflow} still running` });
+        continue;
+      }
       const matches = ownedChecks.filter((check) => check.name.startsWith(pattern));
       if (matches.length === 0) {
         if (ownerRuns.length > 0) {
           const key = JSON.stringify([lane.workflow, pattern, [...suites].sort()]);
           // Workflow and check listings are separate snapshots. Confirm absence
           // on a later poll, and only after the workflow has finished.
-          const complete = ownerRuns.every((run) => run.status === 'completed');
-          if (complete) observedMissing.add(key);
-          const missing = complete && previousMissing.has(key);
+          observedMissing.add(key);
+          const missing = previousMissing.has(key);
           findings.push({
             pattern,
             state: missing ? 'missing' : 'pending',
@@ -266,12 +269,22 @@ export async function collect(repo, sha, token) {
   }
 
   const runs = new Map();
+  const runIds = new Set();
+  let expectedRuns = 0;
   for (let page = 1; ; page += 1) {
     const body = await api(
       `/repos/${repo}/actions/runs?head_sha=${sha}&event=pull_request&per_page=100&page=${page}`,
       token,
     );
+    if (!Number.isSafeInteger(body.total_count) || body.total_count < 0) {
+      throw new Error('Workflow run listing did not report a valid total count');
+    }
+    expectedRuns = Math.max(expectedRuns, body.total_count);
     for (const run of body.workflow_runs) {
+      if (!Number.isSafeInteger(run.id) || runIds.has(run.id)) {
+        throw new Error('Workflow run listing contained an invalid or duplicate run ID');
+      }
+      runIds.add(run.id);
       const workflow = run.path.replace('.github/workflows/', '');
       if (!Number.isSafeInteger(run.check_suite_id)) {
         throw new Error(`Workflow run ${run.id} did not report a check suite ID`);
@@ -280,6 +293,11 @@ export async function collect(repo, sha, token) {
       runs.get(workflow).push({ suiteId: run.check_suite_id, status: run.status });
     }
     if (body.workflow_runs.length < 100) break;
+  }
+  if (runIds.size !== expectedRuns) {
+    throw new Error(
+      `Incomplete workflow run listing: expected ${expectedRuns}, saw ${runIds.size}`,
+    );
   }
 
   return { checks, runs };

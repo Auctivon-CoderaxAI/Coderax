@@ -13,9 +13,9 @@ Configure rulesets/branch protection for `main` with:
 - Every change through a pull request; direct pushes denied, including for administrators.
 - At least one independent approval, with approval of the most recent reviewable push by someone
   other than its author and stale approvals dismissed when the pull request changes.
-- One required status check, **`CI gate`** (`.github/workflows/ci-gate.yml`), evaluated at the exact
-  head SHA. A passing run at an earlier head is not a pass; the gate reruns on every push and reads
-  the head it is attached to.
+- After the rollout checks below are satisfied, one required status check, **`CI gate`**
+  (`.github/workflows/ci-gate.yml`), evaluated at the exact head SHA. A passing run at an earlier
+  head is not a pass; the gate reruns on every push and reads the head it is attached to.
 - Code-owner review for `.github/workflows/`, `.github/scripts/` and `.github/CODEOWNERS`.
 - All review threads resolved before merge.
 - Force pushes and branch deletion disallowed.
@@ -56,8 +56,18 @@ not enforced yet; move a lane into `required` once that reason no longer holds. 
 `required` without fixing its outstanding failure makes every pull request red, which is why the
 list is explicit instead of inferred.
 
-`CI gate` is the only check that belongs in branch protection; the other workflows remain the
-evidence it reads.
+Once rollout is complete, `CI gate` can replace the individual checks in branch protection; the
+other workflows remain the evidence it reads.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:85ee6d113ea360e0caed47ea4805279c4081d4abba25cf2469d66822f9f787ad -->
+
+## Gate rollout and rollback
+
+Keep the existing required checks while validating the aggregate gate. Before replacing them, verify equivalent coverage for backend, frontend, static, integration, security, and end-to-end workflows. A report-only lane cannot replace an existing requirement. Verify independent code-owner review is enforced for changes to the gate, its workflow, and the lane manifest. Exercise passing and failing pull requests and the local accessibility scan on a fork if forks are supported. Save the current required check names and their providers before changing the rule.
+
+If the aggregate gate blocks eligible pull requests or a reviewed revert, restore the saved required checks and remove the aggregate requirement in the same ruleset update. Keep review, thread resolution, and push restrictions in place. Then land the correction or revert through a reviewed pull request.
 
 ## Releases
 
@@ -66,3 +76,5 @@ Releases are cut from a reviewed `main` commit by pushing a `v<semver>` or `v<se
 `main-image-workflow.yml` builds the latest release image on dispatch. Keep `main` as the release
 source: never move a tag, move `main` backwards, or force-push it. Roll back code with a new
 reviewed revert pull request.
+
+<!-- /coderabbit-ai-generated:v1 -->

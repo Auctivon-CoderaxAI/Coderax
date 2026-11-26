@@ -77,6 +77,12 @@ test('waits while an owning workflow is running even after the settle window', (
   assert.deepEqual(state.failures, []);
 });
 
+test('does not pass on a previous success while its owning workflow is running again', () => {
+  const state = run({ runs: workflowRuns('static-checks.yml', 1, 'in_progress') });
+  assert.equal(state.pending, true);
+  assert.deepEqual(state.failures, []);
+});
+
 test('confirms an absent check in a later snapshot of the completed workflow', () => {
   const first = run({ checks: [], settled: false });
   assert.equal(first.pending, true);
@@ -192,19 +198,21 @@ test('a same-prefix check from another workflow cannot satisfy a missing backend
     const page = Number(new URL(url).searchParams.get('page'));
     const workflow_runs =
       page <= 5
-        ? Array.from({ length: 100 }, () => ({
+        ? Array.from({ length: 100 }, (_, index) => ({
+            id: (page - 1) * 100 + index + 1,
             path: '.github/workflows/frontend-review.yml',
             check_suite_id: 1,
             status: 'completed',
           }))
         : [
             {
+              id: 501,
               path: '.github/workflows/backend-review.yml',
               check_suite_id: 2,
               status: 'completed',
             },
           ];
-    return Response.json({ workflow_runs });
+    return Response.json({ total_count: 501, workflow_runs });
   });
 
   const committed = loadManifest(process.cwd());
@@ -220,6 +228,17 @@ test('a same-prefix check from another workflow cannot satisfy a missing backend
     second.failures.map(({ workflow, state }) => [workflow, state]),
     [['backend-review.yml', 'missing']],
   );
+});
+
+test('rejects a truncated workflow run listing before evaluating lane absence', async (t) => {
+  t.mock.method(globalThis, 'fetch', async (url) =>
+    Response.json(
+      url.includes('/check-runs?') ? { check_runs: [] } : { total_count: 2, workflow_runs: [] },
+    ),
+  );
+  await assert.rejects(collect('owner/repo', 'expected-head', 'test-token'), {
+    message: 'Incomplete workflow run listing: expected 2, saw 0',
+  });
 });
 
 test('a Redis-only change does not require a check from the separate agent workflow', () => {
