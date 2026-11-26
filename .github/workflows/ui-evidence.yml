@@ -18,6 +18,7 @@ on:
       - 'packages/client/**'
       - 'e2e/benchmarks-navigation/**'
       - 'e2e/perf/**'
+      - 'e2e/playwright.config.navigation-perf.ts'
       - 'e2e/specs/mock/work-parity.spec.ts'
       - '.github/workflows/ui-evidence.yml'
       - '!**.md'
@@ -64,6 +65,9 @@ jobs:
       - name: Verify Chrome is present
         run: google-chrome --version
 
+      - name: Install Playwright FFmpeg for retry videos
+        run: npx playwright install ffmpeg
+
       - name: Capture Chat and Work at desktop and mobile sizes
         env:
           CI: 'true'
@@ -72,9 +76,13 @@ jobs:
           e2e/specs/mock/work-parity.spec.ts
           --grep "modes retain URL"
 
+      - name: Install react-scan benchmark bundle
+        run: npm install --prefix "$RUNNER_TEMP/ui-evidence" --no-save --ignore-scripts react-scan@0.5.7
+
       - name: Measure conversation-switch latency and render work
         env:
           CI: 'true'
+          REACT_SCAN_PATH: ${{ runner.temp }}/ui-evidence/node_modules/react-scan/dist/auto.global.js
         run: npx playwright test --config=e2e/playwright.config.navigation-perf.ts
 
       - name: Upload Playwright report and screenshots
@@ -93,6 +101,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ui-evidence-navigation-perf
-          path: benchmarks-navigation/.test-results/**
+          path: e2e/benchmarks-navigation/.test-results/**
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: ignore
