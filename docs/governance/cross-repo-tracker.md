@@ -1,6 +1,6 @@
 # Cross-repository tracker
 
-Owner: repository governance and CI. Updated 2026-11-26 18:09 UTC.
+Owner: repository governance and CI. Updated 2026-11-26 18:11 UTC.
 Snapshot of the three public repositories in the `Auctivon-CoderaxAI` organization. Every SHA is
 the exact head the status beside it belongs to; a status at an earlier head is not evidence for a
 later one.
@@ -40,7 +40,7 @@ The 2026-11-21 `CoderaxCLI` failure was the billing signature (every step skippe
 | `Coderax` | [#313](https://github.com/Auctivon-CoderaxAI/Coderax/pull/313) `fix(ui): fit Work composer controls` | `094bdd98e6d64dd61caddbd9ea60ab908bb12842` | UI session (`fix/work-composer-controls`) | Docker client target passed; tests and API smoke in progress | none | 4 conversation comments, 0 inline |
 | `Coderax` | Dependabot: `i18next` 24.2.2 → 26.3.4 | — | `dependabot[bot]` | not captured | none | automated changelog only |
 | `Coderax-WorkflowEngine` | [#2](https://github.com/Auctivon-CoderaxAI/Coderax-WorkflowEngine/pull/2) `feat(intelligence)` | `2072df89093e09ff8248a5ea416c9476da9c8dde` | engine session (`feat/intelligence-core`) | **`verify` success** (run 45869651614) | none | 4 conversation comments |
-| `CoderaxCLI` | [#4](https://github.com/Auctivon-CoderaxAI/CoderaxCLI/pull/4) `test(cli): real newlines in Work SSE fixtures` | `093225927a4eab27b9b8460492e6d860c5c93c40` | this session (`ci/fix-work-sse-fixtures`) | `test` queued since 18:06 | none | none |
+| `CoderaxCLI` | [#4](https://github.com/Auctivon-CoderaxAI/CoderaxCLI/pull/4) `test(cli): real newlines in Work SSE fixtures` | `093225927a4eab27b9b8460492e6d860c5c93c40` | this session (`ci/fix-work-sse-fixtures`) | **`test` success** (run 45873236965, 18:07 UTC) | none | none |
 
 No pull request in any repository carries an independent approval. That is the binding constraint
 on every merge, and it is a review-capacity problem, not a platform limit: the **free** plan
@@ -74,7 +74,7 @@ request. Name matches the actual job.
 
 | Repository | Check | Cause | State |
 |---|---|---|---|
-| `CoderaxCLI` | `test` | The two native-Work snapshot tests double-escaped the SSE frame terminator, so each fixture held the literal characters `\n\n` instead of a blank line. No frame boundary was found, the command correctly reported that nothing was streamed, and both tests failed asserting exit code 0. | **Fixed** in PR #4 — 85/85 locally on Node 24.22.1; hosted `test` not yet observed green. |
+| `CoderaxCLI` | `test` | The two native-Work snapshot tests double-escaped the SSE frame terminator, so each fixture held the literal characters `\n\n` instead of a blank line. No frame boundary was found, the command correctly reported that nothing was streamed, and both tests failed asserting exit code 0. | **Fixed** in PR #4 — 85/85 locally on Node 24.22.1, and hosted `test` **succeeded** at `09322592` (run 45873236965). |
 
 Before this change `Coderax` required **no status checks at all**, so no CI gate blocked a merge
 and no path-filtered workflow could leave a pending check either. Requiring the component
