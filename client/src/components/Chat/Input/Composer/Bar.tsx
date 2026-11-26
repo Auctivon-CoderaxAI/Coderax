@@ -407,7 +407,7 @@ function Bar({
           </div>
         </div>
       </div>
-      <div ref={rowRef} className={cn(rowClass, showWorkAgentSelector && 'max-sm:flex-nowrap')}>
+      <div ref={rowRef} className={rowClass}>
         {/* Never unmounted, so its glyph can turn into the close mark rather
             than one icon being swapped for another. */}
         <span ref={plusRef} className="shrink-0">
