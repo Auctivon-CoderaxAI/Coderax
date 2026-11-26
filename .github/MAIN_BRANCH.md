@@ -45,9 +45,23 @@ the merge button stays disabled for a reason unrelated to the change.
   exact head SHA, and fails when one failed, was cancelled, timed out, or never reported.
 - It also waits on any workflow that started even if its own filter says it should not have, which
   makes a parser disagreement fail toward waiting rather than toward an early green.
-- `Codegraph Select (observe)` is listed as advisory in `.github/scripts/ci-gate.mjs`: it records
-  which tests a change selects and is not a merge gate. Every workflow added to that list needs the
-  same justification.
+- It never waits on itself: its own workflow path is excluded from the expected set, and a test
+  proves that an in-progress `CI Gate` run cannot hold its own check open.
+- It fails closed on an empty changed-file list. Filtering every workflow out of an empty diff would
+  report green, which is the failure the gate exists to prevent.
+- It executes gate logic and workflow filters from the **base revision**, not from the pull request
+  merge tree. A `pull_request` run otherwise executes the contributor's copy of `ci-gate.mjs`, and a
+  required check must not be editable by the change it judges. Only the started-run set is taken from
+  the pull request. When the base revision has no gate yet, it runs the pull request's copy and emits
+  a warning; that applies to the pull request that introduces the gate and to no later one.
+- It answers `merge_group` directly. Component workflows do not declare that trigger, so they start
+  no runs in a merge queue; the gate reports success there and records that the queued pull request
+  was already gated at its own head. Without it, enabling a merge queue would leave the single
+  required check pending forever.
+- `Codegraph Select (observe)` is listed as advisory **by workflow path** in
+  `.github/scripts/ci-gate.mjs`: it records which tests a change selects and is not a merge gate.
+  Matching by path rather than display name means renaming a workflow cannot quietly un-gate it.
+  Every workflow added to that list needs the same justification.
 
 Component workflows stay path-filtered and stay individually visible; they are simply not required
 individually. Do not add a second required check without removing the path filter from the workflow

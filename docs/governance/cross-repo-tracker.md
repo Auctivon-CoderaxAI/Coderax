@@ -52,6 +52,16 @@ snapshot and re-read it before acting.
 `CoderaxCLI` has no open pull request. One open merge ref exists at PR 2 on WorkflowEngine and none
 on CLI.
 
+The governance branch `governance/ci-gate-and-security` is pushed, one commit ahead of `main` at the
+start of this round (`b596f3e6b04816a0c27df739bd860553b6e9d9f9`), and has **no pull request yet**.
+Both facts are git-verified (`git ls-remote`, `git merge-base`). The head SHA moves with every push,
+so read it from `git ls-remote` or from the pull request rather than from this page.
+
+Opening the pull request needs an authenticated GitHub client, which this session did not have: no
+`gh` binary, no token in the environment, and the anonymous REST quota exhausted. The branch is
+verified and pushed; the pull request is **not** created, and the comparison URL is recorded under
+[Owner steps](#owner-steps-that-require-api-access).
+
 ## Branch ownership
 
 Branches with no open pull request. Per contributor policy these are short-lived and should be
@@ -78,6 +88,37 @@ stated reason.
 | WorkflowEngine | Branch protection | **unverified** — see the stale-blocker note below |
 | CLI | `ci` workflow | **unverified** |
 
+### What was verified locally for `CI Gate`
+
+`node --test .github/scripts/ci-gate.test.mjs` on this branch: **19 tests, 19 passing, 0 failing.**
+They cover path-glob translation, positive/negative filter composition, workflow parsing against every
+real workflow file, the assertion that the gate carries no `paths` filter, the expected-set union, and
+the polling loop's timeout, start-grace, cancellation, missing-workflow, self-exclusion, empty-diff
+and merge-group behaviour.
+
+Separation of evidence: that is **local** evidence about the gate's decision logic. **No hosted run of
+`CI Gate` has been observed** and this page does not claim one. `docs/CI-UNBLOCK.md` records hosted
+Actions as billing-blocked on this repository, so the next verification step is an owner-run
+`ci-canary.yml`, not another commit.
+
+### Merge queue
+
+No workflow in this repository declares `merge_group`, and no merge-queue setting was readable from
+this session (that is a branch-rule field). The gate now answers `merge_group` directly: component
+workflows start no runs there, so it reports success and records that the queued pull request was
+already gated at its own head. Without that, enabling a merge queue later would leave the single
+required check pending forever on every queued entry. Compatibility is therefore **implemented and
+unit-tested**, while *whether a merge queue is enabled* remains **unverified**.
+
+### Branch protection precondition
+
+Do not change the `main` branch rule or ruleset until the pull request carrying `CI Gate` has merged
+**and** a hosted run of `CI Gate / Aggregate gate` has been observed both to report and to fail
+correctly at an exact head SHA. Registering a required check that has never executed would freeze
+`main` without evidence the check works. The independent-approval requirement, administrator
+enforcement and stale-approval dismissal stay exactly as `MAIN_BRANCH.md` records them; nothing in
+this work relaxes them.
+
 ### Stale blocker on WorkflowEngine
 
 `Coderax-WorkflowEngine/.github/MAIN_BRANCH.md` records that the plan returns HTTP 403 for
@@ -101,6 +142,11 @@ value.
 | No top-level token scope | `.github/workflows/helmcharts.yml` | Added `permissions: contents: read`; the publishing job keeps `packages: write` |
 | Reviewer request named an upstream account with no access to this organization | `.github/workflows/locize-i18n-sync.yml` | Points at the repository code owner, so the run stops failing on an unknown reviewer |
 | Required check could be permanently pending | branch rule design | Single always-reporting `CI Gate / Aggregate gate`; see `.github/MAIN_BRANCH.md` |
+| The gate executed logic from the pull request's own merge tree, so a contributor could neuter the check that judges their change | `.github/workflows/ci-gate.yml` | Gate logic and workflow filters are read from the base revision; only the started-run set comes from the pull request. Falls back to the pull request copy, with a warning, when the base has no gate yet |
+| An empty changed-file response filtered every workflow out and reported green | `.github/scripts/ci-gate.mjs` | `runGate` throws when the pull request reports no changed files |
+| Advisory exclusion matched a workflow *display name*, so renaming could un-gate a workflow | `.github/scripts/ci-gate.mjs` | Matched by workflow path instead |
+| A merge queue would have deadlocked: component workflows start no runs on `merge_group` | `.github/workflows/ci-gate.yml` | The gate declares `merge_group` and reports success there, recording that the queued pull request was gated at its own head |
+| The path remediation also deleted the Redis persistence block by accident | `redis-config/redis-tls.conf` | `logfile`, `databases`, `always-show-logo`, `save`, `stop-writes-on-bgsave-error`, `rdbcompression`, `rdbchecksum`, `dbfilename` and `dir` restored; `dir ./` now resolves beside the config because the launcher changes directory first |
 
 ### Open findings
 
@@ -236,6 +282,12 @@ gh run list --repo Auctivon-CoderaxAI/CoderaxCLI --limit 5
 works; a green badge on a stale run is not.
 
 ### Secret scanning and push protection
+
+**Availability: yes. Enablement: unverified.** Secret scanning and push protection are included at no
+cost for public repositories, and this repository is anonymously clonable (see the state table), so
+both features are available to it. Whether they are switched on was not readable: `security_and_analysis`
+and the alert list need an authenticated admin request, and this session had no token. Availability is
+not enablement, and this page does not claim the latter.
 
 Public repositories get secret scanning and push protection at no cost. Enable for the organization
 so new repositories inherit it:

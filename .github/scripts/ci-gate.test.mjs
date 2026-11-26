@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import {
-  ADVISORY_WORKFLOW_NAMES,
+  ADVISORY_WORKFLOW_PATHS,
   evaluateGate,
   globToRegExp,
   indexRunsByWorkflow,
@@ -11,6 +12,7 @@ import {
   matchesFilter,
   parseWorkflow,
   planGate,
+  runGate,
 } from './ci-gate.mjs';
 
 const WORKFLOWS_DIRECTORY = fileURLToPath(new URL('../workflows/', import.meta.url));
@@ -117,7 +119,7 @@ test('component filters match the paths they declare', async () => {
   const byPath = new Map(workflows.map((workflow) => [workflow.path, workflow]));
   const advisoryPaths = new Set(
     workflows
-      .filter((workflow) => ADVISORY_WORKFLOW_NAMES.has(workflow.name))
+      .filter((workflow) => ADVISORY_WORKFLOW_PATHS.has(workflow.path))
       .map((workflow) => workflow.path),
   );
 
@@ -251,4 +253,195 @@ test('indexRunsByWorkflow keeps the highest re-run attempt', () => {
   ]);
   assert.equal(runs.get('a.yml').conclusion, 'success');
   assert.equal(runs.get('b.yml').conclusion, 'success');
+});
+
+/**
+ * Builds `runGate` options with a fake clock. Every `sleep` advances that clock,
+ * so timeout and start-grace behaviour are deterministic and instantaneous.
+ *
+ * @param {object} [overrides]
+ * @returns {{ sleeps: number[], options: object }}
+ */
+function gateOptions(overrides = {}) {
+  let clock = 0;
+  const sleeps = [];
+  return {
+    sleeps,
+    options: {
+      workflows: [
+        {
+          name: 'Static Checks',
+          path: '.github/workflows/static-checks.yml',
+          pullRequest: { paths: ['api/**'], branches: null, types: null },
+        },
+      ],
+      changedFiles: ['api/server/index.js'],
+      baseRef: 'main',
+      eventName: 'pull_request',
+      advisoryPaths: new Set(),
+      selfPath: SELF_PATH,
+      timeoutSeconds: 300,
+      pollSeconds: 30,
+      startGraceSeconds: 60,
+      now: () => clock,
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+        clock += milliseconds;
+      },
+      log: () => {},
+      listRuns: async () => [],
+      ...overrides,
+    },
+  };
+}
+
+const STATIC_CHECKS_RUN = {
+  path: '.github/workflows/static-checks.yml',
+  name: 'Static Checks',
+  run_attempt: 1,
+  id: 1,
+};
+
+test('runGate waits for a running workflow, then passes when it succeeds', async () => {
+  let polls = 0;
+  const { options, sleeps } = gateOptions({
+    listRuns: async () => {
+      polls += 1;
+      return polls < 2
+        ? [{ ...STATIC_CHECKS_RUN, status: 'in_progress', conclusion: null }]
+        : [{ ...STATIC_CHECKS_RUN, status: 'completed', conclusion: 'success' }];
+    },
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'passed');
+  assert.equal(polls, 2);
+  assert.deepEqual(sleeps, [30_000]);
+});
+
+test('runGate times out instead of hanging on a workflow that never finishes', async () => {
+  const { options } = gateOptions({
+    timeoutSeconds: 90,
+    listRuns: async () => [{ ...STATIC_CHECKS_RUN, status: 'in_progress', conclusion: null }],
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(
+    result.gate.pending.map((entry) => entry.path),
+    ['.github/workflows/static-checks.yml'],
+  );
+  assert.equal(result.gate.failing.length, 0);
+});
+
+test('runGate fails once the start grace expires for a workflow that never reported', async () => {
+  const { options } = gateOptions({ timeoutSeconds: 600, startGraceSeconds: 60 });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(
+    result.gate.missing.map((entry) => entry.path),
+    ['.github/workflows/static-checks.yml'],
+  );
+});
+
+test('runGate reports a cancelled component workflow as a failure', async () => {
+  const { options } = gateOptions({
+    listRuns: async () => [{ ...STATIC_CHECKS_RUN, status: 'completed', conclusion: 'cancelled' }],
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(
+    result.gate.failing.map((entry) => entry.conclusion),
+    ['cancelled'],
+  );
+});
+
+test('a skipped workflow cannot launder a failed sibling into a pass', async () => {
+  const { options } = gateOptions({
+    workflows: [
+      {
+        name: 'Static Checks',
+        path: '.github/workflows/static-checks.yml',
+        pullRequest: { paths: ['api/**'], branches: null, types: null },
+      },
+      {
+        name: 'Backend Unit Tests',
+        path: '.github/workflows/backend-review.yml',
+        pullRequest: { paths: ['api/**'], branches: null, types: null },
+      },
+    ],
+    listRuns: async () => [
+      { ...STATIC_CHECKS_RUN, status: 'completed', conclusion: 'skipped' },
+      {
+        path: '.github/workflows/backend-review.yml',
+        name: 'Backend Unit Tests',
+        run_attempt: 1,
+        id: 2,
+        status: 'completed',
+        conclusion: 'failure',
+      },
+    ],
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(
+    result.gate.failing.map((entry) => entry.path),
+    ['.github/workflows/backend-review.yml'],
+  );
+});
+
+test('runGate never waits on its own run', async () => {
+  const { options, sleeps } = gateOptions({
+    workflows: [
+      {
+        name: 'CI Gate',
+        path: SELF_PATH,
+        pullRequest: { paths: null, branches: null, types: null },
+      },
+    ],
+    changedFiles: ['docs/README.md'],
+    listRuns: async () => [
+      { path: SELF_PATH, name: 'CI Gate', run_attempt: 1, id: 9, status: 'in_progress', conclusion: null },
+    ],
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'passed');
+  assert.equal(result.plan.expected.size, 0);
+  assert.deepEqual(sleeps, []);
+});
+
+test('runGate fails closed when the pull request reports no changed files', async () => {
+  const { options } = gateOptions({ changedFiles: [] });
+  await assert.rejects(() => runGate(options), /no changed files/);
+});
+
+test('runGate reports immediately on a merge group', async () => {
+  let polls = 0;
+  const { options } = gateOptions({
+    eventName: 'merge_group',
+    listRuns: async () => {
+      polls += 1;
+      return [];
+    },
+  });
+
+  const result = await runGate(options);
+  assert.equal(result.status, 'merge_group');
+  assert.equal(polls, 0);
+});
+
+test('the gate workflow cancels superseded runs and reports on merge groups', async () => {
+  const source = await readFile(new URL('../workflows/ci-gate.yml', import.meta.url), 'utf8');
+
+  // Without merge_group the required check never reports inside a merge queue.
+  assert.match(source, /^\s{2}merge_group:\s*$/m);
+  assert.match(source, /cancel-in-progress: true/);
+  assert.match(source, /group: ci-gate-\$\{\{ github\.event\.pull_request\.number/);
+  // The gate must never gain a paths filter; that is what leaves a required
+  // check pending on the pull requests it does not cover.
+  assert.doesNotMatch(source, /^\s+paths:/m);
 });

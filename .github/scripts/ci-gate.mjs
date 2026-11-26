@@ -33,9 +33,9 @@ const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
  * Keep this list short and justified: anything that a merge must depend on
  * belongs outside it.
  */
-export const ADVISORY_WORKFLOW_NAMES = new Set([
+export const ADVISORY_WORKFLOW_PATHS = new Set([
   // Records which tests a change would have selected. Observational only.
-  'Codegraph Select (observe)',
+  '.github/workflows/codegraph-select.yml',
 ]);
 
 /**
@@ -500,6 +500,118 @@ function describe(entry) {
   return `${entry.name} (${entry.path})${entry.conclusion ? ` -> ${entry.conclusion}` : ''}`;
 }
 
+/**
+ * Polls the component workflows until every one that applies to this diff has
+ * reached a conclusion, until a workflow whose filter matches never started
+ * within the start grace, or until the overall deadline passes.
+ *
+ * Kept separate from `main` so timeout, grace, cancellation and merge-group
+ * behaviour can be exercised without GitHub.
+ *
+ * @param {object} options
+ * @param {Array<object>} options.workflows
+ * @param {string[]} options.changedFiles
+ * @param {string} options.baseRef
+ * @param {string} options.eventName
+ * @param {Set<string>} options.advisoryPaths
+ * @param {string} options.selfPath
+ * @param {() => Promise<Array<Record<string, unknown>>>} options.listRuns
+ * @param {number} options.timeoutSeconds
+ * @param {number} options.pollSeconds
+ * @param {number} options.startGraceSeconds
+ * @param {() => number} [options.now]
+ * @param {(milliseconds: number) => Promise<void>} [options.sleep]
+ * @param {(message: string) => void} [options.log]
+ * @returns {Promise<{ status: 'passed' | 'failed' | 'merge_group', plan: object, gate: object }>}
+ */
+export async function runGate({
+  workflows,
+  changedFiles,
+  baseRef,
+  eventName,
+  advisoryPaths,
+  selfPath,
+  listRuns,
+  timeoutSeconds,
+  pollSeconds,
+  startGraceSeconds,
+  now = () => Date.now(),
+  sleep: wait = sleep,
+  log = () => {},
+}) {
+  const emptyPlan = { expected: new Map(), filteredOut: [], notApplicable: [] };
+  const emptyGate = { passing: [], failing: [], pending: [], missing: [] };
+
+  // A merge queue evaluates the required check on a synthetic commit. Component
+  // workflows do not declare `merge_group`, so waiting there would block the
+  // queue on runs that never start. The queued pull request was already gated
+  // at its own head, so report success and say why.
+  if (eventName === 'merge_group') {
+    return { status: 'merge_group', plan: emptyPlan, gate: emptyGate };
+  }
+
+  // An empty file list filters every workflow out and reports green, which is
+  // the exact failure this gate exists to prevent. A pull request always
+  // changes at least one file, so an empty list is an API fault, not a diff.
+  if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
+    throw new Error(
+      'The pull request reported no changed files; refusing to report the gate as passed.',
+    );
+  }
+
+  const deadline = now() + timeoutSeconds * 1000;
+  const firstSeen = new Map();
+  let plan = emptyPlan;
+  let gate = emptyGate;
+
+  for (;;) {
+    const runs = await listRuns();
+    const startedRuns = indexRunsByWorkflow(runs);
+    plan = planGate({ workflows, changedFiles, baseRef, advisoryPaths, selfPath, startedRuns });
+    gate = evaluateGate(plan.expected, startedRuns);
+
+    log(
+      `[${new Date(now()).toISOString()}] expected=${plan.expected.size} ` +
+        `passing=${gate.passing.length} pending=${gate.pending.length} ` +
+        `failing=${gate.failing.length} missing=${gate.missing.length}`,
+    );
+
+    if (plan.expected.size === 0) {
+      break;
+    }
+    if (gate.pending.length === 0 && gate.failing.length === 0 && gate.missing.length === 0) {
+      break;
+    }
+    if (now() >= deadline) {
+      break;
+    }
+
+    const current = now();
+    let graceExpired = false;
+    for (const entry of gate.missing) {
+      if (!firstSeen.has(entry.path)) {
+        firstSeen.set(entry.path, current);
+      } else if (current - firstSeen.get(entry.path) > startGraceSeconds * 1000) {
+        graceExpired = true;
+      }
+    }
+    for (const tracked of [...firstSeen.keys()]) {
+      if (!gate.missing.some((entry) => entry.path === tracked)) {
+        firstSeen.delete(tracked);
+      }
+    }
+    if (graceExpired) {
+      log('A workflow whose own filter matches this diff never started.');
+      break;
+    }
+
+    await wait(pollSeconds * 1000);
+  }
+
+  const problems = [...gate.failing, ...gate.missing, ...gate.pending];
+  return { status: problems.length === 0 ? 'passed' : 'failed', plan, gate };
+}
+
 async function main() {
   const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   const repository = process.env.GITHUB_REPOSITORY;
@@ -511,17 +623,30 @@ async function main() {
     throw new Error('GH_TOKEN, GITHUB_REPOSITORY, PR_NUMBER and HEAD_SHA are required.');
   }
 
+  const eventName = process.env.GATE_EVENT || 'pull_request';
+
+  // A merge queue evaluates the required check on a synthetic commit. The
+  // component workflows do not run there, so there is nothing to aggregate and
+  // the pull request was already gated at its own head.
+  if (eventName === 'merge_group') {
+    console.log('Merge-group event: the queued pull request was gated at its own head.');
+    return;
+  }
+
   const timeoutSeconds = Number(process.env.GATE_TIMEOUT_SECONDS || 4200);
   const pollSeconds = Number(process.env.GATE_POLL_SECONDS || 30);
   const startGraceSeconds = Number(process.env.GATE_START_GRACE_SECONDS || 300);
-  const deadline = Date.now() + timeoutSeconds * 1000;
 
-  const workflowsDirectory = fileURLToPath(new URL('../workflows/', import.meta.url));
+  // `WORKFLOWS_DIR` points at the merged tree's workflow definitions when the
+  // gate logic itself executes from a trusted revision.
+  const workflowsDirectory = process.env.WORKFLOWS_DIR
+    ? path.resolve(process.env.WORKFLOWS_DIR)
+    : fileURLToPath(new URL('../workflows/', import.meta.url));
   const workflows = await loadWorkflows(workflowsDirectory);
   const selfPath = '.github/workflows/ci-gate.yml';
   const advisoryPaths = new Set(
     workflows
-      .filter((workflow) => ADVISORY_WORKFLOW_NAMES.has(workflow.name))
+      .filter((workflow) => ADVISORY_WORKFLOW_PATHS.has(workflow.path))
       .map((workflow) => workflow.path),
   );
 
@@ -531,52 +656,21 @@ async function main() {
     console.log(`  ${file}`);
   }
 
-  const firstSeen = new Map();
-  let plan = null;
-  let gate = null;
-
-  for (;;) {
-    const runs = await listRunsAtHead(repository, headSha, token);
-    const startedRuns = indexRunsByWorkflow(runs);
-    plan = planGate({ workflows, changedFiles, baseRef, advisoryPaths, selfPath, startedRuns });
-    gate = evaluateGate(plan.expected, startedRuns);
-
-    console.log(
-      `[${new Date().toISOString()}] expected=${plan.expected.size} passing=${gate.passing.length} ` +
-        `pending=${gate.pending.length} failing=${gate.failing.length} missing=${gate.missing.length}`,
-    );
-
-    if (plan.expected.size === 0) {
-      break;
-    }
-    if (gate.pending.length === 0 && gate.failing.length === 0 && gate.missing.length === 0) {
-      break;
-    }
-    if (Date.now() >= deadline) {
-      break;
-    }
-
-    const now = Date.now();
-    let graceExpired = false;
-    for (const entry of gate.missing) {
-      if (!firstSeen.has(entry.path)) {
-        firstSeen.set(entry.path, now);
-      } else if (now - firstSeen.get(entry.path) > startGraceSeconds * 1000) {
-        graceExpired = true;
-      }
-    }
-    for (const path of [...firstSeen.keys()]) {
-      if (!gate.missing.some((entry) => entry.path === path)) {
-        firstSeen.delete(path);
-      }
-    }
-    if (graceExpired) {
-      console.log('A workflow whose own filter matches this diff never started.');
-      break;
-    }
-
-    await sleep(pollSeconds * 1000);
-  }
+  const result = await runGate({
+    workflows,
+    changedFiles,
+    baseRef,
+    eventName,
+    advisoryPaths,
+    selfPath,
+    timeoutSeconds,
+    pollSeconds,
+    startGraceSeconds,
+    listRuns: () => listRunsAtHead(repository, headSha, token),
+    sleep,
+    log: (message) => console.log(message),
+  });
+  const { plan, gate } = result;
 
   console.log('');
   console.log('Aggregate CI gate');

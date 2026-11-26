@@ -12,6 +12,12 @@ name: CI Gate
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # A merge queue evaluates the required check on a synthetic merge-group
+  # commit. Component workflows do not declare `merge_group`, so they start no
+  # runs there; the gate reports success and says why instead of blocking the
+  # queue on runs that never appear. The queued pull request was gated at its
+  # own head before it entered the queue.
+  merge_group:
 
 permissions:
   actions: read
@@ -19,7 +25,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-gate-${{ github.event.pull_request.number }}
+  group: ci-gate-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -32,10 +38,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          # Workflow files are read from the same merged tree GitHub used to
-          # start the component runs, so the filters evaluated here are the ones
-          # that were applied.
           persist-credentials: false
+
+      # The gate decides whether a change may merge, so it must not execute
+      # logic that change supplies. A `pull_request` run uses the merge tree,
+      # which means a contributor can edit this script in the very pull request
+      # it judges. Workflow filters and gate logic are therefore taken from the
+      # base revision; the only pull-request-controlled input left is the set of
+      # runs GitHub actually started, which is read from the API rather than
+      # trusted from the checkout.
+      #
+      # A pull request that adds a workflow is still waited on whenever that
+      # workflow starts, because started runs are unioned into the expected set.
+      - name: Checkout trusted gate logic from the base revision
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .gate-trusted
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts
+            .github/workflows
 
       - name: Set up Node.js 24.16.0
         uses: actions/setup-node@v5
@@ -49,11 +73,25 @@ jobs:
       - name: Self-test the gate
         run: node --test .github/scripts/ci-gate.test.mjs
 
+      - name: Select gate logic
+        run: |
+          set -euo pipefail
+          if [ -f .gate-trusted/.github/scripts/ci-gate.mjs ]; then
+            echo "GATE_SCRIPT=.gate-trusted/.github/scripts/ci-gate.mjs" >> "$GITHUB_ENV"
+            echo "WORKFLOWS_DIR=.gate-trusted/.github/workflows" >> "$GITHUB_ENV"
+            echo "Using the base revision's gate logic and workflow filters."
+          else
+            echo "GATE_SCRIPT=.github/scripts/ci-gate.mjs" >> "$GITHUB_ENV"
+            echo "WORKFLOWS_DIR=.github/workflows" >> "$GITHUB_ENV"
+            echo "::warning::No gate logic at the base revision; running the pull request's copy. Expected only for the pull request that introduces the gate."
+          fi
+
       - name: Aggregate component workflows
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GATE_EVENT: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: node .github/scripts/ci-gate.mjs
+        run: node "$GATE_SCRIPT"
