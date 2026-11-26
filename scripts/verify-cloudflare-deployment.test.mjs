@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import {
   buildReport,
@@ -211,5 +214,36 @@ describe('verifyRepositoryConfig', () => {
     const config = verifyRepositoryConfig();
     assert.equal(config.worker, 'coderax');
     assert.equal(config.wrangler, '4.168.0');
+  });
+
+  const configUrl = new URL('../wrangler.jsonc', import.meta.url);
+  const fixture = (t, setting) => {
+    const root = mkdtempSync(join(tmpdir(), 'coderax-wrangler-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    writeFileSync(
+      join(root, 'package.json'),
+      readFileSync(new URL('../package.json', import.meta.url)),
+    );
+    const config = readFileSync(configUrl, 'utf8');
+    writeFileSync(join(root, 'wrangler.jsonc'), config.replace('"keep_vars": true,', setting));
+    return root;
+  };
+
+  for (const [name, setting] of [
+    ['commented out', '// "keep_vars": true,'],
+    ['in a block comment', '/* "keep_vars": true, */'],
+    ['nested', '"vars": { "keep_vars": true },'],
+    ['disabled', '// "keep_vars": true,\n  "keep_vars": false,'],
+  ]) {
+    it(`rejects keep_vars when it is ${name}`, (t) => {
+      assert.throws(() => verifyRepositoryConfig(fixture(t, setting)), /top-level keep_vars/);
+    });
+  }
+
+  it('accepts a true setting with JSONC comments, trailing commas, and comment markers in strings', (t) => {
+    const setting =
+      '"keep_vars" /* preserve dashboard variables */ : true,\n' +
+      '  "vars": { "URL": "https://example.test/a/*b*/", "TEXT": "a \\"quote\\",}" , },';
+    assert.equal(verifyRepositoryConfig(fixture(t, setting)).worker, 'coderax');
   });
 });
