@@ -50,10 +50,10 @@ no engine state is deleted.
 
 ## Handshake and fail-closed behavior
 
-Before the first proxied request for a transport, the gateway reads `/v1/health`
+Before dispatch, the gateway checks `/v1/health` (concurrent requests may share an active check)
 and refuses traffic unless:
 
-- `contractVersion` equals the pinned `workflowEngine.contractVersion`;
+- `contractVersion` equals the implemented contract version, `1.0.0`;
 - the engine status is not `failed`;
 - no required health check is `failed`.
 
@@ -62,8 +62,8 @@ leaves every gateway route answering 503 with a stable code; it never falls back
 to another engine and never weakens the check to keep serving.
 
 Capabilities are reported separately (`durable`, `cancellation`, `resume`,
-`streaming`). A Work operation whose capability the engine does not advertise is
-refused with `WORKFLOW_ENGINE_UNSUPPORTED` instead of degrading silently.
+`streaming`). Work admission requires one available engine advertising durability,
+cancellation, and resume. An unsupported Work operation is refused with `WORKFLOW_ENGINE_UNSUPPORTED` instead of degrading silently.
 
 ## Routes
 

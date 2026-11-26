@@ -7,13 +7,10 @@ import { createWorkflowEngineGateway } from './router';
 const at = '2026-11-26T00:00:00.000Z';
 
 function jsonResponse(body: unknown, status = 200) {
-  return {
-    ok: status >= 200 && status < 300,
+  return new Response(JSON.stringify(body), {
     status,
-    headers: { get: () => 'application/json' },
-    text: async () => JSON.stringify(body),
-    body: null,
-  };
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 function sseResponse(chunks: string[]) {
@@ -22,7 +19,6 @@ function sseResponse(chunks: string[]) {
     ok: true,
     status: 200,
     headers: { get: () => 'text/event-stream' },
-    text: async () => '',
     body: new ReadableStream<Uint8Array>({
       start(controller) {
         for (const chunk of encoded) {
@@ -190,6 +186,7 @@ describe('workflow engine gateway routes', () => {
     const response = await request(app).get('/tasks/task_1/events?after=0');
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(response.headers['cache-control']).toBe('no-store, no-transform');
     expect(response.text).toContain('"seq":1');
     expect(response.text).toContain('"type":"task.completed"');
   });
@@ -230,6 +227,67 @@ describe('workflow engine gateway routes', () => {
     const response = await request(app).post('/work').send({ objective: 'do the thing' });
     expect(response.status).toBe(501);
     expect(response.body.code).toBe('WORKFLOW_ENGINE_UNSUPPORTED');
+  });
+
+  it.each([false, true])(
+    'refuses Work with split capabilities (second engine available: %s)',
+    async (available) => {
+      const report = health();
+      const engine = report.engines[0];
+      report.engines = [
+        { ...engine, capabilities: { ...engine.capabilities, durable: false } },
+        {
+          ...engine,
+          id: 'other',
+          availability: { ...engine.availability, available },
+          capabilities: { ...engine.capabilities, resume: false },
+        },
+      ];
+      const fetch: GatewayFetch = jest.fn(async () => jsonResponse(report));
+      const { app } = appFor(fetch);
+      const response = await request(app).post('/work').send({ objective: 'do the thing' });
+      expect(response.status).toBe(501);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('rejects operator configuration for a contract the gateway does not implement', async () => {
+    const fetch = jest.fn(async () => jsonResponse(health('2.0.0')));
+    const { app } = appFor(fetch, {
+      resolveConfig: () => ({
+        enabled: true,
+        baseURL: 'https://engine.example',
+        tokenEnv: 'ENGINE_TOKEN',
+        contractVersion: '2.0.0',
+      }),
+    });
+    const response = await request(app).get('/contract');
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_CONFIG');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses rotated credentials and refreshes capabilities before dispatch', async () => {
+    const env = { ENGINE_TOKEN: 'first-token' };
+    const report = health();
+    const credentials: (string | undefined)[] = [];
+    const { app } = appFor(
+      async (url, init) => {
+        if (url.endsWith('/v1/health')) {
+          return jsonResponse(report);
+        }
+        credentials.push(init.headers.authorization);
+        return jsonResponse({ agents: [] });
+      },
+      { env },
+    );
+    await request(app).get('/agents').expect(200);
+    env.ENGINE_TOKEN = 'second-token';
+    await request(app).get('/agents').expect(200);
+    expect(credentials).toEqual(['Bearer first-token', 'Bearer second-token']);
+    report.engines[0].capabilities.resume = false;
+    await request(app).post('/tasks/task_1/resume').send({}).expect(501);
+    expect(credentials).toHaveLength(2);
   });
 
   it('reports the pinned and served contract after the handshake', async () => {

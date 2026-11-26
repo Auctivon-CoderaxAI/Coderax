@@ -24,7 +24,7 @@ import type {
 } from './contracts';
 import { contractSchemas, isTerminalEvent } from './contracts';
 import { DEFAULT_CONTRACT_VERSION } from './config';
-import { readSseFrames } from './sse';
+import { readSseFrames, SseReadError } from './sse';
 
 const schemas = contractSchemas();
 
@@ -52,8 +52,7 @@ export type GatewayFetch = (
   ok: boolean;
   status: number;
   headers: { get: (name: string) => string | null };
-  text: () => Promise<string>;
-  body: unknown;
+  body: ReadableStream<Uint8Array> | null;
 }>;
 
 export type GatewayTransportErrorCode =
@@ -251,7 +250,7 @@ function networkError(cause: unknown): GatewayTransportError {
   if (cause instanceof GatewayTransportError) {
     return cause;
   }
-  const name = cause instanceof Error ? cause.name : '';
+  const name = typeof cause === 'object' && cause != null && 'name' in cause ? cause.name : '';
   if (name === 'AbortError' || name === 'TimeoutError') {
     return new GatewayTransportError('engine_timeout', 'The engine did not answer in time.', {
       retryable: true,
@@ -262,30 +261,72 @@ function networkError(cause: unknown): GatewayTransportError {
   });
 }
 
+async function readBoundedBody(
+  body: ReadableStream<Uint8Array> | null,
+  signal: AbortSignal,
+): Promise<string> {
+  if (body == null) {
+    return '';
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let text = '';
+  let finished = false;
+  let onAbort: (() => void) | undefined;
+  try {
+    for (;;) {
+      signal.throwIfAborted();
+      const aborted = new Promise<never>((_resolve, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+      });
+      const chunk = await Promise.race([reader.read(), aborted]);
+      if (onAbort != null) {
+        signal.removeEventListener('abort', onAbort);
+      }
+      if (chunk.done) {
+        finished = true;
+        return text + decoder.decode();
+      }
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_JSON_BYTES) {
+        throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } catch (cause) {
+    throw networkError(cause);
+  } finally {
+    if (onAbort != null) {
+      signal.removeEventListener('abort', onAbort);
+    }
+    if (!finished) {
+      void reader.cancel().catch(() => undefined);
+    }
+    reader.releaseLock();
+  }
+}
+
 export function createEngineClient(options: EngineClientOptions): EngineClient {
   const doFetch = options.fetch ?? (globalThis.fetch as unknown as GatewayFetch);
   if (typeof doFetch !== 'function') {
     throw new GatewayTransportError('engine_unreachable', 'No HTTP transport is available.');
   }
-  const expectedContractVersion = options.contractVersion ?? DEFAULT_CONTRACT_VERSION;
+  const expectedContractVersion = DEFAULT_CONTRACT_VERSION;
+  if (options.contractVersion != null && options.contractVersion !== expectedContractVersion) {
+    throw new GatewayTransportError(
+      'protocol_error',
+      'Unsupported WorkflowEngine contract version.',
+    );
+  }
 
   function linkedController(signal: AbortSignal | undefined, timeoutMs: number) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const forward = (): void => controller.abort();
-    if (signal != null) {
-      if (signal.aborted) {
-        controller.abort();
-      } else {
-        signal.addEventListener('abort', forward, { once: true });
-      }
-    }
     return {
-      signal: controller.signal,
-      dispose: () => {
-        clearTimeout(timer);
-        signal?.removeEventListener('abort', forward);
-      },
+      signal: signal == null ? controller.signal : AbortSignal.any([signal, controller.signal]),
+      dispose: () => clearTimeout(timer),
     };
   }
 
@@ -325,10 +366,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       } catch (cause) {
         throw networkError(cause);
       }
-      const text = await response.text().catch(() => '');
-      if (text.length > MAX_JSON_BYTES) {
-        throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
-      }
+      const text = await readBoundedBody(response.body, link.signal);
       if (!response.ok) {
         throw errorFromResponse(response.status, text);
       }
@@ -351,22 +389,37 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     if (init.body !== undefined) {
       headers['content-type'] = 'application/json';
     }
+    const link = linkedController(init.signal, options.requestTimeoutMs);
     try {
       return await doFetch(joinURL(options.baseURL, path), {
         method: init.method,
         headers,
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-        ...(init.signal == null ? {} : { signal: init.signal }),
+        signal: link.signal,
         redirect: 'error',
       });
     } catch (cause) {
       throw networkError(cause);
+    } finally {
+      // Stop the header timer without unlinking caller cancellation from fetch.
+      link.dispose();
     }
   }
 
-  async function nonOkResponse(response: Awaited<ReturnType<GatewayFetch>>): Promise<never> {
-    const text = await response.text().catch(() => '');
-    throw errorFromResponse(response.status, text);
+  async function readStreamResponse(
+    response: Awaited<ReturnType<GatewayFetch>>,
+    signal: AbortSignal | undefined,
+  ): Promise<string> {
+    const link = linkedController(signal, options.requestTimeoutMs);
+    try {
+      const text = await readBoundedBody(response.body, link.signal);
+      if (!response.ok) {
+        throw errorFromResponse(response.status, text);
+      }
+      return text;
+    } finally {
+      link.dispose();
+    }
   }
 
   async function* chatFrames(
@@ -409,74 +462,85 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     signal: AbortSignal | undefined,
   ): AsyncIterable<ExecutionEvent> {
     let lastSeq = after;
-    let resyncs = 0;
+    let stalledResyncs = 0;
     const encoded = encodeURIComponent(taskId);
     for (;;) {
+      if (signal?.aborted) {
+        return;
+      }
+      const previousSeq = lastSeq;
       const response = await openStream(`/v1/work/${encoded}/events?after=${lastSeq}`, {
         method: 'GET',
         ...(signal == null ? {} : { signal }),
       });
       if (!response.ok) {
-        await nonOkResponse(response);
+        await readStreamResponse(response, signal);
       }
       let terminal = false;
       let gap = false;
       const seen = new Set<string>();
-      for await (const frame of readSseFrames(response.body, {
-        idleTimeoutMs: options.streamIdleTimeoutMs,
-        ...(signal == null ? {} : { signal }),
-      })) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(frame.data);
-        } catch {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine stream carried invalid JSON.',
-          );
+      try {
+        for await (const frame of readSseFrames(response.body, {
+          idleTimeoutMs: options.streamIdleTimeoutMs,
+          ...(signal == null ? {} : { signal }),
+        })) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(frame.data);
+          } catch {
+            throw new GatewayTransportError(
+              'protocol_error',
+              'The engine stream carried invalid JSON.',
+            );
+          }
+          const event = schemas.ExecutionEvent.safeParse(parsed);
+          if (!event.success) {
+            throw new GatewayTransportError(
+              'protocol_error',
+              'The engine event did not match the pinned contract.',
+            );
+          }
+          if (event.data.taskId !== taskId) {
+            throw new GatewayTransportError('protocol_error', 'The engine stream crossed tasks.');
+          }
+          if (seen.has(event.data.eventId)) {
+            continue;
+          }
+          seen.add(event.data.eventId);
+          // `seq <= lastSeq` is a replay of an event already delivered.
+          if (event.data.seq <= lastSeq) {
+            continue;
+          }
+          if (event.data.seq > lastSeq + 1) {
+            gap = true;
+            break;
+          }
+          lastSeq = event.data.seq;
+          yield event.data;
+          if (isTerminalEvent(event.data.type)) {
+            terminal = true;
+            break;
+          }
         }
-        const event = schemas.ExecutionEvent.safeParse(parsed);
-        if (!event.success) {
-          throw new GatewayTransportError(
-            'protocol_error',
-            'The engine event did not match the pinned contract.',
-          );
+      } catch (error) {
+        if (!(error instanceof SseReadError)) {
+          throw error;
         }
-        if (event.data.taskId !== taskId) {
-          throw new GatewayTransportError('protocol_error', 'The engine stream crossed tasks.');
-        }
-        if (seen.has(event.data.eventId)) {
-          continue;
-        }
-        seen.add(event.data.eventId);
-        // `seq <= lastSeq` is a replay of an event already delivered.
-        if (event.data.seq <= lastSeq) {
-          continue;
-        }
-        if (event.data.seq > lastSeq + 1) {
-          gap = true;
-          break;
-        }
-        lastSeq = event.data.seq;
-        yield event.data;
-        if (isTerminalEvent(event.data.type)) {
-          terminal = true;
-          break;
-        }
+        // A failed body read can replay from the same cursor as an early EOF.
       }
-      if (terminal) {
+      if (terminal || signal?.aborted) {
         return;
       }
-      resyncs += 1;
+      stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
       // A gap, or a close without a terminal event, is resynchronised from the
       // exact last delivered sequence rather than silently skipped.
-      if (resyncs > MAX_EVENT_RESYNCS && !gap) {
+      if (stalledResyncs > MAX_EVENT_RESYNCS && !gap) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream ended without a terminal event.',
         );
       }
-      if (resyncs > MAX_EVENT_RESYNCS + 3) {
+      if (stalledResyncs > MAX_EVENT_RESYNCS + 3) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream could not be resynchronised.',
@@ -565,13 +629,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
       if (!response.ok) {
-        await nonOkResponse(response);
+        await readStreamResponse(response, signal);
       }
       const contentType = response.headers.get('content-type') ?? '';
       if (contentType.includes('text/event-stream')) {
         return { kind: 'stream', frames: chatFrames(response, signal) };
       }
-      const text = await response.text().catch(() => '');
+      const text = await readStreamResponse(response, signal);
       return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),

@@ -12,7 +12,7 @@ const { loadCustomConfig } = require('~/server/services/Config');
  */
 
 const gateway = createWorkflowEngineGateway({
-  resolveConfig: (req) => req.config?.workflowEngine,
+  resolveConfig: (req) => req.config?.config?.workflowEngine,
   env: process.env,
   logger,
 });

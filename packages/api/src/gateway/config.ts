@@ -146,11 +146,11 @@ export function resolveGatewayConfig(
     };
   }
   const contractVersion = (options.contractVersion ?? DEFAULT_CONTRACT_VERSION).trim();
-  if (!/^\d+\.\d+\.\d+$/.test(contractVersion)) {
+  if (contractVersion !== DEFAULT_CONTRACT_VERSION) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.contractVersion must be a semantic version.',
+      detail: `workflowEngine.contractVersion must be ${DEFAULT_CONTRACT_VERSION}.`,
     };
   }
 

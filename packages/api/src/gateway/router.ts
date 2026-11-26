@@ -108,11 +108,15 @@ export function createWorkflowEngineGateway(
     fingerprint: string;
     config: Extract<ResolvedGatewayConfig, { enabled: true }>;
     client: ReturnType<typeof createEngineClient>;
-    compatibility: Promise<CompatibilityReport>;
+    pending?: Promise<CompatibilityReport>;
   } | null = null;
 
   function contextFor(config: Extract<ResolvedGatewayConfig, { enabled: true }>) {
-    if (cache != null && cache.fingerprint === config.fingerprint) {
+    if (
+      cache != null &&
+      cache.fingerprint === config.fingerprint &&
+      cache.config.token === config.token
+    ) {
       return cache;
     }
     const client = createEngineClient({
@@ -123,14 +127,16 @@ export function createWorkflowEngineGateway(
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
-    const compatibility = checkCompatibility(client).catch((error: unknown) => {
-      // A transient outage must not permanently brick the transport, but the
-      // failed check is never cached as success.
-      cache = null;
-      throw error;
-    });
-    cache = { fingerprint: config.fingerprint, config, client, compatibility };
+    cache = { fingerprint: config.fingerprint, config, client };
     return cache;
+  }
+
+  function probe(entry: NonNullable<typeof cache>): Promise<CompatibilityReport> {
+    // Share only in-flight probes. Every later dispatch must observe current capabilities.
+    entry.pending ??= checkCompatibility(entry.client).finally(() => {
+      entry.pending = undefined;
+    });
+    return entry.pending;
   }
 
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -154,7 +160,7 @@ export function createWorkflowEngineGateway(
         return;
       }
       const entry = contextFor(resolved.value);
-      const compatibility = await entry.compatibility;
+      const compatibility = await probe(entry);
       const context: GatewayContext = {
         owner: owner.value,
         config: entry.config,
@@ -203,7 +209,7 @@ export function createWorkflowEngineGateway(
   ): Promise<void> => {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Cache-Control', 'no-store, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
@@ -384,8 +390,13 @@ export function createWorkflowEngineGateway(
     '/work',
     handle(async (req, res, context) => {
       const missing = missingCapabilities(context.compatibility, WORK_CAPABILITIES);
-      if (missing.length > 0) {
-        throw capabilityFailure(missing);
+      if (!context.compatibility.workAvailable) {
+        if (missing.length > 0) {
+          throw capabilityFailure(missing);
+        }
+        throw unsupported(
+          'No available WorkflowEngine advertises every capability required for Work.',
+        );
       }
       const body = parseBody(schemas.WorkSubmitRequest, req, res);
       if (body == null) {
@@ -554,7 +565,7 @@ export function createWorkflowEngineGateway(
     }
     const entry = contextFor(resolved.value);
     try {
-      const report = await entry.compatibility;
+      const report = await probe(entry);
       deps.logger?.info?.(
         `[workflow-engine] contract ${report.contractVersion} verified; engine ${report.engineStatus}`,
       );

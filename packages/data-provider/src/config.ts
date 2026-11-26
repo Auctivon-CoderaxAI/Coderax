@@ -4281,7 +4281,7 @@ export const workflowEngineConfigSchema = z
     contractVersion: z
       .string()
       .trim()
-      .regex(/^\d+\.\d+\.\d+$/)
+      .refine((version) => version === '1.0.0', 'Expected WorkflowEngine contract 1.0.0')
       .default('1.0.0'),
     requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
     streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),

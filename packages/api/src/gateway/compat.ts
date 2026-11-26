@@ -25,6 +25,7 @@ export type CompatibilityReport = {
   engineStatus: HealthReport['status'];
   capabilities: GatewayCapabilities;
   checkedAt: string;
+  workAvailable: boolean;
 };
 
 export type CompatibilityFailureCode =
@@ -45,7 +46,7 @@ export class GatewayCompatibilityError extends Error {
 }
 
 export function capabilitiesOf(health: HealthReport): GatewayCapabilities {
-  const engines = health.engines;
+  const engines = health.engines.filter((engine) => engine.availability.available);
   return {
     streaming: engines.some((engine) => engine.capabilities.streaming),
     cancellation: engines.some((engine) => engine.capabilities.cancellation),
@@ -98,6 +99,11 @@ export async function checkCompatibility(
     contractVersion: health.contractVersion,
     engineStatus: health.status,
     capabilities: capabilitiesOf(health),
+    workAvailable: health.engines.some(
+      (engine) =>
+        engine.availability.available &&
+        WORK_CAPABILITIES.every((capability) => engine.capabilities[capability]),
+    ),
     checkedAt: new Date().toISOString(),
   };
 }

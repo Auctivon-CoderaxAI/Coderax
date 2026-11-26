@@ -22,6 +22,9 @@ export class SseProtocolError extends Error {
   }
 }
 
+/** Only failures from reading the upstream transport may be replayed. */
+export class SseReadError extends Error {}
+
 export type SseReadOptions = {
   idleTimeoutMs: number;
   maxFrameBytes?: number;
@@ -85,12 +88,16 @@ export async function* readSseFrames(
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
-        void reader.cancel().catch(() => undefined);
         reject(new SseProtocolError('The engine event stream went idle.'));
       }, options.idleTimeoutMs);
     });
     try {
-      return await Promise.race([reader.read(), timeout]);
+      return await Promise.race([
+        reader.read().catch(() => {
+          throw new SseReadError('The engine event stream could not be read.');
+        }),
+        timeout,
+      ]);
     } finally {
       if (timer != null) {
         clearTimeout(timer);
@@ -134,7 +141,7 @@ export async function* readSseFrames(
     }
   } finally {
     if (!finished) {
-      await reader.cancel().catch(() => undefined);
+      void reader.cancel().catch(() => undefined);
     }
   }
 }

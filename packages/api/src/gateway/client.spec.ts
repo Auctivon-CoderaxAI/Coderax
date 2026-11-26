@@ -2,17 +2,20 @@ import type { GatewayFetch } from './client';
 import { GatewayTransportError, createEngineClient } from './client';
 
 const at = '2026-11-26T00:00:00.000Z';
+const chat = {
+  message: 'hello',
+  conversationId: 'conv_1',
+  agent: 'coderax',
+  mode: 'private',
+} as const;
 
 type Recorded = { url: string; headers: Record<string, string>; body?: unknown };
 
 function jsonResponse(body: unknown, status = 200) {
-  return {
-    ok: status >= 200 && status < 300,
+  return new Response(JSON.stringify(body), {
     status,
-    headers: { get: () => 'application/json' },
-    text: async () => JSON.stringify(body),
-    body: null,
-  };
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 function sseResponse(chunks: string[]) {
@@ -21,7 +24,6 @@ function sseResponse(chunks: string[]) {
     ok: true,
     status: 200,
     headers: { get: () => 'text/event-stream' },
-    text: async () => '',
     body: new ReadableStream<Uint8Array>({
       start(controller) {
         for (const chunk of encoded) {
@@ -57,11 +59,11 @@ function healthResponse(contractVersion = '1.0.0') {
   });
 }
 
-function clientWith(fetchImpl: GatewayFetch, token = 'server-token') {
+function clientWith(fetchImpl: GatewayFetch, token = 'server-token', timeout = 1_000) {
   return createEngineClient({
     baseURL: 'https://engine.example',
     token,
-    requestTimeoutMs: 1_000,
+    requestTimeoutMs: timeout,
     streamIdleTimeoutMs: 1_000,
     fetch: fetchImpl,
   });
@@ -207,29 +209,132 @@ describe('WorkflowEngine client', () => {
     expect(calls[1]).toContain('after=1');
   });
 
-  it('fails closed when the event stream ends without a terminal event', async () => {
-    let calls = 0;
-    const client = clientWith(async () => {
-      calls += 1;
-      return sseResponse([
+  it('fails closed after repeated EOF without cursor progress', async () => {
+    const fetch = jest.fn(async () => sseResponse([]));
+    const client = clientWith(fetch);
+    await expect(
+      client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it('resumes after a read failure and does not exhaust the budget while making progress', async () => {
+    const cursors: string[] = [];
+    const client = clientWith(async (url) => {
+      const cursor = new URL(url).searchParams.get('after') ?? '';
+      cursors.push(cursor);
+      const seq = Number(cursor) + 1;
+      const completed = seq === 8;
+      const frame = new TextEncoder().encode(
         `data: ${JSON.stringify({
           v: 1,
-          eventId: `evt_${calls}`,
+          eventId: `evt_${seq}`,
           taskId: 'task_1',
-          seq: calls,
+          seq,
           at,
           agent: 'coderax',
           generation: 1,
-          type: 'text.delta',
-          payload: { text: 'x' },
+          type: completed ? 'task.completed' : 'text.delta',
+          payload: completed ? {} : { text: 'x' },
         })}\n\n`,
-      ]);
+      );
+      let sent = false;
+      return {
+        ...sseResponse([]),
+        body: new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!sent) {
+              sent = true;
+              controller.enqueue(frame);
+            } else if (seq === 1) {
+              controller.error(new TypeError('connection lost'));
+            } else {
+              controller.close();
+            }
+          },
+        }),
+      };
     });
-
-    await expect(async () => {
-      for await (const _event of client.streamTaskEvents('task_1', 0)) {
-        // consume
-      }
-    }).rejects.toMatchObject({ code: 'protocol_error' });
+    const collected: number[] = [];
+    for await (const item of client.streamTaskEvents('task_1', 0)) {
+      collected.push(item.seq);
+    }
+    expect(collected).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(cursors).toEqual(['0', '1', '2', '3', '4', '5', '6', '7']);
   });
+
+  it('does not replay malformed events', async () => {
+    const fetch = jest.fn(async () => sseResponse(['data: invalid\n\n']));
+    const client = clientWith(fetch);
+    await expect(
+      client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts fetch while waiting for upstream headers', async () => {
+    const client = clientWith(
+      async (_url, { signal }) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        }),
+      'server-token',
+      15,
+    );
+    await expect(
+      client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'engine_timeout' });
+  });
+
+  it('clears the header timer while keeping a live stream linked to caller cancellation', async () => {
+    const caller = new AbortController();
+    let transportSignal: AbortSignal | undefined;
+    const client = clientWith(
+      async (_url, { signal }) => {
+        transportSignal = signal;
+        return sseResponse([]);
+      },
+      'server-token',
+      15,
+    );
+    await client.submitChat(chat, caller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    expect(transportSignal?.aborted).toBe(false);
+    caller.abort();
+    expect(transportSignal?.aborted).toBe(true);
+  });
+
+  it.each([200, 503])('times out stalled chat response bodies at status %i', async (status) => {
+    const cancel = jest.fn();
+    const client = clientWith(
+      async () => new Response(new ReadableStream({ cancel }), { status }),
+      'server-token',
+      15,
+    );
+    await expect(client.submitChat(chat)).rejects.toMatchObject({ code: 'engine_timeout' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['ordinary JSON', 'chat JSON', 'stream error'])(
+    'cancels oversized %s before EOF',
+    async (path) => {
+      const cancel = jest.fn();
+      const client = clientWith(
+        async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                // 2 Mi characters, but more than the 4 MiB limit on the wire.
+                controller.enqueue(new TextEncoder().encode('€'.repeat(2 * 1024 * 1024)));
+              },
+              cancel,
+            }),
+            { status: path === 'stream error' ? 503 : 200 },
+          ),
+      );
+      const result = path === 'ordinary JSON' ? client.listAgents() : client.submitChat(chat);
+      await expect(result).rejects.toMatchObject({ code: 'protocol_error' });
+      expect(cancel).toHaveBeenCalledTimes(1);
+    },
+  );
 });
