@@ -1049,6 +1049,29 @@ export function verifyInstallation({ workflows, selfPath = SELF_PATH }) {
   } else {
     if (!self.pullRequest) {
       problems.push(`${selfPath} does not run on pull_request.`);
+    } else {
+      if (
+        Array.isArray(self.pullRequest.branches) &&
+        !matchesRefFilter(self.pullRequest.branches, 'main')
+      ) {
+        problems.push(`${selfPath} does not run for pull requests targeting main.`);
+      }
+      if (
+        Array.isArray(self.pullRequest.branchesIgnore) &&
+        matchesRefFilter(self.pullRequest.branchesIgnore, 'main')
+      ) {
+        problems.push(`${selfPath} ignores pull requests targeting main.`);
+      }
+      if (Array.isArray(self.pullRequest.types)) {
+        const missingTypes = ['opened', 'synchronize', 'reopened'].filter(
+          (type) => !self.pullRequest.types.includes(type),
+        );
+        if (missingTypes.length > 0) {
+          problems.push(
+            `${selfPath} does not run for ordinary pull request activity: ${missingTypes.join(', ')}.`,
+          );
+        }
+      }
     }
     if (Array.isArray(self.jobNames) && !self.jobNames.includes(GATE_JOB_NAME)) {
       problems.push(`${selfPath} does not define the required job name \`${GATE_JOB_NAME}\`.`);

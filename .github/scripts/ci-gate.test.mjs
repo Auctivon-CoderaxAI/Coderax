@@ -804,6 +804,55 @@ test('verifyInstallation requires the exact required job name', () => {
   assert.match(result.problems.join(' '), /required job name/);
 });
 
+test('verifyInstallation requires the gate to run for main pull requests and ordinary activity', () => {
+  const component = parseWorkflow(
+    'name: Alpha\non:\n  pull_request:\n',
+    '.github/workflows/alpha.yml',
+  );
+  const base = {
+    name: 'CI gate',
+    path: SELF_PATH,
+    pullRequest: {
+      paths: null,
+      pathsIgnore: null,
+      branches: ['main'],
+      branchesIgnore: null,
+      types: ['opened', 'synchronize', 'reopened', 'ready_for_review'],
+    },
+    mergeGroup: true,
+    jobNames: ['CI gate (aggregate)'],
+  };
+  assert.equal(verifyInstallation({ workflows: [base, component] }).ok, true);
+
+  const wrongBranch = {
+    ...base,
+    pullRequest: { ...base.pullRequest, branches: ['release/*'] },
+  };
+  assert.equal(verifyInstallation({ workflows: [wrongBranch, component] }).ok, false);
+
+  const ignoredMain = {
+    ...base,
+    pullRequest: { ...base.pullRequest, branches: null, branchesIgnore: ['main'] },
+  };
+  assert.equal(verifyInstallation({ workflows: [ignoredMain, component] }).ok, false);
+
+  const missingActivity = {
+    ...base,
+    pullRequest: { ...base.pullRequest, types: ['opened', 'ready_for_review'] },
+  };
+  const missingActivityResult = verifyInstallation({
+    workflows: [missingActivity, component],
+  });
+  assert.equal(missingActivityResult.ok, false);
+  assert.match(missingActivityResult.problems.join(' '), /synchronize, reopened/);
+
+  const defaultActivity = {
+    ...base,
+    pullRequest: { ...base.pullRequest, types: null },
+  };
+  assert.equal(verifyInstallation({ workflows: [defaultActivity, component] }).ok, true);
+});
+
 test('verifyInstallation catches a path-filtered or merge_group-less gate', () => {
   const good = verifyInstallation({
     workflows: [workflow(SELF_PATH, { mergeGroup: true }), workflow('.github/workflows/alpha.yml')],
