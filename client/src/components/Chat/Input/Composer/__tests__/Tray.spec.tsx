@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem } from '~/hooks/Input/useComposerItems';
