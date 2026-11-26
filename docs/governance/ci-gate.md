@@ -83,8 +83,9 @@ unacceptable for a required check, so the gate:
 2. checks out `.github/scripts`, `.github/workflows` and `.github/CODEOWNERS` from the base SHA;
 3. prefers the base script, base test suite and base workflow filters;
 4. refuses to run if the base has the workflow but not the script;
-5. falls back to the pull request copy only when the base has neither, and only for an `OWNER` or
-   `MEMBER` author.
+5. falls back to the pull request copy only when the base has neither, and only for an
+   `OWNER`/`MEMBER` author or a user code owner named in the base `.github/CODEOWNERS`. The base
+   file is trusted; the pull request cannot add its author to it.
 
 The fallback is marked as a bootstrap in the workflow warning and the job summary. It is not a
 permanent trusted implementation. Once the gate is on `main`, every later pull request uses the base
@@ -93,7 +94,8 @@ copy and the fallback is unreachable for contributors.
 ### Protecting the control plane
 
 An external contributor who changes any of the following needs an approval at the exact head from a
-user code owner, unless the author is already an owner or member:
+user code owner, unless the author is already an owner, member or a user code owner in the base
+`.github/CODEOWNERS`:
 
 - `.github/workflows/` (all workflows);
 - `.github/scripts/ci-gate.mjs`;

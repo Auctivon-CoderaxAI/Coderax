@@ -552,6 +552,17 @@ test('the CI control guard allows owners and requires an owner approval for cont
   assert.equal(trusted.ok, true);
   assert.equal(trusted.trustedAuthor, true);
 
+  const codeOwner = evaluateGateChangeGuard({
+    changedFiles,
+    authorAssociation: 'COLLABORATOR',
+    author: 'owner',
+    reviews: [],
+    owners,
+    headSha: 'head-sha',
+  });
+  assert.equal(codeOwner.ok, true);
+  assert.equal(codeOwner.codeOwner, true);
+
   const noApproval = evaluateGateChangeGuard({
     changedFiles,
     authorAssociation: 'CONTRIBUTOR',
@@ -637,12 +648,30 @@ test('bootstrap is owner-only, disappears when the base has the gate, and is rep
   assert.equal(bootstrap.ok, true);
   assert.equal(bootstrap.bootstrap, true);
 
+  const codeOwner = evaluateBootstrap({
+    baseGatePresent: false,
+    authorAssociation: 'COLLABORATOR',
+    trusted: false,
+    bootstrapAuthorized: true,
+  });
+  assert.equal(codeOwner.ok, true);
+  assert.equal(codeOwner.bootstrap, true);
+
   const contributor = evaluateBootstrap({
     baseGatePresent: false,
-    authorAssociation: 'CONTRIBUTOR',
+    authorAssociation: 'COLLABORATOR',
     trusted: false,
+    bootstrapAuthorized: false,
   });
   assert.equal(contributor.ok, false);
+
+  const notOverridable = evaluateBootstrap({
+    baseGatePresent: true,
+    authorAssociation: 'COLLABORATOR',
+    trusted: false,
+    bootstrapAuthorized: true,
+  });
+  assert.equal(notOverridable.ok, false);
 
   const permanent = evaluateBootstrap({
     baseGatePresent: true,
@@ -1030,6 +1059,23 @@ test('hosted-gate harness: merge_group without component support fails closed', 
     const result = spawnGate(fixtureInfo, standardFetch(), { GATE_EVENT: 'merge_group' });
     assert.notEqual(result.status, 0, result.stdout);
     assert.match(result.stdout + result.stderr, /Merge queue is not supported/);
+  } finally {
+    await fixtureInfo.cleanup();
+  }
+});
+
+test('hosted-gate harness: a base code owner can bootstrap the gate', async () => {
+  const fixtureInfo = await fixture();
+  try {
+    const result = spawnGate(fixtureInfo, standardFetch(), {
+      BASE_GATE_PRESENT: 'false',
+      GATE_TRUSTED: 'false',
+      GATE_BOOTSTRAP_AUTHORIZED: 'true',
+      PR_AUTHOR_ASSOCIATION: 'COLLABORATOR',
+      PR_AUTHOR: 'owner',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Bootstrap run/);
   } finally {
     await fixtureInfo.cleanup();
   }

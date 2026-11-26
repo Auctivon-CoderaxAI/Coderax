@@ -99,14 +99,14 @@ PR #314; its `merge_group` success path and its treatment of `skipped`/`neutral`
 Branch protection **already requires** `CI gate (aggregate)` while the workflow exists only in the
 bootstrap pull request (#314). This is the intended fail-closed state, not a reason to relax the rule.
 
-| Step                                                           | State                                                                                                             |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Required check registered before the workflow exists on `main` | yes — verified in the public branch API                                                                           |
-| Bootstrap pull request carrying the workflow                   | #314                                                                                                              |
-| Bootstrap run uses the pull request's gate copy                | yes — base has no gate; owner author only; warned and manually reviewable                                         |
-| Trusted base copy used after merge                             | yes — fallback requires the base to have **neither** workflow nor script                                          |
-| Post-merge installation verification                           | `CI gate (installation)` runs on `push` to `main`, self-tests the gate and asserts no path filter + `merge_group` |
-| Other open pull requests                                       | blocked until they update from `main`; that is fail-closed                                                        |
+| Step                                                           | State                                                                                                                                   |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Required check registered before the workflow exists on `main` | yes — verified in the public branch API                                                                                                 |
+| Bootstrap pull request carrying the workflow                   | #314                                                                                                                                    |
+| Bootstrap run uses the pull request's gate copy                | yes — base has no gate; author must be OWNER/MEMBER or a user code owner in the trusted base CODEOWNERS; warned and manually reviewable |
+| Trusted base copy used after merge                             | yes — fallback requires the base to have **neither** workflow nor script                                                                |
+| Post-merge installation verification                           | `CI gate (installation)` runs on `push` to `main`, self-tests the gate and asserts no path filter + `merge_group`                       |
+| Other open pull requests                                       | blocked until they update from `main`; that is fail-closed                                                                              |
 
 Do not merge #314 on the strength of the bootstrap run alone. Review the bootstrap copy and the job
 summary, confirm the required check is green at the exact head, and keep the independent-approval and

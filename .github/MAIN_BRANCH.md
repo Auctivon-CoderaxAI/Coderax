@@ -72,7 +72,9 @@ therefore:
 3. uses the base gate script, base test suite and base workflow filters when they exist;
 4. refuses to run if the base has the workflow but not the script;
 5. falls back to the pull request copy only when the base has **neither** the gate nor the script,
-   and only when the author is an `OWNER` or `MEMBER`.
+   and only when the author is an `OWNER`/`MEMBER` or is named as a user code owner in the base
+   `.github/CODEOWNERS`. This organization reports its owner as `COLLABORATOR`, so the trusted
+   base code-owner file is the actual owner test for the bootstrap.
 
 The fallback is the one-time bootstrap for the pull request that introduces the gate. It is reported
 as a workflow warning and in the job summary, and it disappears as soon as the gate is on `main`.
@@ -98,7 +100,8 @@ been exercised.
 The gate logic, tests and workflow filters come from the base revision. In addition, any change under
 `.github/workflows/`, `.github/scripts/ci-gate.mjs`, `.github/scripts/ci-gate.test.mjs` or
 `.github/CODEOWNERS` requires an approval at the exact head from a user code owner unless the author
-is already an `OWNER` or `MEMBER`. Stale approvals on earlier heads do not count.
+is already an `OWNER`/`MEMBER` or is a user code owner in the base `.github/CODEOWNERS`. Stale
+approvals on earlier heads do not count.
 
 That guard cannot run if a contributor replaces the workflow with a job that never invokes the gate.
 The required check then goes missing and blocks the merge, unless the replacement keeps the name and

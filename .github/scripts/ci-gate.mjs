@@ -907,6 +907,12 @@ export function evaluateGateChangeGuard({
   if (TRUSTED_ASSOCIATIONS.has(authorAssociation)) {
     return { required: true, ok: true, touches, trustedAuthor: true };
   }
+  // A base-revision user code owner is trusted for the control paths they own.
+  // The author cannot add themselves to the base CODEOWNERS from the change
+  // under review, so this cannot be used by an outside contributor.
+  if (owners && author && owners.has(author)) {
+    return { required: true, ok: true, touches, trustedAuthor: true, codeOwner: true };
+  }
   if (!owners || owners.size === 0) {
     return {
       required: true,
@@ -939,7 +945,12 @@ export function evaluateGateChangeGuard({
  * That bootstrap is allowed only for an owner or member, is reported loudly, and
  * disappears as soon as the base revision contains the gate.
  */
-export function evaluateBootstrap({ baseGatePresent, authorAssociation, trusted }) {
+export function evaluateBootstrap({
+  baseGatePresent,
+  authorAssociation,
+  trusted,
+  bootstrapAuthorized = false,
+}) {
   if (baseGatePresent) {
     return {
       ok: trusted,
@@ -947,19 +958,20 @@ export function evaluateBootstrap({ baseGatePresent, authorAssociation, trusted 
       reason: trusted ? '' : 'The base revision has the gate but trusted logic was not selected.',
     };
   }
-  if (!TRUSTED_ASSOCIATIONS.has(authorAssociation)) {
+  if (!TRUSTED_ASSOCIATIONS.has(authorAssociation) && !bootstrapAuthorized) {
     return {
       ok: false,
       bootstrap: true,
       reason:
-        'The base revision has no trusted gate and this author is not an OWNER or MEMBER. Refusing to execute pull-request-owned gate logic.',
+        'The base revision has no trusted gate and this author is not an OWNER, MEMBER or base code owner. Refusing to execute pull-request-owned gate logic.',
     };
   }
   return {
     ok: true,
     bootstrap: true,
-    reason:
-      'Bootstrap: the base revision has no gate; this run executes the pull request copy and must be reviewed manually.',
+    reason: bootstrapAuthorized
+      ? 'Bootstrap: the base revision has no gate; the author is a base code owner. This run executes the pull request copy and must be reviewed manually.'
+      : 'Bootstrap: the base revision has no gate; this run executes the pull request copy and must be reviewed manually.',
   };
 }
 
@@ -1401,6 +1413,7 @@ async function main() {
   const authorAssociation = env.PR_AUTHOR_ASSOCIATION ?? '';
   const trusted = env.GATE_TRUSTED === 'true';
   const baseGatePresent = env.BASE_GATE_PRESENT === 'true';
+  const bootstrapAuthorized = env.GATE_BOOTSTRAP_AUTHORIZED === 'true';
 
   if (!token || !repo || !headSha || !baseSha) {
     fail('GH_TOKEN, GITHUB_REPOSITORY, HEAD_SHA and BASE_SHA are required.');
@@ -1475,7 +1488,12 @@ async function main() {
     return;
   }
 
-  const bootstrap = evaluateBootstrap({ baseGatePresent, authorAssociation, trusted });
+  const bootstrap = evaluateBootstrap({
+    baseGatePresent,
+    authorAssociation,
+    trusted,
+    bootstrapAuthorized,
+  });
   if (!bootstrap.ok) {
     fail(bootstrap.reason);
     return;
