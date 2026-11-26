@@ -692,6 +692,8 @@ describe('start safety through the real registry and OpenCode adapter', () => {
         opencode: createOpenCodeAdapter({
           enabled: true,
           transport: openCode,
+          baseURL: 'https://opencode.example.test',
+          fetchImpl: async () => Response.json({ healthy: true }),
           roots: { private: root, cloud: '' },
           limits: { timeoutMs: 100, maxSummaryChars: 200 },
         }),
