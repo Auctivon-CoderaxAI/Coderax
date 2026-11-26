@@ -1,6 +1,5 @@
 import express from 'express';
 import { z as zod } from 'zod';
-import { once } from 'node:events';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { z } from 'zod';
 import type { ResolvedGatewayConfig, WorkflowEngineGatewayOptions } from './config';
@@ -8,7 +7,7 @@ import type { OwnerGateResult, OwnerIdentity } from './auth';
 import type { GatewayConfigFailure } from './config';
 import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
-import { checkCompatibility, missingCapabilities, WORK_CAPABILITIES } from './compat';
+import { WORK_CAPABILITIES, checkCompatibility, missingCapabilities } from './compat';
 import { createEngineClient, GatewayTransportError } from './client';
 import { resolveGatewayConfig } from './config';
 import { contractSchemas } from './contracts';
@@ -94,6 +93,17 @@ function configFailure(failure: GatewayConfigFailure): GatewayRequestError {
   return new GatewayRequestError(503, { code: failure.code, detail: failure.detail });
 }
 
+function isSafePathIdentifier(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    !value.includes('\u0000')
+  );
+}
+
 function transportFailure(error: GatewayTransportError): GatewayRequestError {
   return new GatewayRequestError(error.status ?? 502, {
     code: 'WORKFLOW_ENGINE_ERROR',
@@ -118,6 +128,8 @@ export function createWorkflowEngineGateway(
     pending?: Promise<CompatibilityReport>;
   } | null = null;
 
+  // The token is compared separately so a rotated credential rebuilds the
+  // client without putting the secret value into the cache key.
   function contextFor(config: Extract<ResolvedGatewayConfig, { enabled: true }>) {
     if (
       cache != null &&
@@ -135,6 +147,7 @@ export function createWorkflowEngineGateway(
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
     cache = { fingerprint: config.fingerprint, config, client };
+
     return cache;
   }
 
@@ -220,23 +233,42 @@ export function createWorkflowEngineGateway(
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
-    for await (const frame of frames) {
-      if (res.writableEnded || res.destroyed || signal.aborted) {
-        break;
+    const write = async (chunk: string): Promise<boolean> => {
+      if (res.writableEnded || signal.aborted) {
+        return false;
       }
-      if (!res.write(`data: ${JSON.stringify(frame)}\n\n`)) {
-        try {
-          // Both streaming routes abort this signal when their response closes.
-          await once(res, 'drain', { signal });
-        } catch (error) {
-          if (signal.aborted) {
-            return;
-          }
-          throw error;
+      if (res.write(chunk)) {
+        return true;
+      }
+      // Wait for the slow client instead of buffering upstream frames without
+      // bound; a closed connection ends the wait and the stream.
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          res.off('drain', done);
+          res.off('close', done);
+          resolve();
+        };
+        res.once('drain', done);
+        res.once('close', done);
+      });
+      return !res.writableEnded && !signal.aborted;
+    };
+
+    try {
+      for await (const frame of frames) {
+        if (!(await write(`data: ${JSON.stringify(frame)}\n\n`))) {
+          break;
         }
       }
-    }
-    if (!res.destroyed && !signal.aborted) {
+    } catch (error) {
+      if (!res.writableEnded && !signal.aborted) {
+        const failure =
+          error instanceof GatewayTransportError
+            ? transportFailure(error).body
+            : { code: 'WORKFLOW_ENGINE_PROTOCOL_ERROR' };
+        await write(`event: error\ndata: ${JSON.stringify(failure)}\n\n`);
+      }
+    } finally {
       res.end();
     }
   };
@@ -282,6 +314,7 @@ export function createWorkflowEngineGateway(
         .status(readiness.ready ? 200 : 503)
         .json({
           ready: readiness.ready,
+          missing: readiness.missing,
           ...(readiness.ready ? {} : { code: 'WORKFLOW_ENGINE_ENGINE_NOT_READY' }),
           contractVersion: context.compatibility.contractVersion,
           capabilities: context.compatibility.capabilities,
@@ -322,10 +355,20 @@ export function createWorkflowEngineGateway(
   router.get(
     '/conversations/:conversationId',
     handle(async (req, res, context) => {
+      const conversationId = req.params.conversationId;
+      // `identifier()` accepts `.` and `..`; URL normalisation would then retarget
+      // the owner request to a different upstream path.
+      if (!isSafePathIdentifier(conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
+        return;
+      }
       res
         .set(NO_STORE)
         .status(200)
-        .json(await context.client.getConversation(req.params.conversationId));
+        .json(await context.client.getConversation(conversationId));
     }),
   );
 
@@ -414,12 +457,12 @@ export function createWorkflowEngineGateway(
     '/work',
     handle(async (req, res, context) => {
       const missing = missingCapabilities(context.compatibility, WORK_CAPABILITIES);
-      if (!context.compatibility.workAvailable) {
+      if (!context.compatibility.workCapable) {
         if (missing.length > 0) {
           throw capabilityFailure(missing);
         }
         throw unsupported(
-          'No available WorkflowEngine advertises every capability required for Work.',
+          'No available WorkflowEngine engine advertises every Work capability (durable, cancellation, resume).',
         );
       }
       const body = parseBody(schemas.WorkSubmitRequest, req, res);
@@ -494,27 +537,11 @@ export function createWorkflowEngineGateway(
       }
       const controller = new AbortController();
       res.on('close', () => controller.abort());
-      try {
-        await stream(
-          res,
-          controller.signal,
-          context.client.streamTaskEvents(req.params.taskId, query.data.after, controller.signal),
-        );
-      } catch (error) {
-        if (controller.signal.aborted || res.destroyed) {
-          return;
-        }
-        if (res.headersSent) {
-          const failure =
-            error instanceof GatewayTransportError
-              ? transportFailure(error).body
-              : { code: 'WORKFLOW_ENGINE_PROTOCOL_ERROR' };
-          res.write(`event: error\ndata: ${JSON.stringify(failure)}\n\n`);
-          res.end();
-          return;
-        }
-        throw error;
-      }
+      await stream(
+        res,
+        controller.signal,
+        context.client.streamTaskEvents(req.params.taskId, query.data.after, controller.signal),
+      );
     }),
   );
 
@@ -588,6 +615,10 @@ export function createWorkflowEngineGateway(
       return null;
     }
     if (!resolved.value.enabled) {
+      return null;
+    }
+    if (!resolved.value.startupCheck) {
+      deps.logger?.info?.('[workflow-engine] startup compatibility check is disabled.');
       return null;
     }
     const entry = contextFor(resolved.value);

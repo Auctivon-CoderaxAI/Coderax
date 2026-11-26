@@ -20,7 +20,7 @@ export type WorkflowEngineGatewayOptions = {
   contractVersion?: string;
   requestTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
-  /** Runs the compatibility handshake when the gateway module is loaded. */
+  /** Runs the compatibility handshake at startup; request checks always run. */
   startupCheck?: boolean;
 };
 
@@ -34,6 +34,7 @@ export type ResolvedGatewayConfig =
       contractVersion: string;
       requestTimeoutMs: number;
       streamIdleTimeoutMs: number;
+      startupCheck: boolean;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
     };
@@ -145,12 +146,18 @@ export function resolveGatewayConfig(
       detail: 'workflowEngine timeouts must be positive integers.',
     };
   }
+
+  /**
+   * The gateway validates against its compiled-in schemas. Accepting another
+   * version here would make the handshake pass while every message is still
+   * shaped as 1.0.0.
+   */
   const contractVersion = (options.contractVersion ?? DEFAULT_CONTRACT_VERSION).trim();
   if (contractVersion !== DEFAULT_CONTRACT_VERSION) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: `workflowEngine.contractVersion must be ${DEFAULT_CONTRACT_VERSION}.`,
+      detail: `workflowEngine.contractVersion must be ${DEFAULT_CONTRACT_VERSION}; this build implements only that contract.`,
     };
   }
 
@@ -168,6 +175,7 @@ export function resolveGatewayConfig(
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
+      startupCheck: options.startupCheck !== false,
       fingerprint: `${baseURL}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
     },
   };

@@ -10,7 +10,8 @@ const { getAppConfig } = require('~/server/services/Config');
  * router. It holds no engine credential and no proxying logic.
  */
 
-// Use deployment config before the principal override and augmentation stages.
+// Use deployment config before the principal override and augmentation stages:
+// a request must not be able to redirect the server-held engine credential.
 const resolveConfig = async () => (await getAppConfig({ baseOnly: true })).config?.workflowEngine;
 
 const gateway = createWorkflowEngineGateway({
@@ -33,7 +34,11 @@ module.exports.gateway = gateway;
  */
 module.exports.prewarm = async () => {
   try {
-    return await gateway.prewarm(await resolveConfig());
+    const config = await resolveConfig();
+    if (config?.startupCheck === false) {
+      return null;
+    }
+    return await gateway.prewarm(config);
   } catch (error) {
     logger.warn('[workflow-engine] startup check skipped', {
       error: error instanceof Error ? error.message : String(error),

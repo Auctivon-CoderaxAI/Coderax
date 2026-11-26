@@ -224,7 +224,6 @@ function errorFromResponse(status: number, text: string): GatewayTransportError 
         status,
         retryable: problem.retryable,
         ...(problem.requestId == null ? {} : { requestId: problem.requestId }),
-        ...(problem.detail == null ? {} : { detail: problem.detail }),
       },
     );
   }
@@ -262,50 +261,99 @@ function networkError(cause: unknown): GatewayTransportError {
   });
 }
 
+type BodyReader = {
+  getReader: () => {
+    read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+    cancel: (reason?: unknown) => Promise<void>;
+    releaseLock: () => void;
+  };
+};
+
+/**
+ * Reads a response body under a deadline without buffering an unbounded body.
+ * `response.text()` alone cannot be cancelled, so a stalled or oversized body
+ * would otherwise outlive the configured request timeout.
+ */
 async function readBoundedBody(
-  body: ReadableStream<Uint8Array> | null,
-  signal: AbortSignal,
+  response: { text?: () => Promise<string>; body: unknown },
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
 ): Promise<string> {
-  if (body == null) {
-    return '';
-  }
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = '';
-  let finished = false;
-  let onAbort: (() => void) | undefined;
-  try {
-    for (;;) {
-      signal.throwIfAborted();
-      const aborted = new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(signal.reason);
-        signal.addEventListener('abort', onAbort, { once: true });
-      });
-      const chunk = await Promise.race([reader.read(), aborted]);
-      if (onAbort != null) {
-        signal.removeEventListener('abort', onAbort);
-      }
-      if (chunk.done) {
-        finished = true;
-        return text + decoder.decode();
-      }
-      bytes += chunk.value.byteLength;
-      if (bytes > MAX_JSON_BYTES) {
-        throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
-      }
-      text += decoder.decode(chunk.value, { stream: true });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const forward = (): void => controller.abort();
+  if (signal != null) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', forward, { once: true });
     }
+  }
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const rejectAborted = (): void => reject(new Error('aborted'));
+    if (controller.signal.aborted) {
+      rejectAborted();
+      return;
+    }
+    controller.signal.addEventListener('abort', rejectAborted, { once: true });
+  });
+
+  const decode = async (): Promise<string> => {
+    const body = response.body as BodyReader | null;
+    if (body == null || typeof body.getReader !== 'function') {
+      return response.text?.() ?? '';
+    }
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    let bytes = 0;
+    try {
+      for (;;) {
+        const chunk = await Promise.race([reader.read(), aborted]);
+        if (chunk.done) {
+          break;
+        }
+        if (chunk.value != null) {
+          bytes += chunk.value.byteLength;
+          if (bytes > MAX_JSON_BYTES) {
+            throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+          }
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+      }
+      return text + decoder.decode();
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+  };
+
+  try {
+    const raw = await Promise.race([decode(), aborted]);
+    if (Buffer.byteLength(raw, 'utf8') > MAX_JSON_BYTES) {
+      throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+    }
+    return raw;
   } catch (cause) {
+    if (cause instanceof GatewayTransportError) {
+      throw cause;
+    }
+    if (signal?.aborted) {
+      throw new GatewayTransportError('cancelled', 'The engine request was cancelled.');
+    }
+    if (timedOut) {
+      throw new GatewayTransportError('engine_timeout', 'The engine did not answer in time.', {
+        retryable: true,
+      });
+    }
     throw networkError(cause);
   } finally {
-    if (onAbort != null) {
-      signal.removeEventListener('abort', onAbort);
-    }
-    if (!finished) {
-      void reader.cancel().catch(() => undefined);
-    }
-    reader.releaseLock();
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', forward);
   }
 }
 
@@ -370,7 +418,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }
       let text: string;
       try {
-        text = await readBoundedBody(response.body, link.signal);
+        text = await readBoundedBody(
+          response,
+          init.timeoutMs ?? options.requestTimeoutMs,
+          init.signal,
+        );
       } catch (cause) {
         if (path === '/v1/work' && init.method === 'POST') {
           // The engine may have created a task. The contract has no submission deduplication.
@@ -414,25 +466,18 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     } catch (cause) {
       throw networkError(cause);
     } finally {
-      // Stop the header timer without unlinking caller cancellation from fetch.
+      // The deadline covers only the wait for response headers. Body lifetime is
+      // governed by caller cancellation and the SSE idle deadline.
       link.dispose();
     }
   }
 
-  async function readStreamResponse(
+  async function nonOkResponse(
     response: Awaited<ReturnType<GatewayFetch>>,
-    signal: AbortSignal | undefined,
-  ): Promise<string> {
-    const link = linkedController(signal, options.requestTimeoutMs);
-    try {
-      const text = await readBoundedBody(response.body, link.signal);
-      if (!response.ok) {
-        throw errorFromResponse(response.status, text);
-      }
-      return text;
-    } finally {
-      link.dispose();
-    }
+    signal?: AbortSignal,
+  ): Promise<never> {
+    const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
+    throw errorFromResponse(response.status, text);
   }
 
   async function* chatFrames(
@@ -487,7 +532,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         ...(signal == null ? {} : { signal }),
       });
       if (!response.ok) {
-        await readStreamResponse(response, signal);
+        await nonOkResponse(response, signal);
       }
       let terminal = false;
       let gap = false;
@@ -536,7 +581,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           }
         }
       } catch (error) {
-        if (!(error instanceof SseReadError)) {
+        if (signal?.aborted || !(error instanceof SseReadError)) {
           throw error;
         }
         // A failed body read or partial frame can replay from the same cursor as an early EOF.
@@ -655,13 +700,13 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
       if (!response.ok) {
-        await readStreamResponse(response, signal);
+        await nonOkResponse(response, signal);
       }
       const contentType = response.headers.get('content-type') ?? '';
       if (contentType.includes('text/event-stream')) {
         return { kind: 'stream', frames: chatFrames(response, signal) };
       }
-      const text = await readStreamResponse(response, signal);
+      const text = await readBoundedBody(response, options.requestTimeoutMs, signal);
       return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),
