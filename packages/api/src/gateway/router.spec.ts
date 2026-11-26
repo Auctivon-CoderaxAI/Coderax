@@ -144,6 +144,37 @@ describe('workflow engine gateway routes', () => {
     expect(called).toBe(false);
   });
 
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'forbidden'],
+  ] as const)(
+    'reports upstream %i separately from gateway user authentication',
+    async (status, engineCode) => {
+      const { app } = appFor(async (url) =>
+        url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}, status),
+      );
+      const response = await request(app).get('/agents').expect(502);
+      expect(response.body).toMatchObject({
+        code: 'WORKFLOW_ENGINE_ERROR',
+        engineCode,
+        retryable: false,
+      });
+    },
+  );
+
+  it('allows bodyless cancel without defaulting requests that require a body', async () => {
+    const fetch = jest.fn(async (url: string, _init: Parameters<GatewayFetch>[1]) =>
+      url.endsWith('/v1/health')
+        ? jsonResponse(health())
+        : jsonResponse({ taskId: 'task_1', state: 'running', generation: 1, outcome: 'accepted' }),
+    );
+    const { app } = appFor(fetch);
+    await request(app).post('/tasks/task_1/cancel').expect(200);
+    expect(fetch.mock.calls.find(([url]) => url.endsWith('/cancel'))?.[1].body).toBe('{}');
+    await request(app).post('/tasks/task_1/cancel').type('text').send('ignored?').expect(400);
+    await request(app).post('/tasks/task_1/resume').expect(400);
+  });
+
   it('fails closed when the server token is missing', async () => {
     const { app } = appFor(async () => jsonResponse({}), {
       env: {} as NodeJS.ProcessEnv,
@@ -557,20 +588,30 @@ describe('workflow engine gateway routes', () => {
     expect(fetch.mock.calls.some(([url]) => url.endsWith('/v1/ready'))).toBe(true);
   });
 
-  it('does not verify startup against an engine that is not ready', async () => {
+  it('blocks dispatch after startup fails until readiness recovers', async () => {
+    let ready = false;
     const fetch = jest.fn(async (url: string) => {
       if (url.endsWith('/v1/health')) {
         return jsonResponse(health());
       }
-      return jsonResponse({ ready: false, missing: ['model'], checks: [] });
+      if (url.endsWith('/v1/ready')) {
+        return jsonResponse({ ready, missing: ready ? [] : ['model'], checks: [] });
+      }
+      return jsonResponse({ agents: [] });
     });
-    const { gateway } = appFor(fetch);
+    const { app, gateway } = appFor(fetch);
     const report = await gateway.prewarm({
       enabled: true,
       baseURL: 'https://engine.example',
       tokenEnv: 'ENGINE_TOKEN',
     });
     expect(report).toBeNull();
+    const blocked = await request(app).get('/agents').expect(503);
+    expect(blocked.body.code).toBe('WORKFLOW_ENGINE_ENGINE_NOT_READY');
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/v1/agents'))).toBe(false);
+
+    ready = true;
+    await request(app).get('/agents').expect(200);
   });
 
   it('honors startupCheck: false while leaving request checks enabled', async () => {

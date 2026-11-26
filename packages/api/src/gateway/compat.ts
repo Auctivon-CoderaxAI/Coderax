@@ -125,9 +125,7 @@ export async function checkCompatibility(
 }
 
 /**
- * Startup readiness is stricter than health: the engine must have finished its
- * own validation, otherwise a queued task would be accepted by a process that
- * cannot execute it.
+ * Verify that the engine has finished its own startup validation.
  */
 export async function checkStartupReady(
   client: Pick<EngineClient, 'health' | 'readiness' | 'expectedContractVersion'>,
@@ -140,7 +138,7 @@ export async function checkStartupReady(
   } catch (cause) {
     if (cause instanceof GatewayTransportError) {
       if (cause.code === 'not_ready') {
-        throw new GatewayCompatibilityError('engine_not_ready', cause.message);
+        throw new GatewayCompatibilityError('engine_not_ready', 'The engine is not ready.');
       }
       if (cause.code === 'engine_unreachable' || cause.code === 'engine_timeout') {
         throw new GatewayCompatibilityError('engine_unreachable', cause.message);
@@ -152,12 +150,7 @@ export async function checkStartupReady(
     );
   }
   if (!readiness.ready) {
-    throw new GatewayCompatibilityError(
-      'engine_not_ready',
-      readiness.missing.length > 0
-        ? `The engine is not ready: ${readiness.missing.join(', ')}.`
-        : 'The engine is not ready.',
-    );
+    throw new GatewayCompatibilityError('engine_not_ready', 'The engine is not ready.');
   }
   return report;
 }

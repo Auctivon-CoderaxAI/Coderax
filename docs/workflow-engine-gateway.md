@@ -55,13 +55,10 @@ workflowEngine:
 ```
 
 `baseURL` must be https unless it points at loopback. A path prefix is preserved.
-A root-level `workflowEngine` override is merged field by field over the YAML
-value, so a partial override such as `{ enabled: false }` keeps the YAML
-`baseURL` and the other transport fields. Owner requests use the effective
-`req.config` (YAML plus the owner's stored override); the startup check uses the
-YAML-only base because no request principal exists yet. The credential itself is
-never a configuration value in either layer, so an override can change which
-engine is addressed but cannot read or replace the server-held bearer token.
+Deployment YAML must enable the gateway and sets its engine URL, credential
+variable, contract version and startup policy. A stored owner preference can
+disable the gateway or tune request and stream limits. It cannot turn an off
+deployment on, redirect engine requests, or select a different credential.
 
 Every operational limit is configurable; the defaults reproduce the previous
 behavior. The transport is reversible: disabling the gateway removes the proxy
@@ -81,10 +78,10 @@ and refuses traffic unless:
 contract check plus `/v1/ready`, because a process that has not finished its own
 validation must not be reported as verified. `workflowEngine.startupCheck: false`
 skips only the startup run; every request still performs its compatibility check.
-A failed startup check leaves every gateway route answering 503 with a stable
-code; it never falls back to another engine and never weakens the check to keep
-serving. Startup orchestration lives in `packages/api/src/gateway/startup.ts`; the
-CJS route only loads config and calls it.
+After a failed startup check, gateway requests return 503 until a fresh health
+and readiness check succeeds. The gateway then resumes its usual per-request
+compatibility checks; `/ready` also checks live readiness. Startup orchestration
+lives in `packages/api/src/gateway/startup.ts`; the CJS route loads config and calls it.
 
 Capabilities are reported separately (`durable`, `cancellation`, `resume`,
 `streaming`). Work admission requires one available engine advertising durability,

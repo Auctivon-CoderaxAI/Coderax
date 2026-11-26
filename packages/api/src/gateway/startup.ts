@@ -5,9 +5,8 @@ import type { CompatibilityReport } from './compat';
 /**
  * Startup orchestration belongs here, not in the CJS route module.
  *
- * The handshake is fire-and-forget and fail-closed: a failed check is recorded
- * and leaves every gateway route answering 503 on its own request-time check.
- * It never blocks or rewrites an existing Coderax route.
+ * The handshake runs in the background. An unverified startup makes gateway
+ * requests recheck readiness before dispatch; existing Coderax routes are unaffected.
  */
 
 export type GatewayStartupDeps = {

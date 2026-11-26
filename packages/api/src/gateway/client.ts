@@ -304,8 +304,8 @@ function isPreConnectFailure(cause: unknown): boolean {
   );
 }
 
-function unknownWorkSubmission(detail: string): GatewayTransportError {
-  // The engine may have created a task. The contract has no submission deduplication.
+function unknownSubmission(detail: string): GatewayTransportError {
+  // The engine may have accepted the submission without returning a usable reply.
   return new GatewayTransportError('submission_outcome_unknown', detail, { detail });
 }
 
@@ -468,7 +468,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         });
       } catch (cause) {
         if (submitsWork && !isPreConnectFailure(cause)) {
-          throw unknownWorkSubmission(
+          throw unknownSubmission(
             'The engine may have accepted the work, but no response was received.',
           );
         }
@@ -484,7 +484,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         );
       } catch (cause) {
         if (submitsWork) {
-          throw unknownWorkSubmission(
+          throw unknownSubmission(
             'The engine may have accepted the work, but its response could not be read.',
           );
         }
@@ -522,6 +522,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         redirect: 'error',
       });
     } catch (cause) {
+      if (init.method === 'POST' && !isPreConnectFailure(cause)) {
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but no response was received.',
+        );
+      }
       throw networkError(cause);
     } finally {
       // The deadline covers only the wait for response headers. Body lifetime is
@@ -601,7 +606,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         await nonOkResponse(response, signal);
       }
       let terminal = false;
-      let gap = false;
       const seen = new Set<string>();
       try {
         for await (const frame of readSseFrames(response.body, {
@@ -637,7 +641,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
             continue;
           }
           if (event.data.seq > lastSeq + 1) {
-            gap = true;
             break;
           }
           lastSeq = event.data.seq;
@@ -659,13 +662,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
       // A gap, or a close without a terminal event, is resynchronised from the
       // exact last delivered sequence rather than silently skipped.
-      if (stalledResyncs > maxEventResyncs && !gap) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream ended without a terminal event.',
-        );
-      }
-      if (stalledResyncs > maxEventResyncs + 3) {
+      if (stalledResyncs > maxEventResyncs) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream could not be resynchronised.',
@@ -774,22 +771,34 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }),
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
-      if (!response.ok) {
-        await nonOkResponse(response, signal);
-      }
       const contentType = response.headers.get('content-type') ?? '';
-      if (contentType.includes('text/event-stream')) {
+      if (response.ok && contentType.includes('text/event-stream')) {
         return {
           kind: 'stream',
           frames: chatFrames(response, signal, body.conversationId),
         };
       }
-      const text = await readBoundedBody(
-        response,
-        options.requestTimeoutMs,
-        signal,
-        maxResponseBytes,
-      );
+      let text: string;
+      try {
+        text = await readBoundedBody(response, options.requestTimeoutMs, signal, maxResponseBytes);
+      } catch (cause) {
+        if (cause instanceof GatewayTransportError && cause.code === 'protocol_error') {
+          throw cause;
+        }
+        if (response.status >= 400 && response.status < 500) {
+          throw errorFromResponse(response.status, '');
+        }
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but its response could not be read.',
+        );
+      }
+      if (!response.ok) {
+        const failure = errorFromResponse(response.status, text);
+        if (failure.retryable && response.status >= 500) {
+          throw unknownSubmission('The engine did not confirm whether it accepted the chat.');
+        }
+        throw failure;
+      }
       const reply = parseBody(schemas.ChatReply, text);
       assertConversationAuthority(body.conversationId, reply.conversationId);
       return { kind: 'json', reply };

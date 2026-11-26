@@ -18,13 +18,9 @@ const { getAppConfig } = require('~/server/services/Config');
 const resolveDeploymentConfig = async () =>
   resolveGatewayOptions(await getAppConfig({ baseOnly: true }));
 
-/**
- * Effective owner configuration: the YAML value plus the owner's stored
- * root-level `workflowEngine` override. The credential itself comes from the
- * server environment, so no configuration layer can supply or read it.
- */
+/** Read the deployment base without principal overrides. */
 const resolveConfig = async (req) =>
-  resolveGatewayOptions(req.config ?? (await getAppConfig({ baseOnly: true })));
+  resolveGatewayOptions(await getAppConfig({ baseOnly: true }), req.config?.workflowEngine);
 
 const gateway = createWorkflowEngineGateway({
   resolveConfig,

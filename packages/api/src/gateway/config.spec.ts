@@ -1,3 +1,4 @@
+import type { WorkflowEngineGatewayOptions } from './config';
 import {
   DEFAULT_MAX_EVENT_RESYNCS,
   DEFAULT_MAX_FRAME_BYTES,
@@ -14,33 +15,44 @@ describe('WorkflowEngine gateway configuration', () => {
     expect(resolveGatewayOptions({ config: { workflowEngine: yaml } })).toEqual(yaml);
   });
 
-  it('merges a partial root override over the YAML value', () => {
+  it('lets an owner disable an enabled deployment and tune request limits', () => {
+    const yaml = { enabled: true, baseURL: 'https://yaml.example', tokenEnv: 'YAML_TOKEN' };
     expect(
-      resolveGatewayOptions({
-        config: {
-          workflowEngine: {
-            enabled: true,
-            baseURL: 'https://yaml.example',
-            tokenEnv: 'YAML_TOKEN',
-          },
+      resolveGatewayOptions(
+        { config: { workflowEngine: yaml } },
+        {
+          enabled: false,
+          maxFrameBytes: 32_768,
         },
-        workflowEngine: { enabled: false, maxFrameBytes: 32_768 },
-      }),
-    ).toEqual({
-      enabled: false,
-      baseURL: 'https://yaml.example',
-      tokenEnv: 'YAML_TOKEN',
-      maxFrameBytes: 32_768,
-    });
+      ),
+    ).toEqual({ ...yaml, enabled: false, maxFrameBytes: 32_768 });
   });
 
-  it('lets a root override replace scalar fields', () => {
+  it.each<WorkflowEngineGatewayOptions | undefined>([undefined, {}, { enabled: false }])(
+    'cannot enable the gateway through a stored preference when deployment is off (%j)',
+    (yaml) => {
+      const options = resolveGatewayOptions(
+        { config: { workflowEngine: yaml } },
+        { enabled: true, baseURL: 'https://override.example' },
+      );
+      expect(resolveGatewayConfig(options, env)).toEqual({ ok: true, value: { enabled: false } });
+    },
+  );
+
+  it('uses only the deployment destination, token source, version and startup policy', () => {
+    const yaml = { enabled: true, baseURL: 'https://yaml.example', startupCheck: true };
     expect(
-      resolveGatewayOptions({
-        config: { workflowEngine: { enabled: true, baseURL: 'https://yaml.example' } },
-        workflowEngine: { baseURL: 'https://override.example' },
-      }),
-    ).toEqual({ enabled: true, baseURL: 'https://override.example' });
+      resolveGatewayOptions(
+        { config: { workflowEngine: yaml } },
+        {
+          baseURL: 'https://override.example',
+          tokenEnv: 'OTHER_SECRET',
+          contractVersion: '2.0.0',
+          startupCheck: false,
+          maxEventResyncs: 0,
+        },
+      ),
+    ).toEqual({ ...yaml, maxEventResyncs: 0 });
   });
 
   it('returns no options when neither layer configures the gateway', () => {

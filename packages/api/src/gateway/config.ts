@@ -77,44 +77,24 @@ function nonNegativeInteger(value: number | undefined, fallback: number): number
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-/**
- * The AppConfig the server loads for the gateway: YAML configuration under
- * `config`, with an optional root-level deployment override merged by the
- * config service.
- */
-export type GatewayConfigSource = {
-  config?: { workflowEngine?: WorkflowEngineGatewayOptions | null } | null;
-  workflowEngine?: WorkflowEngineGatewayOptions | null;
-};
-
-/**
- * Resolve the effective gateway options from both layers.
- *
- * A root-level override is merged field by field over the YAML value, so a
- * partial override such as `{ enabled: false }` keeps the YAML `baseURL` and
- * every other transport setting. With no override the YAML value is returned
- * unchanged. The credential comes from the named server environment variable,
- * never from either configuration layer.
- */
+/** Resolve deployment settings with optional owner request preferences. */
 export function resolveGatewayOptions(
-  source: GatewayConfigSource | null | undefined,
+  deployment:
+    | { config?: { workflowEngine?: WorkflowEngineGatewayOptions | null } | null }
+    | null
+    | undefined,
+  override?: WorkflowEngineGatewayOptions | null,
 ): WorkflowEngineGatewayOptions | undefined {
-  const base = source?.config?.workflowEngine;
-  const override = source?.workflowEngine;
+  const base = deployment?.config?.workflowEngine;
   if (base == null) {
-    return override ?? undefined;
+    return undefined;
   }
-  if (override == null) {
+  if (base.enabled !== true || override == null) {
     return base;
   }
   return {
     ...base,
-    ...(override.enabled === undefined ? {} : { enabled: override.enabled }),
-    ...(override.baseURL === undefined ? {} : { baseURL: override.baseURL }),
-    ...(override.tokenEnv === undefined ? {} : { tokenEnv: override.tokenEnv }),
-    ...(override.contractVersion === undefined
-      ? {}
-      : { contractVersion: override.contractVersion }),
+    ...(override.enabled === false ? { enabled: false } : {}),
     ...(override.requestTimeoutMs === undefined
       ? {}
       : { requestTimeoutMs: override.requestTimeoutMs }),
@@ -128,7 +108,6 @@ export function resolveGatewayOptions(
     ...(override.maxEventResyncs === undefined
       ? {}
       : { maxEventResyncs: override.maxEventResyncs }),
-    ...(override.startupCheck === undefined ? {} : { startupCheck: override.startupCheck }),
   };
 }
 

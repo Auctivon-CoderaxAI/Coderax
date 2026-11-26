@@ -385,16 +385,22 @@ describe('WorkflowEngine client', () => {
     expect(transportSignal?.aborted).toBe(true);
   });
 
-  it.each([200, 503])('times out stalled chat response bodies at status %i', async (status) => {
-    const cancel = jest.fn();
-    const client = clientWith(
-      async () => new Response(new ReadableStream({ cancel }), { status }),
-      'server-token',
-      15,
-    );
-    await expect(client.submitChat(chat)).rejects.toMatchObject({ code: 'engine_timeout' });
-    expect(cancel).toHaveBeenCalledTimes(1);
-  });
+  it.each([200, 503])(
+    'does not suggest retrying a stalled chat response at status %i',
+    async (status) => {
+      const cancel = jest.fn();
+      const client = clientWith(
+        async () => new Response(new ReadableStream({ cancel }), { status }),
+        'server-token',
+        15,
+      );
+      await expect(client.submitChat(chat)).rejects.toMatchObject({
+        code: 'submission_outcome_unknown',
+        retryable: false,
+      });
+      expect(cancel).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('keeps an engine reply in the conversation the caller addressed', async () => {
     const client = clientWith(async () => jsonResponse(chatReply('conv_1')));
@@ -471,6 +477,38 @@ describe('WorkflowEngine client', () => {
     await expect(
       client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
     ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([0, 2])('caps repeated sequence gaps at %i reconnects', async (maxEventResyncs) => {
+    const event = {
+      v: 1,
+      eventId: 'evt_2',
+      taskId: 'task_1',
+      seq: 2,
+      at,
+      agent: 'coderax',
+      generation: 1,
+      type: 'task.completed',
+      payload: {},
+    };
+    const fetch = jest.fn(async () => sseResponse([`data: ${JSON.stringify(event)}\n\n`]));
+    const client = clientWith(fetch, 'server-token', 1_000, { maxEventResyncs });
+    await expect(
+      client.streamTaskEvents('task_1', 0)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(fetch).toHaveBeenCalledTimes(maxEventResyncs + 1);
+  });
+
+  it.each([
+    ['ECONNRESET', 'submission_outcome_unknown', false],
+    ['ECONNREFUSED', 'engine_unreachable', true],
+  ])('classifies chat header failures (%s)', async (code, expectedCode, retryable) => {
+    const fetch = jest.fn(async () => {
+      throw new TypeError('fetch failed', { cause: { code } });
+    });
+    const client = clientWith(fetch);
+    await expect(client.submitChat(chat)).rejects.toMatchObject({ code: expectedCode, retryable });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

@@ -110,10 +110,11 @@ function isSafePathIdentifier(value: string): boolean {
 }
 
 function transportFailure(error: GatewayTransportError): GatewayRequestError {
-  return new GatewayRequestError(error.status ?? 502, {
+  const upstreamAuthFailure = error.status === 401 || error.status === 403;
+  return new GatewayRequestError(upstreamAuthFailure ? 502 : (error.status ?? 502), {
     code: 'WORKFLOW_ENGINE_ERROR',
     engineCode: error.code,
-    retryable: error.retryable,
+    retryable: !upstreamAuthFailure && error.retryable,
     ...(error.requestId == null ? {} : { requestId: error.requestId }),
     ...(error.detail == null ? {} : { detail: error.detail }),
   });
@@ -126,6 +127,7 @@ export function createWorkflowEngineGateway(
   const ownerGate = deps.requireOwner ?? requireOwner;
   const router = express.Router();
 
+  let startupUnverified = false;
   let cache: {
     fingerprint: string;
     config: Extract<ResolvedGatewayConfig, { enabled: true }>;
@@ -161,9 +163,18 @@ export function createWorkflowEngineGateway(
 
   function probe(entry: NonNullable<typeof cache>): Promise<CompatibilityReport> {
     // Share only in-flight probes. Every later dispatch must observe current capabilities.
-    entry.pending ??= checkCompatibility(entry.client).finally(() => {
-      entry.pending = undefined;
-    });
+    const verifyStartup = startupUnverified;
+    const check = verifyStartup ? checkStartupReady : checkCompatibility;
+    entry.pending ??= check(entry.client)
+      .then((report) => {
+        if (verifyStartup) {
+          startupUnverified = false;
+        }
+        return report;
+      })
+      .finally(() => {
+        entry.pending = undefined;
+      });
     return entry.pending;
   }
 
@@ -502,7 +513,11 @@ export function createWorkflowEngineGateway(
       if (!context.compatibility.capabilities.cancellation) {
         throw capabilityFailure(['cancellation']);
       }
-      const body = parseBody(schemas.CancelRequest, req, res);
+      const bodyless =
+        req.body === undefined &&
+        !req.headers['transfer-encoding'] &&
+        (req.headers['content-length'] == null || req.headers['content-length'] === '0');
+      const body = bodyless ? {} : parseBody(schemas.CancelRequest, req, res);
       if (body == null) {
         return;
       }
@@ -644,15 +659,18 @@ export function createWorkflowEngineGateway(
       return null;
     }
     const entry = contextFor(resolved.value);
+    startupUnverified = true;
     try {
       // Startup is stricter than a health probe: a process that has not finished
       // its own validation must not be reported as a verified startup.
       const report = await checkStartupReady(entry.client);
+      startupUnverified = false;
       deps.logger?.info?.(
         `[workflow-engine] contract ${report.contractVersion} verified and ready; engine ${report.engineStatus}`,
       );
       return report;
     } catch (error) {
+      startupUnverified = true;
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? String((error as { code: unknown }).code)
@@ -667,6 +685,7 @@ export function createWorkflowEngineGateway(
     prewarm,
     reset: () => {
       cache = null;
+      startupUnverified = false;
     },
   };
 }
