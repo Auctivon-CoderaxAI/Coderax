@@ -511,6 +511,10 @@ const startServer = async () => {
    * and follow-up stay on the native agent chat path and its SSE protocol. */
   app.use('/api/work', requireJwtAuth, require('./routes/work'));
   app.use('/api/workflows', routes.workflows);
+  /* Owner-only gateway to the external WorkflowEngine. Transport authority is
+   * decided server-side; the in-repository engine stays authoritative in the
+   * default `native` mode and this route fails closed for engine-owned work. */
+  app.use('/api/gateway', routes.gateway);
   app.use('/api/banner', routes.banner);
   app.use('/api/memories', routes.memories);
   app.use('/api/schedules', rejectScheduleWritesUntilReady, routes.schedules);

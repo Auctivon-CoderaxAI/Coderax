@@ -119,6 +119,45 @@ export * from './schedules';
 export * from './schedules/service';
 export * from './autobuild';
 export * from './workflows';
+/* Workflow engine gateway. Named exports only: the gateway mirrors the engine
+ * contract, and a wildcard would collide with existing agent/engine exports
+ * (`Usage`, `DataMode`, `EngineCapabilities`, `EngineFailureCode`, `EngineStatus`). */
+export {
+  CONTRACT_VERSION as GATEWAY_CONTRACT_VERSION,
+  EVENT_SCHEMA_VERSION as GATEWAY_EVENT_SCHEMA_VERSION,
+  enginePath,
+  createGatewayHandlers,
+  createGatewayService,
+  createCapabilityNegotiation,
+  createHttpEngineClient,
+  createTransportSelector,
+  gatewayError,
+  isOwnerUser,
+  readGatewayToken,
+  readSseData,
+  resolveGatewayConfig,
+  toProblem,
+} from './gateway';
+export type {
+  CapabilityNegotiation,
+  CapabilitySnapshot,
+  ConversationAuthority,
+  EngineOperation,
+  GatewayAuthorityMode,
+  GatewayCapability,
+  GatewayConfig,
+  GatewayError,
+  GatewayFailureCode,
+  GatewayHandlerDeps,
+  GatewayHandlers,
+  GatewayLogger,
+  GatewayMeta as GatewayMetaReport,
+  GatewayProblem,
+  GatewayResult,
+  GatewayService,
+  GatewayServiceOptions,
+  TransportSelector,
+} from './gateway';
 export * from './skills';
 export * from './favorites';
 /* User */

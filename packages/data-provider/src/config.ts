@@ -4317,6 +4317,26 @@ export const configSchema = z.object({
         .optional(),
     })
     .optional(),
+  /**
+   * Server-side gateway to Coderax-WorkflowEngine. Disabled and `native` by
+   * default: the in-repository engine remains authoritative until an owner
+   * moves authority, so the migration is reversible by configuration alone.
+   */
+  gateway: z
+    .object({
+      enabled: z.boolean().default(false),
+      baseUrl: z.string().trim().max(2048).optional(),
+      /** Name of the server environment variable holding the engine credential. */
+      tokenEnv: z.string().trim().min(1).max(128).default('WORKFLOW_ENGINE_TOKEN'),
+      contractVersion: z.string().trim().min(1).max(32).default('1.0.0'),
+      timeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
+      healthTtlMs: z.number().int().min(0).max(300_000).default(15_000),
+      authority: z.enum(['native', 'engine']).default('native'),
+      engineConversations: z.array(z.string().trim().min(1).max(128)).max(500).default([]),
+      nativeConversations: z.array(z.string().trim().min(1).max(128)).max(500).default([]),
+    })
+    .strict()
+    .optional(),
   ocr: ocrSchema.optional(),
   webSearch: webSearchSchema.optional(),
   githubCompare: z
