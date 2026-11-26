@@ -498,6 +498,16 @@ describe('workflow engine gateway routes', () => {
     expect(response.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
     expect(fetch).not.toHaveBeenCalled();
 
+    const tenantAdmin = appWithUser(fetch, {
+      id: 'tenant_admin',
+      role: 'ADMIN',
+      tenantId: 'tenant_1',
+    });
+    const tenantResponse = await request(tenantAdmin.app).get('/agents');
+    expect(tenantResponse.status).toBe(403);
+    expect(tenantResponse.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
+    expect(fetch).not.toHaveBeenCalled();
+
     const allowed = appWithUser(fetch, { id: 'owner_1', role: 'ADMIN' });
     await request(allowed.app).get('/agents').expect(200);
   });

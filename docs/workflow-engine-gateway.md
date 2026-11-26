@@ -20,16 +20,17 @@ not a restoration of those commits.
 
 ## Owner authentication
 
-Every gateway route runs `requireJwtAuth` and then the owner gate in
-`gateway/auth.ts`. A valid session is not sufficient: Coderax is owner-controlled,
-so the authenticated user must hold the owner role. Identity is read from
-`req.user` only; a body or query `userId` is never trusted.
+Every gateway route runs `requireJwtAuth` and then checks the authenticated
+`req.user` in `gateway/auth.ts`. The deployment owner must have a non-empty
+user ID and the unscoped `ADMIN` role used by the deployment bootstrap. A
+tenant administrator cannot use the shared engine credential. The gateway is
+unavailable with `TENANT_ISOLATION_STRICT=true`, because JWT authentication
+then requires a tenant scope and the gateway does not accept one.
 
-Identity is explicit: the authenticated session must carry a non-empty user id
-and the owner role (`ADMIN`). A body or query `userId` is never read, and the
-gate runs before configuration loading, the compatibility probe or any engine
-call. Non-owner sessions receive 403 `WORKFLOW_ENGINE_FORBIDDEN`; a session with
-no stable id receives 401 `WORKFLOW_ENGINE_UNAUTHENTICATED`.
+The owner gate runs before resolving gateway transport, checking compatibility,
+or contacting the engine. It ignores identity supplied in the body or query.
+A session without a stable ID receives 401 `WORKFLOW_ENGINE_UNAUTHENTICATED`;
+one that lacks owner access receives 403 `WORKFLOW_ENGINE_FORBIDDEN`.
 
 The engine credential is read from the server environment variable named by
 `workflowEngine.tokenEnv` (default `CODERAX_ENGINE_TOKEN`) at call time. It is

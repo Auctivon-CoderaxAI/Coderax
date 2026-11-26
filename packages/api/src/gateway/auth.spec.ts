@@ -31,19 +31,16 @@ describe('WorkflowEngine owner gate', () => {
     });
   });
 
-  it('returns the authenticated owner identity', () => {
-    expect(
-      requireOwner(request({ id: 'owner_1', role: SystemRoles.ADMIN, tenantId: 'tenant_1' })),
-    ).toEqual({
-      ok: true,
-      value: { userId: 'owner_1', tenantId: 'tenant_1' },
+  it.each(['tenant_1', '', 7])('denies a tenant scoped or malformed ADMIN (%j)', (tenantId) => {
+    expect(requireOwner(request({ id: 'owner_1', role: SystemRoles.ADMIN, tenantId }))).toEqual({
+      ok: false,
+      status: 403,
+      code: 'WORKFLOW_ENGINE_FORBIDDEN',
     });
   });
 
-  it('normalizes whitespace and omits a non-string tenant', () => {
-    expect(
-      requireOwner(request({ id: ' owner_1 ', role: SystemRoles.ADMIN, tenantId: 7 })),
-    ).toEqual({
+  it.each([undefined, null])('returns the unscoped administrator identity (%j)', (tenantId) => {
+    expect(requireOwner(request({ id: ' owner_1 ', role: SystemRoles.ADMIN, tenantId }))).toEqual({
       ok: true,
       value: { userId: 'owner_1' },
     });

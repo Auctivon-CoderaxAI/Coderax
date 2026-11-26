@@ -11,7 +11,7 @@ import type { Request } from 'express';
  * `userId` is never consulted.
  */
 
-export type OwnerIdentity = { userId: string; tenantId?: string };
+export type OwnerIdentity = { userId: string };
 
 export type OwnerGateResult =
   | { ok: true; value: OwnerIdentity }
@@ -29,14 +29,9 @@ export function requireOwner(req: Pick<Request, 'user'>): OwnerGateResult {
   if (userId.length === 0) {
     return { ok: false, status: 401, code: 'WORKFLOW_ENGINE_UNAUTHENTICATED' };
   }
-  if (user?.role !== SystemRoles.ADMIN) {
+  // A tenant administrator cannot use a deployment-wide engine credential.
+  if (user?.role !== SystemRoles.ADMIN || user.tenantId != null) {
     return { ok: false, status: 403, code: 'WORKFLOW_ENGINE_FORBIDDEN' };
   }
-  return {
-    ok: true,
-    value: {
-      userId,
-      ...(typeof user.tenantId === 'string' ? { tenantId: user.tenantId } : {}),
-    },
-  };
+  return { ok: true, value: { userId } };
 }
