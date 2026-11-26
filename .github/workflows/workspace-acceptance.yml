@@ -16,8 +16,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  preflight:
+    name: Fixture credential check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check for a read-only cross-repository token
+        id: check
+        env:
+          TOKEN: ${{ secrets.NATIVE_CODE_REPO_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NATIVE_CODE_REPO_TOKEN is not configured; native workspace acceptance cannot run."
+          fi
+
   workspace:
     name: Machine choices and saved chat transitions (macOS)
+    needs: preflight
+    if: needs.preflight.outputs.available == 'true'
     runs-on: macos-latest
     timeout-minutes: 25
     env:
@@ -101,4 +122,21 @@ jobs:
             echo "Result: $RESULT"
             echo 'Scope: native approvals, physical worker isolation, one agent choosing allowed machines in new chats, restored choices, fixed default, stopped-worker failure; saved chat, agent switch without implicit access, no-workspace send/reload, explicit attach, offline detach, continued chat/reload.'
             echo 'Worker: `67d75d859aee891923c40cde1db073489d74a424`. Platform: macOS Seatbelt. No Linux/WSL certification.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  not-verified:
+    name: Native workspace acceptance not verified
+    needs: preflight
+    if: needs.preflight.outputs.available != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Record the missing prerequisite
+        run: |
+          {
+            echo '### Native workspace acceptance: NOT VERIFIED'
+            echo '`NATIVE_CODE_REPO_TOKEN` is not configured, so the native fixture'
+            echo 'could not be checked out and no macOS acceptance run was started.'
+            echo 'Add a read-only token scoped to the fixture repository before'
+            echo 'privatizing this repository.'
           } >> "$GITHUB_STEP_SUMMARY"
