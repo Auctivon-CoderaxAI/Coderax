@@ -10,10 +10,10 @@
  *   node scripts/sync-models.mjs [--check|--write] [--json]
  *
  * Exit codes: 0 = no drift, 1 = drift or a required catalog is unavailable,
- * 2 = the lock file cannot be read.
+ * 2 = the lock file cannot be read or updated safely.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,9 +24,11 @@ const write = args.includes('--write');
 const asJson = args.includes('--json');
 
 const LOCK_PATH = join(root, 'providers.lock.json');
+let original;
 let lock;
 try {
-  lock = JSON.parse(readFileSync(LOCK_PATH, 'utf8'));
+  original = readFileSync(LOCK_PATH, 'utf8');
+  lock = JSON.parse(original);
 } catch (error) {
   console.error(`Could not read providers.lock.json: ${error.message}`);
   process.exit(2);
@@ -49,12 +51,12 @@ const SOURCES = [
     providerId: 'opencodeai',
     url: 'https://opencode.ai/zen/v1/models',
     optional: true,
-    read: (body) =>
-      Array.isArray(body?.data)
-        ? body.data.map((model) => model.id)
-        : Array.isArray(body)
-          ? body
-          : [],
+    read: (body) => {
+      if (Array.isArray(body?.data)) {
+        return body.data.map((model) => model.id);
+      }
+      return Array.isArray(body) ? body : [];
+    },
   },
 ];
 
@@ -121,8 +123,27 @@ for (const source of SOURCES) {
   }
 }
 
-if (write) {
-  writeFileSync(LOCK_PATH, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+let writeFailed = false;
+if (write && errors.length === 0) {
+  let tempDir;
+  try {
+    tempDir = mkdtempSync(join(root, '.sync-models-'));
+    const staged = join(tempDir, 'providers.lock.json');
+    writeFileSync(staged, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+    if (readFileSync(LOCK_PATH, 'utf8') !== original) {
+      throw new Error(
+        'providers.lock.json changed during discovery; rerun against the updated file',
+      );
+    }
+    renameSync(staged, LOCK_PATH);
+  } catch (error) {
+    errors.push(`Could not update providers.lock.json: ${error.message}`);
+    writeFailed = true;
+  } finally {
+    if (tempDir) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  }
 }
 
 const summary = {
@@ -150,4 +171,7 @@ if (asJson) {
   console.log(`\n${errors.length} error(s)`);
 }
 
+if (writeFailed) {
+  process.exit(2);
+}
 process.exit(errors.length > 0 ? 1 : 0);

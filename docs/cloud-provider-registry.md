@@ -57,12 +57,16 @@ npm run verify:providers
 npm run sync:models -- --check
 ```
 
-Live inference is delegated to the existing probe and refuses to run unless it
-is both explicitly allowed and running in CI:
+Live inference is delegated to the existing probe. It requires explicit
+permission, CI, a valid registry, and a passing public pricing check:
 
 ```bash
 node scripts/verify-providers.mjs --live --allow-live   # CI=true required
 ```
+
+Model discovery is read-only by default. With `--write`, it publishes discovery
+results only if there are no discovery errors and the lock has not changed
+during collection.
 
 ## Current blockers
 
