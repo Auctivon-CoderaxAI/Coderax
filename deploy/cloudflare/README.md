@@ -62,6 +62,13 @@ coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 | `CODERAX_API_ORIGIN` | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port. |
 | `CODERAX_PROXY_SECRET` | secret | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
 
+`keep_vars` is enabled in [`wrangler.jsonc`](../../wrangler.jsonc). A Wrangler deploy deletes
+plain-text variables that are not declared in the configuration file, so without it the dashboard-set
+`CODERAX_API_ORIGIN` would disappear on the next Workers Builds run and every API route would answer
+`503 {"error":"API proxy is not configured"}` again. Secrets such as `CODERAX_PROXY_SECRET` are
+never deleted by a deploy. `scripts/verify-cloudflare-deployment.mjs --config-only` fails if this
+setting is removed.
+
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and
 does not override `DOMAIN_CLIENT` or `DOMAIN_SERVER`.
