@@ -219,12 +219,13 @@ test.describe('continuous Chat and Work conversation', () => {
   }) => {
     await page.goto(NEW_CHAT_PATH);
     const token = await getAccessToken(page);
+    const agentName = `Free Work reviewer ${Date.now()}`;
     const agent = await requestJson<{ id: string }>(page, {
       path: '/api/agents',
       method: 'POST',
       token,
       body: {
-        name: `Free Work reviewer ${Date.now()}`,
+        name: agentName,
         provider: 'Ollama',
         model: LOCAL_MODEL_B,
         tools: [],
@@ -233,7 +234,8 @@ test.describe('continuous Chat and Work conversation', () => {
     });
     try {
       await switchMode(page, 'Work');
-      await page.getByRole('combobox', { name: 'Work agent' }).selectOption(agent.id);
+      await page.getByRole('button', { name: 'Work agent', exact: true }).click();
+      await page.getByRole('menuitemradio').filter({ hasText: agentName }).click();
       const start = await workStart(page, 'Reply with the mock result.');
       expect(start.request().postDataJSON()).toMatchObject({
         agent_id: agent.id,
