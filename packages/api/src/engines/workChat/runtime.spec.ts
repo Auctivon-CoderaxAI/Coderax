@@ -222,7 +222,9 @@ describe('EngineWorkChatRuntime', () => {
     await runtime.release(scopes[0]);
 
     await rmdir(workspaces[0]);
-    await symlink(workspaces[1], workspaces[0], 'dir');
+    // A junction is a directory link on Windows that needs neither Developer
+    // Mode nor an elevated process; POSIX uses a plain directory symlink.
+    await symlink(workspaces[1], workspaces[0], process.platform === 'win32' ? 'junction' : 'dir');
     start.mockClear();
     await expect(runtime.start({ ...scopes[0], prompt: 'Continue' })).resolves.toMatchObject({
       ok: false,

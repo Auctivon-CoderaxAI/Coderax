@@ -600,7 +600,12 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions): EngineAd
       }
       await statusProbe;
     },
+    // Only a server-backed adapter has an endpoint to probe. A transport-only
+    // adapter keeps startOpenCodeRun's own admission, which is configuration.
     start: (request) =>
-      startOpenCodeRun({ ...options, probe: () => refresh(request.signal) }, request),
+      startOpenCodeRun(
+        options.baseURL ? { ...options, probe: () => refresh(request.signal) } : options,
+        request,
+      ),
   };
 }
