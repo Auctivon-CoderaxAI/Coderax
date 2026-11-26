@@ -83,8 +83,9 @@ A token can be verified with
 which returns only the token's status and permissions. Do not create a second credential, rotate a
 key, or widen permissions to work around the format error. Wrangler reads `CLOUDFLARE_API_TOKEN` and
 sends it as a Bearer token, which is the supported non-interactive path. A connector that sends a
-scoped token as `X-Auth-Key` fails every account-scoped call with error `6103` even though the token
-is valid; fix its header scheme instead of granting broader permissions.
+scoped token as `X-Auth-Key` can fail account-scoped calls with `6103` (account and user endpoints)
+or `9106` (Workers endpoints) even though the token is valid; fix its header scheme instead of
+granting broader permissions.
 
 ## Required Worker configuration
 
