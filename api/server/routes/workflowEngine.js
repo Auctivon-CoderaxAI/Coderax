@@ -1,6 +1,7 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { createWorkflowEngineGateway } = require('@coderax/api/gateway');
-const { logger } = require('@coderax/data-schemas');
+const { createConversationAuthorityMethods, logger } = require('@coderax/data-schemas');
 const configMiddleware = require('~/server/middleware/config/app');
 const { requireJwtAuth } = require('~/server/middleware');
 const { loadCustomConfig } = require('~/server/services/Config');
@@ -11,10 +12,19 @@ const { loadCustomConfig } = require('~/server/services/Config');
  * router. It holds no engine credential and no proxying logic.
  */
 
+const authority = createConversationAuthorityMethods(mongoose);
+
 const gateway = createWorkflowEngineGateway({
   resolveConfig: (req) => req.config?.config?.workflowEngine,
   env: process.env,
   logger,
+  // Durable and shared by every replica: `workflowEngine.conversations` only
+  // bootstraps a mapping; the stored record is authoritative afterwards.
+  authorityStore: {
+    read: authority.readConversationAuthority,
+    create: authority.createConversationAuthority,
+    advance: authority.advanceConversationAuthority,
+  },
 });
 
 const router = express.Router();

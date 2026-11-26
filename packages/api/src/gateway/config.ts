@@ -15,6 +15,10 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
   baseURL?: string;
+  /** The one Coderax user id allowed to use the owner's engine. */
+  ownerUserId?: string;
+  /** Conversations the migration may move to the engine on first dispatch. */
+  conversations?: string[];
   /** Name of the server variable holding the owner token, not the token. */
   tokenEnv?: string;
   contractVersion?: string;
@@ -29,6 +33,8 @@ export type ResolvedGatewayConfig =
   | {
       enabled: true;
       baseURL: string;
+      ownerUserId: string;
+      conversations: readonly string[];
       token: string;
       tokenEnv: string;
       contractVersion: string;
@@ -43,6 +49,7 @@ export type GatewayConfigFailure = {
   code:
     | 'WORKFLOW_ENGINE_NOT_CONFIGURED'
     | 'WORKFLOW_ENGINE_INVALID_CONFIG'
+    | 'WORKFLOW_ENGINE_OWNER_MISSING'
     | 'WORKFLOW_ENGINE_TOKEN_MISSING';
   /** User-safe; names a variable, never a value or a host path. */
   detail: string;
@@ -110,6 +117,44 @@ export function resolveGatewayConfig(
   if (!parsed.ok) {
     return { ok: false, code: 'WORKFLOW_ENGINE_INVALID_CONFIG', detail: parsed.detail };
   }
+  const ownerUserId = (options.ownerUserId ?? '').trim();
+  if (ownerUserId.length === 0) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_OWNER_MISSING',
+      detail:
+        'workflowEngine.ownerUserId must name the one Coderax user allowed to use the engine.',
+    };
+  }
+  if (ownerUserId.length > 200 || /\s/.test(ownerUserId)) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.ownerUserId must be a single user id without whitespace.',
+    };
+  }
+  const rawConversations = options.conversations ?? [];
+  if (!Array.isArray(rawConversations) || rawConversations.length > 500) {
+    return {
+      ok: false,
+      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+      detail: 'workflowEngine.conversations must be a list of at most 500 conversation ids.',
+    };
+  }
+  const conversations: string[] = [];
+  for (const entry of rawConversations) {
+    if (typeof entry !== 'string' || entry.trim().length === 0 || entry.trim().length > 200) {
+      return {
+        ok: false,
+        code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
+        detail: 'workflowEngine.conversations must contain conversation ids only.',
+      };
+    }
+    const id = entry.trim();
+    if (!conversations.includes(id)) {
+      conversations.push(id);
+    }
+  }
   const tokenEnv = (options.tokenEnv ?? DEFAULT_ENGINE_TOKEN_ENV).trim();
   if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(tokenEnv)) {
     return {
@@ -163,12 +208,14 @@ export function resolveGatewayConfig(
     value: {
       enabled: true,
       baseURL,
+      ownerUserId,
+      conversations,
       token,
       tokenEnv,
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
-      fingerprint: `${baseURL}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
+      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
     },
   };
 }

@@ -7,6 +7,7 @@ export * from './utils';
 export { createModels } from './models';
 export {
   createMethods,
+  createConversationAuthorityMethods,
   WorkflowWorkspaceConflictError,
   AGENT_OWNER_CONTACT_RESOLVED_FIELD,
   AgentSortCursorError,
