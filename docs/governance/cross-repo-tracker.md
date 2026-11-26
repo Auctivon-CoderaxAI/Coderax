@@ -22,11 +22,17 @@ GitHub-hosted runners execute on all three repositories as of 2026-11-26. The bi
 ended every job within seconds on 2026-11-21 is gone; what remains is runner **capacity**, not
 billing — a queued job is waiting for a slot, not failing.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:1a66ef1e864a3fd1eb8842ded22f067ce550b3f1f8bf7fb2b81358fd8dd0f0b9 -->
+
 | Repository | Evidence that hosted runners work |
 |---|---|
 | `Coderax` | PR #312 and #313 jobs were assigned runners and ran; "Build Docker client package target" succeeded. |
-| `Coderax-WorkflowEngine` | `verify` succeeded in run 45869651614 at `2072df893`. |
+| `Coderax-WorkflowEngine` | `verify` succeeded in run 45869651614 at `2072df89093e09ff8248a5ea416c9476da9c8dde`. |
 | `CoderaxCLI` | Re-dispatched run 44924568808 (attempt 2) was assigned a runner: `Set up job`, checkout, Set up Node and Syntax check all succeeded. |
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 The 2026-11-21 `CoderaxCLI` failure was the billing signature (every step skipped, ~3s). The rerun
 **reached the tests**, which is how the real defect below became visible.
@@ -42,9 +48,14 @@ The 2026-11-21 `CoderaxCLI` failure was the billing signature (every step skippe
 | `Coderax-WorkflowEngine` | [#2](https://github.com/Auctivon-CoderaxAI/Coderax-WorkflowEngine/pull/2) `feat(intelligence)` | `2072df89093e09ff8248a5ea416c9476da9c8dde` | engine session (`feat/intelligence-core`) | **`verify` success** (run 45869651614) | none | 4 conversation comments |
 | `CoderaxCLI` | [#4](https://github.com/Auctivon-CoderaxAI/CoderaxCLI/pull/4) `test(cli): real newlines in Work SSE fixtures` | `093225927a4eab27b9b8460492e6d860c5c93c40` | this session (`ci/fix-work-sse-fixtures`) | **`test` success** (run 45873236965, 18:07 UTC) | none | none |
 
-No pull request in any repository carries an independent approval. That is the binding constraint
-on every merge, and it is a review-capacity problem, not a platform limit: the **free** plan
-enforces required reviews on public repositories.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:627c8727b89d70b9569621ba2d63b74bc4a8e8c2a7e03a08f9cc80619b7df43e -->
+
+No pull request in any repository carries an independent approval. Independent review is still required before merging; required CI must also pass on the
+current head. The **free** plan enforces required reviews on public repositories.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Required checks and branch protection
 
@@ -83,6 +94,10 @@ workflows by name would have introduced that problem: `Static checks`, `Tests: U
 untouched. `CI gate (aggregate)` runs unconditionally and evaluates only the checks that exist, so
 it aggregates without ever waiting on a workflow that will not run.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:461baa969ebcca3b552c3b93b4d5f1e3c18d1de6aa52dbb4585297df5446c659 -->
+
 ## Security findings
 
 | # | Finding | State |
@@ -92,7 +107,7 @@ it aggregates without ever waiting on a workflow that will not run.
 | S3 | Organization defaults for **new** repositories leave secret scanning, push protection, Dependabot alerts and the dependency graph disabled. | **Owner step** — Settings → Code security: enable all four. |
 | S4 | Organization does not require two-factor authentication. | **Owner step** — Settings → Authentication security → require 2FA. |
 | S5 | Organization secrets could not be enumerated: the API returns `403 You must be an org admin or have the actions secrets fine-grained permission`. This is an authorization limit, not evidence that none exist. | **Blocked** — needs an org-admin token or the owner reading Settings → Secrets → Actions. |
-| S6 | No repository secrets exist in any of the three repositories, and no environment secrets exist in `production` or `copilot` (both read as `total_count: 0`). Workflows reference `DOCKERHUB_*`, `CODEGRAPH_*`, `LOCIZE_*`, `OPENAI_API_KEY`, `MONGO_URI`, `CODERAX_SMOKE_*`, `AXE_LINTER_API_KEY`; those lanes receive empty values. | **Open** — functional gap, not exposure. Zero repository secrets does **not** establish zero credential exposure: organization secrets are a separate store, and that list is blocked (S5). |
+| S6 | No repository secrets exist in any of the three repositories, and no environment secrets exist in `production` or `copilot` (both read as `total_count: 0`). Workflows reference `DOCKERHUB_*`, `CODEGRAPH_*`, `LOCIZE_*`, `OPENAI_API_KEY`, `MONGO_URI`, `CODERAX_SMOKE_*`, `AXE_LINTER_API_KEY`. The values available to those lanes are unknown because organization secrets could not be inventoried. | **Open** — availability unverified. Zero repository secrets does **not** establish zero credential exposure: organization secrets are a separate store, and that list is blocked (S5). |
 | S7 | `retry-docker-builds.yml` uses `workflow_run` with `actions: write`. | **Reviewed, acceptable** — it never checks out pull-request code, only reads run metadata and re-runs the run id from the event, so an untrusted fork cannot execute code in the privileged context. |
 | S8 | OIDC (`id-token: write`) appears only in the three npm publish jobs, each scoped to `environment: publish`. | **Correct** — no long-lived token, no OIDC in pull-request jobs. |
 | S9 | `deployed-smoke.yml` reads production secrets under `environment: production`. | **Safe** — `schedule` and `workflow_dispatch` only; never triggered by a pull request, so a fork cannot reach it. |
@@ -104,9 +119,11 @@ it aggregates without ever waiting on a workflow that will not run.
 
 | Repository | State |
 |---|---|
-| `Coderax` | Blocked on review, not on CI. No repository or environment secrets are configured, so `deployed-smoke.yml` cannot authenticate against a deployment; the three npm publish jobs depend on OIDC trusted publishing and the `publish` environment, which does not yet exist (it is created on first use). |
-| `Coderax-WorkflowEngine` | `verify` green at `2072df893`. No deployment workflow; engine is a library/service contract. |
+| `Coderax` | PR #314 is pending independent review and a passing required CI gate. No repository secrets or `production` environment secrets were found; whether organization secrets let `deployed-smoke.yml` authenticate is unknown (S5). The three npm publish jobs depend on OIDC trusted publishing and the `publish` environment, which does not yet exist (it is created on first use). |
+| `Coderax-WorkflowEngine` | `verify` green at `2072df89093e09ff8248a5ea416c9476da9c8dde`. No deployment workflow; engine is a library/service contract. |
 | `CoderaxCLI` | `main` is red on a real test defect, not billing: the rerun reached the tests and failed two native-Work snapshot assertions. PR #4 fixes the fixtures; merging is what restores a green `main`. |
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Integration dependencies
 

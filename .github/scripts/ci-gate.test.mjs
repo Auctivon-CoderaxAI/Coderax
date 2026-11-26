@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { DEFAULTS, classify, evaluate } from './ci-gate.mjs';
 
@@ -52,7 +54,10 @@ test('the gate excludes its own check run instead of waiting on itself', () => {
 });
 
 test('a failed component fails the gate even while another is still running', () => {
-  const runs = [run(1, 'Static checks', 'completed', 'failure'), run(2, 'Tests', 'in_progress', null)];
+  const runs = [
+    run(1, 'Static checks', 'completed', 'failure'),
+    run(2, 'Tests', 'in_progress', null),
+  ];
   const result = evaluate(at(10_000, { runs }));
   assert.equal(result.decision, 'fail');
   assert.match(result.reason, /Static checks \(failure\)/);
@@ -89,7 +94,13 @@ test('a third-party preview check cannot decide whether code merges', () => {
 
 test('a completed check with no conclusion is treated as a failure, not a pass', () => {
   const runs = [
-    { id: 1, name: 'Static checks', status: 'completed', conclusion: null, app: { slug: 'github-actions' } },
+    {
+      id: 1,
+      name: 'Static checks',
+      status: 'completed',
+      conclusion: null,
+      app: { slug: 'github-actions' },
+    },
   ];
   const result = evaluate(at(10_000, { runs }));
   assert.equal(result.decision, 'fail');
@@ -150,4 +161,81 @@ test('the gate fails rather than hanging when the budget is exhausted', () => {
 test('an unparsable payload is a quiet snapshot, never a crash', () => {
   assert.equal(classify(undefined).observed.length, 0);
   assert.equal(evaluate(at(10_000, { runs: undefined, statuses: undefined })).decision, 'pass');
+});
+
+function pollGate(mockFetch) {
+  const preload = `
+    let now = 0;
+    Date.now = () => now += 5;
+    globalThis.fetch = (${mockFetch});
+  `;
+  const script = fileURLToPath(new URL('./ci-gate.mjs', import.meta.url));
+  const result = spawnSync(
+    process.execPath,
+    ['--import', `data:text/javascript,${encodeURIComponent(preload)}`, script],
+    {
+      encoding: 'utf8',
+      timeout: 5000,
+      env: {
+        GH_TOKEN: 'test-token',
+        REPO: 'example/repo',
+        HEAD_SHA: 'test-sha',
+        GATE_POLL_MS: '1',
+        GATE_REGISTRATION_MS: '1',
+        GATE_SETTLE_MS: '1',
+        GATE_TIMEOUT_MS: '100',
+      },
+    },
+  );
+  assert.ifError(result.error);
+  return result;
+}
+
+test('a blocking status on a later page fails the gate', () => {
+  const { status, stdout } = pollGate((url) => {
+    const { pathname, searchParams } = new URL(url);
+    if (pathname.endsWith('/check-runs')) {
+      return Response.json({ check_runs: [], total_count: 0 });
+    }
+    if (searchParams.get('page') === '2') {
+      return Response.json({ statuses: [{ context: 'external lint', state: 'failure' }] });
+    }
+    return Response.json(
+      { statuses: [{ context: 'external test', state: 'success' }] },
+      { headers: { link: '<https://api.github.com/example?page=2>; rel="next"' } },
+    );
+  });
+
+  assert.equal(status, 1);
+  assert.match(stdout, /Failed commit statuses: external lint/);
+});
+
+test('an incomplete snapshot retries until it fails rather than passing', () => {
+  const { status, stdout } = pollGate((url) =>
+    url.includes('/check-runs')
+      ? Response.json({ check_runs: [], total_count: 0 })
+      : new Response(null, { status: 503 }),
+  );
+
+  assert.equal(status, 1);
+  assert.ok(stdout.split('Could not read checks').length > 2);
+  assert.match(stdout, /Timed out without a complete snapshot/);
+  assert.doesNotMatch(stdout, /pass:/);
+});
+
+test('the gate can pass after a transient API error and a complete empty snapshot', () => {
+  const { status, stdout } = pollGate((url) => {
+    if (url.includes('/status')) {
+      return Response.json({ statuses: [] });
+    }
+    if (!globalThis.retried) {
+      globalThis.retried = true;
+      return new Response(null, { status: 503 });
+    }
+    return Response.json({ check_runs: [], total_count: 0 });
+  });
+
+  assert.equal(status, 0);
+  assert.match(stdout, /Could not read checks/);
+  assert.match(stdout, /No component workflow applied/);
 });

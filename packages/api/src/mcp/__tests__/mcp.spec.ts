@@ -1,8 +1,4 @@
-import {
-  MCPOptions,
-  StdioOptionsSchema,
-  StreamableHTTPOptionsSchema,
-} from 'coderax-data-provider';
+import { MCPOptions, StdioOptionsSchema, StreamableHTTPOptionsSchema } from 'coderax-data-provider';
 import type { TUser } from 'coderax-data-provider';
 import type { IUser } from '@coderax/data-schemas';
 import type { GraphTokenResolver } from '~/utils/graph';
@@ -803,7 +799,7 @@ describe('Environment Variable Extraction (MCP)', () => {
     });
 
     it('should correctly process a mix of all variable types', () => {
-      const user = createTestUser({ id: 'userXYZ', username: 'john.doe' });
+      const user = createTestUser({ id: 'userXYZ', username: 'example' });
       const customUserVars = {
         CUSTOM_ENDPOINT_ID: 'ep123',
         ANOTHER_CUSTOM: 'another_val',

@@ -197,7 +197,8 @@ export function evaluate(snapshot) {
   if (checks.observed.length === 0 && now - startedAt < config.registrationMs) {
     return {
       decision: 'wait',
-      reason: 'No component check has registered yet; path filters may have excluded every workflow.',
+      reason:
+        'No component check has registered yet; path filters may have excluded every workflow.',
       counts,
       signature: currentSignature,
       lastChangeAt: effectiveLastChange,
@@ -235,22 +236,27 @@ function headers(token) {
   };
 }
 
-async function getJson(url, token) {
-  const response = await fetch(url, { headers: headers(token) });
+async function getResponse(url, token, signal) {
+  const response = await fetch(url, { headers: headers(token), signal });
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText} for ${url}`);
   }
-  return response.json();
+  return response;
 }
 
-async function collectCheckRuns(repo, sha, token) {
+async function collectCheckRuns(repo, sha, token, signal) {
   const runs = [];
   for (let page = 1; page <= 10; page += 1) {
-    const body = await getJson(
+    const response = await getResponse(
       `${API_ROOT}/repos/${repo}/commits/${sha}/check-runs?filter=latest&per_page=100&page=${page}`,
       token,
+      signal,
     );
-    const batch = body?.check_runs ?? [];
+    const body = await response.json();
+    const batch = body.check_runs;
+    if (!Array.isArray(batch)) {
+      throw new Error('Invalid check runs response.');
+    }
     runs.push(...batch);
     if (batch.length < 100 || runs.length >= (body?.total_count ?? 0)) {
       break;
@@ -259,9 +265,23 @@ async function collectCheckRuns(repo, sha, token) {
   return runs;
 }
 
-async function collectStatuses(repo, sha, token) {
-  const body = await getJson(`${API_ROOT}/repos/${repo}/commits/${sha}/status`, token);
-  return body?.statuses ?? [];
+async function collectStatuses(repo, sha, token, signal) {
+  const statuses = [];
+  for (let page = 1; ; page += 1) {
+    const response = await getResponse(
+      `${API_ROOT}/repos/${repo}/commits/${sha}/status?per_page=100&page=${page}`,
+      token,
+      signal,
+    );
+    const body = await response.json();
+    if (!Array.isArray(body.statuses)) {
+      throw new Error('Invalid commit statuses response.');
+    }
+    statuses.push(...body.statuses);
+    if (!response.headers.get('link')?.includes('rel="next"')) {
+      return statuses;
+    }
+  }
 }
 
 function summarize(result) {
@@ -302,34 +322,40 @@ async function main() {
   let result;
 
   for (;;) {
-    const now = Date.now();
-    let runs = [];
-    let statuses = [];
     try {
-      [runs, statuses] = await Promise.all([
-        collectCheckRuns(repo, sha, token),
-        collectStatuses(repo, sha, token),
+      const remainingMs = Math.max(1, config.timeoutMs - (Date.now() - startedAt));
+      const signal = AbortSignal.timeout(remainingMs);
+      const [runs, statuses] = await Promise.all([
+        collectCheckRuns(repo, sha, token, signal),
+        collectStatuses(repo, sha, token, signal),
       ]);
+      const now = Date.now();
+      result = evaluate({
+        runs,
+        statuses,
+        now,
+        startedAt,
+        lastChangeAt,
+        previousSignature,
+        config,
+      });
+      previousSignature = result.signature;
+      lastChangeAt = result.lastChangeAt;
+      console.log(`[${new Date(now).toISOString()}] ${result.decision}: ${result.reason}`);
+      if (result.decision !== 'wait') {
+        break;
+      }
     } catch (error) {
-      // An unreadable check list is not a pass: keep polling until the budget runs out.
       console.log(`::warning title=CI gate::Could not read checks: ${error.message}`);
-    }
-
-    result = evaluate({ runs, statuses, now, startedAt, lastChangeAt, previousSignature, config });
-    previousSignature = result.signature;
-    lastChangeAt = result.lastChangeAt;
-    console.log(`[${new Date(now).toISOString()}] ${result.decision}: ${result.reason}`);
-
-    if (result.decision !== 'wait') {
-      break;
-    }
-    if (now - startedAt >= config.timeoutMs) {
-      result = {
-        ...result,
-        decision: 'fail',
-        reason: `Timed out after ${Math.round((now - startedAt) / 60_000)} minutes: ${result.reason}`,
-      };
-      break;
+      lastChangeAt = Date.now();
+      if (lastChangeAt - startedAt >= config.timeoutMs) {
+        result = {
+          decision: 'fail',
+          reason: 'Timed out without a complete snapshot of check runs and commit statuses.',
+          counts: result?.counts ?? { observed: 0, passing: 0, failing: 0, pending: 0 },
+        };
+        break;
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
