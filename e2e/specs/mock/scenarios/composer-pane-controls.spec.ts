@@ -7,7 +7,6 @@ import {
   fetchJson,
   getAccessToken,
   requestJson,
-  selectMockEndpoint,
   sendMessage,
 } from '../helpers';
 
@@ -25,8 +24,10 @@ test('stops a run from a portaled composer control @scenario:stop-from-a-portale
 }) => {
   test.setTimeout(120000);
 
-  await page.goto(NEW_CHAT_PATH, { timeout: 10000 });
-  await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
+  const { label: endpoint, model } = MOCK_ENDPOINTS[0];
+  const query = new URLSearchParams({ endpoint, model });
+  await page.goto(`${NEW_CHAT_PATH}?${query}`, { timeout: 10000 });
+  await expect(page.getByRole('button', { name: /^Thinking: / })).toBeVisible();
 
   const label = `portaled-stop-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   const messages = page.getByTestId('messages-view');
