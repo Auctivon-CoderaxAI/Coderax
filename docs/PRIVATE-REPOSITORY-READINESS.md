@@ -1,6 +1,6 @@
 # Private-repository readiness — Coderax
 
-Status: prepared for GitHub Free private operation at $0 additional spend. Visibility is unchanged.
+Status: **not yet ready** for GitHub Free private operation at $0 additional spend. Visibility is unchanged. The workflow cleanup is prepared, but the measured Actions-minute budget below is a blocking constraint.
 
 ## Removed workflows
 
@@ -32,6 +32,19 @@ Nine workflows were starter templates or leftovers that cannot apply here:
 - **Cross-repository fixture**: hosted macOS acceptance runs only on manual dispatch from `main`. Keep the fixture token out of repository and organization secrets. On a plan that enforces environment restrictions, use the `native-workspace-acceptance` environment with access limited to the `main` branch, require review where supported, and store `NATIVE_CODE_REPO_TOKEN` there with read-only access to the fixture repository. Set `NATIVE_CODE_REPOSITORY` if the fixture repository has moved.
 - **Rulesets / protected branches** are unavailable for private repos on Free. The `test` aggregation job remains advisory; enforcement needs Team or a manual merge policy.
 
+## CI minute budget (blocking)
+
+GitHub-hosted standard runners are free for public repositories. A private repository on GitHub Free shares 2,000 included Actions minutes per month across the organization; macOS minutes count 10× and Windows minutes 2×.
+
+Measured on 2026-11-26 from the repository's own run records: the 1,000 most recent workflow runs in the preceding 30 days contain at least **6,659 minutes of wall-clock run time**. That is a lower bound — the sample stops at 1,000 runs — and it excludes the macOS and Windows multipliers, so the billable total is higher than the 2,000 included minutes. Superseded and failed runs are included because GitHub bills the runner time they consume.
+
+Privatizing now would exceed the included allowance and can block Actions or incur charges, violating the $0 requirement. Do not change visibility until one of these is true:
+
+- billable usage for a full month measures below 2,000 minutes after the workflow cleanup; or
+- an authorized cloud-hosted self-hosted runner (for example Oracle Always Free, which already hosts this deployment) carries the heavy lanes, and GitHub-hosted usage stays within the allowance.
+
+A self-hosted runner on the owner's personal computer is excluded by the cloud-only policy. Re-measure from the billing usage API before changing visibility; the run-duration estimate above is not a billing statement.
+
 ## Cost posture
 
 - GitHub-hosted standard runners only; no self-hosted runner is referenced.
@@ -41,6 +54,7 @@ Nine workflows were starter templates or leftovers that cannot apply here:
 
 ## Owner action before privatizing
 
+0. Approve a CI-minute plan before changing visibility. Measure billable Actions usage for a full month; if it exceeds 2,000 minutes, remove or narrow lanes or attach an authorized cloud self-hosted runner first. The public repository is free today.
 1. For PRs affecting native acceptance, review the exact proposed revision before running both [native acceptance variants](../e2e/byom/README.md) on a trusted Mac with the pinned fixture revision. Record the tested SHA and result in the PR before merging. On GitHub Free private repositories, use this local procedure because the protected environment and its secret are unavailable. Remove any repository or organization copy of the fixture token before enabling this workflow. A successful `Native workspace acceptance not verified` job reports that the hosted macOS tests did not run; it does not satisfy the acceptance requirement.
 2. Arrange a manual npm release approval process: have an independent reviewer record approval for the exact release commit in the release PR. An authorized maintainer dispatches the publish workflow on `main` only while that commit is its tip and confirms the run used the approved SHA. Verify the npm trusted publisher configuration and identify any dependency on environment secrets before cutover. If a run is canceled, check the registry version and run SHA before retrying: a canceled run can already have published. If manual approval is insufficient, keep the repository public until an enforceable release gate is in place.
 3. Enable `ALLOW_IMAGE_PUBLISH=true` only if automatic main-branch builds and pushes to both registries are wanted.
