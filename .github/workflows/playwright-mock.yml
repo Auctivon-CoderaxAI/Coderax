@@ -168,7 +168,8 @@ jobs:
       (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) ||
       github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The serial memory shards need more than 30 minutes including setup.
+    timeout-minutes: 45
     # Separate runners isolate each shard's user, MongoDB, Redis and fixture state.
     # Keep workers: 1 in Playwright; shared-user cleanup is not worker-safe.
     strategy:
