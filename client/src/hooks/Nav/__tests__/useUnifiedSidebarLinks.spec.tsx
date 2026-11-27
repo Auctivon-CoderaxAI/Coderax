@@ -1,12 +1,8 @@
 import { MemoryRouter } from 'react-router-dom';
 import { renderHook } from '@testing-library/react';
-import {
-  EModelEndpoint,
-  Permissions,
-  PermissionTypes,
-  SystemRoles,
-} from 'coderax-data-provider';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
 import type { ReactNode } from 'react';
+import { SchedulePanel } from '~/components/SidePanel/Schedules';
 import useUnifiedSidebarLinks from '../useUnifiedSidebarLinks';
 
 let mockUser: { role: SystemRoles } = { role: SystemRoles.ADMIN };
@@ -16,22 +12,20 @@ let mockAgentAccess = { use: false, create: false };
 let mockResearchAccess: { canAccess: boolean } | undefined;
 let mockEndpointsConfig: Record<string, { disableBuilder?: boolean }> | undefined;
 
-const mockHasAccess = jest.fn(
-  (request: { permissionType: unknown; permission: unknown }) => {
-    if (request.permissionType === PermissionTypes.SCHEDULES) {
-      return mockScheduleAccess;
+const mockHasAccess = jest.fn((request: { permissionType: unknown; permission: unknown }) => {
+  if (request.permissionType === PermissionTypes.SCHEDULES) {
+    return mockScheduleAccess;
+  }
+  if (request.permissionType === PermissionTypes.AGENTS) {
+    if (request.permission === Permissions.USE) {
+      return mockAgentAccess.use;
     }
-    if (request.permissionType === PermissionTypes.AGENTS) {
-      if (request.permission === Permissions.USE) {
-        return mockAgentAccess.use;
-      }
-      if (request.permission === Permissions.CREATE) {
-        return mockAgentAccess.create;
-      }
+    if (request.permission === Permissions.CREATE) {
+      return mockAgentAccess.create;
     }
-    return false;
-  },
-);
+  }
+  return false;
+});
 
 jest.mock('~/hooks', () => ({
   useAuthContext: () => ({ user: mockUser }),
@@ -59,11 +53,6 @@ jest.mock('~/components/SidePanel/Schedules', () => ({
   SchedulePanel: () => null,
 }));
 
-jest.mock('~/components/Taskbar/PluginsPanel', () => ({
-  __esModule: true,
-  default: () => null,
-}));
-
 function wrapper({ children }: { children: ReactNode }) {
   return <MemoryRouter>{children}</MemoryRouter>;
 }
@@ -87,7 +76,6 @@ describe('Coderax sidebar links', () => {
     expect(result.current.map((link) => link.id)).toEqual([
       'conversations',
       EModelEndpoint.agents,
-      'plugins',
       'games',
       'research',
     ]);
@@ -105,25 +93,24 @@ describe('Coderax sidebar links', () => {
     expect(result.current.map((link) => link.id)).toEqual([
       'conversations',
       'schedules',
-      'plugins',
       'games',
       'research',
     ]);
-    expect(result.current.find((link) => link.id === 'schedules')?.Component).toBeDefined();
+    expect(result.current.find((link) => link.id === 'schedules')?.Component).toBe(SchedulePanel);
     expect(result.current.find((link) => link.id === 'games')?.onClick).toBeDefined();
   });
 
   it('omits owner-only Game Studio and inaccessible Agent Builder for a non-owner', () => {
     mockUser = { role: SystemRoles.USER };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations']);
   });
 
   it('follows the advertised research policy without exposing Game Studio', () => {
     mockUser = { role: SystemRoles.USER };
     mockResearchAccess = { canAccess: true };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins', 'research']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'research']);
   });
 
   it('does not offer Agent Builder when the endpoint disables it', () => {
@@ -154,16 +141,22 @@ describe('Coderax sidebar links', () => {
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
     expect(result.current.some((link) => link.id === EModelEndpoint.agents)).toBe(false);
   });
-  it.each([true, {}, { use: true }])('includes schedules when configured (%j)', (config) => {
+
+  it.each([true, {}, { use: true }])('opens schedule management when opted in (%j)', (config) => {
     mockUser = { role: SystemRoles.USER };
     mockScheduleAccess = true;
     mockSchedulesConfig = config;
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.find((link) => link.id === 'schedules')?.Component).toBeDefined();
+
+    expect(mockHasAccess).toHaveBeenCalledWith({
+      permissionType: PermissionTypes.SCHEDULES,
+      permission: Permissions.USE,
+    });
+    expect(result.current.find((link) => link.id === 'schedules')?.Component).toBe(SchedulePanel);
   });
 
   it.each([undefined, false, { use: false }])(
-    'hides schedules when disabled by deployment config (%j)',
+    'hides schedule management when the deployment has it disabled (%j)',
     (config) => {
       mockScheduleAccess = true;
       mockSchedulesConfig = config;
@@ -172,11 +165,10 @@ describe('Coderax sidebar links', () => {
     },
   );
 
-  it('hides schedules without schedule permission', () => {
+  it('hides schedule management without schedule permission', () => {
     mockScheduleAccess = false;
     mockSchedulesConfig = true;
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
     expect(result.current.some((link) => link.id === 'schedules')).toBe(false);
   });
-
 });
