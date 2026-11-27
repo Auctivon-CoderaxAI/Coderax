@@ -605,7 +605,9 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions): EngineAd
         // A transport-only caller has no endpoint to probe; its injected transport
         // is already the readiness boundary. Supplying a probe here would demand a
         // baseURL that caller never needed. An explicitly injected probe is kept.
-        options.baseURL ? { ...options, probe: () => refresh(request.signal) } : options,
+        options.baseURL
+          ? { ...options, probe: options.probe ?? (() => refresh(request.signal)) }
+          : options,
         request,
       ),
   };
