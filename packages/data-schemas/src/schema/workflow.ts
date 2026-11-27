@@ -197,6 +197,8 @@ const workflowRunEventSchema = new Schema(
     type: { type: String, enum: WORKFLOW_RUN_EVENT_TYPES, required: true },
     stepId: { type: String },
     message: { type: String, maxlength: 2_048 },
+    /** Durable stream cursor; absent only on rows written before it existed. */
+    seq: { type: Number, min: 1 },
   },
   { _id: false },
 );

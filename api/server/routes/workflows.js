@@ -31,6 +31,7 @@ router.post('/', handle(handlers.createWorkflow));
 router.get('/templates', handle(handlers.listTemplates));
 router.post('/builds', handle(handlers.startBuild));
 
+router.get('/runs', handle(handlers.listAllRuns));
 router.get('/runs/:runId', handle(handlers.getRun));
 router.get('/runs/:runId/stream', handle(handlers.streamRun));
 router.get('/runs/:runId/export', handle(handlers.exportRun));

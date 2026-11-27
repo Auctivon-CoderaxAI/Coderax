@@ -40,6 +40,7 @@ const {
   releaseWorkRun,
 } = require('./workChat');
 const { createWorkApiRouter } = require('./workApi');
+const { sseEventIds, idempotencyKeyAs } = require('@coderax/api');
 
 const listAgentPages = createWorkAgentPageLoader((input) => db.getListAgentsByAccess(input));
 
@@ -155,6 +156,12 @@ const workChatRouter = getWorkChatRouter({
   engineChat,
 });
 const chatRouter = express.Router();
+/** A retried start carries the same key, so the controller resolves it to the
+ *  live generation instead of starting a second one. */
+chatRouter.post('/chat', idempotencyKeyAs('clientRequestId'));
+/** Every streamed frame names its cursor, so a client that lost the connection
+ *  knows which frame it last applied. */
+chatRouter.use('/chat', sseEventIds());
 chatRouter.use('/chat', strictConfigMiddleware);
 chatRouter.use(workChatRouter);
 

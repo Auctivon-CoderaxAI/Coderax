@@ -142,6 +142,13 @@ export interface CompleteWorkflowScheduleClaimInput {
   now: Date;
 }
 
+export interface ListWorkflowRunsOptions {
+  status?: WorkflowRunStatus[];
+  /** Only runs created strictly before this instant: the page cursor. */
+  before?: Date;
+  limit?: number;
+}
+
 export interface WorkflowMethods {
   createWorkflow: (input: CreateWorkflowInput) => Promise<IWorkflow>;
   listWorkflows: (userId: string) => Promise<IWorkflow[]>;
@@ -156,7 +163,11 @@ export interface WorkflowMethods {
   deleteWorkflowsByUser: (userId: string) => Promise<void>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<IWorkflowRun>;
   getWorkflowRun: (id: string, userId: string) => Promise<IWorkflowRun | null>;
-  listWorkflowRuns: (userId: string, workflowId?: string) => Promise<IWorkflowRun[]>;
+  listWorkflowRuns: (
+    userId: string,
+    workflowId?: string,
+    options?: ListWorkflowRunsOptions,
+  ) => Promise<IWorkflowRun[]>;
   claimWorkflowRuns: (input: ClaimWorkflowRunsInput) => Promise<IWorkflowRun[]>;
   updateWorkflowRun: (input: UpdateWorkflowRunInput) => Promise<IWorkflowRun | null>;
   /** Lease-fenced renewal; false means another worker owns the run now. */
@@ -271,8 +282,21 @@ function event(
   return { type, at, ...extra };
 }
 
+/** A run's first events, numbered from one like every later append. */
+function initialEvents(entries: IWorkflowRunEvent[]): IWorkflowRunEvent[] {
+  return entries.map((entry, index) => ({ ...entry, seq: index + 1 }));
+}
+
+/**
+ * Appends one event under a sequence that is never reused. The retained log
+ * keeps the last 200 entries with their sequences, so a reader's cursor stays
+ * valid after truncation. A row written before sequences existed falls back to
+ * its length, which is the position such a reader already assumes.
+ */
 function withEvent(events: IWorkflowRunEvent[], entry: IWorkflowRunEvent): IWorkflowRunEvent[] {
-  const next = [...events, entry];
+  const last = events[events.length - 1];
+  const nextSequence = Math.max(last?.seq ?? 0, events.length) + 1;
+  const next = [...events, { ...entry, seq: nextSequence }];
   return next.length > WORKFLOW_EVENTS_MAX ? next.slice(-WORKFLOW_EVENTS_MAX) : next;
 }
 
@@ -533,11 +557,11 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
             ? {}
             : { onCompleteWorkflowId: input.onCompleteWorkflowId }),
           ...(input.dedupeKey == null ? {} : { dedupeKey: input.dedupeKey }),
-          events: [
+          events: initialEvents([
             event('run.queued', createdAt, {
               ...(input.trigger == null ? {} : { message: input.trigger.type }),
             }),
-          ],
+          ]),
         });
       } catch (error) {
         if (isWorkspaceReservationConflict(error) && workspaceKey != null) {
@@ -561,15 +585,23 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
         .findOne({ id, user: objectId(userId) })
         .lean<IWorkflowRun | null>(),
 
-    listWorkflowRuns: async (userId, workflowId) => {
+    listWorkflowRuns: async (userId, workflowId, options) => {
       const filter: Record<string, unknown> = { user: objectId(userId) };
       if (workflowId != null) {
         filter.workflowId = workflowId;
       }
+      if (options?.status != null && options.status.length > 0) {
+        filter.status = { $in: options.status };
+      }
+      if (options?.before != null) {
+        filter.createdAt = { $lt: options.before };
+      }
+      const requested = options?.limit ?? WORKFLOW_RUNS_PAGE_MAX;
+      const limit = Math.min(Math.max(requested, 1), WORKFLOW_RUNS_PAGE_MAX);
       return runModel()
         .find(filter)
         .sort({ createdAt: -1 })
-        .limit(WORKFLOW_RUNS_PAGE_MAX)
+        .limit(limit)
         .lean<IWorkflowRun[]>();
     },
 
@@ -871,12 +903,12 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
             label: input.eventType,
           },
           workflowAncestry: [workflow.id],
-          events: [
+          events: initialEvents([
             event('trigger.fired', input.now, {
               message: `${input.eventType} from ${input.sourceId}`,
             }),
             event('run.queued', input.now, { message: 'event' }),
-          ],
+          ]),
           dedupeKey,
         });
         return created.toObject() as IWorkflowRun;
@@ -989,12 +1021,12 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
             label: scheduledFor.toISOString(),
           },
           workflowAncestry: [workflow.id],
-          events: [
+          events: initialEvents([
             event('trigger.fired', now, {
               message: `Schedule fired for ${scheduledFor.toISOString()}`,
             }),
             event('run.queued', now, { message: 'schedule' }),
-          ],
+          ]),
           dedupeKey,
         });
         created = (created as unknown as { toObject: () => IWorkflowRun }).toObject();

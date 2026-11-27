@@ -1,4 +1,5 @@
 const accessPermissions = require('./accessPermissions');
+const apiMeta = require('./apiMeta');
 const assistants = require('./assistants');
 const categories = require('./categories');
 const adminAuth = require('./admin/auth');
@@ -51,6 +52,7 @@ const insights = require('./insights');
 const studio = require('./studio');
 
 module.exports = {
+  apiMeta,
   insights,
   studio,
   rum,
