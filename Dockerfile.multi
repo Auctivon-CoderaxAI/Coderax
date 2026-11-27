@@ -81,6 +81,11 @@ RUN npm run build
 
 # Client build
 FROM base AS client-build
+# The client's postbuild hook writes client/dist/deployment.json by running this
+# script from /app/scripts. Copy it before changing the working directory; the
+# image has no .git, so the marker records `commit: null` and the release gate
+# refuses to deploy it rather than claiming an unidentified revision.
+COPY scripts/write-deployment-metadata.mjs ./scripts/write-deployment-metadata.mjs
 WORKDIR /app/client
 COPY client ./
 COPY scripts/write-deployment-metadata.mjs /app/scripts/write-deployment-metadata.mjs
