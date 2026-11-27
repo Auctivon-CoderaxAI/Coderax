@@ -518,7 +518,7 @@ function Bar({
               models automatically. It sits beside the mic, where Work names the
               model its next message will use. */}
           {index === 0 && showWorkAgentSelector && (
-            <div className="max-w-full shrink overflow-hidden">
+            <div className="max-w-full min-w-0 shrink overflow-visible">
               <WorkAgentConversationSelector />
             </div>
           )}

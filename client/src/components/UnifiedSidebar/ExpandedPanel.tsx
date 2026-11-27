@@ -1,4 +1,5 @@
 import { memo, useCallback, Suspense } from 'react';
+import { useAtomValue } from 'jotai';
 import { SquarePen } from 'lucide-react';
 import { Skeleton, Sidebar, Button, TooltipAnchor } from '@coderax/client';
 import type { NavLink } from '~/common';
@@ -7,6 +8,7 @@ import { useActivePanel, resolveActivePanel, DEFAULT_PANEL } from '~/Providers';
 import { CLOSE_SIDEBAR_ID } from '~/components/Chat/Menus/OpenSidebar';
 import useRouteActiveId from '~/hooks/Nav/useRouteActiveId';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
+import { unreadCountAtom } from '~/store/recents';
 import useNewChat from '~/hooks/Chat/useNewChat';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
@@ -70,6 +72,13 @@ const NavIconButton = memo(function NavIconButton({
   onLeaveInsights?: () => void;
 }) {
   const localize = useLocalize();
+  const unreadCount = useAtomValue(unreadCountAtom);
+  const showsUnread = link.id === 'conversations' && unreadCount > 0;
+  const unreadDescriptionId = `${link.id}-unread-description`;
+  const unreadLabel = localize(
+    unreadCount === 1 ? 'com_a11y_recents_unread' : 'com_a11y_recents_unread_plural',
+    { count: unreadCount },
+  );
 
   const handleClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -103,16 +112,26 @@ const NavIconButton = memo(function NavIconButton({
           size="icon"
           variant="ghost"
           aria-label={localize(link.title)}
+          aria-describedby={showsUnread ? unreadDescriptionId : undefined}
           aria-pressed={isActive}
           disabled={link.disabled}
           data-testid={`nav-panel-${link.id}`}
           className={cn(
-            'h-9 w-9 rounded-lg',
+            'relative h-9 w-9 rounded-lg',
             isActive ? 'bg-surface-active-alt text-text-primary' : 'text-text-secondary',
           )}
           onClick={handleClick}
         >
           <link.icon className="h-5 w-5" aria-hidden="true" />
+          {showsUnread && (
+            <>
+              <span
+                aria-hidden="true"
+                className="bg-status-info ring-surface-primary-alt pointer-events-none absolute top-1 right-1 size-2 rounded-full ring-2"
+              />
+              <span id={unreadDescriptionId} className="sr-only">{unreadLabel}</span>
+            </>
+          )}
         </Button>
       }
     />

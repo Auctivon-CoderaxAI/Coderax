@@ -1635,6 +1635,8 @@
   "com_ui_change_version": "Change Version",
   "com_ui_chat": "Chat",
   "com_ui_chat_history": "Chat History",
+  "com_a11y_recents_unread": "Recents, {{count}} unread completion",
+  "com_a11y_recents_unread_plural": "Recents, {{count}} unread completions",
   "com_ui_chat_list": "Chat list",
   "com_ui_chat_options": "Chat options",
   "com_ui_chat_options_link_active": "Chat options, link active",
