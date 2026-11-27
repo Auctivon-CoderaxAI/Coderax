@@ -1,6 +1,7 @@
 import { createAgentQueuedTurnModel, createAgentQueuedTurnSequenceModel } from './queuedTurn';
 import { createToolStandingAuthorizationModel } from './toolStandingAuthorization';
 import { createAgentTriggerLaneSequenceModel } from './triggerLaneSequence';
+import { createConversationAuthorityModel } from './conversationAuthority';
 import { createScheduleModel, createScheduleRunModel } from './schedule';
 import { createWorkflowModel, createWorkflowRunModel } from './workflow';
 import { getTenantIndexMigrationHint } from '~/migrations/tenantIndexes';
@@ -95,6 +96,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
   SharedLink: ReturnType<typeof createSharedLinkModel>;
   ToolCall: ReturnType<typeof createToolCallModel>;
   WorkRun: ReturnType<typeof createWorkRunModel>;
+  ConversationAuthority: ReturnType<typeof createConversationAuthorityModel>;
   MemoryEntry: ReturnType<typeof createMemoryModel>;
   ToolFavorite: ReturnType<typeof createToolFavoriteModel>;
   AccessRole: ReturnType<typeof createAccessRoleModel>;
@@ -153,6 +155,7 @@ export function createModels(mongoose: typeof import('mongoose')): {
     SharedLink: createSharedLinkModel(mongoose),
     ToolCall: createToolCallModel(mongoose),
     WorkRun: createWorkRunModel(mongoose),
+    ConversationAuthority: createConversationAuthorityModel(mongoose),
     MemoryEntry: createMemoryModel(mongoose),
     ToolFavorite: createToolFavoriteModel(mongoose),
     AccessRole: createAccessRoleModel(mongoose),

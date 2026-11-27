@@ -13,15 +13,24 @@ import type { Request } from 'express';
 
 export type OwnerIdentity = { userId: string };
 
+export type OwnerPolicy = { ownerUserId?: string | null };
+
 export type OwnerGateResult =
   | { ok: true; value: OwnerIdentity }
   | {
       ok: false;
-      status: 401 | 403;
-      code: 'WORKFLOW_ENGINE_UNAUTHENTICATED' | 'WORKFLOW_ENGINE_FORBIDDEN';
+      status: 401 | 403 | 503;
+      code:
+        | 'WORKFLOW_ENGINE_UNAUTHENTICATED'
+        | 'WORKFLOW_ENGINE_FORBIDDEN'
+        | 'WORKFLOW_ENGINE_OWNER_UNCONFIGURED';
     };
 
-export function requireOwner(req: Pick<Request, 'user'>): OwnerGateResult {
+export function requireOwner(req: Pick<Request, 'user'>, policy?: OwnerPolicy): OwnerGateResult {
+  const ownerUserId = typeof policy?.ownerUserId === 'string' ? policy.ownerUserId.trim() : '';
+  if (!ownerUserId) {
+    return { ok: false, status: 503, code: 'WORKFLOW_ENGINE_OWNER_UNCONFIGURED' };
+  }
   const user = req.user as { id?: unknown; role?: unknown; tenantId?: unknown } | undefined;
   // The authenticated session is the only identity source. A caller-supplied
   // userId is not part of this input type and is never consulted.
@@ -30,7 +39,7 @@ export function requireOwner(req: Pick<Request, 'user'>): OwnerGateResult {
     return { ok: false, status: 401, code: 'WORKFLOW_ENGINE_UNAUTHENTICATED' };
   }
   // A tenant administrator cannot use a deployment-wide engine credential.
-  if (user?.role !== SystemRoles.ADMIN || user.tenantId != null) {
+  if (user?.role !== SystemRoles.ADMIN || user.tenantId != null || userId !== ownerUserId) {
     return { ok: false, status: 403, code: 'WORKFLOW_ENGINE_FORBIDDEN' };
   }
   return { ok: true, value: { userId } };

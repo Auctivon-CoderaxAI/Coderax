@@ -11,12 +11,12 @@ const env = { CODERAX_ENGINE_TOKEN: 'server-token' } as NodeJS.ProcessEnv;
 
 describe('WorkflowEngine gateway configuration', () => {
   it('keeps the YAML value unchanged when no root override exists', () => {
-    const yaml = { enabled: true, baseURL: 'https://yaml.example', requestTimeoutMs: 5_000 };
+    const yaml = { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://yaml.example', requestTimeoutMs: 5_000 };
     expect(resolveGatewayOptions({ config: { workflowEngine: yaml } })).toEqual(yaml);
   });
 
   it('lets an owner disable an enabled deployment and tune request limits', () => {
-    const yaml = { enabled: true, baseURL: 'https://yaml.example', tokenEnv: 'YAML_TOKEN' };
+    const yaml = { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://yaml.example', tokenEnv: 'YAML_TOKEN' };
     expect(
       resolveGatewayOptions(
         { config: { workflowEngine: yaml } },
@@ -33,19 +33,21 @@ describe('WorkflowEngine gateway configuration', () => {
     (yaml) => {
       const options = resolveGatewayOptions(
         { config: { workflowEngine: yaml } },
-        { enabled: true, baseURL: 'https://override.example' },
+        { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://override.example' },
       );
       expect(resolveGatewayConfig(options, env)).toEqual({ ok: true, value: { enabled: false } });
     },
   );
 
   it('uses only the deployment destination, token source, version and startup policy', () => {
-    const yaml = { enabled: true, baseURL: 'https://yaml.example', startupCheck: true };
+    const yaml = { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://yaml.example', startupCheck: true };
     expect(
       resolveGatewayOptions(
         { config: { workflowEngine: yaml } },
         {
           baseURL: 'https://override.example',
+          ownerUserId: 'other_owner',
+          conversations: ['other_convo'],
           tokenEnv: 'OTHER_SECRET',
           contractVersion: '2.0.0',
           startupCheck: false,
@@ -65,14 +67,14 @@ describe('WorkflowEngine gateway configuration', () => {
     ['https://engine.example///', 'https://engine.example'],
     ['https://engine.example/proxy//engine///', 'https://engine.example/proxy//engine'],
   ])('normalizes trailing slashes in %s without changing the path prefix', (baseURL, expected) => {
-    expect(resolveGatewayConfig({ enabled: true, baseURL }, env)).toMatchObject({
+    expect(resolveGatewayConfig({ enabled: true, ownerUserId: 'owner_1', baseURL }, env)).toMatchObject({
       ok: true,
       value: { baseURL: expected },
     });
   });
 
   it('defaults every transport limit to the previous behavior', () => {
-    const result = resolveGatewayConfig({ enabled: true, baseURL: 'https://engine.example' }, env);
+    const result = resolveGatewayConfig({ enabled: true, ownerUserId: 'owner_1', baseURL: 'https://engine.example' }, env);
     expect(result.ok).toBe(true);
     if (!result.ok || !result.value.enabled) {
       return;
@@ -89,7 +91,7 @@ describe('WorkflowEngine gateway configuration', () => {
     { maxEventResyncs: 1.5 },
   ])('rejects an invalid limit (%j)', (limits) => {
     const result = resolveGatewayConfig(
-      { enabled: true, baseURL: 'https://engine.example', ...limits },
+      { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://engine.example', ...limits },
       env,
     );
     expect(result).toMatchObject({
@@ -100,7 +102,7 @@ describe('WorkflowEngine gateway configuration', () => {
 
   it('accepts a zero resync budget', () => {
     const result = resolveGatewayConfig(
-      { enabled: true, baseURL: 'https://engine.example', maxEventResyncs: 0 },
+      { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://engine.example', maxEventResyncs: 0 },
       env,
     );
     expect(result.ok).toBe(true);
@@ -110,10 +112,11 @@ describe('WorkflowEngine gateway configuration', () => {
   });
 
   it('fingerprints the limits without the credential', () => {
-    const first = resolveGatewayConfig({ enabled: true, baseURL: 'https://engine.example' }, env);
+    const first = resolveGatewayConfig({ enabled: true, ownerUserId: 'owner_1', baseURL: 'https://engine.example' }, env);
     const second = resolveGatewayConfig(
       {
         enabled: true,
+        ownerUserId: 'owner_1',
         baseURL: 'https://engine.example',
         maxFrameBytes: 32_768,
       },
@@ -129,7 +132,7 @@ describe('WorkflowEngine gateway configuration', () => {
 
   it('refuses a contract version this build does not implement', () => {
     const result = resolveGatewayConfig(
-      { enabled: true, baseURL: 'https://engine.example', contractVersion: '1.1.0' },
+      { enabled: true, ownerUserId: 'owner_1', baseURL: 'https://engine.example', contractVersion: '1.1.0' },
       env,
     );
     expect(result).toMatchObject({

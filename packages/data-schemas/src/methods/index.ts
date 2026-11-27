@@ -87,6 +87,14 @@ import { createCategoriesMethods, type CategoriesMethods } from './categories';
 import { createPresetMethods, type PresetMethods } from './preset';
 /* Tier 2 — Moderate (service deps injected) */
 import { createConversationTagMethods, type ConversationTagMethods } from './conversationTag';
+import { createConversationAuthorityMethods } from './conversationAuthority';
+export { createConversationAuthorityMethods } from './conversationAuthority';
+export type {
+  AuthorityAdvanceInput,
+  AuthorityCreateResult,
+  ConversationAuthorityMethods,
+  ConversationAuthorityView,
+} from './conversationAuthority';
 import {
   createWorkRunMethods,
   type WorkRunMethods,
@@ -564,6 +572,7 @@ export function createMethods(
     /* Tier 2 */
     ...createConversationTagMethods(mongoose),
     ...createWorkRunMethods(mongoose),
+    ...createConversationAuthorityMethods(mongoose),
     ...createConversationImportMethods(mongoose),
     ...messageMethods,
     ...conversationMethods,

@@ -3,7 +3,8 @@ import { z as zod } from 'zod';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { z } from 'zod';
 import type { ResolvedGatewayConfig, WorkflowEngineGatewayOptions } from './config';
-import type { OwnerGateResult, OwnerIdentity } from './auth';
+import type { OwnerGateResult, OwnerIdentity, OwnerPolicy } from './auth';
+import type { ConversationAuthorityStore } from './authority';
 import type { GatewayConfigFailure } from './config';
 import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
@@ -15,6 +16,7 @@ import {
 } from './compat';
 import { createEngineClient, GatewayTransportError } from './client';
 import { resolveGatewayConfig } from './config';
+import { createConversationAuthority } from './authority';
 import { contractSchemas } from './contracts';
 import { requireOwner } from './auth';
 
@@ -50,9 +52,10 @@ export type WorkflowEngineGatewayDeps = {
     | Promise<WorkflowEngineGatewayOptions | null | undefined>;
   env?: NodeJS.ProcessEnv;
   fetch?: GatewayFetch;
+  authorityStore: ConversationAuthorityStore;
   logger?: WorkflowEngineGatewayLogger;
   /** Injectable for tests; production always uses the owner gate above. */
-  requireOwner?: (req: Pick<Request, 'user'>) => OwnerGateResult;
+  requireOwner?: (req: Pick<Request, 'user'>, policy: OwnerPolicy) => OwnerGateResult;
 };
 
 export type WorkflowEngineGateway = {
@@ -66,8 +69,18 @@ type GatewayContext = {
   owner: OwnerIdentity;
   config: Extract<ResolvedGatewayConfig, { enabled: true }>;
   client: ReturnType<typeof createEngineClient>;
+  authority: ReturnType<typeof createConversationAuthority>;
   compatibility: CompatibilityReport;
 };
+
+/** Reads a conversation id from an opaque stream frame without trusting its shape. */
+function conversationIdOf(frame: unknown): string | null {
+  if (frame == null || typeof frame !== 'object' || Array.isArray(frame)) {
+    return null;
+  }
+  const value = (frame as { conversationId?: unknown }).conversationId;
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
+}
 
 const CONTEXT = 'workflowEngine';
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -80,6 +93,19 @@ class GatewayRequestError extends Error {
     super('gateway request failed');
     this.status = status;
     this.body = body;
+  }
+}
+
+async function* framesWithConversation(
+  frames: AsyncIterable<unknown>,
+  onConversation: (conversationId: string) => void,
+): AsyncGenerator<unknown> {
+  for await (const frame of frames) {
+    const conversationId = conversationIdOf(frame);
+    if (conversationId != null) {
+      onConversation(conversationId);
+    }
+    yield frame;
   }
 }
 
@@ -132,6 +158,7 @@ export function createWorkflowEngineGateway(
     fingerprint: string;
     config: Extract<ResolvedGatewayConfig, { enabled: true }>;
     client: ReturnType<typeof createEngineClient>;
+    authority: ReturnType<typeof createConversationAuthority>;
     pending?: Promise<CompatibilityReport>;
   } | null = null;
 
@@ -156,7 +183,12 @@ export function createWorkflowEngineGateway(
       maxEventResyncs: config.maxEventResyncs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
-    cache = { fingerprint: config.fingerprint, config, client };
+    const authority = createConversationAuthority({
+      store: deps.authorityStore,
+      contractVersion: config.contractVersion,
+      bootstrapConversations: config.conversations,
+    });
+    cache = { fingerprint: config.fingerprint, config, client, authority };
 
     return cache;
   }
@@ -180,11 +212,6 @@ export function createWorkflowEngineGateway(
 
   router.use((req: Request, res: Response, next: NextFunction) => {
     void (async () => {
-      const owner = ownerGate(req);
-      if (!owner.ok) {
-        res.set(NO_STORE).status(owner.status).json({ code: owner.code });
-        return;
-      }
       const resolved = resolveGatewayConfig(await deps.resolveConfig(req), env);
       if (!resolved.ok) {
         const failure = configFailure(resolved);
@@ -198,12 +225,20 @@ export function createWorkflowEngineGateway(
         });
         return;
       }
+      // Administrative role membership is not owner authorization: the session
+      // must also be the identity this deployment designates.
+      const owner = ownerGate(req, { ownerUserId: resolved.value.ownerUserId });
+      if (!owner.ok) {
+        res.set(NO_STORE).status(owner.status).json({ code: owner.code });
+        return;
+      }
       const entry = contextFor(resolved.value);
       const compatibility = await probe(entry);
       const context: GatewayContext = {
         owner: owner.value,
         config: entry.config,
         client: entry.client,
+        authority: entry.authority,
         compatibility,
       };
       res.locals[CONTEXT] = context;
@@ -468,14 +503,59 @@ export function createWorkflowEngineGateway(
         });
         return;
       }
+      // A conversation is executed by exactly one backend. The durable mapping
+      // is claimed before the engine sees the request, so a concurrent replica or
+      // a configuration change cannot dispatch the same conversation twice.
+      const claim =
+        body.conversationId == null
+          ? null
+          : await context.authority.admit({
+              ownerId: context.owner.userId,
+              conversationId: body.conversationId,
+              mode: body.mode,
+            });
+      if (claim != null && !claim.ok) {
+        throw new GatewayRequestError(claim.status, { code: claim.code });
+      }
       const controller = new AbortController();
       res.on('close', () => controller.abort());
-      const outcome = await context.client.submitChat(body, controller.signal);
-      if (outcome.kind === 'json') {
-        res.set(NO_STORE).status(200).json(outcome.reply);
-        return;
+      let recorded = false;
+      const record = (conversationId: string): void => {
+        if (recorded || conversationId === body.conversationId) {
+          return;
+        }
+        recorded = true;
+        void context.authority
+          .register({
+            ownerId: context.owner.userId,
+            conversationId,
+            mode: body.mode,
+          })
+          .catch(() => false);
+      };
+      let completed = false;
+      try {
+        const outcome = await context.client.submitChat(body, controller.signal);
+        if (outcome.kind === 'json') {
+          record(outcome.reply.conversationId);
+          res.set(NO_STORE).status(200).json(outcome.reply);
+          completed = true;
+          return;
+        }
+        await stream(res, controller.signal, framesWithConversation(outcome.frames, record));
+        completed = true;
+      } finally {
+        if (claim?.ok && body.conversationId != null) {
+          await context.authority
+            .settle({
+              ownerId: context.owner.userId,
+              conversationId: body.conversationId,
+              generation: claim.generation,
+              outcome: completed ? 'settled' : 'failed',
+            })
+            .catch(() => false);
+        }
       }
-      await stream(res, controller.signal, outcome.frames);
     }),
   );
 
@@ -502,8 +582,41 @@ export function createWorkflowEngineGateway(
         });
         return;
       }
-      const accepted = await context.client.submitWork(body);
-      res.set(NO_STORE).status(202).json(accepted);
+      const claim =
+        body.conversationId == null
+          ? null
+          : await context.authority.admit({
+              ownerId: context.owner.userId,
+              conversationId: body.conversationId,
+              mode: body.mode,
+            });
+      if (claim != null && !claim.ok) {
+        throw new GatewayRequestError(claim.status, { code: claim.code });
+      }
+      let accepted: Awaited<ReturnType<typeof context.client.submitWork>> | null = null;
+      try {
+        accepted = await context.client.submitWork(body);
+        await context.authority
+          .register({
+            ownerId: context.owner.userId,
+            conversationId: accepted.conversationId,
+            mode: body.mode,
+          })
+          .catch(() => false);
+        res.set(NO_STORE).status(202).json(accepted);
+      } finally {
+        if (claim?.ok && body.conversationId != null) {
+          await context.authority
+            .settle({
+              ownerId: context.owner.userId,
+              conversationId: body.conversationId,
+              generation: claim.generation,
+              outcome: accepted == null ? 'failed' : 'settled',
+              ...(accepted == null ? {} : { taskId: accepted.taskId }),
+            })
+            .catch(() => false);
+        }
+      }
     }),
   );
 
