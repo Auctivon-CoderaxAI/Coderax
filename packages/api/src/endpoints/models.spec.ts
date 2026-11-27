@@ -452,6 +452,16 @@ describe('getOpenAIModels', () => {
     expect(models).toContain('gpt-5.5');
   });
 
+  it('bypasses the shared model cache when a runtime API key is provided through options', async () => {
+    mockedAxios.get.mockResolvedValue({ data: { data: [{ id: 'gpt-runtime-key' }] } });
+    process.env.OPENAI_API_KEY = AuthType.USER_PROVIDED;
+
+    await getOpenAIModels({ user: 'user456', openAIApiKey: 'sk-runtime' });
+
+    expect(mockCacheGet).not.toHaveBeenCalled();
+    expect(mockCacheSet).not.toHaveBeenCalled();
+  });
+
   it('fetches models when OpenAI API key is provided through options', async () => {
     mockedAxios.get.mockResolvedValue({ data: { data: [{ id: 'gpt-runtime-key' }] } });
     process.env.OPENAI_API_KEY = AuthType.USER_PROVIDED;

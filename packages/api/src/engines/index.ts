@@ -26,6 +26,12 @@ export {
 } from './workChat';
 export type { EngineWorkChatConfig, EngineWorkChatRunner, EngineWorkChatStore } from './workChat';
 export { EngineRunArbiter } from './arbiter';
+export type { EngineRetryPolicy } from './retry';
+export {
+  DEFAULT_ENGINE_RETRY_POLICY,
+  isRetryableStartFailure,
+  normalizeEngineRetryPolicy,
+} from './retry';
 export type { WorkspaceRoots } from './workspace';
 export { resolveEngineWorkspace, validateWorkspaceRoots } from './workspace';
 export type { OpenCodeAdapterOptions, OpenCodeTransport } from './opencode/adapter';

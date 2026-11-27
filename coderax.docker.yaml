@@ -8,6 +8,8 @@ freeInference:
 
 providerFallback:
   enabled: true
+  # No provider is verified $0 yet, so the default gate keeps this chain inert.
+  zeroCostOnly: true
 
 engines:
   workspaces:

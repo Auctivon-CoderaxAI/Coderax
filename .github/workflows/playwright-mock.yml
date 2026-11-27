@@ -168,11 +168,7 @@ jobs:
       (contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association) ||
       github.event.pull_request.head.repo.full_name == github.repository)))
     runs-on: ubuntu-latest
-    # Each memory shard runs ~167 tests and takes about 28-31 minutes serially,
-    # before the cached builds above; at 30 minutes the job cancelled every shard
-    # before its last specs ran, so the lane never reported its real result. The
-    # shard must stay serial (workers: 1) because it shares one user and database,
-    # so give the wall clock room rather than dropping specs or retries.
+    # Serial browser shards need time for setup, retries, and result upload.
     timeout-minutes: 45
     # Separate runners isolate each shard's user, MongoDB, Redis and fixture state.
     # Keep workers: 1 in Playwright; shared-user cleanup is not worker-safe.

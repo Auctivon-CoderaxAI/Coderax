@@ -28,8 +28,8 @@ function fakeStore() {
     async (_conversationId: string): Promise<StoredConversation> => null,
   );
   const saveConversation = jest.fn(
-    async (_input: Parameters<EngineWorkChatStore['saveConversation']>[0]): Promise<void> =>
-      undefined,
+    async (_input: Parameters<EngineWorkChatStore['saveConversation']>[0]): Promise<boolean> =>
+      true,
   );
   const saveMessage = jest.fn(
     async (_input: Parameters<EngineWorkChatStore['saveMessage']>[0]): Promise<void> => undefined,
@@ -73,10 +73,16 @@ function fakeHandle(
   };
 }
 
-function fakeRunner(events: EngineEvent[] = [{ type: 'text_delta', text: 'hello' }]) {
+function fakeRunner(
+  events: EngineEvent[] = [{ type: 'text_delta', text: 'hello' }],
+  options: { generation?: string | null; replaces?: string | null } = {},
+) {
   const handle = fakeHandle(events);
   const start = jest.fn(async (input: StartScope): Promise<StartResult> => {
-    await input.beforeDispatch?.();
+    await input.beforeDispatch?.({
+      generation: options.generation ?? null,
+      replaces: options.replaces ?? null,
+    });
     return { ok: true, value: handle };
   });
   const state = jest.fn(async (_input: RunScope): Promise<string | null> => null);
@@ -819,6 +825,7 @@ describe('createEngineWorkChatHandler', () => {
     const { store, saveConversation } = fakeStore();
     saveConversation.mockImplementation(async (input) => {
       if (input.workState === 'running') throw new Error('database offline');
+      return true;
     });
     const { runner, handle, release } = fakeRunner();
     const reserveRun = jest.fn(() => true);
@@ -848,6 +855,7 @@ describe('createEngineWorkChatHandler', () => {
     const { store, saveConversation, saveMessage } = fakeStore();
     saveConversation.mockImplementation(async (input) => {
       if (input.workState === 'completed') throw new Error('database offline');
+      return true;
     });
     const { runner, handle, release } = fakeRunner([{ type: 'text_delta', text: 'hello' }]);
     const reserveRun = jest.fn(() => true);
@@ -1085,7 +1093,7 @@ describe('createEngineWorkChatHandler', () => {
       signalStart = resolve;
     });
     const start = jest.fn(
-      () =>
+      (_input: Parameters<EngineWorkChatRunner['start']>[0]) =>
         new Promise<StartResult>((resolve) => {
           resolveStart = resolve;
           signalStart?.();
@@ -1120,6 +1128,8 @@ describe('createEngineWorkChatHandler', () => {
       expect(first).toBe('started');
 
       response.listeners.close?.forEach((listener) => listener());
+      expect(start.mock.calls[0][0].signal?.aborted).toBe(true);
+      expect(runner.cancel).not.toHaveBeenCalled();
       resolveStart!({ ok: true, value: handle });
       await pending;
 
@@ -1134,5 +1144,85 @@ describe('createEngineWorkChatHandler', () => {
       resolveStart?.({ ok: true, value: handle });
       await pending.catch(() => undefined);
     }
+  });
+
+  it('stamps the generation handed over before dispatch and fences every terminal write to it', async () => {
+    const { store, saveConversation } = fakeStore();
+    const { runner, start } = fakeRunner([{ type: 'text_delta', text: 'hello' }], {
+      generation: 'run-1',
+      replaces: 'dead-run',
+    });
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(200);
+    /** One startup write, stamped with the exact claim; there is no second one. */
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      title: 'Fix it',
+      workAgent: 'opencode',
+      workState: 'running',
+      create: true,
+      workRunId: 'run-1',
+      claimWorkRun: { generation: 'run-1', replaces: 'dead-run' },
+    });
+    expect(
+      saveConversation.mock.calls.filter(([input]) => input.workState === 'running'),
+    ).toHaveLength(1);
+    expect(saveConversation).toHaveBeenCalledWith({
+      conversationId: CONVERSATION_ID,
+      workState: 'completed',
+      workRunId: null,
+      fenceWorkRun: 'run-1',
+    });
+  });
+
+  it('stops without an unfenced write when a newer run owns the conversation', async () => {
+    const { store, saveConversation } = fakeStore();
+    saveConversation.mockImplementation(async (input) => input.claimWorkRun == null);
+    const { runner, start } = fakeRunner([], { generation: 'run-1' });
+    const { response } = await runHandler({
+      store,
+      runner,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(response.statusCode).toBe(409);
+    expect(response.body).toMatchObject({ code: 'WORK_ENGINE_BUSY' });
+    /** The newer run's row is never touched by the superseded startup. */
+    expect(saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'failed' }),
+    );
+    expect(saveConversation).not.toHaveBeenCalledWith(
+      expect.objectContaining({ workState: 'completed' }),
+    );
+  });
+
+  it('releases the handler reservation even when the lease release throws', async () => {
+    const { store } = fakeStore();
+    const { runner, release } = fakeRunner();
+    release.mockRejectedValueOnce(new Error('lease store down'));
+    const reserveRun = jest.fn(() => true);
+    const releaseRun = jest.fn(() => true);
+    const { response } = await runHandler({
+      store,
+      runner,
+      reserveRun,
+      releaseRun,
+      body: { text: 'Fix it', conversationId: CONVERSATION_ID },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(release).toHaveBeenCalled();
+    expect(releaseRun).toHaveBeenCalledWith({
+      userId: 'owner',
+      tenantId: 'tenant-1',
+      conversationId: CONVERSATION_ID,
+    });
   });
 });

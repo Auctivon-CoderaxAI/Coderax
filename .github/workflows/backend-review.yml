@@ -1,12 +1,12 @@
 name: Backend Unit Tests
 on:
-  # push-to-dev runs are the post-merge safety net: gating only ever narrows pull_request
+  # push-to-main runs are the post-merge safety net: gating only ever narrows pull_request
   # synchronize runs, so every merged state still gets the full suite — which is also what
   # keeps ground-truth recall telemetry alive for the codegraph shadow evaluator once
   # selection hides skipped tests from PR runs.
   push:
     branches:
-      - dev
+      - main
     paths:
       - 'api/**'
       - 'packages/**'
@@ -24,7 +24,7 @@ on:
       - 'config/circular-deps.mjs'
       - '.github/workflows/backend-review.yml'
       - '!**.md'
-  # Promotion requires full CI at the exact dev SHA, including path-filtered commits.
+  # A manual dispatch runs the full suite at the exact commit, including path-filtered changes.
   workflow_dispatch:
 
 permissions:
@@ -33,9 +33,9 @@ permissions:
 
 concurrency:
   # PR pushes supersede each other (per-PR canceling group). Push events get a PER-COMMIT group:
-  # dev-push runs are the post-merge safety net and the full-run baseline, and with a shared
+  # main-push runs are the post-merge safety net and the full-run baseline, and with a shared
   # canceling group closely spaced merges cancel each other's runs — observed live on 2026-08-23,
-  # when three consecutive dev merges cancelled the runs that would have caught #15142's red
+  # when three consecutive main merges cancelled the runs that would have caught #15142's red
   # (Codex P2 on #15145).
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
@@ -151,13 +151,9 @@ jobs:
       vars.CODEGRAPH_GATING != 'off'
     outputs:
       decided: ${{ steps.sel.outputs.decided }}
-      api_run: ${{ steps.sel.outputs.api_run }}
       api_files: ${{ steps.sel.outputs.api_files }}
-      pkgapi_run: ${{ steps.sel.outputs.pkgapi_run }}
       pkgapi_files: ${{ steps.sel.outputs.pkgapi_files }}
-      dataprovider_run: ${{ steps.sel.outputs.dataprovider_run }}
       dataprovider_files: ${{ steps.sel.outputs.dataprovider_files }}
-      dataschemas_run: ${{ steps.sel.outputs.dataschemas_run }}
       dataschemas_files: ${{ steps.sel.outputs.dataschemas_files }}
     steps:
       - name: Select tests, fail open on any doubt
@@ -198,8 +194,7 @@ jobs:
             note "_codegraph unavailable (curl exit $RC: ${RESP:0:120}); running FULL_"
             exit 0
           fi
-          # Emit per-workspace run flag + workspace-relative file list. A workspace emits
-          # run=false ONLY on an explicit NONE; FULL and FILES both run (FILES filtered).
+          # Emit workspace-relative file lists for FILES. NONE runs FULL so required jobs verify tests.
           # Any selected path containing a space forces that workspace FULL (paths are
           # server-validated to exclude quotes/backslashes/control chars, so plain
           # interpolation into the test command below is safe; spaces are the one shape
@@ -209,10 +204,8 @@ jobs:
             mode=$(echo "$RESP" | jq -r --arg w "$ws" '.selected[$w].mode')
             files=""
             if [ "$mode" = "FILES" ]; then
-              # Only an explicit NONE may skip. FILES with a missing/empty list is malformed and
-              # runs FULL (Codex P1 on #15145). A NON-empty list that the ignore regex filters to
-              # nothing is different and legitimately NONE: those files are exactly what this
-              # workspace's own jest run excludes, so full CI would not run them either.
+              # FILES with a missing/empty list is malformed and runs FULL (Codex P1 on #15145).
+              # Fall back to FULL as well if the ignore rules exclude every selected file.
               raw_n=$(echo "$RESP" | jq -r --arg w "$ws" '.selected[$w].files // [] | length')
               # Every selected path must live under the workspace: a wrong-prefixed path would
               # survive ltrimstr, match nothing in the workspace cwd, and --passWithNoTests would
@@ -225,19 +218,14 @@ jobs:
                 files=$(echo "$RESP" | jq -r --arg w "$ws" --arg p "$ws/" --arg ig "$ignore"                 '.selected[$w].files // [] | map(select((test(" ") | not) and (($ig == "") or (test($ig) | not)))) | map(ltrimstr($p)) | join(" ")')
                 spaced=$(echo "$RESP" | jq -r --arg w "$ws" '[.selected[$w].files // [] | .[] | select(test(" "))] | length')
                 if [ "$spaced" != "0" ]; then mode="FULL"; files=""; fi
-                if [ "$mode" = "FILES" ] && [ -z "$files" ]; then mode="NONE"; fi
+                if [ "$mode" = "FILES" ] && [ -z "$files" ]; then mode="FULL"; fi
               fi
             fi
-            if [ "$mode" = "NONE" ]; then
-              echo "${key}_run=false" >> "$GITHUB_OUTPUT"
-              note "| $ws | skip (no reachable tests) |"
-            elif [ "$mode" = "FILES" ]; then
+            if [ "$mode" = "FILES" ]; then
               n=$(echo "$files" | wc -w | tr -d ' ')
-              echo "${key}_run=true" >> "$GITHUB_OUTPUT"
               echo "${key}_files=$files" >> "$GITHUB_OUTPUT"
               note "| $ws | $n selected files |"
             else
-              echo "${key}_run=true" >> "$GITHUB_OUTPUT"
               note "| $ws | FULL |"
             fi
           }
@@ -356,7 +344,7 @@ jobs:
   test-api:
     name: 'Tests: api (shard ${{ matrix.shard }}/3)'
     needs: [build, codegraph_select]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.codegraph_select.outputs.api_run != 'false' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -479,7 +467,7 @@ jobs:
   test-data-provider:
     name: 'Tests: data-provider'
     needs: [build, codegraph_select]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.codegraph_select.outputs.dataprovider_run != 'false' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -564,7 +552,7 @@ jobs:
   test-data-schemas:
     name: 'Tests: data-schemas'
     needs: [build, codegraph_select]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.codegraph_select.outputs.dataschemas_run != 'false' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -655,7 +643,7 @@ jobs:
   test-packages-api:
     name: 'Tests: @coderax/api (shard ${{ matrix.shard }}/4)'
     needs: [build, codegraph_select]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.codegraph_select.outputs.pkgapi_run != 'false' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     # Suite typically completes in ~5 min on a warm runner, but tail-latency
     # cancellations have started showing up: tests are actively passing right

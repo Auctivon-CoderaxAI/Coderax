@@ -47,7 +47,8 @@ const STATE_ALIASES: Record<string, WorkTaskState> = {
 
 export type WorkConversation = {
   conversationId: string;
-  title?: string;
+  /** Persisted rows are not schema-verified by this boundary; `toWorkTask` narrows it. */
+  title?: unknown;
   /** Mongo returns Dates; history normalizes them at this boundary. */
   createdAt?: string | Date;
   updatedAt?: string | Date;
@@ -135,6 +136,16 @@ function toIsoDate(value: string | Date | undefined): string | undefined {
 }
 
 /**
+ * A stored title is untrusted: legacy, imported and hand-repaired rows can hold a
+ * non-string, and one such row used to throw inside the history route and turn the
+ * whole Work panel into an outage. Fall back to the conversation id instead.
+ */
+function taskTitle(conversation: Pick<WorkConversation, 'conversationId' | 'title'>): string {
+  const title = typeof conversation.title === 'string' ? conversation.title.trim() : '';
+  return title || conversation.conversationId;
+}
+
+/**
  * Project a persisted conversation into the shape the Work surface renders.
  * `state` wins when the caller has live run state; otherwise the stored state
  * is used, and a row that has neither reports `unknown`.
@@ -145,7 +156,7 @@ export function toWorkTask(conversation: WorkConversation, state?: string | null
   }
   return {
     id: conversation.conversationId,
-    title: conversation.title?.trim() || conversation.conversationId,
+    title: taskTitle(conversation),
     state: state == null ? resolveStoredWorkState(conversation) : normalizeWorkState(state),
     createdAt: toIsoDate(conversation.createdAt),
     updatedAt: toIsoDate(conversation.updatedAt),

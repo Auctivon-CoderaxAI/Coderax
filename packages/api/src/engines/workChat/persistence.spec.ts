@@ -191,6 +191,45 @@ describe('Work chat persistence adapter', () => {
     expect(fields).not.toHaveProperty('tenantId');
   });
 
+  it('binds a terminal write to the run generation and tolerates a superseded one', async () => {
+    const db = fakeDb();
+    const store = storeFor(db);
+
+    await store.saveConversation({
+      conversationId: 'conversation-1',
+      workState: 'completed',
+      workRunId: null,
+      fenceWorkRun: 'run-1',
+    });
+    expect(db.saveConvo).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner' }),
+      {
+        conversationId: 'conversation-1',
+        isWork: true,
+        workModel: 'opencode',
+        workAgent: 'opencode',
+        workState: 'completed',
+        workRunId: null,
+      },
+      {
+        context: 'Work OpenCode Agent chat conversation',
+        noUpsert: true,
+        workRunGeneration: 'run-1',
+      },
+    );
+
+    /** The generation a retry replaced matches no row: that is not a store failure. */
+    db.saveConvo.mockResolvedValueOnce(null);
+    await expect(
+      store.saveConversation({
+        conversationId: 'conversation-1',
+        workState: 'failed',
+        workRunId: null,
+        fenceWorkRun: 'run-0',
+      }),
+    ).resolves.toBe(false);
+  });
+
   it('refuses to report a conversation the database did not save', async () => {
     const db = fakeDb();
     const store = storeFor(db);

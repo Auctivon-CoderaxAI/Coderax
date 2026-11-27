@@ -1,0 +1,105 @@
+name: Cloudflare production verification
+
+# Workers Builds deploys `main` to the `coderax` Worker. This workflow is the
+# release gate: it never deploys, and it never reports success when the live
+# origin cannot prove which revision it serves. A failed Workers Build leaves
+# the previous deployment in place, so /deployment.json keeps the old commit and
+# this run fails instead of accepting a stale release.
+#
+# Hosted GitHub Actions is billing-blocked on this repository. While that is
+# true this gate has not run; a workflow that cannot start is not a pass, and
+# the equivalent local command remains the evidence.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      production_url:
+        description: 'HTTPS origin of the coderax Worker'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  verify:
+    name: Verify the coderax Worker serves this revision
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      # The workers.dev origin is the Worker's public production host. Override
+      # it with the CODERAX_PRODUCTION_URL repository variable after a custom
+      # domain cutover; an empty value fails instead of skipping verification.
+      PRODUCTION_URL: ${{ github.event.inputs.production_url || vars.CODERAX_PRODUCTION_URL || 'https://coderax.nnabdelshahid.workers.dev' }}
+      EXPECTED_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout merged revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.16.0'
+
+      - name: Validate committed Cloudflare configuration
+        run: node scripts/verify-cloudflare-deployment.mjs --config-only
+
+      - name: Test the edge router and release gate
+        run: node --test worker/index.test.mjs scripts/verify-cloudflare-deployment.test.mjs
+
+      - name: Wait for the Worker to serve this exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PRODUCTION_URL:-}" ]; then
+            echo "::error::No Cloudflare production origin is configured; production cannot be verified."
+            exit 1
+          fi
+          deadline=$((SECONDS + 1200))
+          last='no response'
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(curl -sS --max-time 20 -H 'cache-control: no-cache' \
+              "$PRODUCTION_URL/deployment.json?verify=$RANDOM" 2>/dev/null || true)
+            last=$(printf '%s' "$body" | tr -d '\n' | sed -n \
+              's/.*"commit"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F]\{40\}\)".*/\1/p')
+            if [ -z "$last" ]; then
+              last='missing or invalid deployment.json'
+            fi
+            if [ "$last" = "$EXPECTED_COMMIT" ]; then
+              echo "Worker reports $last"
+              break
+            fi
+            sleep 15
+          done
+          if [ "$last" != "$EXPECTED_COMMIT" ]; then
+            echo "::error::The coderax Worker did not serve $EXPECTED_COMMIT within 20 minutes (last: $last). A failed Workers Build leaves the previous deployment serving, so this release is not verified."
+            exit 1
+          fi
+
+      - name: Verify SPA, API proxy, readiness and backend revision
+        run: >-
+          node scripts/verify-cloudflare-deployment.mjs
+          --url "$PRODUCTION_URL"
+          --expected-commit "$EXPECTED_COMMIT"
+
+      - name: Record verification evidence
+        if: always()
+        run: |
+          {
+            echo '### Cloudflare production verification'
+            echo ''
+            echo "- Origin: \`$PRODUCTION_URL\`"
+            echo "- Expected commit: \`$EXPECTED_COMMIT\`"
+            echo "- Result: ${{ job.status }}"
+            echo ''
+            echo 'A skipped or unidentifiable deployment is a failure, not a pass.'
+          } >> "$GITHUB_STEP_SUMMARY"
