@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
   getAccessToken,
+  messagesView,
   mockReply,
   NEW_CHAT_PATH,
   requestJson,
@@ -14,23 +15,36 @@ const modeNav = (page: Page) => page.getByRole('navigation', { name: 'Conversati
 const composer = (page: Page) => page.getByTestId('composer-surface');
 const input = (page: Page) => page.getByRole('textbox', { name: 'Message input' });
 
-async function switchMode(page: Page, mode: 'Chat' | 'Work') {
+async function switchMode(page: Page, mode: 'Chat' | 'Work', { requireModelEnabled = true } = {}) {
   const url = page.url();
   const historyLength = await page.evaluate(() => history.length);
   const element = await composer(page).elementHandle();
   const before = await composer(page).boundingBox();
+  if (!before) {
+    throw new Error('Composer has no bounds before switching modes.');
+  }
   await modeNav(page).getByRole('button', { name: mode, exact: true }).click();
   await expect(modeNav(page).getByRole('button', { name: mode, exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   if (mode === 'Work') {
-    await expect(page.getByRole('combobox', { name: 'Model' })).toBeVisible();
+    const modelControl = composer(page).getByRole('button', { name: 'Model', exact: true });
+    await expect(modelControl).toBeVisible();
+    if (requireModelEnabled) {
+      await expect(modelControl).toBeEnabled();
+    }
   }
   await expect(page).toHaveURL(url);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
   expect(await composer(page).evaluate((node, original) => node === original, element)).toBe(true);
-  await expect.poll(() => composer(page).boundingBox()).toEqual(before);
+  // Work's extra controls can change the height while the composer stays anchored.
+  await expect
+    .poll(async () => {
+      const after = await composer(page).boundingBox();
+      return after && { x: after.x, width: after.width, bottom: after.y + after.height };
+    })
+    .toEqual({ x: before.x, width: before.width, bottom: before.y + before.height });
   await expect(page.locator('main')).toHaveCount(1);
   await expect(modeNav(page)).toHaveCount(1);
 }
@@ -81,6 +95,7 @@ test.describe('continuous Chat and Work conversation', () => {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(NEW_CHAT_PATH);
       await input(page).fill('Keep this unsent draft.');
+      const chatComposer = await composer(page).boundingBox();
       await test.info().attach(`${viewport.name}-chat`, {
         body: await page.screenshot(),
         contentType: 'image/png',
@@ -93,6 +108,7 @@ test.describe('continuous Chat and Work conversation', () => {
       });
       await switchMode(page, 'Chat');
       await expect(input(page)).toHaveValue('Keep this unsent draft.');
+      await expect.poll(() => composer(page).boundingBox()).toEqual(chatComposer);
     });
   }
 
@@ -104,7 +120,8 @@ test.describe('continuous Chat and Work conversation', () => {
     const url = page.url();
     const id = new URL(url).pathname.split('/').at(-1)!;
     await switchMode(page, 'Work');
-    await page.getByRole('combobox', { name: 'Model' }).selectOption({ label: LOCAL_MODEL_B });
+    await composer(page).getByRole('button', { name: 'Model', exact: true }).click();
+    await page.getByRole('menuitemradio', { name: LOCAL_MODEL_B, exact: true }).click();
     const replies = await mockReply(page).count();
     const start = await workStart(page, 'Reply with the mock result.');
     expect(start.request().postDataJSON().conversationId).toBe(id);
@@ -137,15 +154,17 @@ test.describe('continuous Chat and Work conversation', () => {
     });
     await page.goto('/work/new');
     await workStart(page, 'E2E_SLOW_REPLY:continuous-work');
-    await expect(page).not.toHaveURL(/\/work\/new$/);
+    await expect(page).toHaveURL(
+      (url) => url.pathname !== '/work/new' && url.searchParams.has('spec'),
+    );
     await expect(page.getByTestId('messages-view')).toBeVisible();
     await switchMode(page, 'Chat');
-    await switchMode(page, 'Work');
+    await switchMode(page, 'Work', { requireModelEnabled: false });
     expect(controls.filter((path) => path.startsWith('/api/work/chat'))).toHaveLength(1);
     expect(controls.some((path) => path.endsWith('/abort'))).toBe(false);
-    await expect(page.getByText(/E2E slow reply continuous-work.*chunk-159/)).toBeVisible({
-      timeout: 30_000,
-    });
+    await expect(
+      messagesView(page).getByText(/E2E slow reply continuous-work.*chunk-159/),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test('unsent attachments stay attached across both mode changes', async ({ page }) => {
@@ -208,13 +227,14 @@ test.describe('continuous Chat and Work conversation', () => {
   }) => {
     await page.goto(NEW_CHAT_PATH);
     const token = await getAccessToken(page);
+    const agentName = `Free Work reviewer ${Date.now()}`;
     const agent = await requestJson<{ id: string }>(page, {
       path: '/api/agents',
       method: 'POST',
       token,
       body: {
-        name: `Free Work reviewer ${Date.now()}`,
-        provider: 'Ollama',
+        name: agentName,
+        provider: 'ollama',
         model: LOCAL_MODEL_B,
         tools: [],
         model_parameters: {},
@@ -222,7 +242,8 @@ test.describe('continuous Chat and Work conversation', () => {
     });
     try {
       await switchMode(page, 'Work');
-      await page.getByRole('combobox', { name: 'Work agent' }).selectOption(agent.id);
+      await composer(page).getByRole('button', { name: 'Work agent', exact: true }).click();
+      await page.getByRole('menuitemradio', { name: agentName, exact: true }).click();
       const start = await workStart(page, 'Reply with the mock result.');
       expect(start.request().postDataJSON()).toMatchObject({
         agent_id: agent.id,

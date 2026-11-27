@@ -29,6 +29,11 @@ const mockHasAccess = jest.fn((request: { permissionType: unknown; permission: u
 
 jest.mock('~/hooks', () => ({
   useAuthContext: () => ({ user: mockUser }),
+  useHasAccess: () => false,
+}));
+
+jest.mock('~/data-provider', () => ({
+  useGetStartupConfig: () => ({ data: undefined }),
   useHasAccess: (request: { permissionType: unknown; permission: unknown }) =>
     mockHasAccess(request),
 }));
@@ -44,6 +49,8 @@ jest.mock('~/components/UnifiedSidebar/ConversationsSection', () => ({
   default: () => null,
 }));
 
+jest.mock('~/components/SidePanel/Schedules', () => ({ SchedulePanel: () => null }));
+jest.mock('~/components/Taskbar/PluginsPanel', () => ({ __esModule: true, default: () => null }));
 jest.mock('~/components/SidePanel/Agents/AgentPanelSwitch', () => ({
   __esModule: true,
   default: () => null,
@@ -71,6 +78,13 @@ describe('Coderax sidebar links', () => {
     mockAgentAccess = { use: true, create: true };
     mockEndpointsConfig = { [EModelEndpoint.agents]: {} };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).toEqual([
+      'conversations',
+      'plugins',
+      'games',
+      'research',
+    ]);
+    expect(result.current[0].Component).toBeDefined();
     const builder = result.current.find((link) => link.id === EModelEndpoint.agents);
 
     expect(result.current.map((link) => link.id)).toEqual([
