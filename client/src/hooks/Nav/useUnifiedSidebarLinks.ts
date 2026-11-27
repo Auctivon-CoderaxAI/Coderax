@@ -1,17 +1,23 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
-import { CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
+import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
 import type { NavLink } from '~/common';
+import {
+  useGetEndpointsQuery,
+  useGetStartupConfig,
+  useResearchCapabilitiesQuery,
+} from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import { useGetStartupConfig, useResearchCapabilitiesQuery } from '~/data-provider';
+import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
 import { SchedulePanel } from '~/components/SidePanel/Schedules';
 import PluginsPanel from '~/components/Taskbar/PluginsPanel';
 import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
- * The owner's rail is a taskbar: chat history, scheduled tasks, plugins, the
- * owner's creative/research records, and the app shortcuts pinned from More.
+ * The owner's rail is a taskbar: chat history, the Agent Builder, scheduled
+ * tasks, plugins, the owner's creative/research records, and the app shortcuts
+ * pinned from More.
  * Work shares the chat shell; unrelated tools retain their direct routes.
  * Game Studio and Research are the owner's own creativity and evidence
  * records, so they need a destination here instead of a remembered URL.
@@ -28,6 +34,15 @@ export default function useUnifiedSidebarLinks() {
     permission: Permissions.USE,
   });
   const { data: startupConfig } = useGetStartupConfig();
+  const { data: endpointsConfig } = useGetEndpointsQuery();
+  const hasAccessToAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.USE,
+  });
+  const hasAccessToCreateAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.CREATE,
+  });
   const schedulesConfig = startupConfig?.interface?.schedules;
   const schedulesEnabled =
     schedulesConfig != null &&
@@ -43,6 +58,23 @@ export default function useUnifiedSidebarLinks() {
         Component: ConversationsSection,
       },
     ];
+    /** The builder is the entry point for the agents endpoint; without it the
+     *  panel and everything built in it is unreachable from the chat shell. */
+    const agentsEndpoint = endpointsConfig?.[EModelEndpoint.agents];
+    if (
+      agentsEndpoint &&
+      agentsEndpoint.disableBuilder !== true &&
+      hasAccessToAgents &&
+      hasAccessToCreateAgents
+    ) {
+      links.push({
+        title: 'com_sidepanel_agent_builder',
+        label: '',
+        icon: Bot,
+        id: EModelEndpoint.agents,
+        Component: AgentPanelSwitch,
+      });
+    }
     if (hasAccessToSchedules && schedulesEnabled) {
       links.push({
         title: 'com_ui_taskbar_scheduled',
@@ -78,5 +110,14 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [canAccessResearch, hasAccessToSchedules, isOwner, navigate, schedulesEnabled]);
+  }, [
+    canAccessResearch,
+    endpointsConfig,
+    hasAccessToAgents,
+    hasAccessToCreateAgents,
+    hasAccessToSchedules,
+    isOwner,
+    navigate,
+    schedulesEnabled,
+  ]);
 }

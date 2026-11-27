@@ -4008,6 +4008,7 @@
   "com_work_models_loading": "Checking available Work models and agents…",
   "com_work_models_unavailable": "Work could not load the configured models. Check the agent model configuration and try again.",
   "com_work_no_models": "No free or local agent models are configured for Work yet.",
+  "com_work_owner_signin_required": "Work is private to your owner account. Opening sign-in; your draft will be preserved.",
   "com_work_provider_available": "Available",
   "com_work_provider_cooling_down": "Cooling down",
   "com_work_provider_error": "Provider status is unavailable. Check your connection, then try again.",
