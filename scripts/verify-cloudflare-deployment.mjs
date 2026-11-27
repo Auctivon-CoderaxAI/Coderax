@@ -11,12 +11,18 @@
  *   node scripts/verify-cloudflare-deployment.mjs \
  *     --url https://coderax.<account>.workers.dev \
  *     --expected-commit <full-40-character-commit>
+ *   node scripts/verify-cloudflare-deployment.mjs \
+ *     --drift --url https://coderax.<account>.workers.dev
  *
  * --config-only contacts no deployment and reports `deployment: not-run`.
  * --url always requires /deployment.json to report the exact expected commit,
  * the SPA and login shell to render, /readyz to report OK, and /api/config to
  * report the same full commit from the backend. A missing or unidentifiable
  * value fails; nothing is skipped or reported as success.
+ *
+ * --drift compares the revision the Worker serves with the revision the backend
+ * reports and fails when they disagree, so a scheduled run flags a stale Worker
+ * or a stale backend without a pinned expected commit.
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -70,7 +76,8 @@ async function request(origin, route, fetcher) {
   return { response, body };
 }
 
-async function verifyMarker(origin, expected, fetcher) {
+/** Read the build marker /deployment.json, requiring an identifiable revision. */
+async function readMarker(origin, fetcher) {
   const marker = await request(origin, '/deployment.json', fetcher);
   assert.match(
     marker.response.headers.get('content-type') ?? '',
@@ -84,13 +91,72 @@ async function verifyMarker(origin, expected, fetcher) {
     FULL_COMMIT,
     '/deployment.json has no full commit; the served revision cannot be identified',
   );
+  assert.equal(typeof deployment.branch, 'string', '/deployment.json has no branch');
+  return { ...deployment, commit: deployment.commit.toLowerCase() };
+}
+
+async function verifyMarker(origin, expected, fetcher) {
+  const deployment = await readMarker(origin, fetcher);
   assert.equal(
-    deployment.commit.toLowerCase(),
+    deployment.commit,
     expected,
     `/deployment.json reports ${deployment.commit}, expected ${expected}`,
   );
-  assert.equal(typeof deployment.branch, 'string', '/deployment.json has no branch');
   return deployment;
+}
+
+/** Read the revision the backend reports for itself in /api/config. */
+async function readBackendCommit(origin, fetcher) {
+  const configResponse = await request(origin, '/api/config', fetcher);
+  assert.match(
+    configResponse.response.headers.get('content-type') ?? '',
+    /application[/]json/i,
+    '/api/config served HTML; API traffic did not reach the backend',
+  );
+  const config = JSON.parse(configResponse.body);
+  assert.equal(
+    typeof config.appTitle,
+    'string',
+    '/api/config is missing application configuration',
+  );
+  const backendCommit = config.buildInfo?.commit;
+  assert.match(
+    backendCommit ?? '',
+    FULL_COMMIT,
+    '/api/config has no full buildInfo.commit; the API reached a backend that cannot identify its revision',
+  );
+  return { config, commit: backendCommit.toLowerCase() };
+}
+
+/**
+ * Compare the revision the Worker serves with the revision the backend reports.
+ *
+ * The Worker is rebuilt by Workers Builds on merge while the API is rebuilt on
+ * the OCI VM, so the two can legitimately lag each other. Comparing them with
+ * each other, rather than with a pinned commit, makes drift detectable on a
+ * schedule without knowing in advance which side is current, and still fails
+ * closed when either side cannot identify its revision.
+ */
+export async function verifyRevisionDrift(value, fetcher = fetch) {
+  const origin = validateOrigin(value);
+  const worker = await readMarker(origin, fetcher);
+  const readiness = await request(origin, '/readyz', fetcher);
+  assert.equal(readiness.body.trim(), 'OK', '/readyz did not confirm backend startup');
+  const backend = await readBackendCommit(origin, fetcher);
+  // A redeploy during the check would make a comparison against an unread pair
+  // meaningless, so require the marker to still serve the revision just read.
+  const stable = await verifyMarker(origin, worker.commit, fetcher);
+  return {
+    origin,
+    worker: stable.worker,
+    workerCommit: stable.commit,
+    backendCommit: backend.commit,
+    branch: stable.branch,
+    builtAt: stable.builtAt ?? null,
+    readiness: 'OK',
+    apiConfig: 'JSON',
+    drift: stable.commit !== backend.commit,
+  };
 }
 
 /** Verify the live Worker serves the expected revision and reaches the backend. */
@@ -121,29 +187,13 @@ export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
   const readiness = await request(origin, '/readyz', fetcher);
   assert.equal(readiness.body.trim(), 'OK', '/readyz did not confirm backend startup');
 
-  const configResponse = await request(origin, '/api/config', fetcher);
-  assert.match(
-    configResponse.response.headers.get('content-type') ?? '',
-    /application[/]json/i,
-    '/api/config served HTML; API traffic did not reach the backend',
-  );
-  const config = JSON.parse(configResponse.body);
+  const backend = await readBackendCommit(origin, fetcher);
   assert.equal(
-    typeof config.appTitle,
-    'string',
-    '/api/config is missing application configuration',
-  );
-  const backendCommit = config.buildInfo?.commit;
-  assert.match(
-    backendCommit ?? '',
-    FULL_COMMIT,
-    '/api/config has no full buildInfo.commit; the API reached a backend that cannot identify its revision',
-  );
-  assert.equal(
-    backendCommit.toLowerCase(),
+    backend.commit,
     expected,
-    `/api/config reports ${backendCommit}, expected ${expected}`,
+    `/api/config reports ${backend.commit}, expected ${expected}`,
   );
+  const config = backend.config;
 
   const finalDeployment = await verifyMarker(origin, expected, fetcher);
 
@@ -157,7 +207,7 @@ export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
     login: 'HTML',
     readiness: 'OK',
     apiConfig: 'JSON',
-    backendCommit: backendCommit.toLowerCase(),
+    backendCommit: backend.commit,
     appTitle: config.appTitle,
   };
 }
@@ -250,6 +300,7 @@ export function buildReport({
 export const USAGE = `Usage:
   node scripts/verify-cloudflare-deployment.mjs --config-only
   node scripts/verify-cloudflare-deployment.mjs --url <https-origin> --expected-commit <full-commit>
+  node scripts/verify-cloudflare-deployment.mjs --drift --url <https-origin>
 
 Verification levels:
   --config-only   Committed Wrangler/package contract only. Contacts no deployment
@@ -258,6 +309,10 @@ Verification levels:
                   the SPA and /login to render, /readyz to report OK, and
                   /api/config to report the same full commit from the backend.
                   Missing values fail; checks are never skipped.
+  --drift         Compare the revision /deployment.json serves with the revision
+                  /api/config reports and exit non-zero when they differ. Needs
+                  --url, never takes --expected-commit, and still fails closed
+                  when either side cannot identify its revision.
   --help, -h      Show this message.`;
 
 export function parseArgs(argv) {
@@ -265,6 +320,7 @@ export function parseArgs(argv) {
     mode: null,
     url: null,
     expectedCommit: null,
+    drift: false,
     help: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -295,6 +351,9 @@ export function parseArgs(argv) {
       }
       index += 1;
       options.expectedCommit = value;
+    } else if (argument === '--drift') {
+      if (options.drift) throw new Error('--drift can only be given once');
+      options.drift = true;
     } else if (argument === '--help' || argument === '-h') {
       options.help = true;
     } else {
@@ -303,6 +362,22 @@ export function parseArgs(argv) {
   }
   if (options.help) {
     return options;
+  }
+  // --drift narrows a live check rather than adding a mode of its own, so it is
+  // resolved before the generic mode requirements below.
+  if (options.drift) {
+    if (options.mode === null) {
+      throw new Error('--drift needs --url');
+    }
+    if (options.mode !== 'live') {
+      throw new Error('--drift checks a live deployment; it cannot be combined with --config-only');
+    }
+    if (options.expectedCommit !== null) {
+      throw new Error(
+        '--drift compares the Worker and backend revisions; it does not take --expected-commit',
+      );
+    }
+    options.mode = 'drift';
   }
   if (options.mode === null) {
     throw new Error('choose --config-only or --url');
@@ -339,6 +414,30 @@ async function main() {
           config,
         }),
       );
+      return;
+    }
+
+    if (options.mode === 'drift') {
+      const drift = await verifyRevisionDrift(options.url);
+      console.log(
+        JSON.stringify({
+          ok: !drift.drift,
+          verification: buildReport({
+            repository: 'verified',
+            deployment: 'verified',
+            api: 'verified',
+          }),
+          config,
+          drift,
+        }),
+      );
+      if (drift.drift) {
+        console.error(
+          `[Coderax revision drift] DRIFT: ${drift.origin} serves ${drift.workerCommit} ` +
+            `but the backend reports ${drift.backendCommit}`,
+        );
+        process.exitCode = 1;
+      }
       return;
     }
 
