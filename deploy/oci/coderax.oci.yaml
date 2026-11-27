@@ -8,7 +8,7 @@ cache: true
 freeInference:
   enabled: true
 engines:
-  defaultEngine: opencode
+  defaultEngine: native
   workChat:
     enabled: true
     mode: cloud
@@ -17,7 +17,8 @@ engines:
     privateRoot: /srv/coderax/private
     cloudRoot: /srv/engine/cloud
   opencode:
-    enabled: true
+    # External engine is opt-in; enable only with the optional OCI profile.
+    enabled: false
     baseURL: http://opencode:4096
     # `auto` resolves only the verified $0 OpenRouter models when the key is
     # present, then the free OpenCode Console allowlist. It never lets the

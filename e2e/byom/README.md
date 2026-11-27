@@ -33,10 +33,21 @@ BYOM_WORKSPACE_TRANSITIONS=true BYOM_CODE_REPO=/absolute/path/to/code-interprete
 
 This enables the decision protocol and attach/detach policy only in the disposable test app.
 
-The `Native Workspace Acceptance` workflow runs both variants on a hosted macOS
-runner when the harness changes in a pull request targeting `main`. It pins the Code API/worker revision
-and uses the native Seatbelt policy unchanged. It does not upload identities, raw logs or
-browser state. This proves the macOS journey only; Linux and WSL2 require their own native run.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:fd256e85b6703a31b5dc5e8d7a4579e45a31f902b097b84e01604e2ebe309fd9 -->
+
+Run both variants on a trusted Mac after reviewing the exact proposed revision.
+Use fixture commit `67d75d859aee891923c40cde1db073489d74a424` and record the tested
+Coderax SHA and result in the PR. The `Native Workspace Acceptance` workflow can also run
+both variants on a hosted Mac via manual dispatch from `main` when the
+[protected environment is configured](../../docs/PRIVATE-REPOSITORY-READINESS.md).
+It uses the native Seatbelt policy unchanged and does not upload identities, raw logs
+or browser state. These runs prove the macOS journey only; Linux and WSL2 require their
+own native run.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Optional: `BYOM_REDIS_BIN` selects an absolute Redis executable,
 `BYOM_CODE_CLI` selects a separately built worker CLI, and

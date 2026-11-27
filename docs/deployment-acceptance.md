@@ -3,12 +3,6 @@
 This record distinguishes what was observed from what was assumed. A green build is not a deployment
 check, and a reachable host is not a working application.
 
-> **Partly superseded on 2026-11-26.** This record was written while the repository was private and
-> hosted Actions could not start. The repository is now public and workflows execute, so "Hosted CI
-> is billing-blocked" is historical rather than current. The deployment observations are unchanged:
-> the Worker still returns `503 {"error":"API proxy is not configured"}` on every API route until its
-> two bindings are set.
-
 ## Scope and revision
 
 | Field | Value |

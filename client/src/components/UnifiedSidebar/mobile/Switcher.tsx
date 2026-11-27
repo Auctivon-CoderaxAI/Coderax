@@ -1,10 +1,12 @@
 import { memo, useId, useMemo, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import * as Ariakit from '@ariakit/react';
 import { ChevronDown } from 'lucide-react';
 import { DropdownPopup, buttonVariants } from '@coderax/client';
 import type { NavLink } from '~/common';
 import type * as t from '~/common';
 import { useActivePanel, resolveActivePanel } from '~/Providers';
+import { unreadCountAtom } from '~/store/recents';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -26,6 +28,7 @@ function Switcher({
 }) {
   const localize = useLocalize();
   const menuId = useId();
+  const unreadCount = useAtomValue(unreadCountAtom);
   const [isOpen, setIsOpen] = useState(false);
   const { active, setActive } = useActivePanel();
 
@@ -60,6 +63,12 @@ function Switcher({
   }
 
   const activeTitle = localize(activeLink.title);
+  const showsUnread = activeLink.id === 'conversations' && unreadCount > 0;
+  const unreadDescriptionId = 'panel-switcher-unread-description';
+  const unreadLabel = localize(
+    unreadCount === 1 ? 'com_a11y_recents_unread' : 'com_a11y_recents_unread_plural',
+    { count: unreadCount },
+  );
 
   return (
     <DropdownPopup
@@ -83,6 +92,7 @@ function Switcher({
         <Ariakit.MenuButton
           data-testid="panel-switcher-button"
           aria-label={`${activeTitle}, ${localize('com_nav_control_panel')}`}
+          aria-describedby={showsUnread ? unreadDescriptionId : undefined}
           aria-expanded={isOpen}
           /**
            * The drawer's primary navigation control, so it takes the shared
@@ -98,7 +108,18 @@ function Switcher({
           <activeLink.icon className="size-5 shrink-0" aria-hidden="true" />
           {/* Grows so the chevron settles on the trailing edge rather than trailing the label. */}
           <span className="flex-1 truncate text-left text-sm font-medium">{activeTitle}</span>
+          {showsUnread && (
+            <span
+              aria-hidden="true"
+              className="bg-status-info pointer-events-none size-2 shrink-0 rounded-full"
+            />
+          )}
           <ChevronDown className="text-text-secondary size-4 shrink-0" aria-hidden="true" />
+          {showsUnread && (
+            <span id={unreadDescriptionId} className="sr-only">
+              {unreadLabel}
+            </span>
+          )}
         </Ariakit.MenuButton>
       }
     />

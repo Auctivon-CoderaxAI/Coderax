@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -245,5 +246,35 @@ describe('verifyRepositoryConfig', () => {
       '"keep_vars" /* preserve dashboard variables */ : true,\n' +
       '  "vars": { "URL": "https://example.test/a/*b*/", "TEXT": "a \\"quote\\",}" , },';
     assert.equal(verifyRepositoryConfig(fixture(t, setting)).worker, 'coderax');
+  });
+});
+
+describe('deploy:cloudflare', () => {
+  it('rejects npm arguments that could select a config other than the checked file', (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'coderax-deploy-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(join(root, 'scripts'));
+    for (const file of [
+      'package.json',
+      'wrangler.jsonc',
+      'scripts/deploy-cloudflare.mjs',
+      'scripts/verify-cloudflare-deployment.mjs',
+    ]) {
+      copyFileSync(new URL(`../${file}`, import.meta.url), join(root, file));
+    }
+    // Stop before Wrangler even if the wrapper regresses and accepts arguments.
+    writeFileSync(join(root, 'scripts/write-deployment-metadata.mjs'), 'process.exit(42);');
+
+    const result = spawnSync(
+      'npm',
+      ['run', 'deploy:cloudflare', '--', '--config', 'alternate.jsonc'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+      },
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /does not accept Wrangler arguments/);
   });
 });

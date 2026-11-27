@@ -12,6 +12,7 @@ export { default as gameProjectSchema } from './gameProject';
 export { default as codeEnvironmentSchema } from './codeEnvironment';
 export { default as conversationTagSchema } from './conversationTag';
 export { default as convoSchema } from './convo';
+export { default as conversationAuthoritySchema } from './conversationAuthority';
 export { default as fileSchema } from './file';
 export { default as keySchema } from './key';
 export { default as messageSchema } from './message';

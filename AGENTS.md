@@ -80,11 +80,7 @@ Run `npm run static-checks -- --against origin/main` to reproduce the PR's stati
 `npm run static-checks:full` for the slower gates. Fix all formatting, lint, and TypeScript
 warnings/errors in the code you change.
 
-Hosted GitHub Actions runs on this public repository (`Auctivon-CoderaxAI/Coderax` is public, and
-workflow runs execute). Read the checks at the exact pushed head, and treat a job whose steps never
-ran as unverified rather than failed: a two-second failure with `steps=[]` means the runner never
-started, so re-run it before concluding the code is broken. `npm run verify` remains the acceptance
-artifact for a pull request. One command runs the four gates a merge has to show, in order:
+Hosted CI and the exact-head `CI gate` require real passing evidence. Use `npm run verify` only in a permitted cloud execution environment; it supplements rather than replaces required hosted checks. One command runs the four gates a merge has to show, in order:
 
 1. TypeScript for every workspace affected by the committed diff, staged or unstaged edits,
    or non-ignored untracked files.

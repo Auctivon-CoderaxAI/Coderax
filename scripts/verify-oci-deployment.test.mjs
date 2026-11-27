@@ -38,6 +38,7 @@ test('OCI Compose publishes only Caddy and starts no local model server', async 
   assert.doesNotMatch(compose, /^\s+mongodb:/m);
   assert.doesNotMatch(compose, /4096:|27017:|7700:/);
 
+  assert.match(opencode, /profiles: \[opencode\]/);
   assert.match(opencode, /env_file:\s*\n\s*- \.\/engine\.env/);
   assert.match(opencode, /read_only: true/);
   assert.match(opencode, /no-new-privileges:true/);

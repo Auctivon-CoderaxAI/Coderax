@@ -18,6 +18,9 @@ import { engineFailure } from '../types';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The startup write found a newer run owning the conversation. */
+class WorkRunOwnershipLostError extends Error {}
+
 function writeEvent(res: Response, event: object): void {
   if (res.writableEnded || res.destroyed) {
     return;
@@ -219,8 +222,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     /** Separates a conversation-store outage from an engine failure. */
     let storeUnavailable = false;
     let activeHandle: EngineRunHandle | null = null;
-    /** The lease generation this run writes messages and state under. */
-    let generation: string | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
     const startup = new AbortController();
@@ -294,23 +295,60 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
       if (closed) return;
       let recorded = false;
+      /** The lease token claimed by this execution, handed over before dispatch. */
+      let runGeneration: string | null = null;
+      /** A terminal write applies only while this run still owns the row; it also detaches
+       *  the generation, so a later reading of a dead lease cannot reopen the outcome. */
+      const settle = (workState: 'completed' | 'failed' | 'cancelled') =>
+        runGeneration == null
+          ? { conversationId, workState }
+          : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
       const started = await runtime.start({
         signal: startup.signal,
-        beforeDispatch: async () => {
+        beforeDispatch: async (ownership) => {
           if (closed) throw new Error('Work request closed');
+          runGeneration = ownership.generation;
           try {
-            await store.saveConversation({
-              conversationId,
-              title,
-              workAgent: engine,
-              workState: 'running',
-              create: existing == null,
-            });
+            if (ownership.generation == null) {
+              await store.saveConversation({
+                conversationId,
+                title,
+                workAgent: engine,
+                workState: 'running',
+                create: existing == null,
+              });
+            } else {
+              /**
+               * The claim names the run that owns the conversation: it applies
+               * only while the row belongs to this generation or to the expired
+               * run this claim replaced. A row a newer run stamped matches
+               * neither, so a startup that outlived its lease cannot take the
+               * newer run's place.
+               */
+              const applied = await store.saveConversation({
+                conversationId,
+                title,
+                workAgent: engine,
+                workState: 'running',
+                create: existing == null,
+                workRunId: ownership.generation,
+                claimWorkRun: {
+                  generation: ownership.generation,
+                  replaces: ownership.replaces,
+                },
+              });
+              if (!applied) {
+                throw new WorkRunOwnershipLostError('The Work run no longer owns the task.');
+              }
+            }
             recorded = true;
             if (closed) {
-              await store.saveConversation({ conversationId, workState: 'cancelled' });
+              await store.saveConversation(settle('cancelled'));
             }
           } catch (error) {
+            if (error instanceof WorkRunOwnershipLostError) {
+              throw error;
+            }
             storeUnavailable = true;
             throw error;
           }
@@ -325,12 +363,14 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
+          /** A start refused because the owner cancelled is a cancelled run. */
+          const startupState = started.error.code === 'cancelled' ? 'cancelled' : 'failed';
           try {
+            /** A startup that stamped its generation settles through that fence. */
             await store.saveConversation({
-              conversationId,
-              /** A start refused because the owner cancelled is a cancelled
-               *  run, not a failure of the task. */
-              workState: started.error.code === 'cancelled' ? 'cancelled' : 'failed',
+              ...(runGeneration == null
+                ? { conversationId, workState: startupState }
+                : settle(startupState)),
               ...(!recorded && existing == null ? { title, create: true } : {}),
             });
           } catch (error) {
@@ -350,39 +390,6 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         return;
       }
       activeHandle = started.value;
-      /**
-       * The lease token fences this run's conversation writes: a retry stamps
-       * its own generation, so a late outcome from this run matches nothing
-       * instead of replacing the retry's state.
-       */
-      if (runtime.generation) {
-        try {
-          generation = await runtime.generation({ ...reservation, handle: activeHandle });
-        } catch {
-          generation = null;
-        }
-      }
-      const runGeneration = generation;
-      /** A terminal write applies only while this run still owns the row; it also detaches
-       *  the generation, so a later reading of a dead lease cannot reopen the outcome. */
-      const settle = (workState: 'completed' | 'failed' | 'cancelled') =>
-        runGeneration == null
-          ? { conversationId, workState }
-          : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
-      if (runGeneration != null) {
-        /** The running row was created before dispatch, so this only binds it to the
-         *  run's generation; writing `create` again could add a second conversation. */
-        try {
-          await store.saveConversation({
-            conversationId,
-            workState: 'running',
-            workRunId: runGeneration,
-          });
-        } catch (error) {
-          storeUnavailable = true;
-          throw error;
-        }
-      }
       if (closed) {
         await started.value.cancel();
         await store.saveConversation(settle('cancelled'));
@@ -615,7 +622,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           : {}),
       });
       res.end();
-    } catch {
+    } catch (error) {
+      if (error instanceof WorkRunOwnershipLostError) {
+        /** A newer run owns the task; writing here would overwrite its state. */
+        if (!res.headersSent) {
+          res.status(409).json({
+            code: 'WORK_ENGINE_BUSY',
+            message: 'Another Work run is already active for this task.',
+          });
+        }
+        return;
+      }
       options.logger?.error?.(`[Work] The ${engineLabel(engine)} Work chat path failed.`);
       if (activeHandle && !finished) {
         try {
@@ -646,11 +663,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           : `The ${engineLabel(engine)} engine could not start this task.`,
       });
     } finally {
-      if (activeHandle) {
-        await runtime.release?.({ ...reservation, handle: activeHandle });
-      }
-      if (reserved) {
-        options.releaseRun?.(reservation);
+      try {
+        if (activeHandle) {
+          await runtime.release?.({ ...reservation, handle: activeHandle });
+        }
+      } catch {
+        /** A failed lease release must not keep the handler's reservation. */
+        options.logger?.warn?.('[Work] Could not release the engine run lease.');
+      } finally {
+        if (reserved) {
+          options.releaseRun?.(reservation);
+        }
       }
     }
   };

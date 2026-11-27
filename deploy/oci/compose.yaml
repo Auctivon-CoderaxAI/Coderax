@@ -57,6 +57,7 @@ services:
       - engine
 
   opencode:
+    profiles: [opencode]
     build:
       context: ./opencode
       dockerfile: Dockerfile

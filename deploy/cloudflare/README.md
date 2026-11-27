@@ -4,7 +4,7 @@ The Vite interface and the edge API router run in the `coderax` Cloudflare Worke
 `Auctivon-CoderaxAI/Coderax` through Workers Builds. Every push to `main` builds and deploys the
 Worker; no GitHub secret, deploy token or Vercel workload is involved.
 
-**Status on 2026-11-25: the Worker deploys, but it is not yet the application front door.** The SPA
+**Status on 2026-11-26: the Worker deploys, but it is not yet the application front door.** The SPA
 is live at <https://coderax.nnabdelshahid.workers.dev>, while every API, OAuth and health route
 returns `503 {"error":"API proxy is not configured"}` because `CODERAX_API_ORIGIN` and
 `CODERAX_PROXY_SECRET` are not set on the Worker. `https://coderaxai.vercel.app` therefore remains
@@ -14,25 +14,29 @@ release gate passes.
 
 ## Connected deployment
 
-| Setting              | Value                                                               |
-| -------------------- | ------------------------------------------------------------------- |
-| GitHub repository    | `Auctivon-CoderaxAI/Coderax` (private, default branch `main`)       |
-| Cloudflare account   | `19f79492be7da82f6a48c2aea198ef92`                                  |
-| Worker               | `coderax`                                                           |
-| Production branch    | `main` only                                                         |
-| Production origin    | `https://coderax.nnabdelshahid.workers.dev`                         |
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:496f22815a052d2749b7987ef308602c82d76019f92b2e4b77f7066a9739530a -->
+
+| Setting | Value |
+| --- | --- |
+| GitHub repository | `Auctivon-CoderaxAI/Coderax` (public today; private after the owner cutover, default branch `main`) |
+| Cloudflare account | `19f79492be7da82f6a48c2aea198ef92` |
+| Worker | `coderax` |
+| Production branch | `main` only |
+| Production origin | `https://coderax.nnabdelshahid.workers.dev` |
 | Deployment mechanism | Workers Builds (Cloudflare GitHub App), not a GitHub Actions deploy |
 
 ### Build and deploy settings (Workers Builds → Settings → Build)
 
-| Field           | Value                                                                                                                                                                                                                                                                       |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Root directory  | repository root (`/`)                                                                                                                                                                                                                                                       |
-| Install command | `npm ci`                                                                                                                                                                                                                                                                    |
-| Build command   | `npm run frontend` (must leave the built SPA in `client/dist`)                                                                                                                                                                                                              |
-| Deploy command  | `npm run deploy:cloudflare` (checks the Worker configuration and revision marker before running `npx --yes wrangler@4.168.0 deploy`)                                                                                                                                        |
-| Branch          | `main`                                                                                                                                                                                                                                                                      |
-| Preview builds  | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
+| Field | Value |
+| --- | --- |
+| Root directory | repository root (`/`) |
+| Install command | `npm ci` |
+| Build command | `npm run frontend` (must leave the built SPA in `client/dist`) |
+| Deploy command | `npm run deploy:cloudflare` (checks the Worker configuration and revision marker before running Wrangler 4.168.0 with the same config file) |
+| Branch | `main` |
+| Preview builds | Enabled in Workers Builds at **Settings → Build → Branch control → Enable Preview Builds**; each preview is public and is not production. The empty `"previews": {}` in `wrangler.jsonc` only disables named Wrangler preview aliases and does not turn preview builds off. |
 
 `npm run frontend` builds the workspace packages and writes `client/dist`. The client's `postbuild`
 hook writes `client/dist/deployment.json` with the commit and branch supplied by Workers Builds. A
@@ -44,7 +48,10 @@ null or stale marker, so a manual deploy cannot claim a revision its assets were
 gate also requires a clean tracked working tree and a full 40-character commit equal to `git rev-parse
 HEAD`; untracked build output is ignored. If Workers Builds, GitHub and Vercel expose conflicting
 commit values, the script fails instead of choosing one. The deploy command pins Wrangler 4.168.0;
-change the pin in `package.json` and this table together.
+change the pin in `scripts/verify-cloudflare-deployment.mjs` and this table together. The command
+rejects extra arguments so the deploy always uses the checked `wrangler.jsonc`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### Committed configuration
 
@@ -53,79 +60,35 @@ Worker entrypoint, the asset directory, SPA fallback, and the paths that run the
 asset runtime (`/api`, `/oauth`, `/health`, `/livez`, `/readyz`). `workers_dev` is explicitly enabled
 so the production host cannot disappear from an account default.
 
-## Operator API authentication
-
-Setting these variables requires an authenticated Cloudflare session. The v4 API accepts exactly one
-credential scheme per request, and the headers are not interchangeable:
-
-| Credential              | Headers                          | Current value format                             |
-| ----------------------- | -------------------------------- | ------------------------------------------------ |
-| Global API Key (legacy) | `X-Auth-Email` plus `X-Auth-Key` | `cfk_` followed by the account key               |
-| User API token          | `Authorization: Bearer <token>`  | `cfut_` followed by 40 characters and a checksum |
-| Account API token       | `Authorization: Bearer <token>`  | `cfat_` followed by 40 characters and a checksum |
-
-`Invalid format for X-Auth-Key header` is Cloudflare rejecting the header before it checks the
-credential. It means the value in `X-Auth-Key` is not a Global API Key — in practice a scoped API
-token sent with the legacy key headers. A token must be sent as `Authorization: Bearer`; never put a
-token in `X-Auth-Key`, and never pair `X-Auth-Email` with a token. Check the format without printing
-the secret:
-
-```sh
-case "${CLOUDFLARE_API_TOKEN:-}" in
-  cfut_*|cfat_*) echo 'scoped API token: use Authorization: Bearer' ;;
-  cfk_*) echo 'Global API Key: use X-Auth-Email plus X-Auth-Key' ;;
-  '') echo 'no token in this shell' ;;
-  *) echo 'unprefixed credential: verify it before use' ;;
-esac
-```
-
-A token can be verified with
-`curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"`,
-which returns only the token's status and permissions. Do not create a second credential, rotate a
-key, or widen permissions to work around the format error. Wrangler reads `CLOUDFLARE_API_TOKEN` and
-sends it as a Bearer token, which is the supported non-interactive path. A connector that sends a
-scoped token as `X-Auth-Key` can fail account-scoped calls with `6103` (account and user endpoints)
-or `9106` (Workers endpoints) even though the token is valid; fix its header scheme instead of
-granting broader permissions.
-
 ## Required Worker configuration
 
 These are Worker settings, not repository values. Set them in **Cloudflare → Workers & Pages →
 coderax → Settings** (or with `wrangler secret put`); never commit the secret.
 
-| Name                   | Kind          | Value                                                                                                                      |
-| ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `CODERAX_API_ORIGIN`   | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port.                               |
-| `CODERAX_PROXY_SECRET` | secret        | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
+| Name | Kind | Value |
+| --- | --- | --- |
+| `CODERAX_API_ORIGIN` | text variable | The authorized OCI API origin, `https://coderax-<public-ip>.sslip.io`, with no path or port. |
+| `CODERAX_PROXY_SECRET` | secret | The matching value from the OCI host's `origin.env`; at least 32 characters. Caddy rejects every proxied route without it. |
 
-Wrangler's default is `keep_vars = false`: a deploy deletes plain-text dashboard variables that are
-not declared in the configuration file, while secrets are never deleted. This branch carries [PR
-#309](https://github.com/Auctivon-CoderaxAI/Coderax/pull/309), which adds top-level `"keep_vars":
-true` to [`wrangler.jsonc`](../../wrangler.jsonc) and makes `--config-only` fail if it is removed.
-`main` still lacks the setting — both `main` and the deployed Worker were `a5d237b0` on 2026-11-26 —
-so it takes effect only when that pull request merges and Workers Builds deploys the merge.
+<!-- coderabbit-ai-generated:v1 -->
 
-The 503 does not depend on that merge. `CODERAX_PROXY_SECRET` is already a secret, and
-`CODERAX_API_ORIGIN` can be stored as a **secret** too: the Worker reads `env.CODERAX_API_ORIGIN`
-identically, and a deploy never deletes a secret. Storing both as secrets fixes the 503 whether or
-not #309 has merged, and keeps it fixed across deploys. Only a plain-text origin needs `keep_vars`.
+<!-- coderabbit-ai-generated-section:v1:e19a74824c1dfde1dbebbc5ce65e2d21d8119bf42bee4f25faf6cdb1d9245350 -->
 
-Do not add a secret while a plain-text variable of the same name exists: Cloudflare rejects it with a
-binding-name conflict. Delete the variable first, then add the secret. With a scoped API token
-(`Authorization: Bearer`, never `X-Auth-Key`), both bindings can be set in one call that leaves every
-other binding untouched:
+`keep_vars` is enabled in [`wrangler.jsonc`](../../wrangler.jsonc). A Wrangler deploy deletes
+plain-text variables that are not declared in the configuration file, so without it the dashboard-set
+`CODERAX_API_ORIGIN` would disappear on the next Workers Builds run and every API route would answer
+`503 {"error":"API proxy is not configured"}` again. Secrets such as `CODERAX_PROXY_SECRET` are
+never deleted by a deploy. `scripts/verify-cloudflare-deployment.mjs --config-only` fails if this
+setting is removed.
 
-```sh
-curl -sS -X PATCH \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  -H 'content-type: application/json' \
-  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/coderax/secrets-bulk" \
-  --data @bindings.json
-```
+Before retiring a backend, set `CODERAX_API_ORIGIN` to the authorized replacement and confirm live
+verification passes before releasing the old address. If there is no replacement, remove the
+binding before releasing that address; proxied routes will be unavailable until a valid origin is
+configured. After a cutover or Worker rollback, confirm the effective origin in the Worker settings
+and run the live release gate. Rotate `CODERAX_PROXY_SECRET` on both the Worker and the backend if
+the old endpoint may have received it after leaving operator control.
 
-`bindings.json` maps each name to `{"type":"secret_text","name":"<NAME>","text":"<value>"}`. Create
-it under `umask 077`, delete it after the call, and never commit, echo or paste it. Setting the same
-two values in the dashboard's **Variables and Secrets** panel is equivalent and needs no token.
+<!-- /coderabbit-ai-generated:v1 -->
 
 The OCI application must also accept the Cloudflare hostname. Put these values in
 `deploy/oci/app.env` on the VM, then recreate the app. `deploy/oci/compose.yaml` reads `app.env` and

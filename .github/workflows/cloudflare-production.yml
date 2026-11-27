@@ -6,9 +6,9 @@ name: Cloudflare production verification
 # the previous deployment in place, so /deployment.json keeps the old commit and
 # this run fails instead of accepting a stale release.
 #
-# Hosted GitHub Actions runs on this public repository, so this gate executes on
-# the exact pushed head. A job whose steps never ran is not a pass: re-run it and
-# read the annotations instead of assuming the check is green.
+# Hosted GitHub Actions is billing-blocked on this repository. While that is
+# true this gate has not run; a workflow that cannot start is not a pass, and
+# the equivalent local command remains the evidence.
 
 on:
   push:

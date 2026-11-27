@@ -92,14 +92,14 @@ Check every type that applies, then delete the lines that do not. The section
 should end up listing only the types this pull request actually is.
 -->
 
-- [ ] Bug fix
-- [ ] Feature
-- [ ] Refactor
-- [ ] Performance improvement
-- [ ] Breaking change
-- [ ] Documentation
-- [ ] Translation
-- [ ] Tests / tooling / CI
+* [ ] Bug fix
+* [ ] Feature
+* [ ] Refactor
+* [ ] Performance improvement
+* [ ] Breaking change
+* [ ] Documentation
+* [ ] Translation
+* [ ] Tests / tooling / CI
 
 ## Testing
 
@@ -135,7 +135,7 @@ Examples:
 - `npm run test:client`
 - `npm run test:api`
 - Added tests in `foo.spec.ts`
-- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Paste it verbatim; it is the PR's acceptance artifact and the evidence a reviewer has.
+- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Record evidence from cloud-hosted verification only, and confirm the required `CI gate` check at the exact pushed head. A runner that did not execute is not a pass.
 
 Write "Not applicable" when appropriate.
 -->
@@ -206,10 +206,10 @@ Write "None" when there are no notable risks.
 
 ## Checklist
 
-- [ ] I reviewed my own changes
-- [ ] Relevant tests have been added or updated
-- [ ] Existing relevant tests pass
-- [ ] The change does not introduce new warnings or errors
-- [ ] User-facing or complex behavior is documented where necessary
-- [ ] Required dependency changes have been merged/published
-- [ ] Required documentation PR: <!-- link or N/A -->
+* [ ] I reviewed my own changes
+* [ ] Relevant tests have been added or updated
+* [ ] Existing relevant tests pass
+* [ ] The change does not introduce new warnings or errors
+* [ ] User-facing or complex behavior is documented where necessary
+* [ ] Required dependency changes have been merged/published
+* [ ] Required documentation PR: <!-- link or N/A -->

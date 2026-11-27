@@ -504,6 +504,9 @@ export function WorkAgentConversationSelector() {
     : workSelectionFromConversation(conversation, options);
   const readinessAction = readinessQuery.data?.readiness.nextActionDescriptor;
   const hasProviderModel = options.models.some((model) => model.engine == null);
+  /** Only the server's own readiness verdict, or a failed request, is a failure. */
+  const serverReportsNotReady = readinessQuery.data?.readiness.ready === false;
+  const catalogFailed = modelsQuery.isError || agentsQuery.isError || identitiesQuery.isError;
   const readinessLabel = (() => {
     if (readinessQuery.isError) {
       return localize('com_work_readiness_unavailable');
@@ -523,14 +526,17 @@ export function WorkAgentConversationSelector() {
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-1" data-testid="work-agent-selection">
+    <div
+      className="flex max-w-full min-w-0 flex-wrap items-center gap-1"
+      data-testid="work-agent-selection"
+    >
       <WorkAgentIdentitySelect
         options={options}
         selection={selection}
         onChange={apply}
         disabled={isSubmitting || isLoading || identitiesQuery.isError}
         id="work-agent-identity-composer"
-        className="max-w-[14rem]"
+        className="max-w-full shrink-0"
       />
       <WorkModelSelect
         options={options}
@@ -538,7 +544,7 @@ export function WorkAgentConversationSelector() {
         onChange={apply}
         disabled={isSubmitting || isLoading || modelsQuery.isError}
         id="work-model-composer"
-        className="max-w-[16rem]"
+        className="max-w-full shrink-0"
       />
       <WorkAgentSelect
         options={options}
@@ -546,7 +552,7 @@ export function WorkAgentConversationSelector() {
         onChange={apply}
         disabled={isSubmitting || isLoading || modelsQuery.isError || agentsQuery.isError}
         id="work-agent-composer"
-        className="max-w-[10rem]"
+        className="max-w-full shrink-0"
       />
       {isLoading && (
         <span role="status" className="text-text-secondary text-xs">
@@ -568,11 +574,21 @@ export function WorkAgentConversationSelector() {
           {localize('com_work_agent_identities_unavailable')}
         </span>
       )}
-      {!isLoading && !modelsQuery.isError && !hasProviderModel && (
-        <span role="alert" className="text-text-secondary text-xs">
-          {readinessLabel}
-        </span>
-      )}
+      {/* An empty catalog is a configuration state, not a failure: it only earns an
+          alert when the server's readiness check says the deployment is not ready,
+          or when one of the catalog requests failed. */}
+      {!isLoading &&
+        !catalogFailed &&
+        !hasProviderModel &&
+        (serverReportsNotReady ? (
+          <span role="alert" className="text-text-secondary text-xs">
+            {readinessLabel}
+          </span>
+        ) : (
+          <span role="status" className="text-text-secondary text-xs">
+            {localize('com_work_models_empty')}
+          </span>
+        ))}
     </div>
   );
 }

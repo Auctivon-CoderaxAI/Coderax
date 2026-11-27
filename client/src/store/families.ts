@@ -110,6 +110,9 @@ const conversationByIndex = atomFamily<TConversation | null, string | number>({
         const shouldUpdateParams =
           index === 0 &&
           !disableParams &&
+          /** These query parameters describe Chat's composer; they are not a
+           * Work selection and must never be mirrored onto a Work URL. */
+          newValue.isWork !== true &&
           newValue.createdAt === '' &&
           JSON.stringify(newValue) !== JSON.stringify(oldValue) &&
           (oldValue as TConversation)?.conversationId === Constants.NEW_CONVO;

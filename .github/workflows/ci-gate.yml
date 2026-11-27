@@ -1,0 +1,68 @@
+name: CI gate
+
+# The one required status check. Every other workflow here is path-filtered, so
+# a pull request that touches only one area never starts the rest — and a
+# required check whose workflow never runs can never turn green.
+#
+# This job always runs. It reads the required lanes from
+# `.github/required-checks.json`, waits for the lanes GitHub actually triggered
+# for this diff, and fails on failure, on `skipped` (which verifies nothing),
+# and on a required check that never appeared although its workflow ran.
+# See `.github/scripts/ci-gate.mjs` for the decision rules.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: '--max-old-space-size=2048'
+
+jobs:
+  gate:
+    name: CI gate
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24.16.0
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.16.0'
+          cache: npm
+
+      - name: Install the workflow parser the manifest check needs
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Check the manifest against the workflows it names
+        run: node --test .github/scripts/ci-gate.test.mjs
+
+      # Candidate tests above validate changes to the gate. The admission decision
+      # uses the reviewed base script and manifest, not the candidate's code.
+      - name: Checkout trusted base for admission
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-gate
+          persist-credentials: false
+
+      - name: Evaluate the required lanes at this head
+        working-directory: trusted-gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node .github/scripts/ci-gate.mjs

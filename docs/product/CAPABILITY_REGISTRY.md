@@ -1,6 +1,6 @@
 # Coderax Capability Registry
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Baseline:** main at `2cdce45c`, full re-read 25 November 2026; v1.0 reviewed `ea16749`.  
 **Purpose:** Track evidence-backed status and prevent roadmap descriptions from becoming shipped-feature claims.
 
@@ -47,7 +47,7 @@ Every row below was re-read at `2cdce45c` against `packages/api/src/`, `api/serv
 | CX-29 | Asset Factory | Partial | Image generation sessions with authorization (`packages/api/src/images/`); no asset library, licence metadata or provenance UI | Record source, licence and version for one generated asset | P4 |
 | CX-30 | Movie Studio | Planned | No screenplay, storyboard, shot generation or assembly pipeline was found at this SHA | Remains blocked until verified video generation capacity exists | P4 |
 | CX-31 | Avatar Lab | Planned | Only agent avatar image storage exists (`packages/api/src/agents/avatars.ts`); no synthetic human, voice, animation or consent pipeline | Define consent and provenance records before any synthesis work | P4 |
-| CX-32 | Game Studio | Partial | Owner-gated project lifecycle and editable design brief at `/games`, `/games/new`, `/games/templates`, `/games/:gameId` — `client/src/components/Games/`, `packages/api/src/games/`, `api/server/routes/games.js`; build, playtest and agent tabs render unavailable because no verified cloud executor exists | Queue one real build in a verified cloud executor and retain the artifact at a recorded SHA | P4 |
+| CX-32 | Game Studio | Partial | Owner-gated project lifecycle and editable design brief at `/games`, `/games/new`, `/games/templates`, `/games/:gameId` — `client/src/components/Games/`, `packages/api/src/games/`, `api/server/routes/games.js`; build, playtest and agent tabs render unavailable because no verified cloud executor exists | Run Games client and API specs at a recorded SHA; then queue one real build in a verified cloud executor and retain the artifact | P4 |
 | CX-33 | Gaming Agent | Blocked | The workspace's agent tab exists only as an honest unavailable state; no game-input environment or session adapter | Verify a permitted environment, bounded input control, takeover and stop before claiming a session | P4 |
 | CX-34 | Invention Lab | Planned | No CAD, simulation, bill-of-materials or experiment workspace was found at this SHA | Separate theory, simulation and measured results in the data model | P4 |
 | CX-35 | Business/Career | Planned | No venture, career or application workflow was found at this SHA | Define per-submission authorization and receipts | P4 |

@@ -159,7 +159,7 @@ describe('Work engine turn end-to-end', () => {
     const saved: Array<{ text: string; isCreatedByUser: boolean }> = [];
     const store: EngineWorkChatStore = {
       getConversation: async () => null,
-      saveConversation: async () => undefined,
+      saveConversation: async () => true,
       saveMessage: async (message) => {
         saved.push({ text: message.text, isCreatedByUser: message.isCreatedByUser });
       },
