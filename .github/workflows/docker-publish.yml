@@ -9,6 +9,11 @@ name: Reusable Docker Publish
 # Every image-publishing workflow calls this, so a fix here reaches all of them. The
 # prefix-glob bug in #15446 was one artifact-name expression that would otherwise have
 # needed correcting in five separate files.
+#
+# GHCR is the registry this repository owns, so it is always published. Docker Hub is
+# optional: both Docker Hub secrets must be configured for it to publish there. Every
+# build leg used to require them, so with the secrets unset each job died at
+# "Login to Docker Hub" with "Username and password required" before it built anything.
 
 on:
   workflow_call:
@@ -42,9 +47,12 @@ on:
         default: 90
     secrets:
       DOCKERHUB_USERNAME:
-        required: true
+        description: >-
+          Optional Docker Hub account. Docker Hub publishing is skipped unless both
+          Docker Hub secrets are supplied; GHCR is always published.
+        required: false
       DOCKERHUB_TOKEN:
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -74,6 +82,41 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      # Read from the checkout rather than github.sha, so a caller that builds a
+      # specific ref (main-image-workflow) stamps that ref's commit. Registry names
+      # must be lowercase, and the repository owner is not guaranteed to be.
+      # IMAGE_REFS is the registry list the build pushes to; Docker Hub joins it only
+      # when both of its secrets exist, so an unconfigured mirror cannot fail the leg.
+      - name: Compute build metadata
+        id: metadata
+        env:
+          BUILD_BRANCH_INPUT: ${{ inputs.build_branch }}
+          IMAGE_NAME: ${{ matrix.image.image_name }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}"
+          image_refs="$ghcr_image"
+          printf 'GHCR_IMAGE=%s\n' "$ghcr_image" >> "$GITHUB_ENV"
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            dockerhub_image="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+            image_refs="${image_refs},${dockerhub_image}"
+            printf 'DOCKERHUB_IMAGE=%s\n' "$dockerhub_image" >> "$GITHUB_ENV"
+            echo 'dockerhub=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "Docker Hub credentials are not configured; publishing ${IMAGE_NAME} to GHCR only."
+            echo 'dockerhub=false' >> "$GITHUB_OUTPUT"
+          fi
+          printf 'IMAGE_REFS=%s\n' "$image_refs" >> "$GITHUB_ENV"
+          printf 'image_refs=%s\n' "$image_refs" >> "$GITHUB_OUTPUT"
+          printf 'BUILD_COMMIT=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          printf 'BUILD_BRANCH=%s\n' "$BUILD_BRANCH_INPUT" >> "$GITHUB_ENV"
+          printf 'BUILD_DATE=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -82,27 +125,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: steps.metadata.outputs.dockerhub == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Prepare environment
-        run: cp .env.example .env
-
-      # Read from the checkout rather than github.sha, so a caller that builds a
-      # specific ref (main-image-workflow) stamps that ref's commit. Registry names
-      # must be lowercase, and the repository owner is not guaranteed to be.
-      - name: Compute build metadata
-        env:
-          BUILD_BRANCH_INPUT: ${{ inputs.build_branch }}
-          IMAGE_NAME: ${{ matrix.image.image_name }}
-        run: |
-          set -euo pipefail
-          printf 'GHCR_IMAGE=ghcr.io/%s/%s\n' "${GITHUB_REPOSITORY_OWNER,,}" "$IMAGE_NAME" >> "$GITHUB_ENV"
-          printf 'BUILD_COMMIT=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-          printf 'BUILD_BRANCH=%s\n' "$BUILD_BRANCH_INPUT" >> "$GITHUB_ENV"
-          printf 'BUILD_DATE=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
 
       # The layer cache lives in GHCR beside the image: no 10GB Actions-cache cap,
       # and readable from every branch and workflow, unlike type=gha which is
@@ -118,7 +145,7 @@ jobs:
           target: ${{ matrix.image.target }}
           cache-from: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
-          outputs: type=image,"name=${{ env.GHCR_IMAGE }},docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image.image_name }}",push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,"name=${{ steps.metadata.outputs.image_refs }}",push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BUILD_COMMIT=${{ env.BUILD_COMMIT }}
             BUILD_BRANCH=${{ env.BUILD_BRANCH }}
@@ -167,10 +194,23 @@ jobs:
 
     steps:
       # Registry names must be lowercase, and the repository owner is not guaranteed to be.
-      - name: Resolve GHCR image name
+      # DOCKERHUB_IMAGE stays unset unless both Docker Hub secrets exist, matching the
+      # build job: the digests are merged into exactly the registries they were pushed to.
+      - name: Resolve image names
+        id: names
         env:
           IMAGE_NAME: ${{ matrix.image.image_name }}
-        run: printf 'GHCR_IMAGE=ghcr.io/%s/%s\n' "${GITHUB_REPOSITORY_OWNER,,}" "$IMAGE_NAME" >> "$GITHUB_ENV"
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf 'GHCR_IMAGE=ghcr.io/%s/%s\n' "${GITHUB_REPOSITORY_OWNER,,}" "$IMAGE_NAME" >> "$GITHUB_ENV"
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            printf 'DOCKERHUB_IMAGE=docker.io/%s/%s\n' "$DOCKERHUB_USERNAME" "$IMAGE_NAME" >> "$GITHUB_ENV"
+            echo 'dockerhub=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'dockerhub=false' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Download digests
         uses: actions/download-artifact@v7
@@ -190,17 +230,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: steps.names.outputs.dockerhub == 'true'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # The digests are identical across registries (manifests are content-addressed),
-      # so the same set sources both manifest lists.
+      # so the same set sources every manifest list.
       - name: Create manifest lists and push
         working-directory: /tmp/digests
         env:
-          DOCKERHUB_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image.image_name }}
           EXPECTED_ARCHES: ${{ join(fromJSON(inputs.arches), ' ') }}
           TAG_SUFFIXES: ${{ inputs.tag_suffixes }}
         run: |
@@ -228,8 +268,13 @@ jobs:
             exit 1
           fi
 
-          echo "Merging ${#digests[@]} digests into $(( ${#tag_args[@]} / 2 )) tag(s) per registry"
-          for image in "$GHCR_IMAGE" "$DOCKERHUB_IMAGE"; do
+          registries=("$GHCR_IMAGE")
+          if [ -n "${DOCKERHUB_IMAGE:-}" ]; then
+            registries+=("$DOCKERHUB_IMAGE")
+          fi
+
+          echo "Merging ${#digests[@]} digests into $(( ${#tag_args[@]} / 2 )) tag(s) per registry: ${registries[*]}"
+          for image in "${registries[@]}"; do
             docker buildx imagetools create \
               "${tag_args[@]/IMAGE:/${image}:}" \
               "${digests[@]/#/${image}@sha256:}"
