@@ -50,7 +50,17 @@ jobs:
       - name: Check the manifest against the workflows it names
         run: node --test .github/scripts/ci-gate.test.mjs
 
+      # Candidate tests above validate changes to the gate. The admission decision
+      # uses the reviewed base script and manifest, not the candidate's code.
+      - name: Checkout trusted base for admission
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-gate
+          persist-credentials: false
+
       - name: Evaluate the required lanes at this head
+        working-directory: trusted-gate
         env:
           GITHUB_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

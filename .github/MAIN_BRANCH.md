@@ -63,6 +63,10 @@ other workflows remain the evidence it reads.
 
 <!-- coderabbit-ai-generated-section:v1:85ee6d113ea360e0caed47ea4805279c4081d4abba25cf2469d66822f9f787ad -->
 
+## Gate trust boundary
+
+The candidate gate test suite checks proposed changes; the admission step evaluates the exact PR head using the base revision's script and lane manifest. This prevents ordinary candidate script or manifest edits from weakening the admission decision. It does not make the PR-owned workflow definition itself immutable. Require independent review of gate-control paths, and evaluate a trusted organization-level required workflow when available without new spend. Do not change required-check names or protection settings until equivalent coverage and rollback are verified. Merge-group candidates are not covered by the current PR-only gate; do not enable a merge queue until synthetic candidates receive real verification.
+
 ## Gate rollout and rollback
 
 Keep the existing required checks while validating the aggregate gate. Before replacing them, verify equivalent coverage for backend, frontend, static, integration, security, and end-to-end workflows. A report-only lane cannot replace an existing requirement. Verify independent code-owner review is enforced for changes to the gate, its workflow, and the lane manifest. Exercise passing and failing pull requests and the local accessibility scan on a fork if forks are supported. Save the current required check names and their providers before changing the rule.

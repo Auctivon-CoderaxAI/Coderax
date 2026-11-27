@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Local acceptance gate for a change that cannot rely on hosted CI.
+ * Acceptance evidence for a pull request; execute in an authorized environment.
  *
- * This repository's GitHub Actions runs are blocked at the account billing
- * layer: a failing check never reaches a runner, so it proves nothing about the
- * commit. Until that is resolved, the evidence a reviewer gets is this script's
- * output, pasted into the pull request.
+ * A hosted check that never reaches a runner proves nothing about the commit.
+ * This script supplies additional verification evidence; it does not replace
+ * the required exact-head CI checks.
  *
  * One command runs the four gates a merge has to show against the merge base:
  *
