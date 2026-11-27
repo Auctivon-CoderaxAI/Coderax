@@ -489,6 +489,9 @@ const startServer = async () => {
   app.use('/api/research', routes.research);
   app.use('/api/prompts', routes.prompts);
   app.use('/api/skills', routes.skills);
+  // Additive and disabled by default: workflowEngine.enabled is the only switch,
+  // so disabling it restores the previous surface without a data migration.
+  app.use('/api/workflow-engine', routes.workflowEngine);
   app.use('/api/categories', routes.categories);
   app.use('/api/endpoints', routes.endpoints);
   app.use('/api/balance', routes.balance);

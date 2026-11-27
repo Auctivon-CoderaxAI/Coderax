@@ -20,38 +20,40 @@ const mockQueuedTurn = {
   cancel: jest.fn(),
 };
 
-jest.mock(
-  '@coderax/api',
-  () => {
-    const capture = (name, value) =>
-      jest.fn((...args) => {
-        mockDeps[name] = args;
-        return value;
-      });
-    return {
-      createAgentTriggerService: capture('createAgentTriggerService', mockService),
-      createCheckpointDeletionReclaimer: capture('createCheckpointDeletionReclaimer', 'reclaimer'),
-      createAgentContinuationResolver: capture('createAgentContinuationResolver', 'continuation'),
-      createAgentEventContinueResolver: capture('createAgentEventContinueResolver', 'event-actor'),
-      createSubagentCompletionWakeupResolver: capture('createSubagentCompletionWakeupResolver', 'subagent-adapter'),
-      SUBAGENT_COMPLETION_SOURCE: 'subagent-source',
-      createBackgroundToolCompletionWakeupResolver: capture(
-        'createBackgroundToolCompletionWakeupResolver',
-        'background-adapter',
-      ),
-      createBackgroundToolDeadClaimRecovery: capture('createBackgroundToolDeadClaimRecovery', 'dead-claim-recovery'),
-      BACKGROUND_TOOL_COMPLETION_SOURCE: 'background-source',
-      createAgentQueuedTurnLifecycle: capture('createAgentQueuedTurnLifecycle', mockQueuedTurn),
-      AGENT_QUEUED_TURN_SOURCE: 'queued-turn-source',
-      GenerationJobManager: {
-        getJob: jest.fn((conversationId) => ({ conversationId })),
-        getGenerationAdmissionEvidence: jest.fn(() => ({ admitted: true })),
-      },
-      isWorkflowStepActive: jest.fn(() => true),
-    };
-  },
-  { virtual: true },
-);
+jest.mock('@coderax/api', () => {
+  const capture = (name, value) =>
+    jest.fn((...args) => {
+      mockDeps[name] = args;
+      return value;
+    });
+  return {
+    createAgentTriggerService: capture('createAgentTriggerService', mockService),
+    createCheckpointDeletionReclaimer: capture('createCheckpointDeletionReclaimer', 'reclaimer'),
+    createAgentContinuationResolver: capture('createAgentContinuationResolver', 'continuation'),
+    createAgentEventContinueResolver: capture('createAgentEventContinueResolver', 'event-actor'),
+    createSubagentCompletionWakeupResolver: capture(
+      'createSubagentCompletionWakeupResolver',
+      'subagent-adapter',
+    ),
+    SUBAGENT_COMPLETION_SOURCE: 'subagent-source',
+    createBackgroundToolCompletionWakeupResolver: capture(
+      'createBackgroundToolCompletionWakeupResolver',
+      'background-adapter',
+    ),
+    createBackgroundToolDeadClaimRecovery: capture(
+      'createBackgroundToolDeadClaimRecovery',
+      'dead-claim-recovery',
+    ),
+    BACKGROUND_TOOL_COMPLETION_SOURCE: 'background-source',
+    createAgentQueuedTurnLifecycle: capture('createAgentQueuedTurnLifecycle', mockQueuedTurn),
+    AGENT_QUEUED_TURN_SOURCE: 'queued-turn-source',
+    GenerationJobManager: {
+      getJob: jest.fn((conversationId) => ({ conversationId })),
+      getGenerationAdmissionEvidence: jest.fn(() => ({ admitted: true })),
+    },
+    isWorkflowStepActive: jest.fn(() => true),
+  };
+});
 
 jest.mock('~/models', () => ({
   getScheduleMCPCompletionState: jest.fn(),
@@ -95,7 +97,12 @@ describe('scheduled agent runner wiring (triggers.js)', () => {
   it('forwards admission evidence arguments to GenerationJobManager in order', () => {
     const [deps] = mockDeps.createBackgroundToolCompletionWakeupResolver;
 
-    const evidence = deps.getGenerationAdmissionEvidence('user-1', 'request-1', 'stream-1', 'convo-1');
+    const evidence = deps.getGenerationAdmissionEvidence(
+      'user-1',
+      'request-1',
+      'stream-1',
+      'convo-1',
+    );
 
     expect(GenerationJobManager.getGenerationAdmissionEvidence).toHaveBeenCalledWith(
       'user-1',
