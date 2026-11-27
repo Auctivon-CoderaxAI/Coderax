@@ -1,11 +1,16 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
-import { CalendarClock, Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
+import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
 import type { NavLink } from '~/common';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import { useGetStartupConfig, useResearchCapabilitiesQuery } from '~/data-provider';
+import {
+  useGetEndpointsQuery,
+  useGetStartupConfig,
+  useResearchCapabilitiesQuery,
+} from '~/data-provider';
 import { SchedulePanel } from '~/components/SidePanel/Schedules';
+import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
 import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
@@ -26,6 +31,15 @@ export default function useUnifiedSidebarLinks() {
     permissionType: PermissionTypes.SCHEDULES,
     permission: Permissions.USE,
   });
+  const hasAccessToAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.USE,
+  });
+  const hasAccessToCreateAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.CREATE,
+  });
+  const { data: endpointsConfig } = useGetEndpointsQuery();
   const schedulesConfig = startupConfig?.interface?.schedules;
   const canAccessSchedules =
     hasScheduleAccess &&
@@ -44,6 +58,20 @@ export default function useUnifiedSidebarLinks() {
         Component: ConversationsSection,
       },
     ];
+    if (
+      endpointsConfig?.[EModelEndpoint.agents] &&
+      hasAccessToAgents &&
+      hasAccessToCreateAgents &&
+      endpointsConfig[EModelEndpoint.agents].disableBuilder !== true
+    ) {
+      links.push({
+        title: 'com_sidepanel_agent_builder',
+        label: '',
+        icon: Bot,
+        id: EModelEndpoint.agents,
+        Component: AgentPanelSwitch,
+      });
+    }
     if (canAccessSchedules) {
       links.push({
         title: 'com_ui_schedules',
@@ -72,5 +100,13 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [canAccessResearch, canAccessSchedules, isOwner, navigate]);
+  }, [
+    canAccessResearch,
+    canAccessSchedules,
+    endpointsConfig,
+    hasAccessToAgents,
+    hasAccessToCreateAgents,
+    isOwner,
+    navigate,
+  ]);
 }
