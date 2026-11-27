@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { cleanupAgent, openAgentBuilder, uniqueAgentName } from '../agents.helpers';
+import { cleanupAgent, startChatWithAgent, uniqueAgentName } from '../agents.helpers';
 import {
   MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
   fetchJson,
   getAccessToken,
   requestJson,
-  selectMockEndpoint,
   sendMessage,
 } from '../helpers';
 
@@ -25,8 +24,10 @@ test('stops a run from a portaled composer control @scenario:stop-from-a-portale
 }) => {
   test.setTimeout(120000);
 
-  await page.goto(NEW_CHAT_PATH, { timeout: 10000 });
-  await selectMockEndpoint(page, MOCK_ENDPOINTS[0]);
+  const { label: endpoint, model } = MOCK_ENDPOINTS[0];
+  const query = new URLSearchParams({ endpoint, model });
+  await page.goto(`${NEW_CHAT_PATH}?${query}`, { timeout: 10000 });
+  await expect(page.getByRole('button', { name: /^Thinking: / })).toBeVisible();
 
   const label = `portaled-stop-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   const messages = page.getByTestId('messages-view');
@@ -130,15 +131,6 @@ async function createApprovalAgent(page: Page, name: string): Promise<AgentRespo
   });
 }
 
-async function selectAgent(page: Page, agentName: string) {
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name: agentName }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(agentName);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible();
-}
-
 /**
  * The composer-hosted Review panel/chip is intentionally not asserted here.
  * On the first turn, the pending-approval atom is keyed by the run's durable
@@ -160,13 +152,7 @@ test('resumes a pending tool approval with the composer usable @scenario:pending
     await waitForApprovalTool(page);
     const agent = await createApprovalAgent(page, agentName);
     agentId = agent.id;
-    await selectAgent(page, agentName);
-    if ((page.viewportSize()?.width ?? 0) <= 768) {
-      /* Agent Builder lives in the mobile drawer; close it before returning to
-       * the full-bleed composer so the drawer cannot intercept composer input. */
-      await page.getByRole('button', { name: 'Close sidebar', exact: true }).click();
-      await expect(page.locator('#mobile-drawer')).toHaveAttribute('inert', /.*/);
-    }
+    await startChatWithAgent(page, { id: agent.id, name: agentName });
     const response = await sendMessage(page, `E2E_TOOL_APPROVAL:${label}`);
     expect(response.ok()).toBeTruthy();
     await expect(page).toHaveURL(/\/c\/(?!new)/, { timeout: 15000 });
