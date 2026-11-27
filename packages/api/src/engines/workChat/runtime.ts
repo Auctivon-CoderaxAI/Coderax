@@ -1,27 +1,46 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
-import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
+import type {
+  EngineRunOwnership,
+  EngineRunSnapshot,
+  EngineWorkChatConfig,
+  EngineWorkChatRunner,
+  RunScope,
+} from './types';
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
 import type { WorkRunLeaseStore } from './leases';
+import type { EngineRetryPolicy } from '../retry';
 import {
   DEFAULT_WORK_RUN_LEASE_TTL_MS,
   DEFAULT_WORK_RUN_RETENTION_MS,
   WORK_RUN_SWEEP_LIMIT,
   memoryWorkRunLeases,
 } from './leases';
+import {
+  DEFAULT_ENGINE_RETRY_POLICY,
+  canRetryWithin,
+  isRetryableStartFailure,
+  normalizeEngineRetryPolicy,
+  wait,
+} from '../retry';
 import { parseEngineModel } from '../opencode/models';
 import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
 
 type ActiveRun = {
-  handle: EngineRunHandle;
+  /** Null until the engine acknowledges the dispatch. */
+  handle: EngineRunHandle | null;
   /** Fences this process's run from a lease another replica has taken over. */
   token: string;
+  /** The last lease expiry this process confirmed with the store. */
+  leaseExpiresAt: number;
   heartbeat: ReturnType<typeof setInterval> | null;
   cancelRequested: boolean;
+  /** Another replica owns the task; a pending startup must not proceed. */
+  lost: boolean;
   cancel: () => Promise<void>;
 };
 
@@ -37,13 +56,32 @@ function activeRunKey(input: RunScope): string {
   return JSON.stringify([input.tenantId, input.userId, input.conversationId]);
 }
 
+/**
+ * The model each engine is dispatched with. A run is pinned to the model its own
+ * engine approved, so selecting OpenCode Agent never runs the FreeBuff model (or
+ * the reverse) just because a different engine is the configured default.
+ *
+ * Only engines that accept a per-run model appear here. FreeBuff resolves its
+ * model from its adapter configuration, so a request-level model would describe
+ * that run inaccurately.
+ */
+export type EngineRunModels = Partial<Record<EngineId, EngineModelRef>>;
+
+export function engineRunModels(
+  engines: NonNullable<EngineWorkChatConfig>['engines'] | null | undefined,
+): EngineRunModels {
+  const model = parseEngineModel(engines?.opencode?.model);
+  return model ? { opencode: model } : {};
+}
+
 export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   private readonly registry: EngineRegistryApi;
   private readonly roots: { private: string; cloud: string };
   private readonly mode: DataMode;
-  private readonly model: EngineModelRef | undefined;
+  private readonly models: EngineRunModels;
   private readonly defaultEngine: EngineId;
   private readonly leases: WorkRunLeaseStore;
+  private readonly retry: EngineRetryPolicy;
   private readonly instanceId = randomUUID();
   private readonly leaseTtlMs: number;
   private readonly heartbeatMs: number;
@@ -55,18 +93,20 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     registry: EngineRegistryApi,
     roots: { private: string; cloud: string },
     mode: DataMode = 'private',
-    model?: EngineModelRef,
+    models: EngineRunModels = {},
     defaultEngine: EngineId = 'opencode',
     leases: WorkRunLeaseStore = memoryWorkRunLeases,
     leaseTtlMs: number = DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry: EngineRetryPolicy = DEFAULT_ENGINE_RETRY_POLICY,
   ) {
     this.registry = registry;
     this.roots = roots;
     this.mode = mode;
-    this.model = model;
+    this.models = models;
     this.defaultEngine = defaultEngine;
     this.leases = leases;
     this.leaseTtlMs = leaseTtlMs;
+    this.retry = normalizeEngineRetryPolicy(retry);
     this.heartbeatMs = Math.max(5, Math.floor(leaseTtlMs / 3));
   }
 
@@ -80,12 +120,17 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   /**
+   * Reads the run state and its fencing token from one lease snapshot. A
+   * caller that reports an interruption therefore names the generation it
+   * observed; it never pairs one execution's state with a newer execution's
+   * token.
+   *
    * A lease that is still renewed is a running task. One that stopped
    * heartbeating belongs to a restart, a crash or a replica that went away, so
    * its run was interrupted and reports `failed`; a live lease with a
    * cancellation flag is a run that is being stopped on request.
    */
-  async state(input: RunScope): Promise<string | null> {
+  async inspect(input: RunScope): Promise<EngineRunSnapshot> {
     const lease = await this.leases.read(input, new Date());
     /**
      * Sweep after reading: a dead row is the only evidence of the interruption,
@@ -93,41 +138,72 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
      */
     this.sweepDeadLeases();
     if (!lease) {
-      return null;
+      return { state: null, generation: null };
     }
     if (!lease.live) {
-      return 'failed';
+      return { state: 'failed', generation: lease.token };
     }
-    return lease.cancelRequested ? 'cancelled' : 'running';
+    return {
+      state: lease.cancelRequested ? 'cancelled' : 'running',
+      generation: lease.token,
+    };
   }
 
-  async cancel(input: RunScope): Promise<boolean> {
+  async state(input: RunScope): Promise<string | null> {
+    return (await this.inspect(input)).state;
+  }
+
+  /**
+   * Cancels only the execution the caller observed. `generation` is the lease
+   * token from that observation: a replacement run that claimed the task in the
+   * meantime holds a different token, so a late cancellation cannot flag it.
+   */
+  async cancel(input: RunScope, generation?: string): Promise<boolean> {
     const key = activeRunKey(input);
     const run = activeRuns.get(key);
     if (run) {
+      if (generation != null && run.token !== generation) {
+        return false;
+      }
       run.cancelRequested = true;
       this.stopHeartbeat(run);
       await run.cancel();
       return true;
     }
     /** The run belongs to another replica, or to a process that is gone. */
-    return (await this.leases.cancel(input, new Date())) !== 'none';
+    return (await this.leases.cancel(input, new Date(), generation)) !== 'none';
   }
 
+  /**
+   * Releases the lease only after engine-side cleanup has settled. A run whose
+   * cleanup is still in flight keeps its heartbeat and its lease, so a new
+   * replica cannot start beside an abort that is still running.
+   */
   async release(input: RunScope & { handle?: EngineRunHandle }): Promise<boolean> {
     const key = activeRunKey(input);
     const run = activeRuns.get(key);
     if (!run || (input.handle != null && run.handle !== input.handle)) {
       return false;
     }
-    activeRuns.delete(key);
-    this.stopHeartbeat(run);
-    await this.leases.release(input, run.token);
+    const cleanup = run.handle?.cleanup;
+    if (cleanup) {
+      void cleanup.then(
+        () => this.finishRelease(input, key, run),
+        () => this.finishRelease(input, key, run),
+      );
+      return true;
+    }
+    await this.finishRelease(input, key, run);
     return true;
   }
 
   async start(
-    input: RunScope & { prompt: string; engine?: EngineId; beforeDispatch?: () => Promise<void> },
+    input: RunScope & {
+      prompt: string;
+      engine?: EngineId;
+      signal?: AbortSignal;
+      beforeDispatch?: (ownership: EngineRunOwnership) => Promise<void>;
+    },
   ): Promise<EngineResult<EngineRunHandle>> {
     const engine = input.engine ?? this.defaultEngine;
     if (engine !== 'opencode' && engine !== 'freebuff') {
@@ -167,48 +243,216 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     const token = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.leaseTtlMs);
-    const claimed = await this.leases.claim(input, {
+    const claim = await this.leases.claim(input, {
       token,
       owner: this.instanceId,
       now,
       expiresAt,
     });
-    if (!claimed) {
+    if (!claim.claimed) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
 
-    const started = await this.registry.start({
-      engine,
-      beforeDispatch: input.beforeDispatch,
-      request: {
-        taskKey: this.mode === 'cloud' ? key : input.conversationId,
-        conversationId: input.conversationId,
-        prompt: input.prompt,
-        mode: this.mode,
-        workspaceRoot,
-        ...(engine === 'opencode' && this.model ? { model: this.model } : {}),
+    /**
+     * The heartbeat starts with the claim, so startup, execution and cleanup
+     * are all covered by the same lease. Without this, a startup longer than
+     * the TTL would let another replica claim the task before dispatch.
+     */
+    const run: ActiveRun = {
+      handle: null,
+      token,
+      leaseExpiresAt: expiresAt.getTime(),
+      heartbeat: null,
+      cancelRequested: false,
+      lost: false,
+      cancel: async () => {
+        if (run.handle) {
+          await run.handle.cancel();
+        }
       },
-    });
+    };
+    activeRuns.set(key, run);
+    this.startHeartbeat(input, key, run);
+
+    const model = this.models[engine];
+    let ownershipLost = false;
+    const beforeDispatch = input.beforeDispatch;
+    let recorded = false;
+    /**
+     * The conversation row is written once, before a successful dispatch. A
+     * readiness refusal runs before the callback, so the callback stays on the
+     * retry until it has completed; afterwards it is omitted so the row is not
+     * written again. The wrapper keeps a retry idempotent even when the
+     * registry repeats the callback.
+     */
+    const writeOnce =
+      beforeDispatch == null
+        ? undefined
+        : async (): Promise<void> => {
+            if (recorded) {
+              return;
+            }
+            /**
+             * Re-establish ownership immediately before the startup write.
+             * A successful renew is the atomic linearization point: the
+             * claim of a replacement run cannot land until this expiry, so
+             * the generation this execution stamps is still its own.
+             */
+            const verifiedAt = new Date();
+            const verifiedExpiry = new Date(verifiedAt.getTime() + this.leaseTtlMs);
+            const ownership = await this.leases.renew(input, token, verifiedAt, verifiedExpiry);
+            if (!ownership.renewed) {
+              ownershipLost = true;
+              run.lost = true;
+              throw new Error('The Work run lease was lost before dispatch.');
+            }
+            run.leaseExpiresAt = verifiedExpiry.getTime();
+            await beforeDispatch({ generation: token, replaces: claim.previousToken });
+            recorded = true;
+          };
+    const dispatch = async (): Promise<EngineResult<EngineRunHandle>> => {
+      if (input.signal?.aborted || run.cancelRequested) {
+        return engineFailure('cancelled');
+      }
+      if (run.lost) {
+        return engineFailure('busy', 'This run no longer owns the task.');
+      }
+      try {
+        return await this.registry.start({
+          engine,
+          ...(writeOnce && !recorded ? { beforeDispatch: writeOnce } : {}),
+          request: {
+            taskKey: this.mode === 'cloud' ? key : input.conversationId,
+            conversationId: input.conversationId,
+            prompt: input.prompt,
+            signal: input.signal,
+            mode: this.mode,
+            workspaceRoot,
+            ...(model ? { model } : {}),
+          },
+        });
+      } catch (error) {
+        await this.leases.release(input, token).catch(() => false);
+        throw error;
+      }
+    };
+
+    let started: EngineResult<EngineRunHandle>;
+    try {
+      started = await dispatch();
+      for (let attempt = 1; ; attempt += 1) {
+        if (
+          started.ok ||
+          attempt >= this.retry.maxAttempts ||
+          !isRetryableStartFailure(started) ||
+          !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
+        ) {
+          break;
+        }
+        await wait(this.retry.delayMs);
+        if (run.lost) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        if (run.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        /**
+         * The delay is time in which the owner can cancel and another replica
+         * can claim an expired lease. Re-read the lease before dispatching again:
+         * an engine must not start for a cancelled task or one this run no longer
+         * owns. `renew` also extends the lease so the retry stays fenced.
+         */
+        const retryAt = new Date();
+        const retryExpiry = new Date(retryAt.getTime() + this.leaseTtlMs);
+        let lease: { renewed: boolean; cancelRequested: boolean };
+        try {
+          lease = await this.leases.renew(input, token, retryAt, retryExpiry);
+        } catch {
+          lease = { renewed: false, cancelRequested: false };
+        }
+        if (lease.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        if (!lease.renewed) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        run.leaseExpiresAt = retryExpiry.getTime();
+        started = await dispatch();
+      }
+    } catch (error) {
+      this.stopHeartbeat(run);
+      if (activeRuns.get(key) === run) {
+        activeRuns.delete(key);
+      }
+      await this.leases.release(input, token).catch(() => false);
+      if (ownershipLost) {
+        return engineFailure('busy', 'Another engine run is already active for this task.');
+      }
+      throw error;
+    }
+
     if (!started.ok) {
       /**
        * The engine never ran, so there is nothing to report but its own typed
        * failure. A release that fails must not replace it with a thrown error;
-       * the unclaimed lease simply expires.
+       * the unclaimed lease simply expires. Engine-side cleanup still owns the
+       * lease until it settles.
        */
-      await this.leases.release(input, token).catch(() => false);
+      const releaseAfterFailure = async (): Promise<void> => {
+        if (activeRuns.get(key) === run) {
+          activeRuns.delete(key);
+        }
+        this.stopHeartbeat(run);
+        await this.leases.release(input, token).catch(() => false);
+      };
+      if (started.cleanup) {
+        void started.cleanup.then(releaseAfterFailure, releaseAfterFailure);
+      } else {
+        await releaseAfterFailure();
+      }
       return started;
     }
 
-    const run: ActiveRun = {
-      handle: started.value,
-      token,
-      heartbeat: null,
-      cancelRequested: false,
-      cancel: started.value.cancel,
-    };
-    activeRuns.set(key, run);
-    this.startHeartbeat(input, key, run);
+    run.handle = started.value;
+    run.cancel = started.value.cancel;
+    if (run.lost) {
+      /** A replacement run took the task while this one was starting. */
+      await started.value.cancel().catch(() => undefined);
+      await this.leases.release(input, token).catch(() => false);
+      return engineFailure('busy', 'Another engine run is already active for this task.');
+    }
+    if (run.cancelRequested) {
+      /** A cancel request arrived while the engine was still starting. */
+      await started.value.cancel().catch(() => undefined);
+    }
     return started;
+  }
+
+  private async finishRelease(input: RunScope, key: string, run: ActiveRun): Promise<void> {
+    if (activeRuns.get(key) === run) {
+      activeRuns.delete(key);
+    }
+    this.stopHeartbeat(run);
+    await this.leases.release(input, run.token).catch(() => false);
   }
 
   /**
@@ -258,30 +502,46 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       return;
     }
     const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.leaseTtlMs);
     let renewed: { renewed: boolean; cancelRequested: boolean };
     try {
-      renewed = await this.leases.renew(
-        input,
-        run.token,
-        now,
-        new Date(now.getTime() + this.leaseTtlMs),
-      );
+      renewed = await this.leases.renew(input, run.token, now, expiresAt);
     } catch {
-      /** A transient store outage must not abort a healthy run; the next tick
-       * retries, and the lease expiry bounds how long another replica is fenced. */
+      /**
+       * A transient store outage must not abort a healthy run while the last
+       * confirmed lease is still valid; the next tick retries. Once that
+       * expiry has passed ownership can no longer be established, so the run
+       * stops instead of writing state it cannot prove it owns.
+       */
+      if (Date.now() >= run.leaseExpiresAt) {
+        await this.abandonRun(input, key, run);
+      }
+      return;
+    }
+    /** The run was replaced or released while the renewal was in flight. */
+    if (activeRuns.get(key) !== run) {
       return;
     }
     if (!renewed.renewed) {
-      activeRuns.delete(key);
-      this.stopHeartbeat(run);
-      await run.cancel().catch(() => undefined);
+      await this.abandonRun(input, key, run);
       return;
     }
+    run.leaseExpiresAt = expiresAt.getTime();
     if (renewed.cancelRequested && !run.cancelRequested) {
       run.cancelRequested = true;
       this.stopHeartbeat(run);
       await run.cancel().catch(() => undefined);
     }
+  }
+
+  private async abandonRun(input: RunScope, key: string, run: ActiveRun): Promise<void> {
+    if (activeRuns.get(key) !== run) {
+      return;
+    }
+    activeRuns.delete(key);
+    run.lost = true;
+    this.stopHeartbeat(run);
+    await run.cancel().catch(() => undefined);
   }
 }
 
@@ -298,6 +558,7 @@ function runtimeKey(config: EngineWorkChatConfig | null | undefined): string {
     openhands: engines?.openhands ?? null,
     freebuff: engines?.freebuff ?? null,
     defaultEngine: engines?.defaultEngine ?? null,
+    retry: engines?.retry ?? null,
   });
 }
 
@@ -327,15 +588,18 @@ export function getEngineWorkChatRuntime(
   const engines = config?.engines;
   const mode = config?.engines?.workChat?.mode === 'cloud' ? 'cloud' : 'private';
   const workEngine = engines?.defaultEngine ?? 'opencode';
-  const modelConfig =
-    workEngine === 'freebuff' ? engines?.freebuff?.model : engines?.opencode?.model;
+  /** Each engine keeps the model its own configuration approved. */
+  const models = engineRunModels(engines);
+  const retry = normalizeEngineRetryPolicy(engines?.retry);
   const runtime = new EngineWorkChatRuntime(
     createExecutionEngines(config),
     roots,
     mode,
-    parseEngineModel(modelConfig) ?? undefined,
+    models,
     workEngine,
     leases,
+    DEFAULT_WORK_RUN_LEASE_TTL_MS,
+    retry,
   );
   cache.set(key, runtime);
   return runtime;

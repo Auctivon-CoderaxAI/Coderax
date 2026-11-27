@@ -35,6 +35,9 @@ client/src/localization/languages/*_missing_keys.json
 # Turborepo
 .turbo
 
+# Wrangler local state (created by `wrangler dev` / `wrangler deploy`)
+/.wrangler/
+
 # AppMap recordings
 tmp/appmap/
 .appmap/
@@ -101,6 +104,7 @@ archive
 src/style - official.css
 /e2e/specs/.test-results/
 /e2e/benchmarks/.test-results/
+/e2e/benchmarks-navigation/.test-results/
 /e2e/benchmarks-tree/.test-results/
 /e2e/.generated/
 /e2e/playwright-report/

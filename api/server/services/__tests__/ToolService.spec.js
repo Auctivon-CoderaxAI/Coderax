@@ -1059,14 +1059,22 @@ describe('ToolService - Action Capability Gating', () => {
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
 
-      await loadAgentTools({
-        req,
-        res: {},
-        agent: { id: 'agent_123', tools: [Tools.file_search, Tools.execute_code] },
-        tool_resources,
-        agentResourceType: ResourceType.REMOTE_AGENT,
-        definitionsOnly: true,
+      const env = jest.replaceProperty(process, 'env', {
+        ...process.env,
+        LIBRECHAT_CODE_BASEURL: 'https://api.coderax/v1',
       });
+      try {
+        await loadAgentTools({
+          req,
+          res: {},
+          agent: { id: 'agent_123', tools: [Tools.file_search, Tools.execute_code] },
+          tool_resources,
+          agentResourceType: ResourceType.REMOTE_AGENT,
+          definitionsOnly: true,
+        });
+      } finally {
+        env.restore();
+      }
 
       const expectedParams = {
         req,
@@ -2943,8 +2951,11 @@ describe('ToolService - Action Capability Gating', () => {
       const req = createMockReq(capabilities);
       req.body = { conversationId: 'conversation-1' };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      process.env.CODERAX_CODE_BASEURL = 'http://code-default.test/v1';
-      process.env.CODERAX_CODE_BASEURL_STATEFUL = 'http://code-stateful.test/v1';
+      const env = jest.replaceProperty(process, 'env', {
+        ...process.env,
+        LIBRECHAT_CODE_BASEURL: 'http://code-default.test/v1',
+        CODERAX_CODE_BASEURL_STATEFUL: 'http://code-stateful.test/v1',
+      });
 
       try {
         const stateless = await loadToolsForExecution({
@@ -2979,8 +2990,7 @@ describe('ToolService - Action Capability Gating', () => {
           statefulSessions: true,
         });
       } finally {
-        delete process.env.CODERAX_CODE_BASEURL;
-        delete process.env.CODERAX_CODE_BASEURL_STATEFUL;
+        env.restore();
       }
     });
 
@@ -3236,15 +3246,9 @@ describe('ToolService - Action Capability Gating', () => {
         codeWorkspaces: [{ environmentId: 'personal-machine', workspaceId: 'project-a' }],
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      mockResolveCodeExecutionContext.mockReturnValueOnce({
-        baseUrl: 'http://attached-code.test/v1',
-        codeSessionKey: 'execute_code:stateful:attached',
-        executionProfile: 'stateful',
-        statefulSessions: true,
-        environmentType: 'attached',
-        environmentId: 'personal-machine',
-        bridgeWorkerId: 'worker-abc',
-      });
+      req.config.endpoints[EModelEndpoint.agents].statefulCodeSessions = {
+        environments: [attachedEnvironment()],
+      };
       mockCreateLaneGitRecorder.mockClear();
 
       await loadToolsForExecution({
@@ -3255,6 +3259,7 @@ describe('ToolService - Action Capability Gating', () => {
           tools: [Tools.execute_code],
           stateful_code_sessions: true,
           stateful_code_environment: 'agent-user',
+          code_environment_id: 'personal-machine',
         },
         conversationId: 'resolved-convo',
         toolNames: [AgentConstants.BASH_TOOL],
@@ -3294,15 +3299,9 @@ describe('ToolService - Action Capability Gating', () => {
         codeWorkspaces: [{ environmentId: 'personal-machine', workspaceId: 'project-a' }],
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      mockResolveCodeExecutionContext.mockReturnValueOnce({
-        baseUrl: 'http://attached-code.test/v1',
-        codeSessionKey: 'execute_code:stateful:attached',
-        executionProfile: 'stateful',
-        statefulSessions: true,
-        environmentType: 'attached',
-        environmentId: 'personal-machine',
-        bridgeWorkerId: 'worker-abc',
-      });
+      req.config.endpoints[EModelEndpoint.agents].statefulCodeSessions = {
+        environments: [attachedEnvironment()],
+      };
       mockCreateLaneGitRecorder.mockClear();
 
       await loadToolsForExecution({
@@ -3313,6 +3312,7 @@ describe('ToolService - Action Capability Gating', () => {
           tools: [Tools.execute_code],
           stateful_code_sessions: true,
           stateful_code_environment: 'agent-user',
+          code_environment_id: 'personal-machine',
         },
         conversationId: 'resolved-convo',
         toolNames: [AgentConstants.BASH_TOOL],

@@ -3,6 +3,10 @@ name: Publish `@coderax/data-schemas` to NPM
 on:
   workflow_dispatch:
     inputs:
+      approved_sha:
+        description: 'Full commit SHA recorded in the release approval'
+        required: true
+        type: string
       reason:
         description: 'Reason for manual trigger'
         required: false
@@ -11,13 +15,29 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pack:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
+      - name: Verify approved commit
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          if [[ "$GITHUB_SHA" != "$APPROVED_SHA" ]]; then
+            echo "::error::The dispatch commit does not match the approved release SHA."
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Use Node.js
         uses: actions/setup-node@v5
@@ -61,6 +81,7 @@ jobs:
           retention-days: 2
 
   publish-npm:
+    timeout-minutes: 15
     needs: pack
     if: github.ref == 'refs/heads/main' && needs.pack.outputs.skip != 'true'
     runs-on: ubuntu-latest
@@ -86,4 +107,4 @@ jobs:
 
       - name: Publish
         working-directory: npm-package
-        run: npm publish *.tgz --access public --provenance
+        run: npm publish *.tgz --access public

@@ -328,8 +328,17 @@ export default function ChatRoute({ workMode = false }: { workMode?: boolean }) 
         transport: baseChatTransport,
         selection: automaticChatSelection,
         endpointsConfig: endpointsQuery.data,
+        workMode: isWorkMode,
+        /** Only a stored Work transcript carries Work-only agent state into Chat. */
+        workConversation: initialConvoQuery.data?.isWork === true,
       }),
-    [baseChatTransport, automaticChatSelection, endpointsQuery.data],
+    [
+      baseChatTransport,
+      automaticChatSelection,
+      endpointsQuery.data,
+      isWorkMode,
+      initialConvoQuery.data?.isWork,
+    ],
   );
   const chatModelRouting = useMemo(
     () => ({

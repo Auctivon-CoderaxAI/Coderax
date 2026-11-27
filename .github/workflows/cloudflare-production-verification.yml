@@ -1,0 +1,41 @@
+name: Cloudflare anonymous access verification
+
+# Verification only: deploying the Worker is done by Cloudflare Workers Builds
+# on merge, or by an authenticated `npx wrangler deploy`. This workflow never
+# writes to production and needs no repository secrets, so it can be run before
+# the Worker's proxy secrets are configured to see exactly what is missing.
+# Full release verification (served revision + backend revision) is owned by
+# the deployment-acceptance change. This workflow cannot verify sign-in policy.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CODERAX_ORIGIN: https://coderax.nnabdelshahid.workers.dev
+
+jobs:
+  verify:
+    name: Verify Worker deployment contracts and anonymous access
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.16.0'
+
+      - name: Verify repository deployment contracts
+        run: node scripts/verify-coderax-deployment.mjs --repo-only
+
+      - name: Verify anonymous visitors are refused
+        env:
+          CODERAX_ACCESS_URL: ${{ env.CODERAX_ORIGIN }}
+        run: node scripts/verify-coderax-access.mjs --base-url "$CODERAX_ACCESS_URL"

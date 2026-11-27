@@ -16,11 +16,12 @@ import type {
   AnthropicModelOptions,
   ProviderInitializeParams,
 } from '~/types';
+import { buildProviderFallbackOptions, resolveCustomEndpointApiKey } from './providerFallback';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
-import { buildProviderFallbackOptions } from './providerFallback';
 import { resolveModelTransportTimeouts } from '~/agents/config';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
+import { createFreeInferenceBudget } from '~/routing/budget';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { getScopedTokenConfigKey } from '~/endpoints/keys';
 import { getCustomEndpointConfig } from '~/app/config';
@@ -212,7 +213,7 @@ export async function initializeCustom(
     throw new Error(`Config not found for the ${endpoint} custom endpoint.`);
   }
 
-  const CUSTOM_API_KEY = extractEnvVariable(endpointConfig.apiKey ?? '');
+  const CUSTOM_API_KEY = resolveCustomEndpointApiKey(endpoint, endpointConfig, appConfig?.config);
   const CUSTOM_BASE_URL = extractEnvVariable(endpointConfig.baseURL ?? '');
 
   if (CUSTOM_API_KEY.match(envVarRegex)) {
@@ -366,10 +367,18 @@ export async function initializeCustom(
     });
     options.endpointTokenConfig = endpointTokenConfig;
   } else {
+    const freeInferenceBudget =
+      isFreeOpenRouterEndpoint(endpoint) && typeof model_parameters?.model === 'string'
+        ? createFreeInferenceBudget({
+            config: { freeInference: appConfig?.config?.freeInference },
+            modelId: model_parameters.model,
+          })
+        : undefined;
     const finalClientOptions = {
       modelOptions,
       ...clientOptions,
       freeOpenRouterMaxOutputTokens: appConfig?.config?.freeInference?.openRouterMaxOutputTokens,
+      ...(freeInferenceBudget != null ? { freeInferenceBudget } : {}),
       ...(providerFallbacks != null ? { fallbacks: providerFallbacks } : {}),
     };
     // The OpenAI-compatible client requires a nonempty identifier even though

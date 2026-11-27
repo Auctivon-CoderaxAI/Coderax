@@ -268,6 +268,8 @@ export interface IConversation extends Document {
   isWork?: boolean;
   workModel?: string;
   workState?: string;
+  /** Fencing generation of the Work run that owns `workState`; cleared when it settles. */
+  workRunId?: string | null;
   workAgent?: 'coderax' | 'opencode' | 'freebuff';
   // Fields provided by conversationPreset (adjust types as needed)
   endpoint?: string;

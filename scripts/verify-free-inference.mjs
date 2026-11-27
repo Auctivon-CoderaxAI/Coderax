@@ -125,7 +125,7 @@ async function checkPublicCatalog() {
   };
 }
 
-async function probe(endpoint) {
+async function probe(endpoint, catalogValid) {
   const apiKey = process.env[endpoint.apiKeyEnv];
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const base = {
@@ -136,6 +136,9 @@ async function probe(endpoint) {
     pricingBasis: endpoint.pricing.basis,
   };
 
+  if (!catalogValid) {
+    return { ...base, status: 'blocked', blocker: 'public_catalog_mismatch', errorCode: null };
+  }
   if (!apiKey) {
     return { ...base, status: 'blocked', blocker: 'missing_credential', errorCode: null };
   }
@@ -225,9 +228,13 @@ async function probe(endpoint) {
   }
 }
 
-const publicCatalog = await checkPublicCatalog();
+const publicCatalog = await checkPublicCatalog().catch(() => ({
+  ok: false,
+  detail: 'Could not verify the OpenRouter public catalog',
+}));
+const catalogDrift = publicCatalog.ok !== true;
 for (const endpoint of FREE_ENDPOINTS) {
-  results.push(await probe(endpoint));
+  results.push(await probe(endpoint, !catalogDrift));
 }
 
 const summary = {
@@ -256,7 +263,6 @@ writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
 console.log(JSON.stringify({ outPath, summary, primaryAvailable: false }, null, 2));
 
-const catalogDrift = publicCatalog.ok !== true;
 const credentialedFailure = summary.failed > 0;
 const nothingVerified = requireInference && summary.verified === 0;
 

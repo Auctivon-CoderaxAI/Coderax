@@ -12,10 +12,10 @@ on:
       - '.github/workflows/frontend-review.yml'
       - '!**.md'
   # Post-merge safety net and full-run baseline for gated selection (same rationale as
-  # backend-review.yml stage 1): every dev merge touching frontend paths runs the full suite.
+  # backend-review.yml stage 1): every main merge touching frontend paths runs the full suite.
   push:
     branches:
-      - dev
+      - main
     paths:
       - 'e2e/client-build.test.mjs'
       - 'client/**'
@@ -24,7 +24,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/frontend-review.yml'
-  # Promotion requires full CI at the exact dev SHA, including path-filtered commits.
+  # A manual dispatch runs the full suite at the exact commit, including path-filtered changes.
   workflow_dispatch:
 
 permissions:
@@ -33,9 +33,9 @@ permissions:
 
 concurrency:
   # PR pushes supersede each other (per-PR canceling group). Push events get a PER-COMMIT group:
-  # dev-push runs are the post-merge safety net and the full-run baseline, and with a shared
+  # main-push runs are the post-merge safety net and the full-run baseline, and with a shared
   # canceling group closely spaced merges cancel each other's runs — observed live on 2026-08-23,
-  # when three consecutive dev merges cancelled the runs that would have caught #15142's red
+  # when three consecutive main merges cancelled the runs that would have caught #15142's red
   # (Codex P2 on #15145).
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
@@ -64,7 +64,7 @@ jobs:
   # #15136). Same mechanism, same record: across 604 finalized shadow receipts the frontend
   # selection has zero structural misses (its one raw MISSED was a chronic flake), over 500
   # narrowed decisions. Selected (safe mode) on synchronize only; full on PR open/reopen, on
-  # every dev push, and on any doubt. A workspace skips ONLY on an explicit NONE. Kill switch:
+  # every dev push, and on any doubt. NONE runs FULL so required jobs verify tests. Kill switch:
   # repo variable CODEGRAPH_GATING=off. Neither frontend workspace defines
   # testPathIgnorePatterns, so --runTestsByPath needs no exclude mirroring here.
   codegraph_select:
@@ -77,9 +77,7 @@ jobs:
       vars.CODEGRAPH_GATING != 'off'
     outputs:
       decided: ${{ steps.sel.outputs.decided }}
-      client_run: ${{ steps.sel.outputs.client_run }}
       client_files: ${{ steps.sel.outputs.client_files }}
-      clientpkg_run: ${{ steps.sel.outputs.clientpkg_run }}
       clientpkg_files: ${{ steps.sel.outputs.clientpkg_files }}
     steps:
       - name: Select tests, fail open on any doubt
@@ -120,7 +118,7 @@ jobs:
             mode=$(echo "$RESP" | jq -r --arg w "$ws" '.selected[$w].mode')
             files=""
             if [ "$mode" = "FILES" ]; then
-              # Only an explicit NONE may skip. FILES with a missing/empty list is a malformed
+              # FILES with a missing/empty list is a malformed
               # decision (service/schema skew) and must run FULL (Codex P1 on #15145).
               raw_n=$(echo "$RESP" | jq -r --arg w "$ws" '.selected[$w].files // [] | length')
               # Every selected path must live under the workspace: a wrong-prefixed path would
@@ -137,16 +135,11 @@ jobs:
                 if [ "$spaced" != "0" ]; then mode="FULL"; files=""; fi
               fi
             fi
-            if [ "$mode" = "NONE" ]; then
-              echo "${key}_run=false" >> "$GITHUB_OUTPUT"
-              note "| $ws | skip (no reachable tests) |"
-            elif [ "$mode" = "FILES" ]; then
+            if [ "$mode" = "FILES" ]; then
               n=$(echo "$files" | wc -w | tr -d ' ')
-              echo "${key}_run=true" >> "$GITHUB_OUTPUT"
               echo "${key}_files=$files" >> "$GITHUB_OUTPUT"
               note "| $ws | $n selected files |"
             else
-              echo "${key}_run=true" >> "$GITHUB_OUTPUT"
               note "| $ws | FULL |"
             fi
           }
@@ -270,8 +263,7 @@ jobs:
     name: 'Tests: @coderax/client'
     needs: [build, codegraph_select]
     if: >-
-      !cancelled() && needs.build.result == 'success' &&
-      needs.codegraph_select.outputs.clientpkg_run != 'false'
+      !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -348,8 +340,7 @@ jobs:
     name: 'Tests: Ubuntu (shard ${{ matrix.shard }}/2)'
     needs: [build, codegraph_select]
     if: >-
-      !cancelled() && needs.build.result == 'success' &&
-      needs.codegraph_select.outputs.client_run != 'false'
+      !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:

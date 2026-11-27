@@ -63,7 +63,11 @@ function failureFor(availability: EngineAvailability): EngineFailure | null {
     case 'sdk_unavailable':
       return engineFailure('sdk_unavailable', availability.detail);
     default:
-      return engineFailure('server_unavailable', availability.detail);
+      /**
+       * A readiness probe refused before dispatch, so nothing reached the
+       * engine and replaying the same engine is safe.
+       */
+      return engineFailure('server_unavailable', availability.detail, true);
   }
 }
 
@@ -76,7 +80,8 @@ export type EngineRunInput = {
 export type EngineRegistryApi = {
   start: (input: EngineRunInput) => Promise<EngineResult<EngineRunHandle>>;
   select: (engine?: EngineId | null) => EngineResult<{ id: EngineId; adapter: EngineAdapter }>;
-  snapshot: () => EngineStatusSnapshot;
+  /** Runtime status by default; `forStart` reports configuration admission only. */
+  snapshot: (forStart?: boolean) => EngineStatusSnapshot;
   /** Refreshes adapters that have a bounded runtime readiness probe. */
   probe: () => Promise<void>;
   arbiter: EngineRunArbiter;
@@ -175,14 +180,14 @@ export function createEngineRegistry(options: EngineRegistryOptions): EngineRegi
     };
   }
 
-  function snapshot(): EngineStatusSnapshot {
+  function snapshot(forStart = false): EngineStatusSnapshot {
     const ids: EngineId[] = ['opencode', 'openhands', 'freebuff'];
     return {
       defaultEngine: options.defaultEngine,
       engines: ids
         .map((id) => {
           const adapter = options.adapters[id];
-          return adapter ? statusFor(id, adapter) : null;
+          return adapter ? statusFor(id, adapter, forStart) : null;
         })
         .filter((status): status is EngineStatus => status !== null),
     };

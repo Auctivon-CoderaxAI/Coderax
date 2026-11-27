@@ -1,7 +1,9 @@
 import { EModelEndpoint } from 'coderax-data-provider';
 import type { TWorkModel } from 'coderax-data-provider';
 import {
+  EXTERNAL_WORK_MODEL,
   getWorkModelKey,
+  workModelChipValue,
   resolveWorkSelection,
   sanitizeWorkSelection,
   selectWorkAgentIdentity,
@@ -135,5 +137,16 @@ describe('Work identity and mode transitions', () => {
       mode: 'plan',
       promptPrefix: expect.stringContaining('Do not edit files'),
     });
+  });
+});
+
+describe('Work model display', () => {
+  it('names the external engine instead of the last native model', () => {
+    const native = { agentId: 'auto', modelKey: getWorkModelKey(models[2]) };
+    expect(workModelChipValue(native)).toBe(getWorkModelKey(models[2]));
+
+    for (const identity of ['opencode', 'freebuff'] as const) {
+      expect(workModelChipValue({ ...native, workAgent: identity })).toBe(EXTERNAL_WORK_MODEL);
+    }
   });
 });

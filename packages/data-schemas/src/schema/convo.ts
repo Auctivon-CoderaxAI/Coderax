@@ -55,6 +55,8 @@ const convoSchema: Schema<IConversation> = new Schema(
       enum: ['coderax', 'opencode', 'freebuff'],
       default: undefined,
     },
+    /** Fencing generation of the Work run that owns `workState`; cleared when it settles. */
+    workRunId: { type: String, default: undefined },
     ...conversationPreset,
     codeEnvironmentRevision: { type: Number, select: false },
     /** Exact tool names the owner chose to auto-approve for this conversation.

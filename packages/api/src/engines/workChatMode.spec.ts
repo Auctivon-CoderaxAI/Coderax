@@ -38,7 +38,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       registry,
       { private: '/private', cloud: cloudRoot },
       'cloud',
-      { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' },
+      { opencode: { providerId: 'opencode', modelId: 'deepseek-v4.1-flash-free' } },
     );
     const started = await engine.start({
       userId: 'owner',
@@ -64,7 +64,7 @@ describe('EngineWorkChatRuntime model and mode', () => {
       registry,
       { private: '/private', cloud: '/cloud' },
       'private',
-      { providerId: 'ollama', modelId: 'qwen2.5-coder:7b' },
+      { opencode: { providerId: 'ollama', modelId: 'qwen2.5-coder:7b' } },
     );
     await engine.start({
       userId: 'owner',

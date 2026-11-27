@@ -47,7 +47,10 @@ export function createEngineWorkChatPersistence(input: {
     workState?: 'running' | 'completed' | 'failed' | 'cancelled';
     workAgent?: 'coderax' | 'opencode' | 'freebuff';
     create?: boolean;
-  }): Promise<void> {
+    workRunId?: string | null;
+    fenceWorkRun?: string;
+    claimWorkRun?: { generation: string; replaces: string | null };
+  }): Promise<boolean> {
     const saved = await db.saveConvo(
       context,
       {
@@ -57,16 +60,21 @@ export function createEngineWorkChatPersistence(input: {
         workAgent: fields.workAgent ?? labels.agent,
         ...(fields.title ? { title: fields.title } : {}),
         ...(fields.workState ? { workState: fields.workState } : {}),
+        ...(fields.workRunId !== undefined ? { workRunId: fields.workRunId } : {}),
         ...(fields.create && tenantId != null ? { tenantId } : {}),
       },
       {
         context: `Work ${labels.label} chat conversation`,
         ...(fields.create ? {} : { noUpsert: true }),
+        ...(fields.fenceWorkRun ? { workRunGeneration: fields.fenceWorkRun } : {}),
+        ...(fields.claimWorkRun ? { workRunClaim: fields.claimWorkRun } : {}),
       },
     );
-    if (!saved) {
+    /** A fenced or claimed save that matched nothing belongs to a superseded run, not to a lost row. */
+    if (!saved && !fields.fenceWorkRun && !fields.claimWorkRun) {
       throw new Error('Work conversation could not be saved');
     }
+    return saved != null;
   }
 
   return {
