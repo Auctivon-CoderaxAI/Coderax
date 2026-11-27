@@ -601,6 +601,9 @@ export function createOpenCodeAdapter(options: OpenCodeAdapterOptions): EngineAd
       await statusProbe;
     },
     start: (request) =>
-      startOpenCodeRun({ ...options, probe: () => refresh(request.signal) }, request),
+      startOpenCodeRun(
+        options.baseURL ? { ...options, probe: () => refresh(request.signal) } : options,
+        request,
+      ),
   };
 }
