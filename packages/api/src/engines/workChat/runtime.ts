@@ -1,7 +1,13 @@
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
-import type { EngineWorkChatConfig, EngineWorkChatRunner, RunScope } from './types';
+import type {
+  EngineRunOwnership,
+  EngineRunSnapshot,
+  EngineWorkChatConfig,
+  EngineWorkChatRunner,
+  RunScope,
+} from './types';
 import type { DataMode, EngineId, EngineResult, EngineRunHandle } from '../types';
 import type { EngineRegistryApi, EngineStatusSnapshot } from '../registry';
 import type { EngineModelRef } from '../opencode/models';
@@ -25,11 +31,16 @@ import { createExecutionEngines } from '../service';
 import { engineFailure } from '../types';
 
 type ActiveRun = {
-  handle: EngineRunHandle;
+  /** Null until the engine acknowledges the dispatch. */
+  handle: EngineRunHandle | null;
   /** Fences this process's run from a lease another replica has taken over. */
   token: string;
+  /** The last lease expiry this process confirmed with the store. */
+  leaseExpiresAt: number;
   heartbeat: ReturnType<typeof setInterval> | null;
   cancelRequested: boolean;
+  /** Another replica owns the task; a pending startup must not proceed. */
+  lost: boolean;
   cancel: () => Promise<void>;
 };
 
@@ -109,12 +120,17 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
   }
 
   /**
+   * Reads the run state and its fencing token from one lease snapshot. A
+   * caller that reports an interruption therefore names the generation it
+   * observed; it never pairs one execution's state with a newer execution's
+   * token.
+   *
    * A lease that is still renewed is a running task. One that stopped
    * heartbeating belongs to a restart, a crash or a replica that went away, so
    * its run was interrupted and reports `failed`; a live lease with a
    * cancellation flag is a run that is being stopped on request.
    */
-  async state(input: RunScope): Promise<string | null> {
+  async inspect(input: RunScope): Promise<EngineRunSnapshot> {
     const lease = await this.leases.read(input, new Date());
     /**
      * Sweep after reading: a dead row is the only evidence of the interruption,
@@ -122,47 +138,62 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
      */
     this.sweepDeadLeases();
     if (!lease) {
-      return null;
+      return { state: null, generation: null };
     }
     if (!lease.live) {
-      return 'failed';
+      return { state: 'failed', generation: lease.token };
     }
-    return lease.cancelRequested ? 'cancelled' : 'running';
+    return {
+      state: lease.cancelRequested ? 'cancelled' : 'running',
+      generation: lease.token,
+    };
+  }
+
+  async state(input: RunScope): Promise<string | null> {
+    return (await this.inspect(input)).state;
   }
 
   /**
-   * The generation a conversation write must name to belong to this scope's run.
-   * It is read separately from `state` so the common path keeps one row read;
-   * a row that changes in between only makes the fenced write match nothing,
-   * which is exactly the outcome that must not land.
+   * Cancels only the execution the caller observed. `generation` is the lease
+   * token from that observation: a replacement run that claimed the task in the
+   * meantime holds a different token, so a late cancellation cannot flag it.
    */
-  async generation(input: RunScope): Promise<string | null> {
-    const lease = await this.leases.read(input, new Date());
-    return lease?.token ?? null;
-  }
-
-  async cancel(input: RunScope): Promise<boolean> {
+  async cancel(input: RunScope, generation?: string): Promise<boolean> {
     const key = activeRunKey(input);
     const run = activeRuns.get(key);
     if (run) {
+      if (generation != null && run.token !== generation) {
+        return false;
+      }
       run.cancelRequested = true;
       this.stopHeartbeat(run);
       await run.cancel();
       return true;
     }
     /** The run belongs to another replica, or to a process that is gone. */
-    return (await this.leases.cancel(input, new Date())) !== 'none';
+    return (await this.leases.cancel(input, new Date(), generation)) !== 'none';
   }
 
+  /**
+   * Releases the lease only after engine-side cleanup has settled. A run whose
+   * cleanup is still in flight keeps its heartbeat and its lease, so a new
+   * replica cannot start beside an abort that is still running.
+   */
   async release(input: RunScope & { handle?: EngineRunHandle }): Promise<boolean> {
     const key = activeRunKey(input);
     const run = activeRuns.get(key);
     if (!run || (input.handle != null && run.handle !== input.handle)) {
       return false;
     }
-    activeRuns.delete(key);
-    this.stopHeartbeat(run);
-    await this.leases.release(input, run.token);
+    const cleanup = run.handle?.cleanup;
+    if (cleanup) {
+      void cleanup.then(
+        () => this.finishRelease(input, key, run),
+        () => this.finishRelease(input, key, run),
+      );
+      return true;
+    }
+    await this.finishRelease(input, key, run);
     return true;
   }
 
@@ -171,7 +202,7 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       prompt: string;
       engine?: EngineId;
       signal?: AbortSignal;
-      beforeDispatch?: () => Promise<void>;
+      beforeDispatch?: (ownership: EngineRunOwnership) => Promise<void>;
     },
   ): Promise<EngineResult<EngineRunHandle>> {
     const engine = input.engine ?? this.defaultEngine;
@@ -212,17 +243,41 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
     const token = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.leaseTtlMs);
-    const claimed = await this.leases.claim(input, {
+    const claim = await this.leases.claim(input, {
       token,
       owner: this.instanceId,
       now,
       expiresAt,
     });
-    if (!claimed) {
+    if (!claim.claimed) {
       return engineFailure('busy', 'Another engine run is already active for this task.');
     }
 
+    /**
+     * The heartbeat starts with the claim, so startup, execution and cleanup
+     * are all covered by the same lease. Without this, a startup longer than
+     * the TTL would let another replica claim the task before dispatch.
+     */
+    const run: ActiveRun = {
+      handle: null,
+      token,
+      leaseExpiresAt: expiresAt.getTime(),
+      heartbeat: null,
+      cancelRequested: false,
+      lost: false,
+      cancel: async () => {
+        if (run.handle) {
+          await run.handle.cancel();
+        }
+      },
+    };
+    activeRuns.set(key, run);
+    this.startHeartbeat(input, key, run);
+
     const model = this.models[engine];
+    let ownershipLost = false;
+    const beforeDispatch = input.beforeDispatch;
+    let recorded = false;
     /**
      * The conversation row is written once, before a successful dispatch. A
      * readiness refusal runs before the callback, so the callback stays on the
@@ -230,8 +285,6 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
      * written again. The wrapper keeps a retry idempotent even when the
      * registry repeats the callback.
      */
-    const beforeDispatch = input.beforeDispatch;
-    let recorded = false;
     const writeOnce =
       beforeDispatch == null
         ? undefined
@@ -239,11 +292,31 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
             if (recorded) {
               return;
             }
-            await beforeDispatch();
+            /**
+             * Re-establish ownership immediately before the startup write.
+             * A successful renew is the atomic linearization point: the
+             * claim of a replacement run cannot land until this expiry, so
+             * the generation this execution stamps is still its own.
+             */
+            const verifiedAt = new Date();
+            const verifiedExpiry = new Date(verifiedAt.getTime() + this.leaseTtlMs);
+            const ownership = await this.leases.renew(input, token, verifiedAt, verifiedExpiry);
+            if (!ownership.renewed) {
+              ownershipLost = true;
+              run.lost = true;
+              throw new Error('The Work run lease was lost before dispatch.');
+            }
+            run.leaseExpiresAt = verifiedExpiry.getTime();
+            await beforeDispatch({ generation: token, replaces: claim.previousToken });
             recorded = true;
           };
-    const dispatch = async () => {
-      if (input.signal?.aborted) return engineFailure('cancelled');
+    const dispatch = async (): Promise<EngineResult<EngineRunHandle>> => {
+      if (input.signal?.aborted || run.cancelRequested) {
+        return engineFailure('cancelled');
+      }
+      if (run.lost) {
+        return engineFailure('busy', 'This run no longer owns the task.');
+      }
       try {
         return await this.registry.start({
           engine,
@@ -264,78 +337,122 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       }
     };
 
-    let started = await dispatch();
-    for (let attempt = 1; ; attempt += 1) {
-      if (
-        started.ok ||
-        attempt >= this.retry.maxAttempts ||
-        !isRetryableStartFailure(started) ||
-        !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
-      ) {
-        break;
-      }
-      await wait(this.retry.delayMs);
-      /**
-       * The delay is time in which the owner can cancel and another replica
-       * can claim an expired lease. Re-read the lease before dispatching again:
-       * an engine must not start for a cancelled task or one this run no longer
-       * owns. `renew` also extends the lease so the retry stays fenced.
-       */
-      const retryAt = new Date();
-      let lease: { renewed: boolean; cancelRequested: boolean };
-      try {
-        lease = await this.leases.renew(
-          input,
-          token,
-          retryAt,
-          new Date(retryAt.getTime() + this.leaseTtlMs),
-        );
-      } catch {
-        lease = { renewed: false, cancelRequested: false };
-      }
-      if (lease.cancelRequested) {
-        await this.leases.release(input, token).catch(() => false);
-        return engineFailure('cancelled', 'The run was cancelled before it started.');
-      }
-      if (!lease.renewed) {
-        return engineFailure('busy', 'This run no longer owns the task.');
-      }
+    let started: EngineResult<EngineRunHandle>;
+    try {
       started = await dispatch();
+      for (let attempt = 1; ; attempt += 1) {
+        if (
+          started.ok ||
+          attempt >= this.retry.maxAttempts ||
+          !isRetryableStartFailure(started) ||
+          !canRetryWithin(now.getTime(), this.retry.delayMs, this.leaseTtlMs)
+        ) {
+          break;
+        }
+        await wait(this.retry.delayMs);
+        if (run.lost) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        if (run.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        /**
+         * The delay is time in which the owner can cancel and another replica
+         * can claim an expired lease. Re-read the lease before dispatching again:
+         * an engine must not start for a cancelled task or one this run no longer
+         * owns. `renew` also extends the lease so the retry stays fenced.
+         */
+        const retryAt = new Date();
+        const retryExpiry = new Date(retryAt.getTime() + this.leaseTtlMs);
+        let lease: { renewed: boolean; cancelRequested: boolean };
+        try {
+          lease = await this.leases.renew(input, token, retryAt, retryExpiry);
+        } catch {
+          lease = { renewed: false, cancelRequested: false };
+        }
+        if (lease.cancelRequested) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          await this.leases.release(input, token).catch(() => false);
+          return engineFailure('cancelled', 'The run was cancelled before it started.');
+        }
+        if (!lease.renewed) {
+          this.stopHeartbeat(run);
+          if (activeRuns.get(key) === run) {
+            activeRuns.delete(key);
+          }
+          return engineFailure('busy', 'This run no longer owns the task.');
+        }
+        run.leaseExpiresAt = retryExpiry.getTime();
+        started = await dispatch();
+      }
+    } catch (error) {
+      this.stopHeartbeat(run);
+      if (activeRuns.get(key) === run) {
+        activeRuns.delete(key);
+      }
+      await this.leases.release(input, token).catch(() => false);
+      if (ownershipLost) {
+        return engineFailure('busy', 'Another engine run is already active for this task.');
+      }
+      throw error;
     }
+
     if (!started.ok) {
-      if (started.cleanup) {
-        // A different replica uses the shared lease, not the registry's local lock.
-        const renew = async () => {
-          const at = new Date();
-          const lease = await this.leases.renew(input, token, at, new Date(+at + this.leaseTtlMs));
-          if (!lease.renewed) clearInterval(timer);
-        };
-        const timer = setInterval(() => void renew().catch(() => undefined), this.heartbeatMs);
-        timer.unref?.();
-        void renew().catch(() => undefined);
-        void started.cleanup.then(
-          async () => {
-            clearInterval(timer);
-            await this.leases.release(input, token).catch(() => false);
-          },
-          () => undefined,
-        );
-      } else {
+      /**
+       * The engine never ran, so there is nothing to report but its own typed
+       * failure. A release that fails must not replace it with a thrown error;
+       * the unclaimed lease simply expires. Engine-side cleanup still owns the
+       * lease until it settles.
+       */
+      const releaseAfterFailure = async (): Promise<void> => {
+        if (activeRuns.get(key) === run) {
+          activeRuns.delete(key);
+        }
+        this.stopHeartbeat(run);
         await this.leases.release(input, token).catch(() => false);
+      };
+      if (started.cleanup) {
+        void started.cleanup.then(releaseAfterFailure, releaseAfterFailure);
+      } else {
+        await releaseAfterFailure();
       }
       return started;
     }
 
-    const run: ActiveRun = {
-      handle: started.value,
-      token,
-      heartbeat: null,
-      cancelRequested: false,
-      cancel: started.value.cancel,
-    };
-    activeRuns.set(key, run);
-    this.startHeartbeat(input, key, run);
+    run.handle = started.value;
+    run.cancel = started.value.cancel;
+    if (run.lost) {
+      /** A replacement run took the task while this one was starting. */
+      await started.value.cancel().catch(() => undefined);
+      await this.leases.release(input, token).catch(() => false);
+      return engineFailure('busy', 'Another engine run is already active for this task.');
+    }
+    if (run.cancelRequested) {
+      /** A cancel request arrived while the engine was still starting. */
+      await started.value.cancel().catch(() => undefined);
+    }
     return started;
+  }
+
+  private async finishRelease(input: RunScope, key: string, run: ActiveRun): Promise<void> {
+    if (activeRuns.get(key) === run) {
+      activeRuns.delete(key);
+    }
+    this.stopHeartbeat(run);
+    await this.leases.release(input, run.token).catch(() => false);
   }
 
   /**
@@ -385,30 +502,46 @@ export class EngineWorkChatRuntime implements EngineWorkChatRunner {
       return;
     }
     const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.leaseTtlMs);
     let renewed: { renewed: boolean; cancelRequested: boolean };
     try {
-      renewed = await this.leases.renew(
-        input,
-        run.token,
-        now,
-        new Date(now.getTime() + this.leaseTtlMs),
-      );
+      renewed = await this.leases.renew(input, run.token, now, expiresAt);
     } catch {
-      /** A transient store outage must not abort a healthy run; the next tick
-       * retries, and the lease expiry bounds how long another replica is fenced. */
+      /**
+       * A transient store outage must not abort a healthy run while the last
+       * confirmed lease is still valid; the next tick retries. Once that
+       * expiry has passed ownership can no longer be established, so the run
+       * stops instead of writing state it cannot prove it owns.
+       */
+      if (Date.now() >= run.leaseExpiresAt) {
+        await this.abandonRun(input, key, run);
+      }
+      return;
+    }
+    /** The run was replaced or released while the renewal was in flight. */
+    if (activeRuns.get(key) !== run) {
       return;
     }
     if (!renewed.renewed) {
-      activeRuns.delete(key);
-      this.stopHeartbeat(run);
-      await run.cancel().catch(() => undefined);
+      await this.abandonRun(input, key, run);
       return;
     }
+    run.leaseExpiresAt = expiresAt.getTime();
     if (renewed.cancelRequested && !run.cancelRequested) {
       run.cancelRequested = true;
       this.stopHeartbeat(run);
       await run.cancel().catch(() => undefined);
     }
+  }
+
+  private async abandonRun(input: RunScope, key: string, run: ActiveRun): Promise<void> {
+    if (activeRuns.get(key) !== run) {
+      return;
+    }
+    activeRuns.delete(key);
+    run.lost = true;
+    this.stopHeartbeat(run);
+    await run.cancel().catch(() => undefined);
   }
 }
 

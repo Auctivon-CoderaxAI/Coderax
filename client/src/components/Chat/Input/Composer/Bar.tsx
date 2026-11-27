@@ -517,8 +517,6 @@ function Bar({
           {/* Work selects an eligible model and authenticated agent; Chat routes
               models automatically. It sits beside the mic, where Work names the
               model its next message will use. */}
-          {/* Full width while the three labels need it, so they wrap instead of
-              truncating; the group shrinks back beside the mic once they fit. */}
           {index === 0 && showWorkAgentSelector && (
             <div className="max-w-full min-w-0 shrink overflow-visible">
               <WorkAgentConversationSelector />

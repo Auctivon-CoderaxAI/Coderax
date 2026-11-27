@@ -31,8 +31,14 @@ describe('Work run lease store', () => {
     const leases = createMemoryWorkRunLeaseStore();
     const input = scope('conversation-a');
 
-    await expect(leases.claim(input, claimFor('token-1'))).resolves.toBe(true);
-    await expect(leases.claim(input, claimFor('token-2'))).resolves.toBe(false);
+    await expect(leases.claim(input, claimFor('token-1'))).resolves.toEqual({
+      claimed: true,
+      previousToken: null,
+    });
+    await expect(leases.claim(input, claimFor('token-2'))).resolves.toEqual({
+      claimed: false,
+      previousToken: null,
+    });
     await expect(leases.read(input, new Date())).resolves.toMatchObject({ live: true });
   });
 
@@ -79,7 +85,10 @@ describe('Work run lease store', () => {
     await expect(leases.read(input, now)).resolves.toMatchObject({ live: false });
     await expect(leases.cancel(input, now)).resolves.toBe('interrupted');
     await expect(leases.read(input, now)).resolves.toBeNull();
-    await expect(leases.claim(input, claimFor('token-2'))).resolves.toBe(true);
+    await expect(leases.claim(input, claimFor('token-2'))).resolves.toEqual({
+      claimed: true,
+      previousToken: null,
+    });
   });
 
   it('reports nothing to cancel for an unknown task', async () => {
@@ -133,6 +142,7 @@ describe('Work run lease store', () => {
   it('addresses the database methods with the run key and request scope', async () => {
     const db = {
       claimWorkRun: jest.fn(async () => true),
+      claimWorkRunLease: jest.fn(async () => ({ claimed: true, previousToken: null })),
       renewWorkRun: jest.fn(async () => ({ renewed: true, cancelRequested: false })),
       releaseWorkRun: jest.fn(async () => true),
       cancelWorkRun: jest.fn(async () => 'requested' as const),
@@ -144,8 +154,11 @@ describe('Work run lease store', () => {
     const claim = claimFor('token-1');
     const key = workRunKey(input);
 
-    await expect(leases.claim(input, claim)).resolves.toBe(true);
-    expect(db.claimWorkRun).toHaveBeenCalledWith({
+    await expect(leases.claim(input, claim)).resolves.toEqual({
+      claimed: true,
+      previousToken: null,
+    });
+    expect(db.claimWorkRunLease).toHaveBeenCalledWith({
       key,
       user: 'owner',
       conversationId: 'conversation-a',
@@ -165,6 +178,13 @@ describe('Work run lease store', () => {
 
     await expect(leases.cancel(input, claim.now)).resolves.toBe('requested');
     expect(db.cancelWorkRun).toHaveBeenCalledWith({ key, now: claim.now });
+
+    await leases.cancel(input, claim.now, 'token-1');
+    expect(db.cancelWorkRun).toHaveBeenLastCalledWith({
+      key,
+      now: claim.now,
+      token: 'token-1',
+    });
 
     await leases.release(input, 'token-1');
     expect(db.releaseWorkRun).toHaveBeenCalledWith({ key, token: 'token-1' });

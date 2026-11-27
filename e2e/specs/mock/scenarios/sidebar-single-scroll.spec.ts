@@ -12,8 +12,8 @@ test.describe.configure({ timeout: 120_000 });
 
 const userEmail = getE2EUser().email;
 
-/** `aria-label` of the sidebar's chat-history region (`com_ui_recents`). */
-const HISTORY_REGION = 'Recents';
+/** `aria-label` of the sidebar's chat-history region (`com_ui_chat_history`). */
+const HISTORY_REGION = 'Chat History';
 /** `aria-label` of the Pinned section's region (`com_ui_pinned`). */
 const PINNED_REGION = 'Pinned';
 
@@ -83,8 +83,7 @@ async function openSidebar(page: Page): Promise<void> {
   await expect(historyRegion(page)).toBeVisible({ timeout: 30_000 });
   const placement = async () => {
     const box = await historyRegion(page).boundingBox();
-    if (box === null) return 'unlaid';
-    return box.x >= 0 ? 'on-screen' : 'off-screen';
+    return box === null ? 'unlaid' : box.x >= 0 ? 'on-screen' : 'off-screen';
   };
   await expect.poll(placement, { timeout: 30_000 }).not.toBe('unlaid');
   for (let attempt = 0; attempt < 3 && (await placement()) === 'off-screen'; attempt++) {

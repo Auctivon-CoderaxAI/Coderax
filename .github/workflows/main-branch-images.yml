@@ -34,6 +34,8 @@ concurrency:
 
 jobs:
   publish:
+    # Keep automatic builds and pushes to GHCR and Docker Hub opt-in.
+    if: vars.ALLOW_IMAGE_PUBLISH == 'true'
     uses: ./.github/workflows/docker-publish.yml
     with:
       images: >-

@@ -4202,6 +4202,11 @@ export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
 export const providerFallbackConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+    /**
+     * Default true: only a verified $0 model may be used. Setting this false is
+     * an explicit owner decision to allow account-tier billing.
+     */
+    zeroCostOnly: z.boolean().default(true),
     order: z
       .array(z.enum([...PROVIDER_FALLBACK_IDS]))
       .min(1)
@@ -4261,12 +4266,54 @@ export const ollamaLoopbackConfigSchema = z.strictObject({
   connectTimeoutMs: z.number().int().min(1).max(2_147_483_647).default(10_000),
 });
 
+/**
+ * WorkflowEngine gateway transport.
+ *
+ * Off by default: enabling it adds authenticated proxy routes and changes no
+ * existing Coderax route. `tokenEnv` names the server variable that holds the
+ * engine token; the token itself never belongs in configuration.
+ */
+export const workflowEngineConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** Engine origin, optionally with a path prefix. https unless loopback. */
+    baseURL: z.string().trim().url().optional(),
+    /**
+     * The one Coderax user id allowed to reach the engine. Administrative role
+     * membership is grantable, so it is not by itself owner authorization.
+     */
+    ownerUserId: z.string().trim().min(1).max(200).optional(),
+    /**
+     * Conversations the migration may move to the engine on first dispatch.
+     * The durable authority record is authoritative afterwards.
+     */
+    conversations: z.array(z.string().trim().min(1).max(200)).max(500).optional(),
+    tokenEnv: z
+      .string()
+      .trim()
+      .regex(/^[A-Z][A-Z0-9_]{0,127}$/)
+      .default('CODERAX_ENGINE_TOKEN'),
+    contractVersion: z.literal('1.0.0').default('1.0.0'),
+    requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
+    streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
+    /** JSON response budget; an oversize body is refused before it is buffered. */
+    maxResponseBytes: z.number().int().min(65_536).max(67_108_864).default(4_194_304),
+    /** SSE frame budget, measured in UTF-8 bytes. */
+    maxFrameBytes: z.number().int().min(16_384).max(16_777_216).default(1_048_576),
+    /** Reconnects allowed without advancing the event cursor before failing closed. */
+    maxEventResyncs: z.number().int().min(0).max(20).default(3),
+    /** Runs the compatibility and readiness handshake at startup; request checks always run. */
+    startupCheck: z.boolean().default(true),
+  })
+  .optional();
+
 export const configSchema = z.object({
   ollamaLoopback: ollamaLoopbackConfigSchema.optional(),
   version: z.string(),
   permissions: z.object({ maxWriteAttempts: permissionWriteAttemptsSchema }).optional(),
   work: workConfigSchema,
   engines: enginesConfigSchema,
+  workflowEngine: workflowEngineConfigSchema,
   cloudPower: cloudPowerConfigSchema,
   freeInference: freeInferenceConfigSchema,
   providerFallback: providerFallbackConfigSchema,

@@ -30,7 +30,11 @@ describe('native Work lifecycle persistence', () => {
     expect(store.saveConvo).toHaveBeenCalledWith(
       { userId: 'user-a' },
       { conversationId: 'task-a', workState: 'completed' },
-      { context: 'Work terminal generation state', noUpsert: true },
+      {
+        context: 'Work terminal generation state',
+        noUpsert: true,
+        unsettledWorkRun: true,
+      },
     );
   });
 
@@ -58,67 +62,27 @@ describe('native Work lifecycle persistence', () => {
 
 describe('durable engine run state', () => {
   const scope = { userId: 'user-a', tenantId: 'tenant-a', conversationId: 'task-a' };
-  const runtimeFor = (state: string | null) => ({ state: jest.fn(async () => state) });
-  const storeFor = (workState?: string) => ({
-    getConvo: jest.fn(async () => ({ isWork: true, workState })),
+  const storeFor = (workState?: string, workRunId?: string | null) => ({
+    getConvo: jest.fn(async () => ({
+      isWork: true,
+      workState,
+      ...(workRunId !== undefined ? { workRunId } : {}),
+    })),
     saveConvo: jest.fn(async () => undefined),
   });
 
-  it('persists failed when an expired lease reports an interrupted run', async () => {
-    const store = storeFor('running');
-
-    await expect(readEngineWorkState(scope, runtimeFor('failed'), store)).resolves.toBe('failed');
-    expect(store.saveConvo).toHaveBeenCalledWith(
-      { userId: 'user-a' },
-      { conversationId: 'task-a', workState: 'failed' },
-      { context: 'Work terminal generation state', noUpsert: true },
-    );
-  });
-
-  it('writes nothing for a live, cancelled or absent run', async () => {
-    for (const state of ['running', 'cancelled', null]) {
-      const store = storeFor('running');
-      await expect(readEngineWorkState(scope, runtimeFor(state), store)).resolves.toBe(state);
-      expect(store.saveConvo).not.toHaveBeenCalled();
-    }
-  });
-
-  it('does not rewrite a conversation that already records the interruption', async () => {
-    const store = storeFor('failed');
-
-    await expect(readEngineWorkState(scope, runtimeFor('failed'), store)).resolves.toBe('failed');
-    expect(store.saveConvo).not.toHaveBeenCalled();
-  });
-
-  it('still reports the interruption when persisting it fails', async () => {
-    const store = {
-      getConvo: jest.fn(async () => ({ isWork: true, workState: 'running' })),
-      saveConvo: jest.fn(async () => {
-        throw new Error('The store is unavailable.');
-      }),
-    };
-
-    await expect(readEngineWorkState(scope, runtimeFor('failed'), store)).resolves.toBe('failed');
-  });
-
-  it('never promotes ordinary chat to a failed Work task', async () => {
-    const store = {
-      getConvo: jest.fn(async () => ({ isWork: false })),
-      saveConvo: jest.fn(async () => undefined),
-    };
-
-    await expect(readEngineWorkState(scope, runtimeFor('failed'), store)).resolves.toBe('failed');
-    expect(store.saveConvo).not.toHaveBeenCalled();
-  });
-
-  it('fences the interruption write to the generation of the run it observed', async () => {
-    const store = storeFor('running');
+  it('reads the state and its generation from one lease snapshot', async () => {
+    const store = storeFor('running', 'run-1');
     const runtime = {
-      state: jest.fn(async () => 'failed'),
-      generation: jest.fn(async () => 'run-1'),
+      state: jest.fn(async () => {
+        throw new Error('state must not be read separately');
+      }),
+      inspect: jest.fn(async () => ({ state: 'failed', generation: 'run-1' })),
     };
 
     await expect(readEngineWorkState(scope, runtime, store)).resolves.toBe('failed');
+    expect(runtime.inspect).toHaveBeenCalledTimes(1);
+    expect(runtime.state).not.toHaveBeenCalled();
     expect(store.saveConvo).toHaveBeenCalledWith(
       { userId: 'user-a' },
       { conversationId: 'task-a', workState: 'failed', workRunId: null },
@@ -131,8 +95,68 @@ describe('durable engine run state', () => {
     );
   });
 
-  it('still records the interruption when its generation cannot be read', async () => {
+  it('persists failed when an expired lease reports an interrupted run', async () => {
     const store = storeFor('running');
+    const runtime = { state: jest.fn(async () => 'failed') };
+
+    await expect(readEngineWorkState(scope, runtime, store)).resolves.toBe('failed');
+    expect(store.saveConvo).toHaveBeenCalledWith(
+      { userId: 'user-a' },
+      { conversationId: 'task-a', workState: 'failed' },
+      {
+        context: 'Work terminal generation state',
+        noUpsert: true,
+        unsettledWorkRun: true,
+      },
+    );
+  });
+
+  it('writes nothing for a live, cancelled or absent run', async () => {
+    for (const state of ['running', 'cancelled', null]) {
+      const store = storeFor('running');
+      await expect(
+        readEngineWorkState(scope, { state: jest.fn(async () => state) }, store),
+      ).resolves.toBe(state);
+      expect(store.saveConvo).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not rewrite a conversation that already records the interruption', async () => {
+    const store = storeFor('failed');
+
+    await expect(
+      readEngineWorkState(scope, { state: jest.fn(async () => 'failed') }, store),
+    ).resolves.toBe('failed');
+    expect(store.saveConvo).not.toHaveBeenCalled();
+  });
+
+  it('still reports the interruption when persisting it fails', async () => {
+    const store = {
+      getConvo: jest.fn(async () => ({ isWork: true, workState: 'running' })),
+      saveConvo: jest.fn(async () => {
+        throw new Error('The store is unavailable.');
+      }),
+    };
+
+    await expect(
+      readEngineWorkState(scope, { state: jest.fn(async () => 'failed') }, store),
+    ).resolves.toBe('failed');
+  });
+
+  it('never promotes ordinary chat to a failed Work task', async () => {
+    const store = {
+      getConvo: jest.fn(async () => ({ isWork: false })),
+      saveConvo: jest.fn(async () => undefined),
+    };
+
+    await expect(
+      readEngineWorkState(scope, { state: jest.fn(async () => 'failed') }, store),
+    ).resolves.toBe('failed');
+    expect(store.saveConvo).not.toHaveBeenCalled();
+  });
+
+  it('does not overwrite another run when the generation cannot be read', async () => {
+    const store = storeFor('running', 'run-2');
     const runtime = {
       state: jest.fn(async () => 'failed'),
       generation: jest.fn(async () => {
@@ -141,24 +165,41 @@ describe('durable engine run state', () => {
     };
 
     await expect(readEngineWorkState(scope, runtime, store)).resolves.toBe('failed');
+    /** A separate token read is exactly the unsafe pairing this path avoids. */
+    expect(runtime.generation).not.toHaveBeenCalled();
+    expect(store.saveConvo).not.toHaveBeenCalled();
+  });
+
+  it('records a legacy interruption only while its row is unsettled', async () => {
+    const store = storeFor('running');
+    const runtime = {
+      state: jest.fn(async () => 'failed'),
+      inspect: jest.fn(async () => ({ state: 'failed', generation: null })),
+    };
+
+    await expect(readEngineWorkState(scope, runtime, store)).resolves.toBe('failed');
     expect(store.saveConvo).toHaveBeenCalledWith(
       { userId: 'user-a' },
       { conversationId: 'task-a', workState: 'failed' },
-      { context: 'Work terminal generation state', noUpsert: true },
+      {
+        context: 'Work terminal generation state',
+        noUpsert: true,
+        unsettledWorkRun: true,
+      },
     );
   });
 
   it('records an interrupted run before the cancel retires its lease', async () => {
     const order: string[] = [];
     const store = {
-      getConvo: jest.fn(async () => ({ isWork: true, workState: 'running' })),
+      getConvo: jest.fn(async () => ({ isWork: true, workState: 'running', workRunId: 'run-1' })),
       saveConvo: jest.fn(async () => {
         order.push('persisted');
       }),
     };
     const runtime = {
-      state: jest.fn(async () => 'failed'),
-      generation: jest.fn(async () => 'run-1'),
+      state: jest.fn(),
+      inspect: jest.fn(async () => ({ state: 'failed', generation: 'run-1' })),
       cancel: jest.fn(async () => {
         order.push('cancelled');
         return true;
@@ -172,17 +213,48 @@ describe('durable engine run state', () => {
       { conversationId: 'task-a', workState: 'failed', workRunId: null },
       expect.objectContaining({ workRunGeneration: 'run-1' }),
     );
+    expect(runtime.cancel).toHaveBeenCalledWith(scope, 'run-1');
   });
 
-  it('cancels a live run without writing an outcome', async () => {
+  it('does not retire an expired lease when its interruption cannot be recorded', async () => {
+    const store = {
+      getConvo: jest.fn(async () => ({ isWork: true, workState: 'running', workRunId: 'run-1' })),
+      saveConvo: jest.fn(async () => {
+        throw new Error('The store is unavailable.');
+      }),
+    };
+    const runtime = {
+      state: jest.fn(),
+      inspect: jest.fn(async () => ({ state: 'failed', generation: 'run-1' })),
+      cancel: jest.fn(async () => true),
+    };
+
+    await expect(cancelEngineWorkRun(scope, runtime, store)).resolves.toBe(false);
+    expect(runtime.cancel).not.toHaveBeenCalled();
+  });
+
+  it('cancels only the generation it observed', async () => {
     const store = storeFor('running');
     const runtime = {
-      state: jest.fn(async () => 'running'),
+      state: jest.fn(),
+      inspect: jest.fn(async () => ({ state: 'running', generation: 'run-1' })),
       cancel: jest.fn(async () => true),
     };
 
     await expect(cancelEngineWorkRun(scope, runtime, store)).resolves.toBe(true);
     expect(store.saveConvo).not.toHaveBeenCalled();
-    expect(runtime.cancel).toHaveBeenCalledWith(scope);
+    expect(runtime.cancel).toHaveBeenCalledWith(scope, 'run-1');
+  });
+
+  it('does not cancel a run that appeared after an empty observation', async () => {
+    const store = storeFor('running');
+    const runtime = {
+      state: jest.fn(),
+      inspect: jest.fn(async () => ({ state: null, generation: null })),
+      cancel: jest.fn(async () => true),
+    };
+
+    await expect(cancelEngineWorkRun(scope, runtime, store)).resolves.toBe(false);
+    expect(runtime.cancel).not.toHaveBeenCalled();
   });
 });

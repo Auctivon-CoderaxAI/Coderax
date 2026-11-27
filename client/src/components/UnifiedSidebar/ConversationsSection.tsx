@@ -132,7 +132,9 @@ const ConversationsSection = memo(() => {
   });
 
   const conversations = useMemo(() => {
-    return data ? data.pages.flatMap((page) => page.conversations) : [];
+    return data
+      ? data.pages.flatMap((page) => page.conversations)
+      : [];
   }, [data]);
 
   /** Pins are fetched on their own so one older than the first page of the chats list
@@ -152,7 +154,10 @@ const ConversationsSection = memo(() => {
      cache holds the same unarchived chats this section shows. */
   const pinnedConversations = useMemo(
     () =>
-      collectPinnedConversations(pinnedData?.conversations, isArchivedView ? [] : conversations),
+      collectPinnedConversations(
+        pinnedData?.conversations,
+        isArchivedView ? [] : conversations,
+      ),
     [pinnedData?.conversations, conversations, isArchivedView],
   );
 
@@ -223,7 +228,7 @@ const ConversationsSection = memo(() => {
       <div
         className="flex h-full min-h-0 flex-col overflow-hidden pt-2 pb-3"
         role="region"
-        aria-label={localize('com_ui_recents')}
+        aria-label={localize('com_ui_chat_history')}
       >
         {/* The search field owns this row alone; filtering and ordering moved beside the
           Chats heading, where the list they act on is labelled. On mobile the field

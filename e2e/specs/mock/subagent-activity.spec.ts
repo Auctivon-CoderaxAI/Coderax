@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { AgentDetail } from './agents.helpers';
-import { cleanupAgent, openAgentBuilder, uniqueAgentName } from './agents.helpers';
+import { cleanupAgent, startChatWithAgent, uniqueAgentName } from './agents.helpers';
 import {
   MOCK_ENDPOINTS,
   getAccessToken,
@@ -33,14 +33,6 @@ async function createAgent(
       subagents,
     },
   });
-}
-
-async function selectAgent(page: Page, name: string): Promise<void> {
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(name);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
 }
 
 test.describe('detached subagent activity', () => {
@@ -86,7 +78,7 @@ test.describe('detached subagent activity', () => {
       });
       createdAgentIds.push(parent.id);
 
-      await selectAgent(page, parentName);
+      await startChatWithAgent(page, parent);
       const response = await sendMessageAndWaitForCompletion(
         page,
         `${DETACHED_ACTIVITY_MARKER}${children.map((child) => child.id).join(',')}:${label}`,
@@ -141,7 +133,7 @@ test.describe('detached subagent activity', () => {
       await expect(panel.getByText('Completed', { exact: true })).toHaveCount(0);
 
       await panel.getByRole('button', { name: 'Close' }).click();
-      await page.getByRole('button', { name: 'Recents' }).click();
+      await page.getByRole('button', { name: 'Chat History' }).click();
       const conversationRows = page.getByTestId('convo-item');
       await expect(conversationRows.locator('button[aria-current="page"]')).toBeVisible();
       for (const child of children) {

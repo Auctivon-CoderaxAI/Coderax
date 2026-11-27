@@ -1,7 +1,7 @@
 /* eslint-disable i18next/no-literal-string */
 import React, { useRef } from 'react';
-import { RecoilRoot, useRecoilState } from 'recoil';
 import { Constants } from 'coderax-data-provider';
+import { RecoilRoot, useRecoilState } from 'recoil';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   useNavigate,
@@ -73,6 +73,7 @@ function Driver() {
       <span data-testid="convo-id">{conversation?.conversationId ?? 'none'}</span>
       <span data-testid="convo-model">{conversation?.model ?? 'none'}</span>
       <button onClick={() => setConversation(draftConvo())}>seed</button>
+      <button onClick={() => setConversation(draftConvo({ isWork: true }))}>seed-work</button>
       <button onClick={editModel}>edit-model</button>
       <button onClick={chipSwitch}>chip-switch</button>
       <button onClick={sidebarSwitch}>sidebar-switch</button>
@@ -124,6 +125,15 @@ describe('conversationByIndex URL mirroring', () => {
 
   const renderChat = () => {
     const router = createBrowserRouter([{ path: '/c/:conversationId', element: <Driver /> }]);
+    render(
+      <RecoilRoot>
+        <RouterProvider router={router} />
+      </RecoilRoot>,
+    );
+  };
+
+  const renderWork = () => {
+    const router = createBrowserRouter([{ path: '/work/:conversationId', element: <Driver /> }]);
     render(
       <RecoilRoot>
         <RouterProvider router={router} />
@@ -220,6 +230,23 @@ describe('conversationByIndex URL mirroring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'persist' }));
 
     await waitFor(() => expect(screen.getByTestId('convo-id')).toHaveTextContent('saved-123'));
+    expect(ops).toHaveLength(0);
+  });
+
+  it('never mirrors Chat query params onto a Work conversation', async () => {
+    window.history.replaceState({}, '', `/work/${Constants.NEW_CONVO}`);
+    renderWork();
+    fireEvent.click(screen.getByRole('button', { name: 'seed-work' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('convo-id')).toHaveTextContent(
+        new RegExp(`^${Constants.NEW_CONVO}$`),
+      ),
+    );
+    ops.length = 0;
+
+    fireEvent.click(screen.getByRole('button', { name: 'edit-model' }));
+
+    await waitFor(() => expect(screen.getByTestId('convo-model')).toHaveTextContent('edited-1'));
     expect(ops).toHaveLength(0);
   });
 
