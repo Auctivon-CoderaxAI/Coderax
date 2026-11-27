@@ -103,14 +103,42 @@ describe('Coderax sidebar links', () => {
   it('omits owner-only Game Studio and inaccessible Agent Builder for a non-owner', () => {
     mockUser = { role: SystemRoles.USER };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'agents', 'plugins']);
   });
 
   it('follows the advertised research policy without exposing Game Studio', () => {
     mockUser = { role: SystemRoles.USER };
     mockResearchAccess = { canAccess: true };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'research']);
+    expect(result.current.map((link) => link.id)).toEqual([
+      'conversations',
+      'agents',
+      'plugins',
+      'research',
+    ]);
+  });
+
+  it('omits the Agent Builder when the endpoint is not configured', () => {
+    mockEndpointsConfig = {};
+    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).not.toContain('agents');
+  });
+
+  it('omits the Agent Builder when the builder is disabled', () => {
+    mockEndpointsConfig = { agents: { disableBuilder: true } };
+    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).not.toContain('agents');
+  });
+
+  it('requires both agent permissions', () => {
+    mockGranted.delete(key(PermissionTypes.AGENTS, Permissions.CREATE));
+    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).not.toContain('agents');
+
+    mockGranted.add(key(PermissionTypes.AGENTS, Permissions.CREATE));
+    mockGranted.delete(key(PermissionTypes.AGENTS, Permissions.USE));
+    const withoutUse = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(withoutUse.result.current.map((link) => link.id)).not.toContain('agents');
   });
 
   it('does not offer Agent Builder when the endpoint disables it', () => {
