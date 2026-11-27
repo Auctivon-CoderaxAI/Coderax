@@ -24,6 +24,7 @@ test('OCI Compose publishes only Caddy and starts no local model server', async 
   const compose = await read('deploy/oci/compose.yaml');
   const web = serviceBlock(compose, 'web');
   const app = serviceBlock(compose, 'app');
+  const opencode = serviceBlock(compose, 'opencode');
 
   assert.match(web, /"80:80"/);
   assert.match(web, /"443:443"/);
@@ -35,7 +36,40 @@ test('OCI Compose publishes only Caddy and starts no local model server', async 
   assert.doesNotMatch(compose, /11434|qwen3\.5/);
   assert.doesNotMatch(compose, /model:\s+internal:\s+true/);
   assert.doesNotMatch(compose, /^\s+mongodb:/m);
-  assert.doesNotMatch(compose, /27017:|7700:/);
+  assert.doesNotMatch(compose, /4096:|27017:|7700:/);
+
+  assert.match(opencode, /profiles: \[opencode\]/);
+  assert.match(opencode, /env_file:\s*\n\s*- \.\/engine\.env/);
+  assert.match(opencode, /read_only: true/);
+  assert.match(opencode, /no-new-privileges:true/);
+  assert.match(opencode, /cap_drop:\s*\n\s*- ALL/);
+  assert.match(opencode, /engine-workspace:\/srv\/engine/);
+  assert.match(opencode, /engine-data:\/data/);
+  assert.doesNotMatch(opencode, /engine-private/);
+  assert.doesNotMatch(opencode, /^\s+ports:/m);
+  assert.match(app, /engine-workspace:\/srv\/engine/);
+  assert.match(app, /engine-private:\/srv\/coderax\/private/);
+  assert.doesNotMatch(web, /^\s+- engine$/m);
+  assert.match(compose, /^  engine: \{\}$/m);
+  assert.match(compose, /^  engine-workspace: \{\}$/m);
+  assert.match(compose, /^  engine-private: \{\}$/m);
+  assert.match(compose, /^  engine-data: \{\}$/m);
+});
+
+test('OpenCode runtime is authenticated, private and readiness-probed', async () => {
+  const entrypoint = await read('deploy/oci/opencode/entrypoint.sh');
+  const healthcheck = await read('deploy/oci/opencode/healthcheck.sh');
+  const dockerfile = await read('deploy/oci/opencode/Dockerfile');
+  const config = await read('deploy/oci/coderax.oci.yaml');
+
+  assert.match(entrypoint, /OPENCODE_SERVER_PASSWORD is required/);
+  assert.match(entrypoint, /exec opencode serve/);
+  assert.match(healthcheck, /\/global\/health/);
+  assert.match(healthcheck, /curl[\s\S]*-u "\$\{user\}:\$\{OPENCODE_SERVER_PASSWORD:-\}"/);
+  assert.match(dockerfile, /opencode-ai@\$\{OPENCODE_VERSION\}/);
+  assert.match(dockerfile, /^USER node$/m);
+  assert.match(dockerfile, /^EXPOSE 4096$/m);
+  assert.match(config, /baseURL: http:\/\/opencode:4096/);
 });
 
 test('Caddy requires the private proxy header and preserves origin and streaming metadata', async () => {
@@ -123,6 +157,11 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /Refusing to replace existing app\.env or origin\.env/);
   assert.match(setup, /read_secret JWT_SECRET/);
   assert.match(setup, /read_secret CREDS_KEY/);
+  assert.match(setup, /read_secret PASSWORD_LOGIN_PASSWORD/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD is required/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD must not contain a single quote or backslash/);
+  assert.match(setup, /PASSWORD_LOGIN_PASSWORD='\$PASSWORD_LOGIN_PASSWORD'/);
+  assert.match(setup, /unset MONGO_URI[\s\S]*?PASSWORD_LOGIN_PASSWORD/);
   assert.match(setup, /read_secret OPENROUTER_API_KEY/);
   assert.match(setup, /An OpenRouter API key is required/);
   assert.doesNotMatch(setup, /optional, press Enter to skip/);
@@ -130,7 +169,7 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.doesNotMatch(setup, /CREDS_KEY=\$\(openssl rand/);
   assert.match(setup, /openssl rand -hex 32/);
   assert.match(setup, /CODERAX_PUBLIC_HOST=coderax\.nnabdelshahid\.workers\.dev/);
-  assert.match(setup, /chmod 600 app\.env origin\.env/);
+  assert.match(setup, /chmod 600 app\.env origin\.env engine\.env/);
   assert.match(setup, /do not print or commit that file/);
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
   if (dockerIgnore) assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);

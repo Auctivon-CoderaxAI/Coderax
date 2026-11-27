@@ -1,0 +1,5 @@
+# OCI / Cloudflare migration follow-up
+
+This branch restores owner password provisioning, adds an opt-in isolated OpenCode service and container acceptance checks, and preserves the native engine as default. The existing Cloudflare deploy wrapper already verifies repository configuration and preserves dashboard variables. Do not restore the obsolete direct Wrangler command or overwrite existing environment files. No deployment, secret change or provider access is performed by this PR.
+
+Run only on approved cloud resources at zero additional cost. Before activating OpenCode, verify A1 capacity, enable its Compose profile and explicitly enable its server configuration. Never make external runtime a requirement for native Work. Validate owner login, anonymous rejection, proxy origin/secret bindings, exact deployed revision, readiness and rollback. Retain Vercel until Cloudflare acceptance passes. The original branch's historical deployment claims and migration notes are not independently verified; consult PR #342's original head for that material.

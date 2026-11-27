@@ -3,7 +3,7 @@ set -eu
 
 cd "$(dirname "$0")"
 if [ -e app.env ] || [ -e origin.env ] || [ -e engine.env ]; then
-  echo 'Refusing to replace existing app.env, origin.env or engine.env.' >&2
+  echo 'Refusing to replace existing app.env or origin.env (or engine.env).' >&2
   exit 1
 fi
 command -v openssl >/dev/null 2>&1 || {
@@ -37,6 +37,7 @@ read_secret JWT_SECRET 'Enter the existing production JWT_SECRET from Vercel: '
 read_secret JWT_REFRESH_SECRET 'Enter the existing production JWT_REFRESH_SECRET from Vercel: '
 read_secret CREDS_KEY 'Enter the existing production CREDS_KEY from Vercel: '
 read_secret CREDS_IV 'Enter the existing production CREDS_IV from Vercel: '
+read_secret PASSWORD_LOGIN_PASSWORD 'Enter the existing production PASSWORD_LOGIN_PASSWORD from Vercel: '
 
 for secret in "$JWT_SECRET" "$JWT_REFRESH_SECRET" "$CREDS_KEY" "$CREDS_IV"; do
   case "$secret" in
@@ -47,6 +48,10 @@ done
 [ "${#JWT_REFRESH_SECRET}" -ge 64 ] || { echo 'JWT_REFRESH_SECRET must contain at least 32 bytes of hexadecimal entropy.' >&2; exit 1; }
 [ "${#CREDS_KEY}" -eq 64 ] || { echo 'CREDS_KEY must be a 32-byte hexadecimal AES-256 key.' >&2; exit 1; }
 [ "${#CREDS_IV}" -eq 32 ] || { echo 'CREDS_IV must be a 16-byte hexadecimal value.' >&2; exit 1; }
+case "$PASSWORD_LOGIN_PASSWORD" in
+  '') echo 'PASSWORD_LOGIN_PASSWORD is required: password sign-in is the only owner entry path on the VM.' >&2; exit 1 ;;
+  *"'"*|*\\*) echo 'PASSWORD_LOGIN_PASSWORD must not contain a single quote or backslash; app.env stores it single-quoted.' >&2; exit 1 ;;
+esac
 
 read_secret OPENROUTER_API_KEY 'Enter the required OpenRouter API key for the free hosted Work models: '
 case "$OPENROUTER_API_KEY" in
@@ -85,6 +90,7 @@ JWT_SECRET=$JWT_SECRET
 JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET
 CREDS_KEY=$CREDS_KEY
 CREDS_IV=$CREDS_IV
+PASSWORD_LOGIN_PASSWORD='$PASSWORD_LOGIN_PASSWORD'
 CODERAX_ALLOWED_HOSTS=coderaxai.vercel.app,coderax.nnabdelshahid.workers.dev
 DOMAIN_CLIENT=https://coderaxai.vercel.app
 DOMAIN_SERVER=https://coderaxai.vercel.app
@@ -100,9 +106,10 @@ CODERAX_API_HOST=$API_HOST
 CODERAX_PROXY_SECRET=$PROXY_SECRET
 CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev
 EOF
-unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV OPENROUTER_API_KEY PROXY_SECRET OPENCODE_SERVER_PASSWORD secret_name secret_prompt
+unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV PASSWORD_LOGIN_PASSWORD OPENROUTER_API_KEY PROXY_SECRET OPENCODE_SERVER_PASSWORD secret_name secret_prompt
 chmod 600 app.env origin.env engine.env
 
 printf 'Created protected environment files. API origin: https://%s\n' "$API_HOST"
 printf 'The proxy secret is stored in origin.env; do not print or commit that file.\n'
+printf 'The owner login password is stored in app.env; do not print or commit that file.\n'
 printf 'The OpenCode service password is stored in app.env and engine.env; do not print or commit those files.\n'
