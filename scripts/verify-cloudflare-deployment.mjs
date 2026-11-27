@@ -162,9 +162,31 @@ export async function verifyDeployment(value, expectedCommit, fetcher = fetch) {
   };
 }
 
+function parseWranglerConfig(source) {
+  // Keep quoted strings intact while normalizing JSONC comments and trailing commas.
+  const withoutComments = source.replace(
+    /("(?:[^"\\]|\\[\s\S])*")|\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g,
+    (_, string) => string ?? ' ',
+  );
+  const json = withoutComments.replace(
+    /("(?:[^"\\]|\\[\s\S])*")|,(?=\s*[}\]])/g,
+    (match, string, offset) => {
+      if (string) return string;
+      const previous = withoutComments.slice(0, offset).trimEnd().at(-1);
+      return previous === '[' || previous === '{' ? match : '';
+    },
+  );
+  return JSON.parse(json);
+}
+
 /** Verify the committed Worker contract without contacting a deployment. */
 export function verifyRepositoryConfig(root = repoRoot) {
   const wrangler = readFileSync(path.join(root, 'wrangler.jsonc'), 'utf8');
+  assert.equal(
+    parseWranglerConfig(wrangler)?.keep_vars,
+    true,
+    'wrangler.jsonc must set top-level keep_vars to true',
+  );
   const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   const required = [
     '"name": "coderax"',
@@ -183,20 +205,10 @@ export function verifyRepositoryConfig(root = repoRoot) {
     /write-deployment-metadata\.mjs/,
     'npm run frontend must write the served revision',
   );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /wrangler@4\.168\.0/,
-    'the Cloudflare deploy command must pin Wrangler',
-  );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /write-deployment-metadata\.mjs/,
-    'the Cloudflare deploy command must write the revision marker',
-  );
-  assert.match(
-    pkg.scripts?.['deploy:cloudflare'] ?? '',
-    /--verify/,
-    'the Cloudflare deploy command must verify build provenance',
+  assert.equal(
+    pkg.scripts?.['deploy:cloudflare'],
+    'node scripts/deploy-cloudflare.mjs',
+    'the Cloudflare deploy command must use the checked deploy script',
   );
   return {
     worker: 'coderax',

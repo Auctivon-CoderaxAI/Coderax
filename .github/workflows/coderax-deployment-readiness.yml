@@ -7,6 +7,7 @@ on:
       - 'worker/**'
       - 'scripts/verify-cloudflare-deployment*.mjs'
       - 'scripts/write-deployment-metadata.mjs'
+      - 'scripts/deploy-cloudflare.mjs'
       - 'package.json'
       - '.github/workflows/coderax-deployment-readiness.yml'
   workflow_dispatch:

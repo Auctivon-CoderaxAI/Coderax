@@ -368,6 +368,9 @@ const useNewConvo = (index = 0) => {
         updatedAt: '',
       };
 
+      /** Work selects its model in the Work composer; a Chat model spec must not
+       * bleed into a Work conversation or override its saved Work selection. */
+      const appliesChatModelSpec = conversation.isWork !== true;
       let preset = _preset;
       const result = getDefaultModelSpec(startupConfig, endpointsConfig, agentsMap);
       const defaultModelSpec = result?.default ?? result?.last ?? result?.softDefault;
@@ -378,19 +381,27 @@ const useNewConvo = (index = 0) => {
             (startupConfig?.interface?.modelSelect ?? true) !== true ||
             (result?.last != null &&
               Object.keys(_template).filter((key) => key !== 'chatProjectId').length === 0);
-      if (!preset && startupConfig && shouldApplyModelSpec && defaultModelSpec) {
+      if (
+        !preset &&
+        appliesChatModelSpec &&
+        startupConfig &&
+        shouldApplyModelSpec &&
+        defaultModelSpec
+      ) {
         preset = getModelSpecPreset(defaultModelSpec);
       }
 
       const prevConversation = getConversation();
       conversation = clearInheritedAgentWorkspace(conversation, prevConversation);
-      applyModelSpecEffects({
-        startupConfig,
-        specName: preset?.spec,
-        convoId: conversation.conversationId,
-        prevConvoId: prevConversation?.conversationId,
-        prevSpecName: prevConversation?.spec,
-      });
+      if (appliesChatModelSpec) {
+        applyModelSpecEffects({
+          startupConfig,
+          specName: preset?.spec,
+          convoId: conversation.conversationId,
+          prevConvoId: prevConversation?.conversationId,
+          prevSpecName: prevConversation?.spec,
+        });
+      }
 
       if (
         conversation.conversationId === Constants.NEW_CONVO &&
