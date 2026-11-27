@@ -1,11 +1,16 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
-import { CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
+import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
 import type { NavLink } from '~/common';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import { useGetStartupConfig, useResearchCapabilitiesQuery } from '~/data-provider';
+import {
+  useGetEndpointsQuery,
+  useGetStartupConfig,
+  useResearchCapabilitiesQuery,
+} from '~/data-provider';
 import { SchedulePanel } from '~/components/SidePanel/Schedules';
+import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
 import PluginsPanel from '~/components/Taskbar/PluginsPanel';
 import { useAuthContext, useHasAccess } from '~/hooks';
 
@@ -27,6 +32,15 @@ export default function useUnifiedSidebarLinks() {
     permissionType: PermissionTypes.SCHEDULES,
     permission: Permissions.USE,
   });
+  const hasAccessToAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.USE,
+  });
+  const hasAccessToCreateAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.CREATE,
+  });
+  const { data: endpointsConfig } = useGetEndpointsQuery();
   const { data: startupConfig } = useGetStartupConfig();
   const schedulesConfig = startupConfig?.interface?.schedules;
   const schedulesEnabled =
@@ -43,6 +57,20 @@ export default function useUnifiedSidebarLinks() {
         Component: ConversationsSection,
       },
     ];
+    if (
+      endpointsConfig?.[EModelEndpoint.agents] &&
+      hasAccessToAgents &&
+      hasAccessToCreateAgents &&
+      endpointsConfig[EModelEndpoint.agents].disableBuilder !== true
+    ) {
+      links.push({
+        title: 'com_sidepanel_agent_builder',
+        label: '',
+        icon: Bot,
+        id: EModelEndpoint.agents,
+        Component: AgentPanelSwitch,
+      });
+    }
     if (hasAccessToSchedules && schedulesEnabled) {
       links.push({
         title: 'com_ui_taskbar_scheduled',
@@ -78,5 +106,14 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [canAccessResearch, hasAccessToSchedules, isOwner, navigate, schedulesEnabled]);
+  }, [
+    canAccessResearch,
+    endpointsConfig,
+    hasAccessToAgents,
+    hasAccessToCreateAgents,
+    hasAccessToSchedules,
+    isOwner,
+    navigate,
+    schedulesEnabled,
+  ]);
 }
