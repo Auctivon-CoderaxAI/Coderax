@@ -598,11 +598,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       }
       const requested = options?.limit ?? WORKFLOW_RUNS_PAGE_MAX;
       const limit = Math.min(Math.max(requested, 1), WORKFLOW_RUNS_PAGE_MAX);
-      return runModel()
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean<IWorkflowRun[]>();
+      return runModel().find(filter).sort({ createdAt: -1 }).limit(limit).lean<IWorkflowRun[]>();
     },
 
     claimWorkflowRuns: async ({ workerId, leaseToken, now, leaseUntil, limit }) => {

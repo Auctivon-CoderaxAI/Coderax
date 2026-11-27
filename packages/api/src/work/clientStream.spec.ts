@@ -20,11 +20,7 @@ const createResponse = (contentType: string): FakeResponse => {
 };
 
 const run = (res: FakeResponse): void => {
-  sseEventIds()(
-    {} as Request,
-    res as unknown as Response,
-    (() => undefined) as NextFunction,
-  );
+  sseEventIds()({} as Request, res as unknown as Response, (() => undefined) as NextFunction);
 };
 
 describe('applyEventIds', () => {
@@ -51,9 +47,7 @@ describe('applyEventIds', () => {
   it('leaves a partial frame for the write that completes it', () => {
     const state = { next: 1 };
 
-    expect(applyEventIds('event: message\ndata: {"a"', state)).toBe(
-      'event: message\ndata: {"a"',
-    );
+    expect(applyEventIds('event: message\ndata: {"a"', state)).toBe('event: message\ndata: {"a"');
     expect(state.next).toBe(1);
   });
 

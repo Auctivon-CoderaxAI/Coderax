@@ -13,11 +13,7 @@ export const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
  */
 export function idempotencyKeyAs(field: string, options: { header?: string } = {}) {
   const header = options.header ?? 'idempotency-key';
-  return function idempotencyKeyMiddleware(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): void {
+  return function idempotencyKeyMiddleware(req: Request, res: Response, next: NextFunction): void {
     const value = req.get(header);
     if (value == null || value.length === 0) {
       next();
