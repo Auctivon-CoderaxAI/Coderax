@@ -149,14 +149,21 @@ test.describe('continuous Chat and Work conversation', () => {
   }) => {
     await page.goto(NEW_CHAT_PATH);
     const token = await getAccessToken(page);
+    const projectName = `Continuous project ${Date.now()}`;
     const project = await requestJson<{ _id: string }>(page, {
       path: '/api/projects',
       method: 'POST',
       token,
-      body: { name: `Continuous project ${Date.now()}` },
+      body: { name: projectName },
     });
     try {
       await page.goto(`/c/new?projectId=${project._id}`);
+      await switchMode(page, 'Work');
+      const workBar = page.getByTestId('work-composer-bar');
+      await expect(workBar.getByText(projectName, { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Remove from project' })).toHaveCount(1);
+      await expect(workBar.getByRole('button', { name: 'Remove from project' })).toBeVisible();
+      await switchMode(page, 'Chat');
       await sendMessageAndWaitForCompletion(page, 'Keep this project context.');
       const url = page.url();
       const id = new URL(url).pathname.split('/').at(-1)!;

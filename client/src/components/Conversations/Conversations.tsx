@@ -359,24 +359,6 @@ const Conversations: FC<ConversationsProps> = ({
     () => rawConversations.filter(Boolean) as TConversation[],
     [rawConversations],
   );
-  /** Unread completions the Recents list holds; pinned and project chats have their
-   *  own rows and must not light this header. Derived from the already-cached lists,
-   *  so a collapsed section still reports its backlog without another request. */
-  const unseen = useUnseenConversations();
-  const recentsIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const conversation of filteredConversations) {
-      if (conversation.conversationId) {
-        ids.add(conversation.conversationId);
-      }
-    }
-    return ids;
-  }, [filteredConversations]);
-  const unreadCount = useMemo(
-    () => countUnreadInRecents(unseen?.unseen ?? [], recentsIds),
-    [unseen, recentsIds],
-  );
-
   /** The pinned section carries pins except in the archive or during search, when it is
    *  hidden. Keep matching pins in the Chats results instead of showing an empty list. */
   const includePinned = isArchivedView || !!search.query;
@@ -389,6 +371,26 @@ const Conversations: FC<ConversationsProps> = ({
       }),
     [filteredConversations, includePinned, sort.direction, sort.field],
   );
+  /** Unread completions the Recents list holds; pinned and project chats have their
+   *  own rows and must not light this header. Derived from the already-cached lists,
+   *  so a collapsed section still reports its backlog without another request. */
+  const unseen = useUnseenConversations();
+  const recentsIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const [, conversations] of datedConversations) {
+      for (const { conversationId } of conversations) {
+        if (conversationId) {
+          ids.add(conversationId);
+        }
+      }
+    }
+    return ids;
+  }, [datedConversations]);
+  const unreadCount = useMemo(
+    () => countUnreadInRecents(unseen?.unseen ?? [], recentsIds),
+    [unseen, recentsIds],
+  );
+
   /** Running chats this list holds no row for — filed in a project, pinned, or past the
    *  loaded pages — join the Running group only while nothing narrows the list: a search
    *  or filter result that grew rows it did not match would stop reading as that result. */

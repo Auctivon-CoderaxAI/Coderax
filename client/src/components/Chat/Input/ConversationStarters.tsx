@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import { EModelEndpoint, Constants } from 'coderax-data-provider';
 import {
@@ -8,9 +8,9 @@ import {
 } from '~/data-provider';
 import { useChatContext, useAgentsMapContext, useAssistantsMapContext } from '~/Providers';
 import { getIconEndpoint, getEntity, getModelSpec } from '~/utils';
-import { useSubmitMessage, useLocalize } from '~/hooks';
+import { useLocalize } from '~/hooks';
 
-const ConversationStarters = () => {
+const ConversationStarters = ({ onSubmit }: { onSubmit: (text: string) => void }) => {
   const { conversation } = useChatContext();
   const agentsMap = useAgentsMapContext();
   const assistantMap = useAssistantsMapContext();
@@ -63,11 +63,6 @@ const ConversationStarters = () => {
   }, [documentsMap, isAgent, entity, modelSpec]);
 
   const localize = useLocalize();
-  const { submitMessage } = useSubmitMessage();
-  const sendConversationStarter = useCallback(
-    (text: string) => submitMessage({ text }),
-    [submitMessage],
-  );
 
   /* A deployment with no configured starters still offers one actionable prompt,
      as in the approved design, rather than leaving the band empty. */
@@ -80,7 +75,8 @@ const ConversationStarters = () => {
       {starters.map((text: string, index: number) => (
         <button
           key={index}
-          onClick={() => sendConversationStarter(text)}
+          type="button"
+          onClick={() => onSubmit(text)}
           style={{ animationDelay: `${index * 75}ms`, animationFillMode: 'backwards' }}
           className="text-text-secondary hover:text-text-primary focus-visible:ring-text-primary fade-in flex max-w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm outline-hidden transition-colors duration-200 focus-visible:ring-2"
         >

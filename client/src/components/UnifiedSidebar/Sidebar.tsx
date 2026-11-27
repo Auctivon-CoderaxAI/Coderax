@@ -52,6 +52,7 @@ function Sidebar({
           )}
           style={{ transition: expanded ? 'opacity 200ms ease 80ms' : 'opacity 150ms ease' }}
           aria-hidden={!expanded}
+          inert={!expanded ? '' : undefined}
         >
           <BrandHeader />
           <div className="min-h-0 flex-1 overflow-hidden">

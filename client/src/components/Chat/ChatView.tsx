@@ -309,7 +309,9 @@ function ChatView({
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}
                                   landingStarters={
-                                    isLandingPage && !workMode ? <ConversationStarters /> : null
+                                    isLandingPage && !workMode
+                                      ? (onSubmit) => <ConversationStarters onSubmit={onSubmit} />
+                                      : undefined
                                   }
                                   footerBelow={footerBelow}
                                 />
@@ -321,7 +323,7 @@ function ChatView({
                             {!isLandingPage && configuredFooter && <Footer configuredOnly />}
                           </div>
                         </div>
-                        {isLandingPage && <Footer configuredOnly />}
+                        {isLandingPage && <Footer />}
                       </>
                     </TraceSurface>
                   </Presentation>

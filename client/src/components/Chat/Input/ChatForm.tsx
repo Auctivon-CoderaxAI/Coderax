@@ -152,7 +152,7 @@ interface ChatFormProps {
   /** Owned by ChatView: which layout the composer sits in — the welcome screen
    *  floats or bottoms it out, a conversation ends the page with it. */
   isLandingPage: boolean;
-  landingStarters?: React.ReactNode;
+  landingStarters?: (onSubmit: (text: string) => void) => React.ReactNode;
   /** Owned by the host: the persisted preference for whether Enter sends the
    *  message (vs. queues a newline). The composer only consumes it. */
   enterToSend: boolean;
@@ -842,6 +842,12 @@ const ChatForm = memo(function ChatForm({
     [answerMode, steering, submitMessage, methods, index, paidModelConsentRequired],
   );
 
+  const submitWhenReady = (data: { text: string }) => {
+    if (!isPreparingFromUrl && submitComposerText(data) !== false) {
+      clearSettingsError();
+    }
+  };
+
   const confirmPaidSubmission = useCallback(() => {
     if (heldPaidSubmission == null) {
       return;
@@ -957,11 +963,7 @@ const ChatForm = memo(function ChatForm({
 
   return (
     <form
-      onSubmit={methods.handleSubmit((data) => {
-        if (!isPreparingFromUrl && submitComposerText(data) !== false) {
-          clearSettingsError();
-        }
-      })}
+      onSubmit={methods.handleSubmit(submitWhenReady)}
       className={cn(
         /* `margin-bottom` is animated as well as `max-width`: it is what carries
            the composer between the landing clearance and the conversation one,
@@ -993,7 +995,7 @@ const ChatForm = memo(function ChatForm({
               onStartNewChat={startQueuedInNewChat}
             />
           )}
-          {(project || codeWorkspace.visible) && (
+          {((project && !workLanding) || codeWorkspace.visible) && (
             <div
               data-testid="composer-context-rail"
               className={cn(
@@ -1002,7 +1004,7 @@ const ChatForm = memo(function ChatForm({
                 isRTL && 'flex-row-reverse',
               )}
             >
-              {project ? <ProjectLandingChip project={project} /> : null}
+              {project && !workLanding ? <ProjectLandingChip project={project} /> : null}
               {codeWorkspace.visible ? (
                 <div className="min-w-0">
                   <CodeWorkspaceMenu
@@ -1180,7 +1182,7 @@ const ChatForm = memo(function ChatForm({
                   data-testid="work-composer-bar"
                   className="bg-surface-secondary rounded-b-theme-surface-lg mx-4 flex flex-wrap items-center gap-1 px-2 py-1"
                 >
-                  <ProjectLandingChip variant="bar" />
+                  <ProjectLandingChip project={project} variant="bar" />
                   <WorkBarButton
                     icon={FolderOpen}
                     label={localize('com_ui_files')}
@@ -1193,7 +1195,7 @@ const ChatForm = memo(function ChatForm({
                   />
                 </div>
               ) : (
-                landingStarters
+                landingStarters?.((text) => submitWhenReady({ text }))
               )}
             </div>
           )}
@@ -1270,7 +1272,7 @@ function ChatFormWrapper({
   autoSendText?: number;
   speechSettingsInitialized?: boolean;
   isLandingPage: boolean;
-  landingStarters?: React.ReactNode;
+  landingStarters?: (onSubmit: (text: string) => void) => React.ReactNode;
   footerBelow: boolean;
   centerFormOnLanding?: boolean;
 }) {
