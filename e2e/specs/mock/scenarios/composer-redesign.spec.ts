@@ -46,7 +46,10 @@ test.describe('composer redesign contracts', () => {
   test('Staged reasoning relabels steer as a new turn @scenario:staged-reasoning-relabels-steer-as-a-new-turn', async ({
     page,
   }) => {
-    await openComposer(page);
+    const { label: endpoint, model } = MOCK_ENDPOINTS[0];
+    const query = new URLSearchParams({ endpoint, model });
+    await page.goto(`${NEW_CHAT_PATH}?${query}`, { timeout: 10000 });
+    await expect(page.getByRole('button', { name: /^Thinking: / })).toBeVisible();
     await startRun(page, `staged-reasoning-${Date.now()}`);
     const thinking = page.getByRole('button', { name: /^Thinking: / });
     await thinking.click();

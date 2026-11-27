@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
+import { Constants } from 'coderax-data-provider';
 import { TextQuote, WandSparkles } from 'lucide-react';
 import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem, ComposerItemKind } from '~/hooks/Input/useComposerItems';
@@ -122,12 +123,20 @@ function Tray({
     conversation,
   });
 
+  const conversationId = conversation?.conversationId;
+  // New chats already show the model in the composer action row.
+  const modelBar =
+    conversationId && conversationId !== Constants.NEW_CONVO ? (
+      <ModelBar conversation={conversation} />
+    ) : null;
+
   if (items.length === 0 && files.size === 0) {
-    return null;
+    return modelBar;
   }
 
   return (
     <div data-testid="composer-tray" className="flex flex-col gap-1.5 px-2 pt-2">
+      {modelBar}
       <FileRow
         files={files}
         setFiles={setFiles}
