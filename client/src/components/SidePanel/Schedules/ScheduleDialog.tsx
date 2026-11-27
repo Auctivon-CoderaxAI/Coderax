@@ -63,8 +63,6 @@ interface ScheduleDialogProps {
   onOpenChange: (open: boolean) => void;
   schedule?: TSchedule;
   triggerRef?: React.MutableRefObject<HTMLButtonElement | null>;
-  /** Preselected cadence when the dialog is opened from a schedule-type choice. */
-  initialFrequency?: ScheduleFrequency;
 }
 
 type ScheduleFormValues = {
@@ -106,10 +104,7 @@ const PREVIEW_RUN_COUNT = 3;
 
 const FORM_ID = 'schedule-form';
 
-const getDefaultValues = (
-  schedule?: TSchedule,
-  initialFrequency?: ScheduleFrequency,
-): ScheduleFormValues => {
+const getDefaultValues = (schedule?: TSchedule): ScheduleFormValues => {
   const localTimezone = resolveLocalTimezone();
   if (!schedule) {
     return {
@@ -117,7 +112,7 @@ const getDefaultValues = (
       prompt: '',
       agent_id: '',
       chatProjectId: '',
-      frequency: initialFrequency ?? 'daily',
+      frequency: 'daily',
       hour: 9,
       minute: 0,
       daysOfWeek: DEFAULT_WEEKLY_DAYS,
@@ -190,7 +185,6 @@ export default function ScheduleDialog({
   onOpenChange,
   schedule,
   triggerRef,
-  initialFrequency,
 }: ScheduleDialogProps) {
   const navigate = useNavigate();
   const localize = useLocalize();
@@ -209,7 +203,7 @@ export default function ScheduleDialog({
     handleSubmit,
     formState: { dirtyFields, errors },
   } = useForm<ScheduleFormValues>({
-    defaultValues: getDefaultValues(schedule, initialFrequency),
+    defaultValues: getDefaultValues(schedule),
     mode: 'onChange',
   });
   /** The revision the form defaults were built from, captured at the same instant.

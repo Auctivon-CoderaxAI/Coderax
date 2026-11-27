@@ -13,6 +13,11 @@
   "workers_dev": true,
   "main": "./worker/index.mjs",
   "compatibility_date": "2026-11-25",
+  // `wrangler deploy` deletes plain-text vars that are not in this file, so a
+  // dashboard-set CODERAX_API_ORIGIN would disappear on the next Workers Builds
+  // run and every API route would answer 503 again. Secrets are never deleted
+  // by a deploy, so CODERAX_PROXY_SECRET survives either way.
+  "keep_vars": true,
   "assets": {
     "directory": "./client/dist",
     "binding": "ASSETS",

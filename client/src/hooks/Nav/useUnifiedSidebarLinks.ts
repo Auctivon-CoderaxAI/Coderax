@@ -1,34 +1,33 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
 import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
-import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope, Plug } from 'lucide-react';
 import type { NavLink } from '~/common';
-import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
 import {
   useGetEndpointsQuery,
   useGetStartupConfig,
   useResearchCapabilitiesQuery,
 } from '~/data-provider';
-import { SchedulePanel } from '~/components/SidePanel/Schedules';
+import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
 import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
-import PluginsPanel from '~/components/Taskbar/PluginsPanel';
+import { SchedulePanel } from '~/components/SidePanel/Schedules';
 import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
- * The owner's rail is a taskbar: chat history, scheduled tasks, plugins, the
- * owner's creative/research records, and the app shortcuts pinned from More.
+ * Keep the sidebar as a chat navigation surface, not a general app launcher.
+ * Scheduled chats keep a management entry so owners can pause existing jobs.
  * Work shares the chat shell; unrelated tools retain their direct routes.
- * Game Studio and Research are the owner's own creativity and evidence
- * records, so they need a destination here instead of a remembered URL.
- * Non-owners get no entry, because both route trees reject them.
+ * Game Studio and Research are the exceptions: they are the only entries to
+ * the owner's own creativity and evidence records, so they need a destination
+ * here instead of a remembered URL. Non-owners get no entry, because both
+ * route trees reject them.
  */
 export default function useUnifiedSidebarLinks() {
   const navigate = useNavigate();
   const { user } = useAuthContext();
   const { data: researchAccess } = useResearchCapabilitiesQuery();
-  const isOwner = user?.role === SystemRoles.ADMIN;
-  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
-  const hasAccessToSchedules = useHasAccess({
+  const { data: startupConfig } = useGetStartupConfig();
+  const hasScheduleAccess = useHasAccess({
     permissionType: PermissionTypes.SCHEDULES,
     permission: Permissions.USE,
   });
@@ -41,12 +40,14 @@ export default function useUnifiedSidebarLinks() {
     permission: Permissions.CREATE,
   });
   const { data: endpointsConfig } = useGetEndpointsQuery();
-  const { data: startupConfig } = useGetStartupConfig();
   const schedulesConfig = startupConfig?.interface?.schedules;
-  const schedulesEnabled =
+  const canAccessSchedules =
+    hasScheduleAccess &&
     schedulesConfig != null &&
     schedulesConfig !== false &&
     !(typeof schedulesConfig === 'object' && schedulesConfig.use === false);
+  const isOwner = user?.role === SystemRoles.ADMIN;
+  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   return useMemo<NavLink[]>(() => {
     const links: NavLink[] = [
       {
@@ -71,22 +72,15 @@ export default function useUnifiedSidebarLinks() {
         Component: AgentPanelSwitch,
       });
     }
-    if (hasAccessToSchedules && schedulesEnabled) {
+    if (canAccessSchedules) {
       links.push({
-        title: 'com_ui_taskbar_scheduled',
+        title: 'com_ui_schedules',
         label: '',
         icon: CalendarClock,
         id: 'schedules',
         Component: SchedulePanel,
       });
     }
-    links.push({
-      title: 'com_ui_plugins',
-      label: '',
-      icon: Plug,
-      id: 'plugins',
-      Component: PluginsPanel,
-    });
     if (isOwner) {
       links.push({
         title: 'com_games_title',
@@ -108,12 +102,11 @@ export default function useUnifiedSidebarLinks() {
     return links;
   }, [
     canAccessResearch,
+    canAccessSchedules,
     endpointsConfig,
     hasAccessToAgents,
     hasAccessToCreateAgents,
-    hasAccessToSchedules,
     isOwner,
     navigate,
-    schedulesEnabled,
   ]);
 }
