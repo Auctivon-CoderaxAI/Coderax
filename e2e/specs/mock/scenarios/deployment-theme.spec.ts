@@ -81,7 +81,7 @@ async function resolvedMode(page: Page): Promise<Mode> {
 }
 
 async function openLogin(page: Page) {
-  await page.goto('/login');
+  await page.goto('/login?manual=1');
   await expect(page.getByTestId('login-button')).toBeVisible({ timeout: 20000 });
 }
 
