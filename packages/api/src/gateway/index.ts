@@ -6,3 +6,4 @@ export * from './config';
 export * from './contracts';
 export * from './router';
 export * from './sse';
+export * from './startup';

@@ -17,12 +17,14 @@ const env = {
   CLOUDFLARE_TOKEN: 'cloudflare-secret',
   CLOUDFLARE_ACCOUNT_ID: 'account-id',
   FREEAI_API_KEY: 'freeai-secret',
-  '100MILLIONSEEK_API_KEY': 'hundred-million-secret',
+  HMS_API_KEY: 'hundred-million-secret',
 };
 
 const enabled = (overrides: Partial<NonNullable<ProviderFallbackConfigLike>> = {}) => ({
   providerFallback: {
     enabled: true,
+    // The legacy behavior is exercised explicitly; the default is asserted below.
+    zeroCostOnly: false,
     order: [
       'gemini',
       'cerebras',
@@ -94,6 +96,7 @@ describe('provider fallback catalog', () => {
       {
         providerFallback: {
           enabled: true,
+          zeroCostOnly: false,
           models: { opencode: 'custom-zen-model' },
           baseURLs: { opencode: 'https://gateway.example.test/v1/' },
         },
@@ -116,6 +119,45 @@ describe('provider fallback catalog', () => {
   it('does nothing while disabled or without credentials', () => {
     expect(buildProviderFallbackCustomEndpoints({ providerFallback: {} }, env)).toEqual([]);
     expect(buildProviderFallbackCustomEndpoints(enabled(), {})).toEqual([]);
+  });
+
+  it('denies every unverified provider under the default zero-cost gate', () => {
+    const endpoints = buildProviderFallbackCustomEndpoints(
+      { providerFallback: { enabled: true } },
+      env,
+    );
+
+    expect(endpoints).toEqual([]);
+  });
+
+  it('accepts the legacy 100MillionSeek variable without advertising it', () => {
+    const endpoints = buildProviderFallbackCustomEndpoints(
+      { providerFallback: { enabled: true, zeroCostOnly: false } },
+      { '100MILLIONSEEK_API_KEY': 'legacy-secret' },
+    );
+
+    expect(endpoints).toEqual([
+      expect.objectContaining({
+        name: '100MillionSeek',
+        apiKey: '${100MILLIONSEEK_API_KEY}',
+        models: { default: ['deepseek-v4.1-flash-free'] },
+      }),
+    ]);
+  });
+
+  it('matches a generated endpoint that references the configured legacy key', () => {
+    const [endpoint] = buildProviderFallbackCustomEndpoints(
+      { providerFallback: { enabled: true, zeroCostOnly: false } },
+      { '100MILLIONSEEK_API_KEY': 'legacy-secret' },
+    );
+    const provider = providerFallbackForEndpoint('100MillionSeek');
+
+    expect(provider).not.toBeNull();
+    expect(
+      providerFallbackEndpointMatches(endpoint, provider!, {
+        providerFallback: { enabled: true, zeroCostOnly: false },
+      }),
+    ).toBe(true);
   });
 
   it('requires a Cloudflare account id as well as its token', () => {
@@ -202,6 +244,11 @@ describe('provider fallback configuration merge', () => {
 
   it('returns the original object when nothing is added', () => {
     const config = enabled({ providerFallback: { enabled: false } });
+    expect(mergeProviderFallbackCustomEndpoints(config, env)).toBe(config);
+  });
+
+  it('adds nothing when the default zero-cost gate rejects every provider', () => {
+    const config = enabled({ providerFallback: { enabled: true } });
     expect(mergeProviderFallbackCustomEndpoints(config, env)).toBe(config);
   });
 });

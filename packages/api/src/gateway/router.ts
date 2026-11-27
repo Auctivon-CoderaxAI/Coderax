@@ -3,15 +3,20 @@ import { z as zod } from 'zod';
 import type { NextFunction, Request, Response, Router } from 'express';
 import type { z } from 'zod';
 import type { ResolvedGatewayConfig, WorkflowEngineGatewayOptions } from './config';
+import type { OwnerGateResult, OwnerIdentity, OwnerPolicy } from './auth';
 import type { ConversationAuthorityStore } from './authority';
-import type { OwnerGateResult, OwnerIdentity } from './auth';
 import type { GatewayConfigFailure } from './config';
 import type { CompatibilityReport } from './compat';
 import type { GatewayFetch } from './client';
-import { checkCompatibility, missingCapabilities, WORK_CAPABILITIES } from './compat';
+import {
+  WORK_CAPABILITIES,
+  checkCompatibility,
+  checkStartupReady,
+  missingCapabilities,
+} from './compat';
 import { createEngineClient, GatewayTransportError } from './client';
-import { createConversationAuthority } from './authority';
 import { resolveGatewayConfig } from './config';
+import { createConversationAuthority } from './authority';
 import { contractSchemas } from './contracts';
 import { requireOwner } from './auth';
 
@@ -38,17 +43,19 @@ export type WorkflowEngineGatewayLogger = {
 };
 
 export type WorkflowEngineGatewayDeps = {
-  resolveConfig: (req: Request) => WorkflowEngineGatewayOptions | null | undefined;
+  resolveConfig: (
+    req: Request,
+  ) =>
+    | WorkflowEngineGatewayOptions
+    | null
+    | undefined
+    | Promise<WorkflowEngineGatewayOptions | null | undefined>;
   env?: NodeJS.ProcessEnv;
   fetch?: GatewayFetch;
-  /**
-   * Durable conversation authority. Production injects the Mongo-backed store;
-   * tests inject `createMemoryAuthorityStore()`.
-   */
   authorityStore: ConversationAuthorityStore;
   logger?: WorkflowEngineGatewayLogger;
   /** Injectable for tests; production always uses the owner gate above. */
-  requireOwner?: (req: Pick<Request, 'user'>) => OwnerGateResult;
+  requireOwner?: (req: Pick<Request, 'user'>, policy: OwnerPolicy) => OwnerGateResult;
 };
 
 export type WorkflowEngineGateway = {
@@ -117,11 +124,23 @@ function configFailure(failure: GatewayConfigFailure): GatewayRequestError {
   return new GatewayRequestError(503, { code: failure.code, detail: failure.detail });
 }
 
+function isSafePathIdentifier(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\') &&
+    !value.includes('\u0000')
+  );
+}
+
 function transportFailure(error: GatewayTransportError): GatewayRequestError {
-  return new GatewayRequestError(error.status ?? 502, {
+  const upstreamAuthFailure = error.status === 401 || error.status === 403;
+  return new GatewayRequestError(upstreamAuthFailure ? 502 : (error.status ?? 502), {
     code: 'WORKFLOW_ENGINE_ERROR',
     engineCode: error.code,
-    retryable: error.retryable,
+    retryable: !upstreamAuthFailure && error.retryable,
     ...(error.requestId == null ? {} : { requestId: error.requestId }),
     ...(error.detail == null ? {} : { detail: error.detail }),
   });
@@ -134,6 +153,7 @@ export function createWorkflowEngineGateway(
   const ownerGate = deps.requireOwner ?? requireOwner;
   const router = express.Router();
 
+  let startupUnverified = false;
   let cache: {
     fingerprint: string;
     config: Extract<ResolvedGatewayConfig, { enabled: true }>;
@@ -142,6 +162,8 @@ export function createWorkflowEngineGateway(
     pending?: Promise<CompatibilityReport>;
   } | null = null;
 
+  // The token is compared separately so a rotated credential rebuilds the
+  // client without putting the secret value into the cache key.
   function contextFor(config: Extract<ResolvedGatewayConfig, { enabled: true }>) {
     if (
       cache != null &&
@@ -156,6 +178,9 @@ export function createWorkflowEngineGateway(
       contractVersion: config.contractVersion,
       requestTimeoutMs: config.requestTimeoutMs,
       streamIdleTimeoutMs: config.streamIdleTimeoutMs,
+      maxResponseBytes: config.maxResponseBytes,
+      maxFrameBytes: config.maxFrameBytes,
+      maxEventResyncs: config.maxEventResyncs,
       ...(deps.fetch == null ? {} : { fetch: deps.fetch }),
     });
     const authority = createConversationAuthority({
@@ -164,23 +189,30 @@ export function createWorkflowEngineGateway(
       bootstrapConversations: config.conversations,
     });
     cache = { fingerprint: config.fingerprint, config, client, authority };
+
     return cache;
   }
 
   function probe(entry: NonNullable<typeof cache>): Promise<CompatibilityReport> {
     // Share only in-flight probes. Every later dispatch must observe current capabilities.
-    entry.pending ??= checkCompatibility(entry.client).finally(() => {
-      entry.pending = undefined;
-    });
+    const verifyStartup = startupUnverified;
+    const check = verifyStartup ? checkStartupReady : checkCompatibility;
+    entry.pending ??= check(entry.client)
+      .then((report) => {
+        if (verifyStartup) {
+          startupUnverified = false;
+        }
+        return report;
+      })
+      .finally(() => {
+        entry.pending = undefined;
+      });
     return entry.pending;
   }
 
   router.use((req: Request, res: Response, next: NextFunction) => {
     void (async () => {
-      const resolved = resolveGatewayConfig(deps.resolveConfig(req), env);
-      // A disabled or misconfigured transport is a local deployment fact; it is
-      // reported before identity so it never masks an unconfigured owner, and it
-      // performs no engine call either way.
+      const resolved = resolveGatewayConfig(await deps.resolveConfig(req), env);
       if (!resolved.ok) {
         const failure = configFailure(resolved);
         res.set(NO_STORE).status(failure.status).json(failure.body);
@@ -255,13 +287,44 @@ export function createWorkflowEngineGateway(
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
-    for await (const frame of frames) {
+    const write = async (chunk: string): Promise<boolean> => {
       if (res.writableEnded || signal.aborted) {
-        break;
+        return false;
       }
-      res.write(`data: ${JSON.stringify(frame)}\n\n`);
+      if (res.write(chunk)) {
+        return true;
+      }
+      // Wait for the slow client instead of buffering upstream frames without
+      // bound; a closed connection ends the wait and the stream.
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          res.off('drain', done);
+          res.off('close', done);
+          resolve();
+        };
+        res.once('drain', done);
+        res.once('close', done);
+      });
+      return !res.writableEnded && !signal.aborted;
+    };
+
+    try {
+      for await (const frame of frames) {
+        if (!(await write(`data: ${JSON.stringify(frame)}\n\n`))) {
+          break;
+        }
+      }
+    } catch (error) {
+      if (!res.writableEnded && !signal.aborted) {
+        const failure =
+          error instanceof GatewayTransportError
+            ? transportFailure(error).body
+            : { code: 'WORKFLOW_ENGINE_PROTOCOL_ERROR' };
+        await write(`event: error\ndata: ${JSON.stringify(failure)}\n\n`);
+      }
+    } finally {
+      res.end();
     }
-    res.end();
   };
 
   router.get(
@@ -299,11 +362,17 @@ export function createWorkflowEngineGateway(
   router.get(
     '/ready',
     handle(async (_req, res, context) => {
-      res.set(NO_STORE).status(200).json({
-        ready: true,
-        contractVersion: context.compatibility.contractVersion,
-        capabilities: context.compatibility.capabilities,
-      });
+      const readiness = await context.client.readiness();
+      res
+        .set(NO_STORE)
+        .status(readiness.ready ? 200 : 503)
+        .json({
+          ready: readiness.ready,
+          missing: readiness.missing,
+          ...(readiness.ready ? {} : { code: 'WORKFLOW_ENGINE_ENGINE_NOT_READY' }),
+          contractVersion: context.compatibility.contractVersion,
+          capabilities: context.compatibility.capabilities,
+        });
     }),
   );
 
@@ -340,10 +409,20 @@ export function createWorkflowEngineGateway(
   router.get(
     '/conversations/:conversationId',
     handle(async (req, res, context) => {
+      const conversationId = req.params.conversationId;
+      // `identifier()` accepts `.` and `..`; URL normalisation would then retarget
+      // the owner request to a different upstream path.
+      if (!isSafePathIdentifier(conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
+        return;
+      }
       res
         .set(NO_STORE)
         .status(200)
-        .json(await context.client.getConversation(req.params.conversationId));
+        .json(await context.client.getConversation(conversationId));
     }),
   );
 
@@ -417,6 +496,13 @@ export function createWorkflowEngineGateway(
       if (body == null) {
         return;
       }
+      if (body.conversationId != null && !isSafePathIdentifier(body.conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
+        return;
+      }
       // A conversation is executed by exactly one backend. The durable mapping
       // is claimed before the engine sees the request, so a concurrent replica or
       // a configuration change cannot dispatch the same conversation twice.
@@ -477,16 +563,23 @@ export function createWorkflowEngineGateway(
     '/work',
     handle(async (req, res, context) => {
       const missing = missingCapabilities(context.compatibility, WORK_CAPABILITIES);
-      if (!context.compatibility.workAvailable) {
+      if (!context.compatibility.workCapable) {
         if (missing.length > 0) {
           throw capabilityFailure(missing);
         }
         throw unsupported(
-          'No available WorkflowEngine advertises every capability required for Work.',
+          'No available WorkflowEngine engine advertises every Work capability (durable, cancellation, resume).',
         );
       }
       const body = parseBody(schemas.WorkSubmitRequest, req, res);
       if (body == null) {
+        return;
+      }
+      if (body.conversationId != null && !isSafePathIdentifier(body.conversationId)) {
+        res.set(NO_STORE).status(400).json({
+          code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
+          detail: 'The conversation id is not a valid identifier.',
+        });
         return;
       }
       const claim =
@@ -533,7 +626,11 @@ export function createWorkflowEngineGateway(
       if (!context.compatibility.capabilities.cancellation) {
         throw capabilityFailure(['cancellation']);
       }
-      const body = parseBody(schemas.CancelRequest, req, res);
+      const bodyless =
+        req.body === undefined &&
+        !req.headers['transfer-encoding'] &&
+        (req.headers['content-length'] == null || req.headers['content-length'] === '0');
+      const body = bodyless ? {} : parseBody(schemas.CancelRequest, req, res);
       if (body == null) {
         return;
       }
@@ -590,24 +687,11 @@ export function createWorkflowEngineGateway(
       }
       const controller = new AbortController();
       res.on('close', () => controller.abort());
-      try {
-        await stream(
-          res,
-          controller.signal,
-          context.client.streamTaskEvents(req.params.taskId, query.data.after, controller.signal),
-        );
-      } catch (error) {
-        if (res.headersSent) {
-          const failure =
-            error instanceof GatewayTransportError
-              ? transportFailure(error).body
-              : { code: 'WORKFLOW_ENGINE_PROTOCOL_ERROR' };
-          res.write(`event: error\ndata: ${JSON.stringify(failure)}\n\n`);
-          res.end();
-          return;
-        }
-        throw error;
-      }
+      await stream(
+        res,
+        controller.signal,
+        context.client.streamTaskEvents(req.params.taskId, query.data.after, controller.signal),
+      );
     }),
   );
 
@@ -683,14 +767,23 @@ export function createWorkflowEngineGateway(
     if (!resolved.value.enabled) {
       return null;
     }
+    if (!resolved.value.startupCheck) {
+      deps.logger?.info?.('[workflow-engine] startup compatibility check is disabled.');
+      return null;
+    }
     const entry = contextFor(resolved.value);
+    startupUnverified = true;
     try {
-      const report = await probe(entry);
+      // Startup is stricter than a health probe: a process that has not finished
+      // its own validation must not be reported as a verified startup.
+      const report = await checkStartupReady(entry.client);
+      startupUnverified = false;
       deps.logger?.info?.(
-        `[workflow-engine] contract ${report.contractVersion} verified; engine ${report.engineStatus}`,
+        `[workflow-engine] contract ${report.contractVersion} verified and ready; engine ${report.engineStatus}`,
       );
       return report;
     } catch (error) {
+      startupUnverified = true;
       const code =
         typeof error === 'object' && error !== null && 'code' in error
           ? String((error as { code: unknown }).code)
@@ -705,6 +798,7 @@ export function createWorkflowEngineGateway(
     prewarm,
     reset: () => {
       cache = null;
+      startupUnverified = false;
     },
   };
 }

@@ -1,7 +1,10 @@
 import type { Model } from 'mongoose';
 import type { IWorkRun } from '~/types/workRun';
+import { createIndexesWithRetry } from '~/utils/retry';
 
 const DUPLICATE_KEY_ERROR = 11000;
+const NAMESPACE_EXISTS = 48;
+const KEY_INDEX = 'key_1';
 
 /** Result of a cancellation aimed at one Work task. */
 export type WorkRunCancelOutcome =
@@ -21,16 +24,25 @@ export type WorkRunLeaseSnapshot = {
   live: boolean;
 };
 
+export type WorkRunClaimInput = {
+  key: string;
+  user: string;
+  conversationId: string;
+  token: string;
+  owner: string;
+  now: Date;
+  expiresAt: Date;
+};
+
+/** A claim and the expired generation it replaced, read in one operation. */
+export type WorkRunClaimResult = {
+  claimed: boolean;
+  previousToken: string | null;
+};
+
 export type WorkRunMethods = {
-  claimWorkRun: (input: {
-    key: string;
-    user: string;
-    conversationId: string;
-    token: string;
-    owner: string;
-    now: Date;
-    expiresAt: Date;
-  }) => Promise<boolean>;
+  claimWorkRun: (input: WorkRunClaimInput) => Promise<boolean>;
+  claimWorkRunLease: (input: WorkRunClaimInput) => Promise<WorkRunClaimResult>;
   renewWorkRun: (input: {
     key: string;
     token: string;
@@ -38,7 +50,12 @@ export type WorkRunMethods = {
     expiresAt: Date;
   }) => Promise<{ renewed: boolean; cancelRequested: boolean }>;
   releaseWorkRun: (input: { key: string; token: string }) => Promise<boolean>;
-  cancelWorkRun: (input: { key: string; now: Date }) => Promise<WorkRunCancelOutcome>;
+  /** With `token`, only the generation the caller observed is flagged or retired. */
+  cancelWorkRun: (input: {
+    key: string;
+    now: Date;
+    token?: string;
+  }) => Promise<WorkRunCancelOutcome>;
   readWorkRun: (input: { key: string; now: Date }) => Promise<WorkRunLeaseSnapshot | null>;
   pruneWorkRuns: (input: { before: Date; limit: number }) => Promise<number>;
 };
@@ -66,41 +83,76 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
   }
 
   /**
-   * Takes the lease when no live holder exists. Concurrent claims resolve at the
-   * unique key index: the loser's upsert is rejected and it reports itself busy.
+   * Concurrent claims only resolve safely at the unique key index. Build it
+   * before the first claim instead of trusting automatic index creation, which
+   * is disabled in some deployments; the result is memoized and retried.
    */
-  async function claimWorkRun(input: {
-    key: string;
-    user: string;
-    conversationId: string;
-    token: string;
-    owner: string;
-    now: Date;
-    expiresAt: Date;
-  }): Promise<boolean> {
+  let indexesReady: Promise<void> | null = null;
+  function ensureWorkRunIndexes(): Promise<void> {
+    if (!indexesReady) {
+      indexesReady = (async () => {
+        const model = workRuns();
+        await model.createCollection().catch((error: unknown) => {
+          if ((error as { code?: number }).code !== NAMESPACE_EXISTS) {
+            throw error;
+          }
+        });
+        const keyIndex = (await model.listIndexes()).find((index) => index.name === KEY_INDEX);
+        if (keyIndex?.unique !== true || keyIndex.key?.key !== 1) {
+          await createIndexesWithRetry(model);
+        }
+        const verified = (await model.listIndexes()).find((index) => index.name === KEY_INDEX);
+        if (verified?.unique !== true) {
+          throw new Error('The Work run lease key index is not unique.');
+        }
+      })().catch((error) => {
+        indexesReady = null;
+        throw error;
+      });
+    }
+    return indexesReady;
+  }
+
+  /**
+   * Takes the lease when no live holder exists and reports the generation it
+   * replaced. Concurrent claims resolve at the unique key index: the loser's
+   * upsert is rejected and it reports itself busy.
+   */
+  async function claimWorkRunLease(input: WorkRunClaimInput): Promise<WorkRunClaimResult> {
+    await ensureWorkRunIndexes();
     try {
-      await workRuns().updateOne(
-        { key: input.key, expiresAt: { $lte: input.now } },
-        {
-          $set: {
-            user: input.user,
-            conversationId: input.conversationId,
-            token: input.token,
-            owner: input.owner,
-            cancelRequested: false,
-            expiresAt: input.expiresAt,
+      const previous = await workRuns()
+        .findOneAndUpdate(
+          { key: input.key, expiresAt: { $lte: input.now } },
+          {
+            $set: {
+              user: input.user,
+              conversationId: input.conversationId,
+              token: input.token,
+              owner: input.owner,
+              cancelRequested: false,
+              expiresAt: input.expiresAt,
+            },
+            $setOnInsert: { key: input.key },
           },
-          $setOnInsert: { key: input.key },
-        },
-        { upsert: true },
-      );
-      return true;
+          {
+            upsert: true,
+            new: false,
+            projection: { token: 1, _id: 0 },
+          },
+        )
+        .lean<Pick<IWorkRun, 'token'> | null>();
+      return { claimed: true, previousToken: previous?.token ?? null };
     } catch (error) {
       if (isDuplicateKeyError(error)) {
-        return false;
+        return { claimed: false, previousToken: null };
       }
       throw error;
     }
+  }
+
+  async function claimWorkRun(input: WorkRunClaimInput): Promise<boolean> {
+    return (await claimWorkRunLease(input)).claimed;
   }
 
   /** Renews only an unexpired lease held by this exact token. */
@@ -133,10 +185,17 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
    * Flags a live lease so its owner aborts on the next heartbeat. An expired
    * lease has no owner left to observe the flag, so it is retired here and the
    * caller learns that the run was interrupted rather than cancelled live.
+   * With `token`, both steps address only the generation the caller observed,
+   * so a cancellation cannot flag or retire a replacement run.
    */
-  async function cancelWorkRun(input: { key: string; now: Date }): Promise<WorkRunCancelOutcome> {
+  async function cancelWorkRun(input: {
+    key: string;
+    now: Date;
+    token?: string;
+  }): Promise<WorkRunCancelOutcome> {
+    const generation = input.token == null ? {} : { token: input.token };
     const flagged = await workRuns().findOneAndUpdate(
-      { key: input.key, expiresAt: { $gt: input.now } },
+      { key: input.key, expiresAt: { $gt: input.now }, ...generation },
       { $set: { cancelRequested: true } },
       { new: true, projection: { _id: 1 } },
     );
@@ -146,6 +205,7 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
     const retired = await workRuns().deleteOne({
       key: input.key,
       expiresAt: { $lte: input.now },
+      ...generation,
     });
     return retired.deletedCount === 1 ? 'interrupted' : 'none';
   }
@@ -195,6 +255,7 @@ export function createWorkRunMethods(mongoose: typeof import('mongoose')): WorkR
 
   return {
     claimWorkRun,
+    claimWorkRunLease,
     renewWorkRun,
     releaseWorkRun,
     cancelWorkRun,

@@ -22,9 +22,15 @@ import type {
   TaskStatus,
   WorkSubmitRequest,
 } from './contracts';
+import {
+  DEFAULT_CONTRACT_VERSION,
+  DEFAULT_MAX_EVENT_RESYNCS,
+  DEFAULT_MAX_FRAME_BYTES,
+  DEFAULT_MAX_RESPONSE_BYTES,
+} from './config';
 import { contractSchemas, isTerminalEvent } from './contracts';
-import { DEFAULT_CONTRACT_VERSION } from './config';
 import { readSseFrames, SseReadError } from './sse';
+import { stripTrailingSlashes } from './url';
 
 const schemas = contractSchemas();
 
@@ -58,6 +64,7 @@ export type GatewayFetch = (
 export type GatewayTransportErrorCode =
   | 'engine_unreachable'
   | 'engine_timeout'
+  | 'submission_outcome_unknown'
   | 'protocol_error'
   | 'engine_unavailable'
   | 'unauthorized'
@@ -157,11 +164,11 @@ export type EngineClientOptions = {
   contractVersion?: string;
   requestTimeoutMs: number;
   streamIdleTimeoutMs: number;
+  maxResponseBytes?: number;
+  maxFrameBytes?: number;
+  maxEventResyncs?: number;
   fetch?: GatewayFetch;
 };
-
-const MAX_JSON_BYTES = 4 * 1024 * 1024;
-const MAX_EVENT_RESYNCS = 3;
 
 const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Object.freeze({
   unauthorized: 'unauthorized',
@@ -182,10 +189,6 @@ const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Objec
   protocol_error: 'protocol_error',
   internal_error: 'internal_error',
 });
-
-function joinURL(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}${path}`;
-}
 
 function parseBody<T extends z.ZodTypeAny>(schema: T, text: string): z.infer<T> {
   let parsed: unknown;
@@ -213,6 +216,21 @@ function parseProblem(text: string): Problem | null {
   }
 }
 
+/**
+ * The engine is the durable conversation authority. A turn addressed to an
+ * existing conversation must be recorded in that same conversation; a reply
+ * that moved it elsewhere is a protocol error, not a success the caller can
+ * mistake for its own conversation.
+ */
+function assertConversationAuthority(requested: string | undefined, actual: string): void {
+  if (requested != null && actual !== requested) {
+    throw new GatewayTransportError(
+      'protocol_error',
+      'The engine recorded the operation in a different conversation.',
+    );
+  }
+}
+
 function errorFromResponse(status: number, text: string): GatewayTransportError {
   const problem = parseProblem(text);
   if (problem != null) {
@@ -223,7 +241,6 @@ function errorFromResponse(status: number, text: string): GatewayTransportError 
         status,
         retryable: problem.retryable,
         ...(problem.requestId == null ? {} : { requestId: problem.requestId }),
-        ...(problem.detail == null ? {} : { detail: problem.detail }),
       },
     );
   }
@@ -261,54 +278,136 @@ function networkError(cause: unknown): GatewayTransportError {
   });
 }
 
-async function readBoundedBody(
-  body: ReadableStream<Uint8Array> | null,
-  signal: AbortSignal,
-): Promise<string> {
-  if (body == null) {
-    return '';
+const PRE_CONNECT_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+function isPreConnectFailure(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause == null) {
+    return false;
   }
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let text = '';
-  let finished = false;
-  let onAbort: (() => void) | undefined;
-  try {
-    for (;;) {
-      signal.throwIfAborted();
-      const aborted = new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(signal.reason);
-        signal.addEventListener('abort', onAbort, { once: true });
-      });
-      const chunk = await Promise.race([reader.read(), aborted]);
-      if (onAbort != null) {
-        signal.removeEventListener('abort', onAbort);
-      }
-      if (chunk.done) {
-        finished = true;
-        return text + decoder.decode();
-      }
-      bytes += chunk.value.byteLength;
-      if (bytes > MAX_JSON_BYTES) {
-        throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
-      }
-      text += decoder.decode(chunk.value, { stream: true });
+  // Node fetch wraps its socket error in a TypeError; injected transports may throw it directly.
+  const error = 'cause' in cause && cause.cause != null ? cause.cause : cause;
+  return (
+    typeof error === 'object' &&
+    error != null &&
+    !('errors' in error) &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    PRE_CONNECT_ERROR_CODES.has(error.code)
+  );
+}
+
+function unknownSubmission(detail: string): GatewayTransportError {
+  // The engine may have accepted the submission without returning a usable reply.
+  return new GatewayTransportError('submission_outcome_unknown', detail, { detail });
+}
+
+type BodyReader = {
+  getReader: () => {
+    read: () => Promise<{ done: boolean; value?: Uint8Array }>;
+    cancel: (reason?: unknown) => Promise<void>;
+    releaseLock: () => void;
+  };
+};
+
+/**
+ * Reads a response body under a deadline without buffering an unbounded body.
+ * `response.text()` alone cannot be cancelled, so a stalled or oversized body
+ * would otherwise outlive the configured request timeout.
+ */
+async function readBoundedBody(
+  response: { text?: () => Promise<string>; body: unknown },
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  maxBytes: number,
+): Promise<string> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const forward = (): void => controller.abort();
+  if (signal != null) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', forward, { once: true });
     }
+  }
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const rejectAborted = (): void => reject(new Error('aborted'));
+    if (controller.signal.aborted) {
+      rejectAborted();
+      return;
+    }
+    controller.signal.addEventListener('abort', rejectAborted, { once: true });
+  });
+
+  const decode = async (): Promise<string> => {
+    const body = response.body as BodyReader | null;
+    if (body == null || typeof body.getReader !== 'function') {
+      return response.text?.() ?? '';
+    }
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    let bytes = 0;
+    try {
+      for (;;) {
+        const chunk = await Promise.race([reader.read(), aborted]);
+        if (chunk.done) {
+          break;
+        }
+        if (chunk.value != null) {
+          bytes += chunk.value.byteLength;
+          if (bytes > maxBytes) {
+            throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+          }
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+      }
+      return text + decoder.decode();
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
+  };
+
+  try {
+    const raw = await Promise.race([decode(), aborted]);
+    if (Buffer.byteLength(raw, 'utf8') > maxBytes) {
+      throw new GatewayTransportError('protocol_error', 'The engine response was too large.');
+    }
+    return raw;
   } catch (cause) {
+    if (cause instanceof GatewayTransportError) {
+      throw cause;
+    }
+    if (signal?.aborted) {
+      throw new GatewayTransportError('cancelled', 'The engine request was cancelled.');
+    }
+    if (timedOut) {
+      throw new GatewayTransportError('engine_timeout', 'The engine did not answer in time.', {
+        retryable: true,
+      });
+    }
     throw networkError(cause);
   } finally {
-    if (onAbort != null) {
-      signal.removeEventListener('abort', onAbort);
-    }
-    if (!finished) {
-      void reader.cancel().catch(() => undefined);
-    }
-    reader.releaseLock();
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', forward);
   }
 }
 
 export function createEngineClient(options: EngineClientOptions): EngineClient {
+  const baseURL = stripTrailingSlashes(options.baseURL);
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+  const maxEventResyncs = options.maxEventResyncs ?? DEFAULT_MAX_EVENT_RESYNCS;
   const doFetch = options.fetch ?? (globalThis.fetch as unknown as GatewayFetch);
   if (typeof doFetch !== 'function') {
     throw new GatewayTransportError('engine_unreachable', 'No HTTP transport is available.');
@@ -339,9 +438,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       auth: 'owner' | 'public';
       signal?: AbortSignal;
       timeoutMs?: number;
+      acceptNonOk?: (status: number, text: string) => boolean;
     },
   ): Promise<z.infer<T>> {
     const link = linkedController(init.signal, init.timeoutMs ?? options.requestTimeoutMs);
+    const submitsWork = path === '/v1/work' && init.method === 'POST';
     try {
       const headers: Record<string, string> = {
         accept: 'application/json',
@@ -356,7 +457,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }
       let response: Awaited<ReturnType<GatewayFetch>>;
       try {
-        response = await doFetch(joinURL(options.baseURL, path), {
+        response = await doFetch(`${baseURL}${path}`, {
           method: init.method,
           headers,
           ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -364,10 +465,30 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           redirect: 'error',
         });
       } catch (cause) {
+        if (submitsWork && !isPreConnectFailure(cause)) {
+          throw unknownSubmission(
+            'The engine may have accepted the work, but no response was received.',
+          );
+        }
         throw networkError(cause);
       }
-      const text = await readBoundedBody(response.body, link.signal);
-      if (!response.ok) {
+      let text: string;
+      try {
+        text = await readBoundedBody(
+          response,
+          init.timeoutMs ?? options.requestTimeoutMs,
+          init.signal,
+          maxResponseBytes,
+        );
+      } catch (cause) {
+        if (submitsWork) {
+          throw unknownSubmission(
+            'The engine may have accepted the work, but its response could not be read.',
+          );
+        }
+        throw cause;
+      }
+      if (!response.ok && !init.acceptNonOk?.(response.status, text)) {
         throw errorFromResponse(response.status, text);
       }
       return parseBody(schema, text);
@@ -391,7 +512,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     }
     const link = linkedController(init.signal, options.requestTimeoutMs);
     try {
-      return await doFetch(joinURL(options.baseURL, path), {
+      return await doFetch(`${baseURL}${path}`, {
         method: init.method,
         headers,
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -399,35 +520,40 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         redirect: 'error',
       });
     } catch (cause) {
+      if (init.method === 'POST' && !isPreConnectFailure(cause)) {
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but no response was received.',
+        );
+      }
       throw networkError(cause);
     } finally {
-      // Stop the header timer without unlinking caller cancellation from fetch.
+      // The deadline covers only the wait for response headers. Body lifetime is
+      // governed by caller cancellation and the SSE idle deadline.
       link.dispose();
     }
   }
 
-  async function readStreamResponse(
+  async function nonOkResponse(
     response: Awaited<ReturnType<GatewayFetch>>,
-    signal: AbortSignal | undefined,
-  ): Promise<string> {
-    const link = linkedController(signal, options.requestTimeoutMs);
-    try {
-      const text = await readBoundedBody(response.body, link.signal);
-      if (!response.ok) {
-        throw errorFromResponse(response.status, text);
-      }
-      return text;
-    } finally {
-      link.dispose();
-    }
+    signal?: AbortSignal,
+  ): Promise<never> {
+    const text = await readBoundedBody(
+      response,
+      options.requestTimeoutMs,
+      signal,
+      maxResponseBytes,
+    );
+    throw errorFromResponse(response.status, text);
   }
 
   async function* chatFrames(
     response: Awaited<ReturnType<GatewayFetch>>,
     signal: AbortSignal | undefined,
+    requestedConversationId: string | undefined,
   ): AsyncIterable<ChatStreamFrame> {
     for await (const frame of readSseFrames(response.body, {
       idleTimeoutMs: options.streamIdleTimeoutMs,
+      maxFrameBytes,
       ...(signal == null ? {} : { signal }),
     })) {
       let parsed: unknown;
@@ -446,6 +572,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }
       const reply = schemas.ChatReply.safeParse(parsed);
       if (reply.success) {
+        assertConversationAuthority(requestedConversationId, reply.data.conversationId);
         yield { kind: 'reply', reply: reply.data };
         continue;
       }
@@ -474,14 +601,14 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         ...(signal == null ? {} : { signal }),
       });
       if (!response.ok) {
-        await readStreamResponse(response, signal);
+        await nonOkResponse(response, signal);
       }
       let terminal = false;
-      let gap = false;
       const seen = new Set<string>();
       try {
         for await (const frame of readSseFrames(response.body, {
           idleTimeoutMs: options.streamIdleTimeoutMs,
+          maxFrameBytes,
           ...(signal == null ? {} : { signal }),
         })) {
           let parsed: unknown;
@@ -512,7 +639,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
             continue;
           }
           if (event.data.seq > lastSeq + 1) {
-            gap = true;
             break;
           }
           lastSeq = event.data.seq;
@@ -523,10 +649,10 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           }
         }
       } catch (error) {
-        if (!(error instanceof SseReadError)) {
+        if (signal?.aborted || !(error instanceof SseReadError)) {
           throw error;
         }
-        // A failed body read can replay from the same cursor as an early EOF.
+        // A failed body read or partial frame can replay from the same cursor as an early EOF.
       }
       if (terminal || signal?.aborted) {
         return;
@@ -534,13 +660,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
       // A gap, or a close without a terminal event, is resynchronised from the
       // exact last delivered sequence rather than silently skipped.
-      if (stalledResyncs > MAX_EVENT_RESYNCS && !gap) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream ended without a terminal event.',
-        );
-      }
-      if (stalledResyncs > MAX_EVENT_RESYNCS + 3) {
+      if (stalledResyncs > maxEventResyncs) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream could not be resynchronised.',
@@ -555,7 +675,20 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     health: (signal) =>
       request('/v1/health', schemas.HealthReport, { method: 'GET', auth: 'public', signal }),
     readiness: (signal) =>
-      request('/v1/ready', schemas.ReadinessReport, { method: 'GET', auth: 'public', signal }),
+      request('/v1/ready', schemas.ReadinessReport, {
+        method: 'GET',
+        auth: 'public',
+        signal,
+        acceptNonOk: (status, text) => {
+          if (status !== 503) return false;
+          try {
+            const report = schemas.ReadinessReport.safeParse(JSON.parse(text));
+            return report.success && !report.data.ready;
+          } catch {
+            return false;
+          }
+        },
+      }),
     listAgents: (signal) =>
       request('/v1/agents', schemas.AgentList, { method: 'GET', auth: 'owner', signal }),
     listModels: (signal) =>
@@ -603,8 +736,16 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         auth: 'owner',
         signal,
       }),
-    submitWork: (body, signal) =>
-      request('/v1/work', schemas.TaskAccepted, { method: 'POST', body, auth: 'owner', signal }),
+    submitWork: async (body, signal) => {
+      const accepted = await request('/v1/work', schemas.TaskAccepted, {
+        method: 'POST',
+        body,
+        auth: 'owner',
+        signal,
+      });
+      assertConversationAuthority(body.conversationId, accepted.conversationId);
+      return accepted;
+    },
     cancelTask: (taskId, body, signal) =>
       request(`/v1/work/${encodeURIComponent(taskId)}/cancel`, schemas.TaskControlResult, {
         method: 'POST',
@@ -628,15 +769,37 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }),
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
-      if (!response.ok) {
-        await readStreamResponse(response, signal);
-      }
       const contentType = response.headers.get('content-type') ?? '';
-      if (contentType.includes('text/event-stream')) {
-        return { kind: 'stream', frames: chatFrames(response, signal) };
+      if (response.ok && contentType.includes('text/event-stream')) {
+        return {
+          kind: 'stream',
+          frames: chatFrames(response, signal, body.conversationId),
+        };
       }
-      const text = await readStreamResponse(response, signal);
-      return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
+      let text: string;
+      try {
+        text = await readBoundedBody(response, options.requestTimeoutMs, signal, maxResponseBytes);
+      } catch (cause) {
+        if (cause instanceof GatewayTransportError && cause.code === 'protocol_error') {
+          throw cause;
+        }
+        if (response.status >= 400 && response.status < 500) {
+          throw errorFromResponse(response.status, '');
+        }
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but its response could not be read.',
+        );
+      }
+      if (!response.ok) {
+        const failure = errorFromResponse(response.status, text);
+        if (failure.retryable && response.status >= 500) {
+          throw unknownSubmission('The engine did not confirm whether it accepted the chat.');
+        }
+        throw failure;
+      }
+      const reply = parseBody(schemas.ChatReply, text);
+      assertConversationAuthority(body.conversationId, reply.conversationId);
+      return { kind: 'json', reply };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),
   };

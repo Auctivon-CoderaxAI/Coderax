@@ -4202,6 +4202,11 @@ export type TFreeInferenceConfig = z.infer<typeof freeInferenceConfigSchema>;
 export const providerFallbackConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+    /**
+     * Default true: only a verified $0 model may be used. Setting this false is
+     * an explicit owner decision to allow account-tier billing.
+     */
+    zeroCostOnly: z.boolean().default(true),
     order: z
       .array(z.enum([...PROVIDER_FALLBACK_IDS]))
       .min(1)
@@ -4288,13 +4293,17 @@ export const workflowEngineConfigSchema = z
       .trim()
       .regex(/^[A-Z][A-Z0-9_]{0,127}$/)
       .default('CODERAX_ENGINE_TOKEN'),
-    contractVersion: z
-      .string()
-      .trim()
-      .refine((version) => version === '1.0.0', 'Expected WorkflowEngine contract 1.0.0')
-      .default('1.0.0'),
+    contractVersion: z.literal('1.0.0').default('1.0.0'),
     requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
     streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
+    /** JSON response budget; an oversize body is refused before it is buffered. */
+    maxResponseBytes: z.number().int().min(65_536).max(67_108_864).default(4_194_304),
+    /** SSE frame budget, measured in UTF-8 bytes. */
+    maxFrameBytes: z.number().int().min(16_384).max(16_777_216).default(1_048_576),
+    /** Reconnects allowed without advancing the event cursor before failing closed. */
+    maxEventResyncs: z.number().int().min(0).max(20).default(3),
+    /** Runs the compatibility and readiness handshake at startup; request checks always run. */
+    startupCheck: z.boolean().default(true),
   })
   .optional();
 

@@ -5,7 +5,9 @@ type WorkStateStore = {
   getConvo: (
     userId: string,
     conversationId: string,
-  ) => Promise<{ isWork?: boolean; workState?: string } | null | undefined>;
+  ) => Promise<
+    { isWork?: boolean; workState?: string; workRunId?: string | null } | null | undefined
+  >;
   saveConvo: (
     context: { userId: string },
     fields: { conversationId: string; workState: WorkTaskState; workRunId?: string | null },
@@ -36,6 +38,11 @@ export function workStateForJobStatus(status: unknown): WorkTaskState | null {
  * so a late outcome from the run it replaced matches nothing and leaves the
  * newer run's state alone. A settled row detaches its generation, which is what
  * keeps a later reading of a dead lease from reopening a finished task.
+ *
+ * Without a fence, a row that carries a generation cannot be settled: its run
+ * is unknown, and an unconditional write could overwrite the run that owns it.
+ * A legacy row with no generation is still recoverable, but only while it is
+ * unsettled, so a completed outcome is never replaced.
  */
 export async function persistTerminalWorkState(
   event: { userId?: string; conversationId?: string; status?: unknown } | null | undefined,
@@ -58,6 +65,10 @@ export async function persistTerminalWorkState(
   if (normalizeWorkState(conversation.workState) === workState) {
     return false;
   }
+  if (!fence && conversation.workRunId != null) {
+    /** The run that owns this row is unknown; it must settle its own outcome. */
+    return false;
+  }
   await store.saveConvo(
     { userId },
     {
@@ -68,7 +79,8 @@ export async function persistTerminalWorkState(
     {
       context: 'Work terminal generation state',
       noUpsert: true,
-      ...(fence ? { workRunGeneration: fence.generation, unsettledWorkRun: true } : {}),
+      ...(fence ? { workRunGeneration: fence.generation } : {}),
+      unsettledWorkRun: true,
     },
   );
   return true;
@@ -81,30 +93,28 @@ export type EngineRunStateReader = {
     tenantId: string | null;
     conversationId: string;
   }) => Promise<string | null>;
-  /** The lease generation behind `state()`, when the runtime keeps durable leases. */
-  generation?: (input: {
+  /** State and generation from one lease snapshot, when the runtime keeps durable leases. */
+  inspect?: (input: {
     userId: string;
     tenantId: string | null;
     conversationId: string;
-  }) => Promise<string | null>;
+  }) => Promise<{ state: string | null; generation: string | null }>;
 };
 
 type RunScope = { userId: string; tenantId: string | null; conversationId: string };
 
-async function readRunGeneration(
-  input: RunScope,
-  runtime: EngineRunStateReader,
-): Promise<string | null> {
-  if (!runtime.generation) {
-    return null;
+type RunSnapshot = { state: string | null; generation: string | null };
+
+/**
+ * Reads run state and its generation from one snapshot. The fallback for a
+ * runtime without `inspect` names no generation; it never pairs a state read
+ * with a token read that could belong to a replacement run.
+ */
+async function inspectRun(input: RunScope, runtime: EngineRunStateReader): Promise<RunSnapshot> {
+  if (runtime.inspect) {
+    return runtime.inspect(input);
   }
-  try {
-    return await runtime.generation(input);
-  } catch {
-    /** An unreadable generation costs the fence, not the outcome: the row itself
-     *  still reports the interruption until cleanup reclaims it. */
-    return null;
-  }
+  return { state: await runtime.state(input), generation: null };
 }
 
 /**
@@ -121,21 +131,20 @@ export async function readEngineWorkState(
   runtime: EngineRunStateReader,
   store: WorkStateStore,
 ): Promise<string | null> {
-  const state = await runtime.state(input);
-  if (state === 'failed') {
-    const generation = await readRunGeneration(input, runtime);
+  const snapshot = await inspectRun(input, runtime);
+  if (snapshot.state === 'failed') {
     await persistTerminalWorkState(
       { userId: input.userId, conversationId: input.conversationId, status: 'failed' },
       store,
-      generation == null ? undefined : { generation },
+      snapshot.generation == null ? undefined : { generation: snapshot.generation },
     ).catch(() => false);
   }
-  return state;
+  return snapshot.state;
 }
 
 /** The engine runtime as far as cancellation is concerned; the route supplies it. */
 export type EngineRunController = EngineRunStateReader & {
-  cancel: (input: RunScope) => Promise<boolean>;
+  cancel: (input: RunScope, generation?: string) => Promise<boolean>;
 };
 
 /**
@@ -143,12 +152,35 @@ export type EngineRunController = EngineRunStateReader & {
  * retire. Cancelling an expired lease deletes its row, so the `failed` outcome
  * has to reach the conversation before that evidence is gone; a live run is
  * only flagged, and reports `cancelled` through its own handler.
+ *
+ * The generation observed with the state is the only one this call may affect:
+ * if a replacement run claimed the task in the meantime, its different token
+ * makes the cancellation a no-op rather than a cancellation of the new run.
  */
 export async function cancelEngineWorkRun(
   input: RunScope,
   runtime: EngineRunController,
   store: WorkStateStore,
 ): Promise<boolean> {
-  await readEngineWorkState(input, runtime, store);
-  return runtime.cancel(input);
+  const snapshot = await inspectRun(input, runtime);
+  if (snapshot.state == null) {
+    /** No run was observed, so there is nothing this cancellation may retire. */
+    return false;
+  }
+  if (snapshot.state === 'failed') {
+    const conversation = await store.getConvo(input.userId, input.conversationId);
+    const recorded = normalizeWorkState(conversation?.workState) === 'failed';
+    if (!recorded) {
+      const persisted = await persistTerminalWorkState(
+        { userId: input.userId, conversationId: input.conversationId, status: 'failed' },
+        store,
+        snapshot.generation == null ? undefined : { generation: snapshot.generation },
+      ).catch(() => false);
+      if (!persisted) {
+        /** Retiring the lease would lose the only evidence of the interruption. */
+        return false;
+      }
+    }
+  }
+  return runtime.cancel(input, snapshot.generation ?? undefined);
 }

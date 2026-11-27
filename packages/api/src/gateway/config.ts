@@ -7,10 +7,15 @@
  * name and the value is read from the process environment at call time.
  */
 
+import { stripTrailingSlashes } from './url';
+
 export const DEFAULT_ENGINE_TOKEN_ENV = 'CODERAX_ENGINE_TOKEN';
 export const DEFAULT_CONTRACT_VERSION = '1.0.0';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+export const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
+export const DEFAULT_MAX_EVENT_RESYNCS = 3;
 
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
@@ -24,7 +29,13 @@ export type WorkflowEngineGatewayOptions = {
   contractVersion?: string;
   requestTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
-  /** Runs the compatibility handshake when the gateway module is loaded. */
+  /** JSON response budget; an oversize body is refused before it is buffered. */
+  maxResponseBytes?: number;
+  /** SSE frame budget, measured in UTF-8 bytes. */
+  maxFrameBytes?: number;
+  /** Reconnects allowed without advancing the event cursor before failing closed. */
+  maxEventResyncs?: number;
+  /** Runs the compatibility and readiness handshake at startup; request checks always run. */
   startupCheck?: boolean;
 };
 
@@ -40,6 +51,10 @@ export type ResolvedGatewayConfig =
       contractVersion: string;
       requestTimeoutMs: number;
       streamIdleTimeoutMs: number;
+      maxResponseBytes: number;
+      maxFrameBytes: number;
+      maxEventResyncs: number;
+      startupCheck: boolean;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
     };
@@ -62,6 +77,47 @@ function positiveInteger(value: number | undefined, fallback: number): number | 
     return fallback;
   }
   return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function nonNegativeInteger(value: number | undefined, fallback: number): number | null {
+  if (value == null) {
+    return fallback;
+  }
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Resolve deployment settings with optional owner request preferences. */
+export function resolveGatewayOptions(
+  deployment:
+    | { config?: { workflowEngine?: WorkflowEngineGatewayOptions | null } | null }
+    | null
+    | undefined,
+  override?: WorkflowEngineGatewayOptions | null,
+): WorkflowEngineGatewayOptions | undefined {
+  const base = deployment?.config?.workflowEngine;
+  if (base == null) {
+    return undefined;
+  }
+  if (base.enabled !== true || override == null) {
+    return base;
+  }
+  return {
+    ...base,
+    ...(override.enabled === false ? { enabled: false } : {}),
+    ...(override.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: override.requestTimeoutMs }),
+    ...(override.streamIdleTimeoutMs === undefined
+      ? {}
+      : { streamIdleTimeoutMs: override.streamIdleTimeoutMs }),
+    ...(override.maxResponseBytes === undefined
+      ? {}
+      : { maxResponseBytes: override.maxResponseBytes }),
+    ...(override.maxFrameBytes === undefined ? {} : { maxFrameBytes: override.maxFrameBytes }),
+    ...(override.maxEventResyncs === undefined
+      ? {}
+      : { maxEventResyncs: override.maxEventResyncs }),
+  };
 }
 
 function isLoopback(hostname: string): boolean {
@@ -101,7 +157,7 @@ function parseBaseURL(value: string): { ok: true; url: URL } | { ok: false; deta
 
 export function resolveGatewayConfig(
   options: WorkflowEngineGatewayOptions | null | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv,
 ): GatewayConfigResult {
   if (options?.enabled !== true) {
     return { ok: true, value: { enabled: false } };
@@ -183,25 +239,41 @@ export function resolveGatewayConfig(
     options.streamIdleTimeoutMs,
     DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   );
-  if (requestTimeoutMs == null || streamIdleTimeoutMs == null) {
+  const maxResponseBytes = positiveInteger(options.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+  const maxFrameBytes = positiveInteger(options.maxFrameBytes, DEFAULT_MAX_FRAME_BYTES);
+  const maxEventResyncs = nonNegativeInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS);
+  if (
+    requestTimeoutMs == null ||
+    streamIdleTimeoutMs == null ||
+    maxResponseBytes == null ||
+    maxFrameBytes == null ||
+    maxEventResyncs == null
+  ) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine timeouts must be positive integers.',
+      detail:
+        'workflowEngine timeouts and byte limits must be positive integers; resyncs may be zero.',
     };
   }
+
+  /**
+   * The gateway validates against its compiled-in schemas. Accepting another
+   * version here would make the handshake pass while every message is still
+   * shaped as 1.0.0.
+   */
   const contractVersion = (options.contractVersion ?? DEFAULT_CONTRACT_VERSION).trim();
   if (contractVersion !== DEFAULT_CONTRACT_VERSION) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: `workflowEngine.contractVersion must be ${DEFAULT_CONTRACT_VERSION}.`,
+      detail: `workflowEngine.contractVersion must be ${DEFAULT_CONTRACT_VERSION}; this build implements only that contract.`,
     };
   }
 
   // A path prefix is preserved so a deployment can host the engine beside
   // other services without rewriting routes.
-  const basePath = parsed.url.pathname.replace(/\/+$/, '');
+  const basePath = stripTrailingSlashes(parsed.url.pathname);
   const baseURL = `${parsed.url.origin}${basePath}`;
   return {
     ok: true,
@@ -215,7 +287,11 @@ export function resolveGatewayConfig(
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
-      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}`,
+      maxResponseBytes,
+      maxFrameBytes,
+      maxEventResyncs,
+      startupCheck: options.startupCheck !== false,
+      fingerprint: `${baseURL}|${JSON.stringify([ownerUserId, conversations])}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}`,
     },
   };
 }

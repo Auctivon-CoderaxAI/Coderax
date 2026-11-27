@@ -162,6 +162,7 @@ beforeEach(() => {
   mockAuthenticatedUser = undefined;
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
   mockUseGetMessagesByConvoId.mockReset().mockReturnValue({});
+  mockNewConversation.mockClear();
 });
 
 it.each(['/c/chat-a?projectId=keep#anchor', '/work/chat-a?prompt=keep#anchor'])(
@@ -264,6 +265,20 @@ it('opens an existing Chat conversation through a Work deep link without changin
     expect.objectContaining({ enabled: true, notifyOnChangeProps: [] }),
   );
   expect(mockNewConversation).not.toHaveBeenCalled();
+});
+
+it('restores a saved Work mode when the server still records a Chat conversation', async () => {
+  mockAuthenticatedUser = { id: 'owner', provider: 'local' };
+  localStorage.setItem('conversationModes:owner', JSON.stringify({ 'chat-a': 'code' }));
+  mockHasSetConversation.current = false;
+  mockConversation = { conversationId: 'new' };
+  mockFetchConversation.mockResolvedValue({ conversationId: 'chat-a', isWork: false });
+  const { router } = setup(['/c/chat-a']);
+
+  await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-a'));
+  expect(router.state.location.pathname).toBe('/c/chat-a');
+  expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true');
+  expect(mockConversation.conversationId).toBe('chat-a');
 });
 
 it('copies a new Work selection to the acknowledged conversation without replacing a saved one', async () => {

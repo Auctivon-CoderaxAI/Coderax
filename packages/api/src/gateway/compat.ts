@@ -24,8 +24,9 @@ export type CompatibilityReport = {
   contractVersion: string;
   engineStatus: HealthReport['status'];
   capabilities: GatewayCapabilities;
+  /** True only when one available engine advertises every Work capability. */
+  workCapable: boolean;
   checkedAt: string;
-  workAvailable: boolean;
 };
 
 export type CompatibilityFailureCode =
@@ -45,14 +46,33 @@ export class GatewayCompatibilityError extends Error {
   }
 }
 
+export const WORK_CAPABILITIES: readonly (keyof GatewayCapabilities)[] = [
+  'durable',
+  'cancellation',
+  'resume',
+];
+
+/** Capabilities are only useful from an engine that can accept work. */
 export function capabilitiesOf(health: HealthReport): GatewayCapabilities {
-  const engines = health.engines.filter((engine) => engine.availability.available);
+  const available = health.engines.filter((engine) => engine.availability.available);
   return {
-    streaming: engines.some((engine) => engine.capabilities.streaming),
-    cancellation: engines.some((engine) => engine.capabilities.cancellation),
-    resume: engines.some((engine) => engine.capabilities.resume),
-    durable: engines.some((engine) => engine.capabilities.durable),
+    streaming: available.some((engine) => engine.capabilities.streaming),
+    cancellation: available.some((engine) => engine.capabilities.cancellation),
+    resume: available.some((engine) => engine.capabilities.resume),
+    durable: available.some((engine) => engine.capabilities.durable),
   };
+}
+
+/**
+ * Work admission requires a single engine that is available and advertises
+ * every required capability; a union across engines cannot execute the task.
+ */
+export function engineSupportsWork(health: HealthReport): boolean {
+  return health.engines.some(
+    (engine) =>
+      engine.availability.available &&
+      WORK_CAPABILITIES.every((capability) => engine.capabilities[capability]),
+  );
 }
 
 export async function checkCompatibility(
@@ -99,19 +119,13 @@ export async function checkCompatibility(
     contractVersion: health.contractVersion,
     engineStatus: health.status,
     capabilities: capabilitiesOf(health),
-    workAvailable: health.engines.some(
-      (engine) =>
-        engine.availability.available &&
-        WORK_CAPABILITIES.every((capability) => engine.capabilities[capability]),
-    ),
+    workCapable: engineSupportsWork(health),
     checkedAt: new Date().toISOString(),
   };
 }
 
 /**
- * Startup readiness is stricter than health: the engine must have finished its
- * own validation, otherwise a queued task would be accepted by a process that
- * cannot execute it.
+ * Verify that the engine has finished its own startup validation.
  */
 export async function checkStartupReady(
   client: Pick<EngineClient, 'health' | 'readiness' | 'expectedContractVersion'>,
@@ -123,7 +137,12 @@ export async function checkStartupReady(
     readiness = await client.readiness(signal);
   } catch (cause) {
     if (cause instanceof GatewayTransportError) {
-      throw new GatewayCompatibilityError('engine_unreachable', cause.message);
+      if (cause.code === 'not_ready') {
+        throw new GatewayCompatibilityError('engine_not_ready', 'The engine is not ready.');
+      }
+      if (cause.code === 'engine_unreachable' || cause.code === 'engine_timeout') {
+        throw new GatewayCompatibilityError('engine_unreachable', cause.message);
+      }
     }
     throw new GatewayCompatibilityError(
       'protocol_error',
@@ -131,21 +150,10 @@ export async function checkStartupReady(
     );
   }
   if (!readiness.ready) {
-    throw new GatewayCompatibilityError(
-      'engine_not_ready',
-      readiness.missing.length > 0
-        ? `The engine is not ready: ${readiness.missing.join(', ')}.`
-        : 'The engine is not ready.',
-    );
+    throw new GatewayCompatibilityError('engine_not_ready', 'The engine is not ready.');
   }
   return report;
 }
-
-export const WORK_CAPABILITIES: readonly (keyof GatewayCapabilities)[] = [
-  'durable',
-  'cancellation',
-  'resume',
-];
 
 export function missingCapabilities(
   report: CompatibilityReport,
