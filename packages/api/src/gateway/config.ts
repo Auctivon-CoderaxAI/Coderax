@@ -16,6 +16,9 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 export const DEFAULT_MAX_EVENT_RESYNCS = 3;
+export const DEFAULT_MAPPING_ATTEMPTS = 3;
+export const DEFAULT_MAPPING_RETRY_DELAY_MS = 100;
+export const DEFAULT_MAX_RECEIPTS = 20;
 
 export type WorkflowEngineGatewayOptions = {
   enabled?: boolean;
@@ -37,6 +40,9 @@ export type WorkflowEngineGatewayOptions = {
   maxEventResyncs?: number;
   /** Runs the compatibility and readiness handshake at startup; request checks always run. */
   startupCheck?: boolean;
+  mappingAttempts?: number;
+  mappingRetryDelayMs?: number;
+  maxReceipts?: number;
 };
 
 export type ResolvedGatewayConfig =
@@ -55,6 +61,9 @@ export type ResolvedGatewayConfig =
       maxFrameBytes: number;
       maxEventResyncs: number;
       startupCheck: boolean;
+      mappingAttempts: number;
+      mappingRetryDelayMs: number;
+      maxReceipts: number;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
     };
@@ -242,6 +251,14 @@ export function resolveGatewayConfig(
   const maxResponseBytes = positiveInteger(options.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
   const maxFrameBytes = positiveInteger(options.maxFrameBytes, DEFAULT_MAX_FRAME_BYTES);
   const maxEventResyncs = nonNegativeInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS);
+  const mappingAttempts = options.mappingAttempts ?? DEFAULT_MAPPING_ATTEMPTS;
+  const mappingRetryDelayMs = options.mappingRetryDelayMs ?? DEFAULT_MAPPING_RETRY_DELAY_MS;
+  const maxReceipts = options.maxReceipts ?? DEFAULT_MAX_RECEIPTS;
+  if (!Number.isSafeInteger(mappingAttempts) || mappingAttempts < 1 || mappingAttempts > 10 ||
+      !Number.isSafeInteger(mappingRetryDelayMs) || mappingRetryDelayMs < 0 || mappingRetryDelayMs > 10000 ||
+      !Number.isSafeInteger(maxReceipts) || maxReceipts < 1 || maxReceipts > 500) {
+    return { ok: false, code: 'WORKFLOW_ENGINE_INVALID_CONFIG', detail: 'Invalid conversation authority limits.' };
+  }
   if (
     requestTimeoutMs == null ||
     streamIdleTimeoutMs == null ||
@@ -291,7 +308,10 @@ export function resolveGatewayConfig(
       maxFrameBytes,
       maxEventResyncs,
       startupCheck: options.startupCheck !== false,
-      fingerprint: `${baseURL}|${JSON.stringify([ownerUserId, conversations])}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}`,
+      mappingAttempts,
+      mappingRetryDelayMs,
+      maxReceipts,
+      fingerprint: `${baseURL}|${JSON.stringify([ownerUserId, conversations])}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}|${mappingAttempts}|${mappingRetryDelayMs}|${maxReceipts}`,
     },
   };
 }

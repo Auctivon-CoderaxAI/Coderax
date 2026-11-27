@@ -12,6 +12,12 @@
  * record is the authority for *which* backend a conversation belongs to.
  */
 
+import {
+  DEFAULT_MAPPING_ATTEMPTS,
+  DEFAULT_MAPPING_RETRY_DELAY_MS,
+  DEFAULT_MAX_RECEIPTS,
+} from './config';
+
 export type AuthorityMode = 'private' | 'cloud';
 export type AuthorityEngine = 'native' | 'workflow-engine';
 export type AuthorityState = 'active' | 'migrating';
@@ -20,6 +26,8 @@ export type AuthorityReceiptOutcome =
   | 'dispatched'
   | 'settled'
   | 'failed'
+  /** The request may have reached the engine, but no outcome was observed. */
+  | 'indeterminate'
   | 'migration_started'
   | 'migration_completed';
 
@@ -55,6 +63,8 @@ export type AuthorityAdvance = {
   generationDelta?: number;
   inFlightDelta?: number;
   receipt?: AuthorityReceipt;
+  /** Retention for this write; the store default applies when absent. */
+  maxReceipts?: number;
   /** Extra filter: refuse unless the current state and engine still match. */
   expect?: { state?: AuthorityState; engine?: AuthorityEngine; inFlight?: number };
 };
@@ -93,7 +103,7 @@ export type ConversationAuthority = {
     ownerId: string;
     conversationId: string;
     generation: number;
-    outcome: 'settled' | 'failed';
+    outcome: 'settled' | 'failed' | 'indeterminate';
     taskId?: string;
   }) => Promise<boolean>;
   /** Records a conversation the engine itself created, without claiming it. */
@@ -119,10 +129,46 @@ export type ConversationAuthorityDeps = {
   contractVersion: string;
   /** Conversations the migration may move on first dispatch. */
   bootstrapConversations: readonly string[];
+  /** Receipts retained per conversation; stores keep their default when absent. */
+  maxReceipts?: number;
   now?: () => Date;
 };
 
-const DEFAULT_MAX_RECEIPTS = 20;
+/**
+ * Records a conversation the engine created. A storage failure is transient, so
+ * it is retried with a short backoff; a refusal is a durable fact and is not.
+ */
+export async function registerConversationWithRetry(
+  authority: Pick<ConversationAuthority, 'register'>,
+  input: { ownerId: string; conversationId: string; mode: AuthorityMode },
+  options: {
+    attempts?: number;
+    delayMs?: number;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<boolean> {
+  const attempts = Math.max(1, options.attempts ?? DEFAULT_MAPPING_ATTEMPTS);
+  const delayMs = Math.max(0, options.delayMs ?? DEFAULT_MAPPING_RETRY_DELAY_MS);
+  const wait =
+    options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const decision = await authority.register(input);
+      if (decision.ok) {
+        return true;
+      }
+      // Another backend owns the conversation or a migration is underway;
+      // retrying the same registration cannot change either fact.
+      return false;
+    } catch {
+      if (attempt === attempts) {
+        return false;
+      }
+      await wait(delayMs * attempt);
+    }
+  }
+  return false;
+}
 
 function refusal(code: AuthorityRefusalCode): AuthorityDecision {
   return { ok: false, status: 409, code };
@@ -138,7 +184,10 @@ function trimReceipts(receipts: AuthorityReceipt[], max: number): AuthorityRecei
  * authority rules can be tested without a database. Production uses the Mongo
  * store from `packages/data-schemas`.
  */
-export function createMemoryAuthorityStore(): ConversationAuthorityStore {
+export function createMemoryAuthorityStore(
+  options: { maxReceipts?: number } = {},
+): ConversationAuthorityStore {
+  const maxReceipts = options.maxReceipts ?? DEFAULT_MAX_RECEIPTS;
   const records = new Map<string, ConversationAuthorityRecord>();
   const keyOf = (ownerId: string, conversationId: string): string =>
     `${ownerId}\u0000${conversationId}`;
@@ -183,7 +232,7 @@ export function createMemoryAuthorityStore(): ConversationAuthorityStore {
         inFlight: current.inFlight + (input.inFlightDelta ?? 0),
         receipts: trimReceipts(
           input.receipt == null ? current.receipts : [...current.receipts, input.receipt],
-          DEFAULT_MAX_RECEIPTS,
+          Math.max(1, input.maxReceipts ?? maxReceipts),
         ),
         updatedAt: input.receipt?.at ?? current.updatedAt,
       };
@@ -201,6 +250,14 @@ export function createConversationAuthority(
 ): ConversationAuthority {
   const now = deps.now ?? ((): Date => new Date());
   const bootstrap = new Set(deps.bootstrapConversations);
+  /** Every advance carries the deployment's receipt retention to the store. */
+  const storeAdvance = (
+    input: Parameters<ConversationAuthorityStore['advance']>[0],
+  ): ReturnType<ConversationAuthorityStore['advance']> =>
+    deps.store.advance({
+      ...input,
+      ...(deps.maxReceipts == null ? {} : { maxReceipts: deps.maxReceipts }),
+    });
   const stamp = (): string => now().toISOString();
   const receipt = (
     outcome: AuthorityReceiptOutcome,
@@ -266,8 +323,11 @@ export function createConversationAuthority(
     if (current.engine !== 'workflow-engine') {
       return refusal('WORKFLOW_ENGINE_AUTHORITY_CONFLICT');
     }
+    if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
+      return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
+    }
     const generation = current.generation + 1;
-    const next = await deps.store.advance({
+    const next = await storeAdvance({
       ownerId: input.ownerId,
       conversationId: input.conversationId,
       expectedGeneration: current.generation,
@@ -275,7 +335,7 @@ export function createConversationAuthority(
       generationDelta: 1,
       inFlightDelta: inFlight,
       receipt: inFlight > 0 ? receipt('dispatched', generation) : undefined,
-      expect: { state: 'active', engine: 'workflow-engine' },
+      expect: { state: 'active', engine: 'workflow-engine', inFlight: 0 },
     });
     return next == null ? refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY') : { ok: true, generation };
   }
@@ -303,7 +363,7 @@ export function createConversationAuthority(
     },
 
     settle: async (input) => {
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: input.generation,
@@ -320,14 +380,14 @@ export function createConversationAuthority(
       if (current == null) {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_UNMAPPED');
       }
-      if (current.inFlight > 0) {
+      if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
       }
       if (current.engine === input.to && current.state === 'active') {
         return { ok: true, generation: current.generation };
       }
       const generation = current.generation + 1;
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: current.generation,
@@ -340,7 +400,7 @@ export function createConversationAuthority(
     },
 
     completeMigration: async (input) => {
-      const next = await deps.store.advance({
+      const next = await storeAdvance({
         ownerId: input.ownerId,
         conversationId: input.conversationId,
         expectedGeneration: input.generation,
