@@ -71,24 +71,42 @@ export async function waitForPersistedAgent(
   const token = await getAccessToken(page);
   let latestAgent: AgentDetail | null = null;
 
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const agent = await findAgent(page, agentName, token);
-    if (agent) {
-      latestAgent = await fetchJson<AgentDetail>(
-        page,
-        `/api/agents/${encodeURIComponent(agent.id)}/expanded`,
-        token,
-      );
-      if (latestAgent.description === description) {
-        return latestAgent;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
+  await expect
+    .poll(
+      async () => {
+        const agent = await findAgent(page, agentName, token);
+        if (!agent) {
+          return null;
+        }
+        latestAgent = await fetchJson<AgentDetail>(
+          page,
+          `/api/agents/${encodeURIComponent(agent.id)}/expanded`,
+          token,
+        );
+        return latestAgent.description ?? null;
+      },
+      {
+        message: `Expected agent "${agentName}" to be persisted with its description`,
+        timeout: 10_000,
+        intervals: [100, 250, 500],
+      },
+    )
+    .toBe(description);
 
-  expect(latestAgent, `Expected agent "${agentName}" to be persisted`).not.toBeNull();
-  expect(latestAgent?.description).toBe(description);
   return latestAgent!;
+}
+
+/** Start a chat with an existing agent using the same URL as its marketplace card. */
+export async function startChatWithAgent(
+  page: Page,
+  { id, name }: Pick<AgentSummary, 'id' | 'name'>,
+): Promise<void> {
+  if (!name?.trim()) {
+    throw new Error(`Expected a named agent fixture for ${id}`);
+  }
+  const query = new URLSearchParams({ endpoint: 'agents', agent_id: id });
+  await page.goto(`${NEW_CHAT_PATH}?${query}`, { timeout: 10_000 });
+  await expect(page.getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
 }
 
 export async function openAgentBuilder(
@@ -121,21 +139,12 @@ export async function openAgentBuilder(
     }
   }
 
-  const builderVisible = await form
-    .waitFor({ state: 'visible', timeout: 1000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!builderVisible) {
-    if (narrow) {
-      await page.getByTestId('panel-switcher-button').click();
-      await page.getByRole('menuitemcheckbox', { name: 'Agent Builder' }).click();
-    } else {
-      const agentBuilderButton = page.getByRole('button', { name: 'Agent Builder' });
-      await expect(agentBuilderButton).toBeVisible();
-      if ((await agentBuilderButton.getAttribute('aria-pressed')) !== 'true') {
-        await agentBuilderButton.click();
-      }
-    }
+  if (narrow) {
+    await page.getByTestId('panel-switcher-button').click();
+    await page.getByRole('menuitemcheckbox', { name: 'Agent Builder', exact: true }).click();
+  } else {
+    /** The unified rail button selects this panel and expands the rail when needed. */
+    await page.getByRole('button', { name: 'Agent Builder', exact: true }).click();
   }
   await expect(form).toBeVisible();
   return form;
