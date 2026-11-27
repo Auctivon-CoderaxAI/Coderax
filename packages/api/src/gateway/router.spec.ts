@@ -2,9 +2,9 @@ import express from 'express';
 import { get } from 'node:http';
 import request from 'supertest';
 import { once } from 'node:events';
+import type { ConversationAuthorityStore } from './authority';
 import type { WorkflowEngineGatewayDeps } from './router';
 import type { GatewayFetch } from './client';
-import type { ConversationAuthorityStore } from './authority';
 import { createMemoryAuthorityStore } from './authority';
 import { createWorkflowEngineGateway } from './router';
 
@@ -137,6 +137,7 @@ function chatReply(conversationId = 'conv_1') {
     model: { providerId: 'coderax', modelId: 'native' },
     createdAt: at,
   };
+}
 
 describe('workflow engine gateway routes', () => {
   it('fails closed when the transport is disabled', async () => {
@@ -462,7 +463,7 @@ describe('workflow engine gateway routes', () => {
       resolveConfig: () => ({
         enabled: true,
         baseURL: 'https://engine.example',
-      ownerUserId: 'owner_1',
+        ownerUserId: 'owner_1',
         tokenEnv: 'ENGINE_TOKEN',
         contractVersion: '2.0.0',
       }),

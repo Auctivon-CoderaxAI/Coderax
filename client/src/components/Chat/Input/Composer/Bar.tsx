@@ -6,8 +6,8 @@ import type { TConversation, EModelEndpoint, EndpointFileConfig } from 'coderax-
 import type { PaletteEntry, PaletteMode } from '~/hooks/Input/usePaletteEntries';
 import type { Dictation } from '~/hooks/Input/useDictation';
 import type { ExtendedFile, FileSetter } from '~/common';
+import { WorkAgentConversationSelector, WorkLandingPicker } from '../WorkAgentSelector';
 import ModelSelector from '~/components/Chat/Menus/Endpoints/ModelSelector';
-import { WorkAgentConversationSelector } from '../WorkAgentSelector';
 import usePaletteEntries from '~/hooks/Input/usePaletteEntries';
 import MCPConfigDialog from '~/components/MCP/MCPConfigDialog';
 import useToolFavorites from '~/hooks/Input/useToolFavorites';
@@ -204,6 +204,13 @@ interface BarProps {
   showTools: boolean;
   /** Only Work exposes an agent selector here. */
   showWorkAgentSelector?: boolean;
+  /** Work's landing shows one combined agent/model picker, as in the mockups. */
+  compactWorkSelector?: boolean;
+  /** Rendered between the `+` and the model control, so Chat's landing composer
+   *  reads as one row: plus, message, model, mic, send. */
+  centerSlot?: React.ReactNode;
+  /** Landing layouts hide the staged-tool chips and the utility controls. */
+  compact?: boolean;
   isSubmitting: boolean;
   showSpeech: boolean;
   speechDisabled: boolean;
@@ -239,6 +246,9 @@ function Bar({
   anchorRef,
   showTools,
   showWorkAgentSelector = false,
+  compactWorkSelector = false,
+  centerSlot,
+  compact = false,
   isSubmitting,
   showSpeech,
   speechDisabled,
@@ -321,14 +331,16 @@ function Bar({
     setRestingInline(inlineChips);
   }
   const chipsInline = dictating ? restingInline : inlineChips;
-  const above = chipsInline ? EMPTY_ENTRIES : packedEntries;
-  const inline = chipsInline ? packedEntries : EMPTY_ENTRIES;
+  /* A landing composer keeps its action row to the controls the mockup shows;
+     staged tools still reach the user once the conversation starts. */
+  const above = !compact && !chipsInline ? packedEntries : EMPTY_ENTRIES;
+  const inline = !compact && chipsInline ? packedEntries : EMPTY_ENTRIES;
 
   const rowClass = cn(
     'flex flex-wrap items-center gap-1.5',
     isRTL ? 'flex-row-reverse' : 'flex-row',
   );
-  const barClass = 'flex flex-col gap-1.5 px-2 pb-2';
+  const barClass = compact ? 'flex flex-col' : 'flex flex-col gap-1.5 px-2 pb-2';
 
   const renderChip = (entry: PaletteEntry) => {
     const pinnedInactive = entry.pinned && !entry.active;
@@ -432,15 +444,14 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* The provider picker belongs with the message it configures, not in the
-            page header. Work names its own model in the agent rail, so the Chat
-            picker would offer a second, unrelated selection. */}
+        {centerSlot != null && <div className="min-w-0 flex-1">{centerSlot}</div>}
+        {/* The provider picker belongs with the message it configures, not in the page header. */}
         {index === 0 && !showWorkAgentSelector && (
           <div
             className="max-w-36 min-w-0 shrink overflow-hidden sm:max-w-52"
             data-testid="composer-model-selection"
           >
-            <ModelSelector startupConfig={startupConfig} />
+            <ModelSelector startupConfig={startupConfig} compact={compact} />
           </div>
         )}
         {/* A box rather than `contents` so it has something to move: the split
@@ -488,12 +499,20 @@ function Bar({
                   : 'translate-y-0 opacity-100',
               )}
             >
-              <Thinking
-                index={index}
-                disabled={disabled}
-                hasAddedConversation={hasAddedConversation}
-              />
-              <TokenUsage index={index} conversation={conversation} isSubmitting={isSubmitting} />
+              {!compact && (
+                <>
+                  <Thinking
+                    index={index}
+                    disabled={disabled}
+                    hasAddedConversation={hasAddedConversation}
+                  />
+                  <TokenUsage
+                    index={index}
+                    conversation={conversation}
+                    isSubmitting={isSubmitting}
+                  />
+                </>
+              )}
             </div>
             {/* Arrives and leaves in depth. The elapsed time is not one of the
                 things that stepped aside, so it has nowhere to travel from:
@@ -518,11 +537,11 @@ function Bar({
               models automatically. It sits beside the mic, where Work names the
               model its next message will use. */}
           {index === 0 && showWorkAgentSelector && (
-            <div className="max-w-full min-w-0 shrink overflow-visible">
-              <WorkAgentConversationSelector />
+            <div className="max-w-44 min-w-0 shrink overflow-hidden sm:max-w-56">
+              {compactWorkSelector ? <WorkLandingPicker /> : <WorkAgentConversationSelector />}
             </div>
           )}
-          {index === 0 && showWorkAgentSelector && (
+          {index === 0 && showWorkAgentSelector && !compactWorkSelector && (
             <div className="hidden min-w-0 shrink items-center overflow-hidden md:flex md:max-w-56">
               <WorkRoutingBadge />
             </div>

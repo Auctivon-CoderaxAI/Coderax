@@ -94,6 +94,7 @@ jest.mock('~/hooks', () => ({
   useFavorites: () => mockUseFavorites(),
   useShowMarketplace: () => false,
   useNewConvo: () => ({ newConversation: jest.fn() }),
+  useNewChat: () => ({ handleNewChatClick: jest.fn() }),
   useGetConversation: () => () => null,
 }));
 
@@ -283,7 +284,9 @@ describe('ConversationsSection section order', () => {
       ],
     };
     mockPinnedResult.data = {
-      conversations: [{ conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true }],
+      conversations: [
+        { conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true },
+      ],
       nextCursor: null,
     };
 
@@ -299,10 +302,12 @@ describe('ConversationsSection section order', () => {
         { conversationId: 'work-1', title: 'Work recent', isWork: true },
       ]);
       expect(
-        (mockPinnedConversationsRender.mock.calls.at(-1)?.[0] as {
-          conversations: Array<{ isWork?: boolean }>;
-        }).conversations,
-        ).toEqual([{ conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true }]);
+        (
+          mockPinnedConversationsRender.mock.calls.at(-1)?.[0] as {
+            conversations: Array<{ isWork?: boolean }>;
+          }
+        ).conversations,
+      ).toEqual([{ conversationId: 'work-2', title: 'Pinned Work', isWork: true, pinned: true }]);
     } finally {
       mockConversationsResult.data = previousChats;
       mockPinnedResult.data = previousPins;

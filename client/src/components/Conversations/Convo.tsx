@@ -15,7 +15,6 @@ import {
 import { cn, logger, setDocumentTitle, isConversationUnseen, hasRealTitle } from '~/utils';
 import { useNavigateToConvo, useLocalize, useShiftKey, useAuthContext } from '~/hooks';
 import { useSavedConversationMode } from '~/components/Chat/mode';
-import ConversationEndpointIcon from './ConversationEndpointIcon';
 import useDrawerViewport from '~/hooks/Nav/useDrawerViewport';
 import ConversationModeBadge from './ConversationModeBadge';
 import { focusableInRow, resolveRowBeside } from './focus';
@@ -337,10 +336,8 @@ function Conversation({
       ref={containerRef}
       data-conversation-id={conversationId}
       className={cn(
-        'group focus-visible:ring-text-primary relative flex h-12 w-full items-center rounded-lg outline-hidden focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:h-9',
-        isActiveConvo || isPopoverActive
-          ? 'bg-surface-nav-selected before:bg-text-primary before:absolute before:top-1 before:bottom-1 before:left-0 before:w-0.5 before:rounded-full'
-          : 'hover:bg-surface-nav-hover',
+        'group focus-visible:ring-text-primary relative flex h-10 w-full items-center rounded-lg outline-hidden focus-visible:ring-2 focus-visible:outline-hidden focus-visible:ring-inset md:h-8',
+        isActiveConvo || isPopoverActive ? 'bg-surface-nav-selected' : 'hover:bg-surface-nav-hover',
       )}
       onPointerEnter={(event) => {
         if (event.pointerType === 'mouse') {
@@ -385,54 +382,51 @@ function Conversation({
           localize={localize}
         />
       ) : (
-        <ConvoLink
-          isActiveConvo={isActiveConvo}
-          isPopoverActive={isPopoverActive}
-          isHovered={isHovered}
-          isSharedBadgeVisible={isSharedBadgeVisible}
-          isUnseen={isUnseen}
-          isGenerating={isGenerating}
-          title={title}
-          onRename={handleRename}
-          isSmallScreen={isSmallScreen}
-          localize={localize}
-          keyShortcuts={keyShortcuts}
-          describedBy={
-            [
-              projectBadgeProjectId ? projectLabelId : undefined,
-              modeBadge ? modeLabelId : undefined,
-            ]
-              .filter(Boolean)
-              .join(' ') || undefined
-          }
-        >
-          {/* Status sits on the avatar so the row's trailing edge stays free for its badges
-              and menu. The ring is 2.125rem around the 1.25rem icon: offset by half the
-              difference. Both are rem so the ring follows the icon box at any UI scale. */}
-          <span className="relative flex size-5 shrink-0 items-center justify-center">
-            <ConversationEndpointIcon conversation={conversation} size={20} context="menu-item" />
+        <>
+          <ConvoLink
+            isActiveConvo={isActiveConvo}
+            isPopoverActive={isPopoverActive}
+            isHovered={isHovered}
+            isSharedBadgeVisible={isSharedBadgeVisible}
+            isUnseen={isUnseen}
+            isGenerating={isGenerating}
+            title={title}
+            onRename={handleRename}
+            isSmallScreen={isSmallScreen}
+            localize={localize}
+            keyShortcuts={keyShortcuts}
+            describedBy={
+              [
+                projectBadgeProjectId ? projectLabelId : undefined,
+                modeBadge ? modeLabelId : undefined,
+              ]
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
+          >
+            {null}
+          </ConvoLink>
+          {/* The status lives at the row's trailing edge, as in the approved design:
+              a running turn shows its spinner, a finished-unread one its blue dot, and
+              neither borrows the space the hover controls need. `ConvoLink`'s label
+              already carries the text equivalent for assistive technology. */}
+          <span
+            data-testid="convo-status"
+            className="flex size-4 shrink-0 items-center justify-center"
+          >
             {isGenerating && (
               <Spinner
-                size={34}
-                strokeWidth={1.9}
+                size={16}
+                strokeWidth={2}
                 bgOpacity={0.14}
-                className="pointer-events-none absolute -top-[0.4375rem] -left-[0.4375rem] size-[2.125rem]"
+                className="pointer-events-none size-4"
               />
             )}
-            {isUnseen && !isGenerating && (
-              /* `ConvoLink`'s aria-label carries the text equivalent of the ring and the dot. */
-              <span
-                aria-hidden="true"
-                className={cn(
-                  'bg-status-info pointer-events-none absolute -right-0.5 -bottom-0.5 size-2 rounded-full ring-2',
-                  isActiveConvo || isPopoverActive
-                    ? 'ring-surface-nav-selected'
-                    : 'ring-surface-primary-alt group-hover:ring-surface-nav-hover',
-                )}
-              />
+            {!isGenerating && isUnseen && (
+              <span aria-hidden="true" className="bg-status-info size-2 rounded-full" />
             )}
           </span>
-        </ConvoLink>
+        </>
       )}
       {modeBadge && <ConversationModeBadge badge={modeBadge} labelId={modeLabelId} />}
       {isSharedBadgeVisible && (

@@ -9,9 +9,12 @@ import { render, screen } from '@testing-library/react';
 import { BrowserRouter as Router } from 'react-router-dom';
 import { QueryKeys, EModelEndpoint } from 'coderax-data-provider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { TFile, TConversation } from 'coderax-data-provider';
+import type { TFile, TConversation, ModelRouteCandidate } from 'coderax-data-provider';
+import type { ChatModelRouting } from '~/Providers/ChatModelRoutingContext';
 import type { ChatFormValues } from '~/common';
+import { ChatModelRoutingContext } from '~/Providers/ChatModelRoutingContext';
 import { ChatContext, ChatFormProvider } from '~/Providers';
+import ConversationStarters from '../ConversationStarters';
 import { AuthContextProvider } from '~/hooks/AuthContext';
 import ChatForm from '../ChatForm';
 import store from '~/store';
@@ -29,7 +32,9 @@ const conversation = {
  * ChatView passes it, not the atom it used to read directly, so the prop is
  * deliberately set opposite to that default.
  */
-function Harness({ enterToSend }: { enterToSend: boolean }) {
+const mockAsk = jest.fn();
+
+function Harness({ enterToSend, withStarters }: { enterToSend: boolean; withStarters: boolean }) {
   const [files, setFiles] = useRecoilState(store.filesByIndex(0));
   const [isSubmitting] = useRecoilState(store.isSubmittingFamily(0));
   const [, setFilesLoading] = useState(false);
@@ -52,7 +57,7 @@ function Harness({ enterToSend }: { enterToSend: boolean }) {
         stopGenerating: () => undefined,
         getMessages: () => undefined,
         setMessages: () => undefined,
-        ask: () => undefined,
+        ask: mockAsk,
         regenerate: () => undefined,
         setSiblingIdx: () => undefined,
         showPopover: false,
@@ -74,7 +79,10 @@ function Harness({ enterToSend }: { enterToSend: boolean }) {
       <ChatContext.Provider value={chatHelpers}>
         <ChatForm
           index={0}
-          isLandingPage={false}
+          isLandingPage={withStarters}
+          landingStarters={
+            withStarters ? (onSubmit) => <ConversationStarters onSubmit={onSubmit} /> : undefined
+          }
           enterToSend={enterToSend}
           footerBelow={false}
           centerFormOnLanding={false}
@@ -84,7 +92,13 @@ function Harness({ enterToSend }: { enterToSend: boolean }) {
   );
 }
 
-function renderComposer({ enterToSend }: { enterToSend: boolean }) {
+function renderComposer({
+  enterToSend,
+  routing = null,
+}: {
+  enterToSend: boolean;
+  routing?: ChatModelRouting | null;
+}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -97,7 +111,9 @@ function renderComposer({ enterToSend }: { enterToSend: boolean }) {
         <Router>
           <AuthContextProvider authConfig={{ loginRedirect: '', test: true }}>
             <DndProvider backend={HTML5Backend}>
-              <Harness enterToSend={enterToSend} />
+              <ChatModelRoutingContext.Provider value={routing}>
+                <Harness enterToSend={enterToSend} withStarters={routing != null} />
+              </ChatModelRoutingContext.Provider>
             </DndProvider>
           </AuthContextProvider>
         </Router>
@@ -133,3 +149,55 @@ describe('ChatForm enterToSend prop', () => {
     expect(hint).toHaveTextContent('Enter to send');
   }, 20000);
 });
+
+test('holds a landing starter until the paid model is approved', async () => {
+  const approvePaidRequest = jest.fn();
+  const unexpectedTransportCall = () => {
+    throw new Error('The fixture should submit through ChatContext.ask');
+  };
+  const paidModel: ModelRouteCandidate = {
+    id: 'paid-test-model',
+    label: 'Paid test model',
+    free: false,
+    local: false,
+    capability: 0.5,
+    speed: 0.5,
+    reliability: 0.5,
+    tools: false,
+  };
+  mockAsk.mockClear();
+  renderComposer({
+    enterToSend: true,
+    routing: {
+      approvePaidRequest,
+      clearPaidApproval: jest.fn(),
+      consentModel: paidModel,
+      selection: { ok: false, reason: 'no_free_local_model', paid: paidModel },
+      unavailable: false,
+      transport: {
+        stream: unexpectedTransportCall,
+        start: unexpectedTransportCall,
+        abort: unexpectedTransportCall,
+        abortRun: unexpectedTransportCall,
+        steer: unexpectedTransportCall,
+        cancelSteer: unexpectedTransportCall,
+        armSteer: unexpectedTransportCall,
+        listQueued: unexpectedTransportCall,
+        enqueue: unexpectedTransportCall,
+        cancelQueued: unexpectedTransportCall,
+      },
+    },
+  });
+
+  await userEvent.click(await screen.findByRole('button', { name: 'Help me get started' }));
+  expect(
+    await screen.findByRole('dialog', { name: 'Use a paid model for this message?' }),
+  ).toBeVisible();
+  expect(mockAsk).not.toHaveBeenCalled();
+  expect(approvePaidRequest).not.toHaveBeenCalled();
+
+  await userEvent.click(screen.getByRole('button', { name: 'Continue with paid model' }));
+  expect(approvePaidRequest).toHaveBeenCalledTimes(1);
+  expect(mockAsk).toHaveBeenCalledTimes(1);
+  expect(mockAsk).toHaveBeenCalledWith({ text: 'Help me get started' }, expect.anything());
+}, 20000);

@@ -6,7 +6,17 @@ const source = (file: string): string => readFileSync(join(inputRoot, file), 'ut
 
 /** Send and stop take the slot's recipe from IconButton's `submit` variant,
  *  which is built from `composerSubmitClasses()`. */
-const submitControls = ['SendButton.tsx', 'StopButton.tsx'] as const;
+const submitControls = [
+  [
+    'SendButton.tsx',
+    [
+      "variant={props.landing ? 'brand' : 'submit'}",
+      "size={props.landing ? 'xl' : 'theme'}",
+      "shape={props.landing ? 'round' : 'composer'}",
+    ],
+  ],
+  ['StopButton.tsx', ['variant="submit"', 'size="theme"', 'shape="composer"']],
+] as const;
 
 const themedControls = [
   /** The submit slot's faces share one recipe, which owns the coarse-pointer
@@ -23,12 +33,10 @@ const themedControls = [
 ] as const;
 
 describe('Composer appearance tokens', () => {
-  it.each(submitControls)('%s composes the shared submit-slot control', (file) => {
+  it.each(submitControls)('%s composes the shared submit-slot control', (file, tokens) => {
     const contents = source(file);
 
-    ['IconButton', 'variant="submit"', 'size="theme"', 'shape="composer"'].forEach((token) =>
-      expect(contents).toContain(token),
-    );
+    ['IconButton', ...tokens].forEach((token) => expect(contents).toContain(token));
   });
 
   it.each(themedControls)('%s uses shared control geometry', (file, expectedTokens) => {

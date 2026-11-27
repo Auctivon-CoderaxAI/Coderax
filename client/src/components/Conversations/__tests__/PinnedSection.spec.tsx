@@ -18,7 +18,10 @@ let mockOrderFetching = false;
 let mockOrderUpdatedAt = 1000;
 const MEMBERSHIP_FETCHED_AT = 2000;
 const mockNavigate = jest.fn();
-let mockPinnedWorkTasks: Record<string, { id: string; title: string; state: 'completed' | 'unknown' }> = {};
+let mockPinnedWorkTasks: Record<
+  string,
+  { id: string; title: string; state: 'completed' | 'unknown' }
+> = {};
 const mockReorderFavorites = jest.fn();
 const mockUpdatePinnedOrder = jest.fn();
 
@@ -193,9 +196,13 @@ describe('PinnedSection unified list', () => {
     mockFavoritesData.endpointsConfig = {};
   });
 
-  it('renders nothing when there are no favorites or pinned conversations', () => {
-    const { container } = renderSection([]);
-    expect(container).toBeEmptyDOMElement();
+  it('keeps the Pinned heading visible when there are no favorites or pinned conversations', () => {
+    renderSection([]);
+    expect(screen.getByRole('button', { name: 'com_ui_pinned' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.queryByTestId('convo')).not.toBeInTheDocument();
   });
 
   it('renders favorites followed by pinned conversations in natural order', () => {

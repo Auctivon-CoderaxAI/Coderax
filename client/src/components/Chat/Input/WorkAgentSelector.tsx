@@ -491,6 +491,185 @@ export function WorkAgentSelect({
   );
 }
 
+/**
+ * Work's landing control: one chip naming the model the next turn runs on, as in
+ * the approved design, with the engine identity and built-in mode in the same
+ * menu. External engines stay explicit choices and are disabled when the server
+ * reports them unavailable; nothing is ever routed to one silently.
+ */
+export function WorkLandingPicker() {
+  const localize = useLocalize();
+  const { options, isLoading } = useWorkOptions();
+  const { selectionKey } = useConversationMode();
+  const { conversation } = useChatContext();
+  const [stored, setStored] = useAtom(workSelectionFamily(selectionKey));
+  const selection = stored
+    ? sanitizeWorkSelection(stored, options)
+    : workSelectionFromConversation(conversation, options);
+  const resolved = resolveWorkSelection(selection, options);
+  const selectedIdentity = workAgentOf(selection);
+  const identity = workIdentities(options).find((option) => option.id === selectedIdentity);
+  let label = localize('com_ui_model');
+  if (selectedIdentity !== 'coderax') {
+    label = identity?.label ?? localize('com_work_agent_identity');
+  } else if (resolved?.model != null) {
+    label = resolved.model.label?.trim() || resolved.model.id;
+  }
+
+  const apply = (next: WorkSelection) => {
+    if (resolveWorkSelection(next, options)) {
+      setStored(next);
+    }
+  };
+  const models = options.models.filter((model) => model.engine == null);
+
+  const landingPickerMenuClasses = cn(chipMenuClasses, 'w-[min(22rem,calc(100vw-2rem))]');
+
+  return (
+    <Ariakit.MenuProvider placement="bottom-end" focusLoop={true}>
+      <Ariakit.MenuButton
+        aria-label={localize('com_ui_model')}
+        title={label}
+        disabled={isLoading}
+        data-testid="work-landing-picker"
+        className={cn(
+          chipClasses,
+          'w-auto shrink justify-between gap-1 px-1.5 text-sm font-medium',
+          isLoading && 'cursor-default opacity-70',
+        )}
+      >
+        <span className="max-w-[13rem] truncate">{label}</span>
+        <ChevronDown className="text-text-secondary size-4 shrink-0" aria-hidden="true" />
+      </Ariakit.MenuButton>
+      <Ariakit.Menu portal gutter={8} unmountOnHide className={landingPickerMenuClasses}>
+        <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
+          {localize('com_ui_agent')}
+        </Ariakit.MenuHeading>
+        {workIdentities(options).map((option) => {
+          const checked = selectedIdentity === option.id;
+          const unavailable = option.id !== 'coderax' && !option.availability.available;
+          return (
+            <Ariakit.MenuItemRadio
+              key={option.id}
+              name="work-landing-agent"
+              value={option.id}
+              checked={checked}
+              disabled={unavailable}
+              hideOnClick
+              onChange={() => apply(selectWorkAgentIdentity(selection, option.id, options))}
+              className={cn(chipMenuItemClasses(checked), 'items-start')}
+            >
+              <span className="min-w-0 flex-1 text-left">
+                <span className="text-text-primary block text-sm whitespace-normal">
+                  {agentIdentityLabel(option, localize)}
+                </span>
+                <span className="text-text-secondary mt-0.5 block text-xs whitespace-normal">
+                  {agentIdentityDescription(option, localize)}
+                </span>
+              </span>
+              {checked && (
+                <Check className="text-text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              )}
+            </Ariakit.MenuItemRadio>
+          );
+        })}
+
+        {selectedIdentity === 'coderax' && (
+          <>
+            <Ariakit.MenuSeparator className="border-border-light my-1 h-px" />
+            <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
+              {localize('com_ui_model')}
+            </Ariakit.MenuHeading>
+            {options.auto?.target != null && (
+              <Ariakit.MenuItemRadio
+                name="work-landing-model"
+                value={WORK_AUTOMATIC}
+                checked={selection.modelKey === WORK_AUTOMATIC}
+                hideOnClick
+                onChange={() =>
+                  apply({ ...selection, agentId: WORK_AUTOMATIC, modelKey: WORK_AUTOMATIC })
+                }
+                className={cn(
+                  chipMenuItemClasses(selection.modelKey === WORK_AUTOMATIC),
+                  'items-start',
+                )}
+              >
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="text-text-primary block text-sm">
+                    {localize('com_work_automatic_model')}
+                  </span>
+                  <span className="text-text-secondary mt-0.5 block text-xs">
+                    {localize('com_work_automatic_model_description')}
+                  </span>
+                </span>
+                {selection.modelKey === WORK_AUTOMATIC && (
+                  <Check className="text-text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                )}
+              </Ariakit.MenuItemRadio>
+            )}
+            {models.map((model) => {
+              const key = getWorkModelKey(model);
+              const checked = selection.modelKey === key;
+              return (
+                <Ariakit.MenuItemRadio
+                  key={key}
+                  name="work-landing-model"
+                  value={key}
+                  checked={checked}
+                  hideOnClick
+                  onChange={() => apply({ ...selection, agentId: WORK_AUTOMATIC, modelKey: key })}
+                  className={cn(chipMenuItemClasses(checked), 'items-start')}
+                >
+                  <span className="text-text-primary min-w-0 flex-1 truncate text-left text-sm">
+                    {model.label?.trim() || model.id}
+                  </span>
+                  {checked && (
+                    <Check
+                      className="text-text-primary mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
+                </Ariakit.MenuItemRadio>
+              );
+            })}
+          </>
+        )}
+
+        <Ariakit.MenuSeparator className="border-border-light my-1 h-px" />
+        <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
+          {localize('com_ui_mode')}
+        </Ariakit.MenuHeading>
+        {WORK_MODES.map((mode) => {
+          const checked = (selection.mode ?? 'build') === mode;
+          return (
+            <Ariakit.MenuItemRadio
+              key={mode}
+              name="work-landing-mode"
+              value={mode}
+              checked={checked}
+              hideOnClick
+              onChange={() => apply(selectWorkMode(selection, mode))}
+              className={cn(chipMenuItemClasses(checked), 'items-start')}
+            >
+              <span className="min-w-0 flex-1 text-left">
+                <span className="text-text-primary block text-sm">
+                  {workModeLabel(mode, localize)}
+                </span>
+                <span className="text-text-secondary mt-0.5 block text-xs whitespace-normal">
+                  {workModeDescription(mode, localize)}
+                </span>
+              </span>
+              {checked && (
+                <Check className="text-text-primary mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              )}
+            </Ariakit.MenuItemRadio>
+          );
+        })}
+      </Ariakit.Menu>
+    </Ariakit.MenuProvider>
+  );
+}
+
 /** The in-task composer applies a new selection to the open Work conversation. */
 export function WorkAgentConversationSelector() {
   const localize = useLocalize();

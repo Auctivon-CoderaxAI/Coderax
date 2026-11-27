@@ -16,6 +16,12 @@ import store from '~/store';
 /* The section resolves a conversation's project from the query cache, so the
  * tree needs a client even though the data hooks themselves are mocked. */
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+let mockUnseen: Array<{ conversationId: string }> = [];
+jest.mock('~/hooks/Conversations/useUnseenConversations', () => ({
+  __esModule: true,
+  default: () => ({ unseen: mockUnseen }),
+}));
+
 let mockActiveJobIds: string[] = [];
 let mockRunningRows: TConversation[] = [];
 const mockRunningConversationsQuery = jest.fn((ids: readonly string[]) =>
@@ -115,10 +121,14 @@ jest.mock('~/data-provider', () => ({
   usePinConversationMutation: () => ({ mutate: jest.fn() }),
 }));
 
-jest.mock('~/utils', () => ({
-  groupConversations: jest.fn(jest.requireActual('~/utils/convos').groupConversations),
-  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
-}));
+jest.mock('~/utils', () => {
+  const convos = jest.requireActual('~/utils/convos');
+  return {
+    ...convos,
+    groupConversations: jest.fn(convos.groupConversations),
+    cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  };
+});
 
 jest.mock('../Convo', () => ({
   __esModule: true,
@@ -255,6 +265,19 @@ describe('Conversations: pinned chats live in PinnedSection', () => {
     const { queryByText, queryByTestId } = renderConversations([pinnedConvo]);
     expect(queryByText('com_ui_pinned')).not.toBeInTheDocument();
     expect(queryByTestId('convo')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['', undefined],
+    ['Pinned Chat', 'com_a11y_recents_unread'],
+  ])('only counts a pinned unread completion when the list includes it (%s)', (search, label) => {
+    mockUnseen = [{ conversationId: 'pinned-1' }];
+    try {
+      renderConversations([pinnedConvo], search);
+      expect(screen.getByTestId('recents-header').getAttribute('aria-label')).toBe(label ?? null);
+    } finally {
+      mockUnseen = [];
+    }
   });
 
   it('shows pinned search matches in Chats while the Pinned section is hidden', () => {

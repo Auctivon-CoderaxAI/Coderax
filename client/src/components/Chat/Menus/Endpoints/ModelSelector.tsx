@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { TooltipAnchor } from '@coderax/client';
 import { getConfigDefaults } from 'coderax-data-provider';
 import type { ModelSelectorProps } from '~/common';
@@ -18,7 +19,7 @@ import { useLocalize } from '~/hooks';
 
 const defaultInterface = getConfigDefaults().interface;
 
-function ModelSelectorContent() {
+function ModelSelectorContent({ compact = false }: { compact?: boolean }) {
   const localize = useLocalize();
   const modelSelectorHint = useShortcutHint('openModelSelector', localize('com_ui_select_model'));
   const modelSelectorAriaKey = useShortcutAriaKey('openModelSelector');
@@ -81,15 +82,22 @@ function ModelSelectorContent() {
         <button
           data-testid="model-selector-button"
           aria-keyshortcuts={modelSelectorAriaKey}
-          className="border-border-chrome bg-presentation text-text-primary hover:bg-surface-active-alt rounded-theme-control my-1 flex h-9 max-w-full items-center gap-2 border px-3 py-2 text-sm"
+          className={
+            compact
+              ? 'text-text-primary hover:!bg-surface-hover flex !h-8 max-w-full items-center !justify-end !gap-1 !rounded-lg !border-0 !bg-transparent !px-1.5 !py-0 text-sm transition-colors'
+              : 'border-border-chrome bg-presentation text-text-primary hover:bg-surface-active-alt rounded-theme-control my-1 flex h-9 max-w-full items-center gap-2 border px-3 py-2 text-sm'
+          }
           aria-label={selectorAccessibleName}
         >
-          {selectedIcon && React.isValidElement(selectedIcon) && (
+          {!compact && selectedIcon && React.isValidElement(selectedIcon) && (
             <div className="flex shrink-0 items-center justify-center overflow-hidden">
               {selectedIcon}
             </div>
           )}
           <span className="truncate text-left">{selectedDisplayValue}</span>
+          {compact && (
+            <ChevronDown className="text-text-secondary size-3.5 shrink-0" aria-hidden="true" />
+          )}
         </button>
       }
     />
@@ -147,7 +155,10 @@ function ModelSelectorContent() {
   );
 }
 
-export default function ModelSelector({ startupConfig }: ModelSelectorProps) {
+export default function ModelSelector({
+  startupConfig,
+  compact = false,
+}: ModelSelectorProps & { compact?: boolean }) {
   const interfaceConfig = startupConfig?.interface ?? defaultInterface;
   const modelSpecs = startupConfig?.modelSpecs?.list ?? [];
 
@@ -159,7 +170,7 @@ export default function ModelSelector({ startupConfig }: ModelSelectorProps) {
   return (
     <ModelSelectorChatProvider>
       <ModelSelectorProvider startupConfig={startupConfig}>
-        <ModelSelectorContent />
+        <ModelSelectorContent compact={compact} />
       </ModelSelectorProvider>
     </ModelSelectorChatProvider>
   );

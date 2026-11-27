@@ -18,28 +18,31 @@ export const modeHeaderClass =
 export const modeHeaderStartClass = 'flex min-w-0 items-center justify-start';
 export const modeHeaderEndClass = 'flex min-w-0 items-center justify-end gap-2';
 
-/** The welcome column: composer at the viewport floor on phones, centred from `sm` up. */
-export const landingColumnClass = 'flex-1 items-center justify-end sm:justify-center';
+/** A common landing column lets the composer grow upward without moving its lower edge. */
+export const landingColumnClass =
+  'grid flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] justify-items-center';
 
-export const landingGreetingBlockClass = 'flex h-full flex-col items-center justify-center px-4';
+export const landingGreetingBlockClass = 'flex flex-col items-center justify-center px-4';
 
 export const landingGreetingClass =
-  'text-text-primary max-w-2xl text-center text-3xl leading-tight font-normal tracking-tight';
+  'text-text-primary max-w-2xl text-center text-[2.25rem] leading-[1.15] font-semibold tracking-[-0.02em]';
 
 /** Room the greeting leaves above the composer, matching the composer's own clearance. */
 export function landingGreetingSpacing(centerFormOnLanding: boolean): string {
-  return centerFormOnLanding ? 'pb-16' : 'pb-10';
+  return centerFormOnLanding ? 'pb-8' : 'pb-8';
 }
 
 /** The band holding starters (Chat) or recent tasks (Work) and the composer. */
-export const landingBandClass = 'max-w-3xl xl:max-w-4xl';
+export const landingBandClass = 'max-w-[48rem]';
 
-export const composerWidthClass = 'md:max-w-3xl xl:max-w-4xl';
+export const composerWidthClass = 'md:max-w-[48rem]';
 
 /** A floating card in every state: the composer keeps a gutter on a phone. */
 export const composerShapeClass = 'rounded-t-theme-surface-lg rounded-b-theme-surface-lg';
 
 /** From `sm` up the landing composer leaves room for the footer beneath it. */
 export function landingComposerClearance(centerFormOnLanding: boolean): string {
-  return centerFormOnLanding ? 'transition-all duration-200 sm:mb-28' : 'sm:mb-10';
+  /* The suggestion row now sits under the composer, so the landing band only
+     needs the small gap before the footer rather than the footer's full height. */
+  return centerFormOnLanding ? 'transition-all duration-200 sm:mb-4' : 'sm:mb-10';
 }

@@ -765,11 +765,6 @@
       "count": 1
     }
   },
-  "client/src/components/Chat/ProjectLandingChip.tsx": {
-    "shadcn/no-restyle": {
-      "count": 14
-    }
-  },
   "client/src/components/Chat/SubagentThreadLink.tsx": {
     "shadcn/no-restyle": {
       "count": 1

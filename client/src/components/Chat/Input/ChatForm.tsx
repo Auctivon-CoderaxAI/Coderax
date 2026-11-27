@@ -1,6 +1,7 @@
 import { memo, useRef, useMemo, useEffect, useState, useCallback } from 'react';
-import { useAtomValue } from 'jotai';
 import { useWatch } from 'react-hook-form';
+import { useAtomValue, useSetAtom } from 'jotai';
+import { FolderOpen, Puzzle } from 'lucide-react';
 import { useRecoilState, useRecoilValue } from 'recoil';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -64,6 +65,7 @@ import AskUserQuestionPopover from './AskUserQuestionPopover';
 import useComposerItems from '~/hooks/Input/useComposerItems';
 import useAttachTarget from '~/hooks/Input/useAttachTarget';
 import { maximizeChatSpaceAtom } from '~/store/chatLayout';
+import { showFilesDialogAtom } from '~/store/filesDialog';
 import Hints, { composerHintId } from './Composer/Hints';
 import PastedTextDialog from './Files/PastedTextDialog';
 import DuringRunSendButton from './DuringRunSendButton';
@@ -82,7 +84,6 @@ import { submitFromComposer } from './submit';
 import SkillsCommand from './SkillsCommand';
 import AutoPlayAudio from './AutoPlayAudio';
 import Waveform from './Composer/Waveform';
-import ModelBar from './Composer/ModelBar';
 import { mainTextareaId } from '~/common';
 import CollapseChat from './CollapseChat';
 import QuoteButton from './QuoteButton';
@@ -114,6 +115,28 @@ export function toRestoredComposerFile(
   };
 }
 
+/** One of Work's landing controls, under the composer. */
+function WorkBarButton({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: typeof FolderOpen;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-text-secondary hover:bg-surface-hover hover:text-text-primary focus-visible:ring-text-primary flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-inset"
+    >
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
 interface ChatFormProps {
   index: number;
   placeholder?: string;
@@ -129,6 +152,7 @@ interface ChatFormProps {
   /** Owned by ChatView: which layout the composer sits in — the welcome screen
    *  floats or bottoms it out, a conversation ends the page with it. */
   isLandingPage: boolean;
+  landingStarters?: (onSubmit: (text: string) => void) => React.ReactNode;
   /** Owned by the host: the persisted preference for whether Enter sends the
    *  message (vs. queues a newline). The composer only consumes it. */
   enterToSend: boolean;
@@ -187,6 +211,7 @@ const ChatForm = memo(function ChatForm({
   workMode = false,
   workCanSubmit = false,
   isLandingPage,
+  landingStarters,
   enterToSend,
   autoSendText,
   speechSettingsInitialized,
@@ -710,6 +735,8 @@ const ChatForm = memo(function ChatForm({
      until then Enter already queues while this slot still offered the ordinary
      send button, disabled. The slot decides for itself between the during-run
      control, Stop, and nothing, so an empty one falls through to send. */
+  /** Chat's landing is one row; Work's is a larger card with a control rail. */
+  const compactLanding = isLandingPage && !workMode;
   const actionSlot = useMemo(
     () =>
       isSubmitting && !answerMode.composerAnswers && duringRunSlot != null
@@ -719,6 +746,7 @@ const ChatForm = memo(function ChatForm({
               ref={submitButtonRef}
               control={methods.control}
               fileCount={submittableFileCount}
+              landing={compactLanding}
               disabled={
                 filesLoading ||
                 isPreparingFromUrl ||
@@ -731,6 +759,7 @@ const ChatForm = memo(function ChatForm({
             />
           ),
     [
+      compactLanding,
       codeWorkspace.canSubmit,
       isPreparingFromUrl,
       endpoint,
@@ -746,14 +775,19 @@ const ChatForm = memo(function ChatForm({
     ],
   );
 
+  /** Chat's landing is one row; Work's is a larger card with a control rail. */
+  const workLanding = isLandingPage && workMode;
+
   const baseClasses = useMemo(
     () =>
       cn(
         'md:py-3.5 m-0 w-full resize-none py-3.25 placeholder:text-text-tertiary bg-transparent [&:has(textarea:focus)]:shadow-[0_2px_6px_rgba(0,0,0,.05)]',
         isCollapsed ? 'max-h-[3.25rem]' : 'max-h-[45vh] md:max-h-[55vh]',
         'px-5',
+        compactLanding && 'max-h-[3rem] px-2 py-0 text-base md:py-0',
+        workLanding && 'max-h-[40vh] px-4 pt-2 pb-0 text-base md:py-0',
       ),
-    [isCollapsed],
+    [isCollapsed, compactLanding, workLanding],
   );
 
   /* From `sm` up the band leaves room under itself for the disclaimer, which only
@@ -808,6 +842,12 @@ const ChatForm = memo(function ChatForm({
     [answerMode, steering, submitMessage, methods, index, paidModelConsentRequired],
   );
 
+  const submitWhenReady = (data: { text: string }) => {
+    if (!isPreparingFromUrl && submitComposerText(data) !== false) {
+      clearSettingsError();
+    }
+  };
+
   const confirmPaidSubmission = useCallback(() => {
     if (heldPaidSubmission == null) {
       return;
@@ -825,13 +865,105 @@ const ChatForm = memo(function ChatForm({
 
   const cancelPaidSubmission = useCallback(() => setHeldPaidSubmission(null), []);
 
+  const showTray = !isLandingPage || files.size > 0 || composerItems.length > 0;
+  const setShowFiles = useSetAtom(showFilesDialogAtom);
+  /** Opens the same tools, skills and MCP palette the `+` control owns. */
+  const openPlugins = useCallback(() => {
+    composerBoxRef.current
+      ?.querySelector<HTMLButtonElement>('[data-testid="composer-palette-button"]')
+      ?.click();
+  }, []);
+
+  const textareaNode = endpoint ? (
+    <div className={cn('flex', isRTL ? 'flex-row-reverse' : 'flex-row')}>
+      <div
+        className={cn(
+          'relative flex-1',
+          listening && '[&_textarea]:caret-transparent [&_textarea]:placeholder:text-transparent',
+          /* Locked behind a question: the placeholder is a notice, not text. */
+          answerMode.composerLocked && '[&_textarea]:select-none',
+        )}
+        style={
+          isCollapsed
+            ? {
+                WebkitMaskImage: 'linear-gradient(to bottom, black 60%, transparent 90%)',
+                maskImage: 'linear-gradient(to bottom, black 60%, transparent 90%)',
+              }
+            : undefined
+        }
+      >
+        <TextareaAutosize
+          {...registerProps}
+          ref={(e) => {
+            ref(e);
+            (textAreaRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = e;
+          }}
+          disabled={
+            disableInputs || isNotAppendable || answerMode.composerLocked || isPreparingFromUrl
+          }
+          onPaste={handlePaste}
+          onKeyDown={(e) => {
+            // Answer mode consumes option-navigation keys from the
+            // empty composer; everything else follows the normal path.
+            if (answerMode.handleComposerKeyDown(e)) {
+              return;
+            }
+            handleKeyDown(e);
+          }}
+          onKeyUp={handleKeyUp}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          id={mainTextareaId}
+          tabIndex={0}
+          data-testid="text-input"
+          rows={workLanding ? 2 : 1}
+          onFocus={handleTextareaFocus}
+          onBlur={handleTextareaBlur}
+          aria-label={localize('com_ui_message_input')}
+          aria-describedby={cn(
+            composerHintId(index),
+            (codeWorkspace.state === 'choose' || codeWorkspace.state === 'missing') &&
+              `code-workspace-hint-${index}`,
+          )}
+          onClick={handleFocusOrClick}
+          style={{
+            height: (workLanding ? 72 : INITIAL_TEXTAREA_HEIGHT) * remScale,
+            overflowY: 'auto',
+          }}
+          className={cn(
+            baseClasses,
+            removeFocusRings,
+            'scrollbar-hover transition-[max-height] duration-200 disabled:cursor-not-allowed',
+          )}
+        />
+        {listening && (
+          /* Stands in for the placeholder: same inset, same line, so
+             it reads as the input listening rather than as a widget
+             bolted on. Once words arrive the transcript takes over. */
+          <Waveform
+            active={dictation.active}
+            className={cn('pointer-events-none absolute inset-x-5 inset-y-2')}
+          />
+        )}
+        {/* Sits over the fade scrim in the corner of the input
+            rather than in its own column beside it, so a long draft
+            does not push an orphaned control off to the side. */}
+        {!isLandingPage && (
+          <div className="absolute right-2 bottom-1 z-10">
+            <CollapseChat
+              isCollapsed={isCollapsed}
+              isScrollable={isMoreThanThreeRows}
+              setIsCollapsed={setIsCollapsed}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <form
-      onSubmit={methods.handleSubmit((data) => {
-        if (!isPreparingFromUrl && submitComposerText(data) !== false) {
-          clearSettingsError();
-        }
-      })}
+      onSubmit={methods.handleSubmit(submitWhenReady)}
       className={cn(
         /* `margin-bottom` is animated as well as `max-width`: it is what carries
            the composer between the landing clearance and the conversation one,
@@ -863,7 +995,7 @@ const ChatForm = memo(function ChatForm({
               onStartNewChat={startQueuedInNewChat}
             />
           )}
-          {(project || codeWorkspace.visible) && (
+          {((project && !workLanding) || codeWorkspace.visible) && (
             <div
               data-testid="composer-context-rail"
               className={cn(
@@ -872,7 +1004,7 @@ const ChatForm = memo(function ChatForm({
                 isRTL && 'flex-row-reverse',
               )}
             >
-              {project ? <ProjectLandingChip project={project} /> : null}
+              {project && !workLanding ? <ProjectLandingChip project={project} /> : null}
               {codeWorkspace.visible ? (
                 <div className="min-w-0">
                   <CodeWorkspaceMenu
@@ -884,7 +1016,12 @@ const ChatForm = memo(function ChatForm({
               ) : null}
             </div>
           )}
-          <div className={cn('flex w-full items-center', isRTL && 'flex-row-reverse')}>
+          <div
+            className={cn(
+              'flex w-full',
+              workLanding ? 'flex-col' : cn('items-center', isRTL && 'flex-row-reverse'),
+            )}
+          >
             <PromptsCommand index={index} textAreaRef={textAreaRef} submitPrompt={submitPrompt} />
             {index === 0 && (
               <AskUserQuestionPopover conversationId={conversationId} textAreaRef={textAreaRef} />
@@ -903,13 +1040,20 @@ const ChatForm = memo(function ChatForm({
               data-testid="composer-surface"
               onClick={handleContainerClick}
               className={cn(
-                /* A floating card at every width, so the action row is the last
-                   thing in it and the gutter around it stays visible. */
-                composerShapeClass,
-                'relative flex w-full grow flex-col overflow-hidden',
-                composerSurfaceClasses(),
-                isTextAreaFocused ? composerSurfaceShadow.focused : composerSurfaceShadow.blurred,
-                /* Temporary-chat accent is a ChatForm-only override, not part of
+                compactLanding
+                  ? 'bg-surface-composer relative flex w-full grow flex-row items-center gap-2 rounded-full border border-transparent px-3 py-3 shadow-none'
+                  : cn(
+                      /* A floating card at every width, so the action row is the last
+                         thing in it and the gutter around it stays visible. */
+                      composerShapeClass,
+                      'relative flex w-full grow flex-col overflow-hidden',
+                      composerSurfaceClasses(),
+                      /* Work's control rail continues the same card. */
+                      workLanding && 'rounded-b-none border-b-0',
+                      isTextAreaFocused
+                        ? composerSurfaceShadow.focused
+                        : composerSurfaceShadow.blurred,
+                      /* Temporary-chat accent is a ChatForm-only override, not part of
                    the shared composer-surface decision. Semantic `series-6`, the
                    same categorical slot the purple tool badge uses, so the accent
                    follows the theme instead of the raw `violet-800/60` edge that
@@ -919,121 +1063,37 @@ const ChatForm = memo(function ChatForm({
                    a warning rather than a quiet mode hint. The contrast modes take
                    it opaque, because that is the only way it clears the 3:1
                    non-text floor there. */
-                /** The tint layers over the opaque chat surface instead of replacing it, so the
-                 *  context rail tucked under the composer never shows through. */
-                isTemporary &&
-                  'border-series-6/50 from-series-6/10 to-series-6/10 high-contrast:border-series-6 bg-linear-to-b',
+                      /** The tint layers over the opaque chat surface instead of replacing it, so the
+                       *  context rail tucked under the composer never shows through. */
+                      isTemporary &&
+                        'border-series-6/50 from-series-6/10 to-series-6/10 high-contrast:border-series-6 bg-linear-to-b',
+                    ),
               )}
             >
               <TextareaHeader addedConvo={addedConvo} setAddedConvo={setAddedConvo} />
-              <ModelBar conversation={conversation} />
-              <Tray
-                items={composerItems}
-                focusComposer={focusTextArea}
-                conversation={conversation}
-                files={files}
-                setFiles={setFiles}
-                setFilesLoading={setFilesLoading}
-                isRTL={isRTL}
-                index={index}
-                isPastedTextFile={isPastedTextFile}
-                isPasteActionPending={isPasteActionPending}
-                onEditPastedText={pastedTextEdit.openEditor}
-                onMovePastedTextInline={pastedTextEdit.moveInline}
-              />
+              {showTray && (
+                <Tray
+                  items={composerItems}
+                  focusComposer={focusTextArea}
+                  conversation={conversation}
+                  files={files}
+                  setFiles={setFiles}
+                  setFilesLoading={setFilesLoading}
+                  isRTL={isRTL}
+                  index={index}
+                  isPastedTextFile={isPastedTextFile}
+                  isPasteActionPending={isPasteActionPending}
+                  onEditPastedText={pastedTextEdit.openEditor}
+                  onMovePastedTextInline={pastedTextEdit.moveInline}
+                  hideModelBar={isLandingPage}
+                />
+              )}
               <PastedTextDialog
                 edit={pastedTextEdit.editing}
                 onClose={pastedTextEdit.closeEditor}
                 onSave={pastedTextEdit.saveEdit}
               />
-              {endpoint && (
-                <div className={cn('flex', isRTL ? 'flex-row-reverse' : 'flex-row')}>
-                  <div
-                    className={cn(
-                      'relative flex-1',
-                      listening &&
-                        '[&_textarea]:caret-transparent [&_textarea]:placeholder:text-transparent',
-                      /* Locked behind a question: the placeholder is a notice, not text. */
-                      answerMode.composerLocked && '[&_textarea]:select-none',
-                    )}
-                    style={
-                      isCollapsed
-                        ? {
-                            WebkitMaskImage:
-                              'linear-gradient(to bottom, black 60%, transparent 90%)',
-                            maskImage: 'linear-gradient(to bottom, black 60%, transparent 90%)',
-                          }
-                        : undefined
-                    }
-                  >
-                    <TextareaAutosize
-                      {...registerProps}
-                      ref={(e) => {
-                        ref(e);
-                        (
-                          textAreaRef as React.MutableRefObject<HTMLTextAreaElement | null>
-                        ).current = e;
-                      }}
-                      disabled={
-                        disableInputs ||
-                        isNotAppendable ||
-                        answerMode.composerLocked ||
-                        isPreparingFromUrl
-                      }
-                      onPaste={handlePaste}
-                      onKeyDown={(e) => {
-                        // Answer mode consumes option-navigation keys from the
-                        // empty composer; everything else follows the normal path.
-                        if (answerMode.handleComposerKeyDown(e)) {
-                          return;
-                        }
-                        handleKeyDown(e);
-                      }}
-                      onKeyUp={handleKeyUp}
-                      onCompositionStart={handleCompositionStart}
-                      onCompositionEnd={handleCompositionEnd}
-                      id={mainTextareaId}
-                      tabIndex={0}
-                      data-testid="text-input"
-                      rows={1}
-                      onFocus={handleTextareaFocus}
-                      onBlur={handleTextareaBlur}
-                      aria-label={localize('com_ui_message_input')}
-                      aria-describedby={cn(
-                        composerHintId(index),
-                        (codeWorkspace.state === 'choose' || codeWorkspace.state === 'missing') &&
-                          `code-workspace-hint-${index}`,
-                      )}
-                      onClick={handleFocusOrClick}
-                      style={{ height: INITIAL_TEXTAREA_HEIGHT * remScale, overflowY: 'auto' }}
-                      className={cn(
-                        baseClasses,
-                        removeFocusRings,
-                        'scrollbar-hover transition-[max-height] duration-200 disabled:cursor-not-allowed',
-                      )}
-                    />
-                    {listening && (
-                      /* Stands in for the placeholder: same inset, same line, so
-                         it reads as the input listening rather than as a widget
-                         bolted on. Once words arrive the transcript takes over. */
-                      <Waveform
-                        active={dictation.active}
-                        className={cn('pointer-events-none absolute inset-x-5 inset-y-2')}
-                      />
-                    )}
-                    {/* Sits over the fade scrim in the corner of the input
-                        rather than in its own column beside it, so a long draft
-                        does not push an orphaned control off to the side. */}
-                    <div className="absolute right-2 bottom-1 z-10">
-                      <CollapseChat
-                        isCollapsed={isCollapsed}
-                        isScrollable={isMoreThanThreeRows}
-                        setIsCollapsed={setIsCollapsed}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+              {!compactLanding && textareaNode}
               {modelUnavailable && (
                 <p role="alert" className="text-text-secondary px-5 pb-2 text-sm">
                   {localize('com_chat_no_available_models')}
@@ -1090,6 +1150,9 @@ const ChatForm = memo(function ChatForm({
                   speechDisabled={speechDisabled}
                   dictation={dictation}
                   showWorkAgentSelector={workMode}
+                  compactWorkSelector={workLanding}
+                  centerSlot={compactLanding ? textareaNode : undefined}
+                  compact={compactLanding}
                   approvalSlot={
                     <div className={cn('flex items-center gap-1.5', isRTL && 'flex-row-reverse')}>
                       <CodeApprovalMenu
@@ -1112,6 +1175,30 @@ const ChatForm = memo(function ChatForm({
               {TextToSpeech && automaticPlayback && <AutoPlayAudio index={index} />}
             </div>
           </div>
+          {isLandingPage && (
+            <div className="h-[4.5rem] overflow-y-auto">
+              {workLanding ? (
+                <div
+                  data-testid="work-composer-bar"
+                  className="bg-surface-secondary rounded-b-theme-surface-lg mx-4 flex flex-wrap items-center gap-1 px-2 py-1"
+                >
+                  <ProjectLandingChip project={project} variant="bar" />
+                  <WorkBarButton
+                    icon={FolderOpen}
+                    label={localize('com_ui_files')}
+                    onClick={() => setShowFiles(true)}
+                  />
+                  <WorkBarButton
+                    icon={Puzzle}
+                    label={localize('com_ui_plugins')}
+                    onClick={openPlugins}
+                  />
+                </div>
+              ) : (
+                landingStarters?.((text) => submitWhenReady({ text }))
+              )}
+            </div>
+          )}
           {/* Sibling of the composer row, not a child: inside that flex-row it
               would lay out as a narrow column beside the box. */}
           <Hints
@@ -1165,6 +1252,7 @@ function ChatFormWrapper({
   handoffDraft,
   onWorkHandoffDraftApplied,
   isLandingPage,
+  landingStarters,
   enterToSend: enterToSendProp,
   autoSendText: autoSendTextProp,
   speechSettingsInitialized: speechSettingsInitializedProp,
@@ -1184,6 +1272,7 @@ function ChatFormWrapper({
   autoSendText?: number;
   speechSettingsInitialized?: boolean;
   isLandingPage: boolean;
+  landingStarters?: (onSubmit: (text: string) => void) => React.ReactNode;
   footerBelow: boolean;
   centerFormOnLanding?: boolean;
 }) {
@@ -1276,6 +1365,7 @@ function ChatFormWrapper({
       handoffDraft={handoffDraft}
       onWorkHandoffDraftApplied={onWorkHandoffDraftApplied}
       isLandingPage={isLandingPage}
+      landingStarters={landingStarters}
       footerBelow={footerBelow}
       centerFormOnLanding={centerFormOnLanding}
       files={files}

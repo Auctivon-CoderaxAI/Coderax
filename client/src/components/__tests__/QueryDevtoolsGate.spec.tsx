@@ -15,8 +15,17 @@ describe('QueryDevtoolsGate', () => {
     expect(screen.queryByTestId('query-devtools')).not.toBeInTheDocument();
   });
 
-  it('enables query devtools in local development', async () => {
-    render(<QueryDevtoolsGate isDevelopment={true} config={undefined} />);
+  it('keeps query devtools disabled in local development without an explicit opt-in', () => {
+    expect(shouldEnableQueryDevtools({ isDevelopment: true, config: undefined })).toBe(false);
+
+    const { container } = render(<QueryDevtoolsGate isDevelopment={true} config={undefined} />);
+
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('query-devtools')).not.toBeInTheDocument();
+  });
+
+  it('enables query devtools in local development when explicitly opted in', async () => {
+    render(<QueryDevtoolsGate isDevelopment={true} config={{ enableQueryDevtools: true }} />);
 
     await waitFor(() => expect(screen.getByTestId('query-devtools')).toBeInTheDocument());
   });

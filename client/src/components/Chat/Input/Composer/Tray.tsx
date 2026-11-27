@@ -54,6 +54,8 @@ interface TrayProps {
   onMovePastedTextInline: (file: ExtendedFile) => void;
   /** Guarded focus restore after the last staged quote is dismissed. */
   focusComposer?: () => void;
+  /** Landing composers already name the model in their action row. */
+  hideModelBar?: boolean;
 }
 
 /**
@@ -79,6 +81,7 @@ function Tray({
   onEditPastedText,
   onMovePastedTextInline,
   focusComposer,
+  hideModelBar = false,
 }: TrayProps) {
   const localize = useLocalize();
   const quoteFocusIndexRef = useRef<number | null>(null);
@@ -124,20 +127,19 @@ function Tray({
     conversation,
   });
 
-  const conversationId = conversation?.conversationId;
-  // New chats already show the model in the composer action row.
-  const modelBar =
-    conversationId && conversationId !== Constants.NEW_CONVO ? (
-      <ModelBar conversation={conversation} />
-    ) : null;
+  /* The read-out belongs to a thread. A landing composer already names the
+     model in its action row, and its draft carries no conversation id yet, so
+     showing the strip there would duplicate the control the mockups show. */
+  const id = conversation?.conversationId;
+  const showModelBar = !hideModelBar && !!id && id !== Constants.NEW_CONVO;
 
   if (items.length === 0 && files.size === 0) {
-    return modelBar;
+    return showModelBar ? <ModelBar conversation={conversation} /> : null;
   }
 
   return (
     <div data-testid="composer-tray" className="flex flex-col gap-1.5 px-2 pt-2">
-      {modelBar}
+      {showModelBar && <ModelBar conversation={conversation} />}
       <FileRow
         files={files}
         setFiles={setFiles}

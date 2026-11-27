@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronDown, Pin } from 'lucide-react';
 import { useQueries } from '@tanstack/react-query';
 import { useDrag, useDragLayer, useDrop } from 'react-dnd';
 import { dataService, DynamicQueryKeys } from 'coderax-data-provider';
@@ -88,6 +88,12 @@ type PinnedEntry =
 
 type PinnedRowDragItem = ConversationDragItem & { key: string };
 
+const PINNED_ROW_DRAG_TYPE_BY_KIND: Record<PinnedEntry['kind'], string> = {
+  favorite: FAVORITE_ROW_DRAG_TYPE,
+  convo: CONVERSATION_DRAG_TYPE,
+  work: WORK_TASK_DRAG_TYPE,
+};
+
 /** Mirrors a favorite row (h-9, icon, title) so the loading swap keeps height. */
 const FavoriteRowSkeleton = () => (
   <div className="flex w-full items-center rounded-lg p-2" aria-hidden="true">
@@ -173,21 +179,16 @@ const DraggablePinnedRow = ({
   });
 
   const [{ isDragging }, drag] = useDrag<PinnedRowDragItem, unknown, { isDragging: boolean }>({
-    type:
-      entry.kind === 'convo'
-        ? CONVERSATION_DRAG_TYPE
-        : entry.kind === 'work'
-          ? WORK_TASK_DRAG_TYPE
-          : FAVORITE_ROW_DRAG_TYPE,
+    type: PINNED_ROW_DRAG_TYPE_BY_KIND[entry.kind],
     item: (): PinnedRowDragItem => {
       beginPinnedDrag();
       if (entry.kind === 'convo') {
         return {
-            key: entry.key,
-            conversationId: entry.conversationId,
-            chatProjectId: conversation?.chatProjectId ?? null,
-            pinned: conversation?.pinned === true,
-          };
+          key: entry.key,
+          conversationId: entry.conversationId,
+          chatProjectId: conversation?.chatProjectId ?? null,
+          pinned: conversation?.pinned === true,
+        };
       }
       if (entry.kind === 'work') {
         return {
@@ -580,7 +581,12 @@ const PinnedSection = ({
     const list = [...dragEntriesRef.current];
     const from = list.findIndex((entry) => entry.key === dragKey);
     const to = list.findIndex((entry) => entry.key === hoverKey);
-    if (from < 0 || to < 0 || from === to || pinnedEntryGroup(list[from]) !== pinnedEntryGroup(list[to])) {
+    if (
+      from < 0 ||
+      to < 0 ||
+      from === to ||
+      pinnedEntryGroup(list[from]) !== pinnedEntryGroup(list[to])
+    ) {
       return;
     }
     const [moved] = list.splice(from, 1);
@@ -791,12 +797,10 @@ const PinnedSection = ({
     [pinDropRef],
   );
 
-  /* The section renders while either half is present or still resolving, and
-   * drops out only once both are definitively empty. A live conversation drag
-   * keeps it mounted as a drop target even when empty. */
-  if (naturalEntries.length === 0 && !favoritesData.isLoading && !draggingConversation) {
-    return null;
-  }
+  /* The approved sidebar keeps the Pinned heading visible even when it holds
+   * nothing, so the section stays a recognizable, collapsed drop target. */
+  const isOpen =
+    (isExpanded && (naturalEntries.length > 0 || favoritesData.isLoading)) || draggingConversation;
 
   return (
     <div
@@ -819,20 +823,21 @@ const PinnedSection = ({
           onClick={() => setIsExpanded(!isExpanded)}
           className={cn(buttonVariants({ variant: 'section-header' }), 'group min-w-0 flex-1')}
           type="button"
-          aria-expanded={isExpanded}
+          aria-expanded={isOpen}
         >
+          <Pin className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="truncate select-none">{localize('com_ui_pinned')}</span>
           <ChevronDown
             className={cn(
               'h-3 w-3 shrink-0 transition-transform duration-200',
-              isExpanded ? '' : '-rotate-90',
+              isOpen ? '' : '-rotate-90',
             )}
             aria-hidden="true"
           />
         </button>
       </div>
 
-      <Collapse open={isExpanded}>
+      <Collapse open={isOpen}>
         {/* No scroll pane of its own: the sidebar scrolls as one surface. */}
         <div className="pt-0.5">
           {displayEntries.length === 0 && draggingConversation && (

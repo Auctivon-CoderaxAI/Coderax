@@ -193,7 +193,7 @@ function ChatView({
   } else if (!isLandingPage) {
     content = <MessagesView messagesTree={messagesTree} messages={messages} />;
   } else {
-    content = <Landing centerFormOnLanding={centerFormOnLanding} />;
+    content = <Landing centerFormOnLanding={centerFormOnLanding} workMode={workMode} />;
   }
 
   let chatFormPlaceholder: string | undefined;
@@ -259,7 +259,11 @@ function ChatView({
                                together, so it holds the same band back here. Without
                                it the composer lands 4px right of where a conversation
                                puts it and slides sideways on the way in. */
-                                cn('scrollbar-gutter-spacer', landingColumnClass)
+                                cn(
+                                  'scrollbar-gutter-spacer',
+                                  landingColumnClass,
+                                  centerFormOnLanding && 'sm:grid-rows-[minmax(0,1fr)_auto_38%]',
+                                )
                               : 'h-full overflow-y-auto',
                             hasProjectBadge && 'pt-9',
                           )}
@@ -285,7 +289,6 @@ function ChatView({
                               isLandingPage && cn(landingBandClass, 'transition-all duration-200'),
                             )}
                           >
-                            {isLandingPage && <ConversationStarters />}
                             {isSubagentThreadReadOnly ? (
                               <div
                                 className="text-text-secondary mx-auto w-full max-w-3xl px-4 py-3 text-center text-sm xl:max-w-4xl"
@@ -305,6 +308,11 @@ function ChatView({
                                   placeholder={chatFormPlaceholder}
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}
+                                  landingStarters={
+                                    isLandingPage && !workMode
+                                      ? (onSubmit) => <ConversationStarters onSubmit={onSubmit} />
+                                      : undefined
+                                  }
                                   footerBelow={footerBelow}
                                 />
                               </ComposerPreferencesProvider>

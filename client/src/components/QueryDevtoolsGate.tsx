@@ -17,9 +17,8 @@ const LazyReactQueryDevtools = lazyWithRecovery(() =>
 );
 
 export const shouldEnableQueryDevtools = ({
-  isDevelopment = import.meta.env.DEV,
   config = typeof window === 'undefined' ? undefined : window.__CODERAX_CONFIG__,
-}: QueryDevtoolsGateProps = {}) => isDevelopment || config?.enableQueryDevtools === true;
+}: QueryDevtoolsGateProps = {}) => config?.enableQueryDevtools === true;
 
 export default function QueryDevtoolsGate({ isDevelopment, config }: QueryDevtoolsGateProps = {}) {
   if (!shouldEnableQueryDevtools({ isDevelopment, config })) {
