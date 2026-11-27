@@ -125,7 +125,7 @@ describe('initializeCustom – managed 100MillionSeek credential', () => {
     jest.replaceProperty(process, 'env', { ...process.env, ...env });
     const config = { providerFallback: { enabled: true, zeroCostOnly: false } };
     const [endpoint] = buildProviderFallbackCustomEndpoints(config, env);
-    expect(endpoint.apiKey).toBe('${HMS_API_KEY}');
+    expect(endpoint.apiKey).toBe('${100MILLIONSEEK_API_KEY}');
     const params = createParams({});
     params.endpoint = endpoint.name;
     params.req.config = { ...params.req.config, config } as typeof params.req.config;

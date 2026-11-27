@@ -139,10 +139,25 @@ describe('provider fallback catalog', () => {
     expect(endpoints).toEqual([
       expect.objectContaining({
         name: '100MillionSeek',
-        apiKey: '${HMS_API_KEY}',
+        apiKey: '${100MILLIONSEEK_API_KEY}',
         models: { default: ['deepseek-v4.1-flash-free'] },
       }),
     ]);
+  });
+
+  it('matches a generated endpoint that references the configured legacy key', () => {
+    const [endpoint] = buildProviderFallbackCustomEndpoints(
+      { providerFallback: { enabled: true, zeroCostOnly: false } },
+      { '100MILLIONSEEK_API_KEY': 'legacy-secret' },
+    );
+    const provider = providerFallbackForEndpoint('100MillionSeek');
+
+    expect(provider).not.toBeNull();
+    expect(
+      providerFallbackEndpointMatches(endpoint, provider!, {
+        providerFallback: { enabled: true, zeroCostOnly: false },
+      }),
+    ).toBe(true);
   });
 
   it('requires a Cloudflare account id as well as its token', () => {
