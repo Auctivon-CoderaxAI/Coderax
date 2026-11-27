@@ -4,7 +4,7 @@ The Vite interface and the edge API router run in the `coderax` Cloudflare Worke
 `Auctivon-CoderaxAI/Coderax` through Workers Builds. Every push to `main` builds and deploys the
 Worker; no GitHub secret, deploy token or Vercel workload is involved.
 
-**Status on 2026-11-25: the Worker deploys, but it is not yet the application front door.** The SPA
+**Status on 2026-11-26: the Worker deploys, but it is not yet the application front door.** The SPA
 is live at <https://coderax.nnabdelshahid.workers.dev>, while every API, OAuth and health route
 returns `503 {"error":"API proxy is not configured"}` because `CODERAX_API_ORIGIN` and
 `CODERAX_PROXY_SECRET` are not set on the Worker. `https://coderaxai.vercel.app` therefore remains
@@ -20,7 +20,7 @@ release gate passes.
 
 | Setting | Value |
 | --- | --- |
-| GitHub repository | `Auctivon-CoderaxAI/Coderax` (private, default branch `main`) |
+| GitHub repository | `Auctivon-CoderaxAI/Coderax` (public today; private after the owner cutover, default branch `main`) |
 | Cloudflare account | `19f79492be7da82f6a48c2aea198ef92` |
 | Worker | `coderax` |
 | Production branch | `main` only |

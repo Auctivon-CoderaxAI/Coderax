@@ -117,14 +117,21 @@ describe('Coderax sidebar links', () => {
   it('omits owner-only Game Studio and inaccessible Agent Builder for a non-owner', () => {
     mockUser = { role: SystemRoles.USER };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations']);
   });
 
   it('follows the advertised research policy without exposing Game Studio', () => {
     mockUser = { role: SystemRoles.USER };
     mockResearchAccess = { canAccess: true };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins', 'research']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'research']);
+  });
+
+  it('omits the Agent Builder when the endpoint is not configured', () => {
+    mockAgentAccess = { use: true, create: true };
+    mockEndpointsConfig = {};
+    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).not.toContain('agents');
   });
 
   it('does not offer Agent Builder when the endpoint disables it', () => {
