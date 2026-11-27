@@ -111,10 +111,8 @@ describe('Coderax sidebar links', () => {
     expect(result.current.find((link) => link.id === 'games')?.onClick).toBeDefined();
   });
 
-  it('omits Game Studio and gated Agent Builder access for a non-owner', () => {
+  it('omits owner-only Game Studio and inaccessible Agent Builder for a non-owner', () => {
     mockUser = { role: SystemRoles.USER };
-    mockAgentAccess = { use: true, create: true };
-    mockEndpointsConfig = { [EModelEndpoint.agents]: {} };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
     expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins']);
   });
@@ -133,12 +131,24 @@ describe('Coderax sidebar links', () => {
     expect(result.current.some((link) => link.id === EModelEndpoint.agents)).toBe(false);
   });
 
-  it.each([
-    ['use', false, true],
-    ['create', true, false],
-  ])('requires the %s permission to offer Agent Builder', (_permission, use, create) => {
-    mockAgentAccess = { use, create };
+  it('requires both Agent Builder permissions', () => {
     mockEndpointsConfig = { [EModelEndpoint.agents]: {} };
+    mockAgentAccess = { use: false, create: true };
+    const withoutUsePermission = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(
+      withoutUsePermission.result.current.some((link) => link.id === EModelEndpoint.agents),
+    ).toBe(false);
+    withoutUsePermission.unmount();
+
+    mockAgentAccess = { use: true, create: false };
+    const withoutCreatePermission = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(
+      withoutCreatePermission.result.current.some((link) => link.id === EModelEndpoint.agents),
+    ).toBe(false);
+  });
+
+  it('does not offer Agent Builder before the endpoint config is available', () => {
+    mockAgentAccess = { use: true, create: true };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
     expect(result.current.some((link) => link.id === EModelEndpoint.agents)).toBe(false);
   });
