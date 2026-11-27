@@ -149,6 +149,33 @@ test('production image starts Node without depending on pruned dev tools', async
   assert.doesNotMatch(dockerfile, /^CMD \["npm", "run", "backend"\]$/m);
 });
 
+test('OCI image build stamps the deployed source revision', async () => {
+  const compose = await read('deploy/oci/compose.yaml');
+  const dockerfile = await read('Dockerfile');
+  const app = serviceBlock(compose, 'app');
+  for (const arg of ['BUILD_COMMIT', 'BUILD_BRANCH', 'BUILD_DATE']) {
+    assert.match(app, new RegExp(`^ {8}${arg}: \\$\\{${arg}:-\\}$`, 'm'));
+    assert.match(dockerfile, new RegExp(`^ARG ${arg}=$`, 'm'));
+    assert.match(dockerfile, new RegExp(`^ENV ${arg}=\\$\\{${arg}\\}$`, 'm'));
+  }
+  // Provenance comes from the deployment, never from a committed guess.
+  assert.doesNotMatch(app, /BUILD_COMMIT: ?[0-9a-f]{40}/);
+});
+
+test('the OCI deploy entry point refuses an unidentifiable revision', async () => {
+  const script = await read('deploy/oci/deploy.sh');
+  assert.match(script, /CODERAX_SOURCE_COMMIT/);
+  assert.match(script, /\[ "\$\{#commit\}" -eq 40 \]/);
+  assert.match(script, /export BUILD_COMMIT BUILD_BRANCH BUILD_DATE/);
+  assert.match(script, /docker compose -f compose\.yaml up -d --build --wait/);
+  assert.ok(
+    script.includes('\\"commit\\":\\"$BUILD_COMMIT\\"'),
+    'deploy.sh must confirm /api/config reports the stamped commit',
+  );
+  const readme = await read('deploy/oci/README.md');
+  assert.match(readme, /sh deploy\/oci\/deploy\.sh/);
+});
+
 test('environment setup writes only protected, untracked secret files', async () => {
   const setup = await read('deploy/oci/prepare-env.sh');
   const ignore = await readIfPresent('.gitignore');
