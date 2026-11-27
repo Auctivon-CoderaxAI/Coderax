@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
 import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
 import type { NavLink } from '~/common';
 import {
   useGetEndpointsQuery,
@@ -9,13 +9,8 @@ import {
   useResearchCapabilitiesQuery,
 } from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import {
-  useGetEndpointsQuery,
-  useGetStartupConfig,
-  useResearchCapabilitiesQuery,
-} from '~/data-provider';
-import { SchedulePanel } from '~/components/SidePanel/Schedules';
 import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
+import { SchedulePanel } from '~/components/SidePanel/Schedules';
 import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
