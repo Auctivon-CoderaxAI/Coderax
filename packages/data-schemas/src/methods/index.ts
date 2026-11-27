@@ -91,6 +91,7 @@ import {
   createWorkRunMethods,
   type WorkRunMethods,
   type WorkRunCancelOutcome,
+  type WorkRunClaimResult,
   type WorkRunLeaseSnapshot,
 } from './workRun';
 import { createConversationImportMethods, type ConversationImportMethods } from './import';
@@ -637,6 +638,7 @@ export type {
   ConversationTagMethods,
   WorkRunMethods,
   WorkRunCancelOutcome,
+  WorkRunClaimResult,
   WorkRunLeaseSnapshot,
   ConversationImportMethods,
   MessageMethods,

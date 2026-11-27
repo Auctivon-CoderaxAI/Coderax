@@ -49,7 +49,8 @@ export function createEngineWorkChatPersistence(input: {
     create?: boolean;
     workRunId?: string | null;
     fenceWorkRun?: string;
-  }): Promise<void> {
+    claimWorkRun?: { generation: string; replaces: string | null };
+  }): Promise<boolean> {
     const saved = await db.saveConvo(
       context,
       {
@@ -66,12 +67,14 @@ export function createEngineWorkChatPersistence(input: {
         context: `Work ${labels.label} chat conversation`,
         ...(fields.create ? {} : { noUpsert: true }),
         ...(fields.fenceWorkRun ? { workRunGeneration: fields.fenceWorkRun } : {}),
+        ...(fields.claimWorkRun ? { workRunClaim: fields.claimWorkRun } : {}),
       },
     );
-    /** A fenced save that matched nothing belongs to a superseded run, not to a lost row. */
-    if (!saved && !fields.fenceWorkRun) {
+    /** A fenced or claimed save that matched nothing belongs to a superseded run, not to a lost row. */
+    if (!saved && !fields.fenceWorkRun && !fields.claimWorkRun) {
       throw new Error('Work conversation could not be saved');
     }
+    return saved != null;
   }
 
   return {
