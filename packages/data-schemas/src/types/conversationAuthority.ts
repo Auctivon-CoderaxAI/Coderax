@@ -7,6 +7,8 @@ export type AuthorityReceiptOutcome =
   | 'dispatched'
   | 'settled'
   | 'failed'
+  /** The request may have reached the engine without an observed outcome. */
+  | 'indeterminate'
   | 'migration_started'
   | 'migration_completed';
 

@@ -4296,6 +4296,9 @@ export const workflowEngineConfigSchema = z
     contractVersion: z.literal('1.0.0').default('1.0.0'),
     requestTimeoutMs: z.number().int().min(1_000).max(120_000).default(30_000),
     streamIdleTimeoutMs: z.number().int().min(1_000).max(600_000).default(120_000),
+    mappingAttempts: z.number().int().min(1).max(10).default(3),
+    mappingRetryDelayMs: z.number().int().min(0).max(10_000).default(100),
+    maxReceipts: z.number().int().min(1).max(500).default(20),
     /** JSON response budget; an oversize body is refused before it is buffered. */
     maxResponseBytes: z.number().int().min(65_536).max(67_108_864).default(4_194_304),
     /** SSE frame budget, measured in UTF-8 bytes. */

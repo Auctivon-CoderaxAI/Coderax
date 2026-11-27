@@ -55,6 +55,31 @@ describe('conversation authority', () => {
     });
   });
 
+  it('retains only the configured number of receipts', async () => {
+    const store = createMemoryAuthorityStore();
+    const authority = createConversationAuthority({
+      store,
+      contractVersion: '1.0.0',
+      bootstrapConversations: ['conv_1'],
+      maxReceipts: 2,
+    });
+    for (const outcome of ['settled', 'settled'] as const) {
+      const claim = await authority.admit({ ...scope, conversationId: 'conv_1' });
+      if (!claim.ok) {
+        throw new Error('claim refused');
+      }
+      await authority.settle({
+        ownerId: 'owner_1',
+        conversationId: 'conv_1',
+        generation: claim.generation,
+        outcome,
+      });
+    }
+
+    const record = await store.read('owner_1', 'conv_1');
+    expect(record?.receipts.map((receipt) => receipt.outcome)).toEqual(['dispatched', 'settled']);
+  });
+
   it('refuses a conversation the native engine owns', async () => {
     const store = createMemoryAuthorityStore();
     await store.create({
@@ -183,6 +208,36 @@ describe('conversation authority', () => {
       state: 'active',
       inFlight: 0,
       generation: 0,
+    });
+  });
+
+  it('settles an indeterminate dispatch without releasing it as a failure', async () => {
+    const { authority, store } = authorityFor();
+    await authority.admit({ ...scope, conversationId: 'conv_1' });
+    await expect(
+      authority.settle({
+        ownerId: 'owner_1',
+        conversationId: 'conv_1',
+        generation: 1,
+        outcome: 'indeterminate',
+      }),
+    ).resolves.toBe(true);
+    await expect(store.read('owner_1', 'conv_1')).resolves.toMatchObject({
+      inFlight: 0,
+      generation: 2,
+      receipts: [
+        expect.objectContaining({ outcome: 'dispatched' }),
+        expect.objectContaining({ outcome: 'indeterminate' }),
+      ],
+    });
+  });
+
+  it('refuses another dispatch while the previous claim is in flight', async () => {
+    const { authority } = authorityFor();
+    const first = await authority.admit({ ...scope, conversationId: 'conv_1' });
+    expect(first.ok).toBe(true);
+    await expect(authority.admit({ ...scope, conversationId: 'conv_1' })).resolves.toEqual({
+      ok: false, status: 409, code: 'WORKFLOW_ENGINE_AUTHORITY_BUSY',
     });
   });
 
