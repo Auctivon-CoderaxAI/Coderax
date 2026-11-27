@@ -8,5 +8,9 @@ const {
 const router = createApiMetaRouter({ commit: process.env.BUILD_COMMIT ?? null });
 
 module.exports = router;
+module.exports.experimental = createApiMetaRouter({
+  commit: process.env.BUILD_COMMIT ?? null,
+  experimental: true,
+});
 module.exports.apiVersionHeaders = apiVersionHeaders;
 module.exports.rejectUnsupportedApiVersion = rejectUnsupportedApiVersion;

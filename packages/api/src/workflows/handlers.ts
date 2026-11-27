@@ -941,6 +941,15 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
       /** Writes each event this client has not applied, in log order. */
       const writeEvents = (run: WorkflowRunRecordView): void => {
         for (const { sequence, event } of sequenceRunEvents(run.events, delivered)) {
+          if (sequence > delivered + 1) {
+            res.write(
+              toServerSentEventFrame({
+                event: 'replay-gap',
+                data: { runId, after: delivered, nextAvailable: sequence },
+              }),
+            );
+            return; // The following snapshot resynchronizes the client.
+          }
           res.write(
             toServerSentEventFrame({
               event: 'run-event',
@@ -1176,7 +1185,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         }
         const run = await deps.methods.cancelWorkflowRun(runId, owner, now());
         if (run == null) {
-          res.status(404).json({ error: 'Run not found' });
+          res.status(409).json({ error: 'Run changed during cancellation; reload and retry' });
           return;
         }
         let stopped = false;

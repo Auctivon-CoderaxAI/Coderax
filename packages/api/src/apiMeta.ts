@@ -11,11 +11,20 @@ import {
  * The declared contract, so a client reads its version and capabilities once
  * instead of probing routes. Nothing here is per-user or secret.
  */
-export function createApiMetaRouter(options: { commit?: string | null } = {}): Router {
+export function createApiMetaRouter(
+  options: { commit?: string | null; experimental?: boolean } = {},
+): Router {
   const router = express.Router();
   router.get('/', (_req: Request, res: Response) => {
     res.set('Cache-Control', 'no-store');
-    res.status(200).json(describeApiContract({ commit: options.commit ?? null }));
+    const metadata = describeApiContract({ commit: options.commit ?? null });
+    res
+      .status(200)
+      .json(
+        options.experimental
+          ? { ...metadata, capabilities: { repos: metadata.capabilities.repos } }
+          : metadata,
+      );
   });
   return router;
 }

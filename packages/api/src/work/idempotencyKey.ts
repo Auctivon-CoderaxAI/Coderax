@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 
-export const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+export const IDEMPOTENCY_KEY_PATTERN: RegExp = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
  * Copies the standard `Idempotency-Key` header onto the body field the

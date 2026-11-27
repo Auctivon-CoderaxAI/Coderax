@@ -754,7 +754,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       );
       return runModel()
         .findOneAndUpdate(
-          { id, user: objectId(userId), status: { $in: PAUSABLE_RUN_STATUSES } },
+          { id, user: objectId(userId), status: run.status, events: run.events ?? [] },
           {
             $set: {
               status: inFlight ? 'running' : 'paused',
@@ -815,7 +815,7 @@ export function createWorkflowMethods(mongoose: typeof import('mongoose')): Work
       const events = withEvent(run.events ?? [], event('run.cancelled', now));
       return runModel()
         .findOneAndUpdate(
-          { id, user: objectId(userId), status: { $nin: TERMINAL_RUN_STATUSES } },
+          { id, user: objectId(userId), status: run.status, events: run.events ?? [] },
           {
             $set: { status: 'cancelled', steps, events, settledAt: now, updatedAt: now },
             $unset: { leaseBy: '', leaseToken: '', leaseUntil: '' },

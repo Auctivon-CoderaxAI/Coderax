@@ -138,6 +138,24 @@ describe('workflow run stream replay', () => {
     expect(writes[writes.length - 1]).toContain('event: snapshot');
   });
 
+  it('signals missing history before the replacement snapshot advances the cursor', async () => {
+    const run = finishedRun();
+    run.events = run.events.slice(2);
+    const { res, writes } = createStreamResponse();
+    await createHandlers(run).streamRun(
+      {
+        user: { id: 'user-1' },
+        params: { runId: 'run-1' },
+        headers: { 'last-event-id': 'run-1:1' },
+        on: jest.fn(),
+      } as never,
+      res as never,
+    );
+    expect(writes[1]).toContain('event: replay-gap');
+    expect(writes[2]).toContain('event: snapshot');
+    expect(frameIds(writes)).toEqual([undefined, 'id: run-1:3']);
+  });
+
   it('ignores a cursor that belongs to another run', async () => {
     const handlers = createHandlers(finishedRun());
     const { res, writes } = createStreamResponse();

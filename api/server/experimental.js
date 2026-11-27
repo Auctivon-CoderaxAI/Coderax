@@ -572,6 +572,7 @@ if (cluster.isMaster) {
 
     /** Middleware */
     app.use(requestContextMiddleware);
+    app.use('/api', routes.apiMeta.apiVersionHeaders, routes.apiMeta.rejectUnsupportedApiVersion);
     app.use(noIndex);
     app.use(express.json({ limit: '3mb' }));
     app.use(express.urlencoded({ extended: true, limit: '3mb' }));
@@ -629,8 +630,7 @@ if (cluster.isMaster) {
     /** Routes */
     app.use('/oauth', preAuthTenantMiddleware, routes.oauth);
     app.use('/api/auth', preAuthTenantMiddleware, routes.auth);
-    app.use('/api', routes.apiMeta.apiVersionHeaders, routes.apiMeta.rejectUnsupportedApiVersion);
-    app.use('/api/meta', routes.apiMeta);
+    app.use('/api/meta', routes.apiMeta.experimental);
     app.use('/api/insights', routes.insights);
     app.use('/api/admin', routes.adminAuth);
     app.use('/api/admin/skills', routes.adminSkills);

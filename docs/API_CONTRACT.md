@@ -30,16 +30,23 @@ change bumps the major, which is the only signal a client needs.
 
 `POST /api/work/chat` streams Server-Sent Events.
 
-- Every complete frame carries a monotonic `id:` field. A client that loses the
-  connection keeps the last id it applied.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ba76e57fc852181fee8ffd2f7818415c86a462b7245ba8b14c1a92c767eb5486 -->
+
+- Every complete frame carries a monotonic `id:` field. Chat reattachment does not use this ID as a cursor.
 - A retried start is deduplicated. Send `Idempotency-Key: <1-128 chars of
   [A-Za-z0-9._:-]>` (or `clientRequestId` in the body); the retry resolves to the
   live generation and answers `{ "status": "resumed", "streamId": ... }` instead
   of starting a second one. A malformed key is rejected with
   `400 WORK_IDEMPOTENCY_KEY_INVALID` rather than being ignored.
 - Reattach to an interrupted generation with
-  `GET /api/agents/chat/stream/:streamId`, which replays the resume state and
-  any events not yet delivered.
+  `GET /api/agents/chat/stream/:streamId?resume=true`. When resume state exists,
+  the sync payload contains `sync: true`, `resumeState`, and `pendingEvents`.
+  Replace local state with the resume state before applying pending events.
+  Without resume state, pending events are sent individually.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Workflow runs
 
@@ -63,7 +70,13 @@ id. `GET /api/workflows/:id/runs` remains the per-workflow list.
 
 `GET /api/workflows/runs/:runId/stream`
 
-Two frame types are emitted:
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:da1683cd270576949bdf88f493092e303d6862b6c1be956c61eac91e64d8fb6f -->
+
+If retention has removed a needed event, the server sends a `replay-gap` frame without an ID, followed by the current snapshot. Replace local state with that snapshot. Otherwise the stream uses these frames:
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ```
 event: run-event
