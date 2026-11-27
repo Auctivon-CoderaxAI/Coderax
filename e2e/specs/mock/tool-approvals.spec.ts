@@ -499,13 +499,16 @@ test.describe('tool approvals', () => {
       };
       await page.route('**/api/agents/chat/resume', resumeHandler);
 
-      await submit.evaluate((button: HTMLButtonElement) => {
-        button.click();
-        button.click();
-      });
-      await page.waitForTimeout(250);
+      await Promise.all([
+        page.waitForRequest(isResumeRequest),
+        submit.evaluate((button: HTMLButtonElement) => {
+          button.click();
+          button.click();
+        }),
+      ]);
+      const submitting = card.getByRole('button', { name: 'Submitting' });
+      await expect(submitting).toBeDisabled();
       expect(resumeRequests).toBe(1);
-      await expect(card.getByRole('button', { name: 'Submitting' })).toBeDisabled();
       await expect(card.getByRole('button', { name: 'Approve' })).toBeDisabled();
       releaseResume();
 
