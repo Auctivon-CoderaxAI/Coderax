@@ -12,6 +12,7 @@ import type {
   IResearchSource,
 } from '~/types';
 import { isValidObjectIdString } from '~/utils/objectId';
+import { createIndexesWithRetry } from '~/utils/retry';
 import { escapeRegExp } from '~/utils/string';
 import logger from '~/config/winston';
 
@@ -130,6 +131,8 @@ function encodeCursor(project: ResearchProjectLean): string | null {
 export function createResearchProjectMethods(
   mongoose: typeof import('mongoose'),
 ): ResearchProjectMethods {
+  let quotaIndexes: Promise<void> | undefined;
+
   async function getResearchProject(
     user: string,
     researchId: string,
@@ -153,6 +156,15 @@ export function createResearchProjectMethods(
     const ResearchProjectQuota = mongoose.models
       .ResearchProjectQuota as Model<IResearchProjectQuotaDocument>;
     const ResearchProject = mongoose.models.ResearchProject as Model<IResearchProjectDocument>;
+
+    // A cold collection has no unique owner index to serialize concurrent first reservations.
+    quotaIndexes ??= createIndexesWithRetry(ResearchProjectQuota, {
+      peerBuildDeadlineMs: 10_000,
+    }).catch((error) => {
+      quotaIndexes = undefined;
+      throw error;
+    });
+    await quotaIndexes;
 
     const reserved = await ResearchProjectQuota.findOneAndUpdate(
       { user, count: { $lt: maxProjects } },

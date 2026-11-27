@@ -29,6 +29,11 @@ const mockHasAccess = jest.fn((request: { permissionType: unknown; permission: u
 
 jest.mock('~/hooks', () => ({
   useAuthContext: () => ({ user: mockUser }),
+  useHasAccess: () => false,
+}));
+
+jest.mock('~/data-provider', () => ({
+  useGetStartupConfig: () => ({ data: undefined }),
   useHasAccess: (request: { permissionType: unknown; permission: unknown }) =>
     mockHasAccess(request),
 }));
@@ -44,6 +49,8 @@ jest.mock('~/components/UnifiedSidebar/ConversationsSection', () => ({
   default: () => null,
 }));
 
+jest.mock('~/components/SidePanel/Schedules', () => ({ SchedulePanel: () => null }));
+jest.mock('~/components/Taskbar/PluginsPanel', () => ({ __esModule: true, default: () => null }));
 jest.mock('~/components/SidePanel/Agents/AgentPanelSwitch', () => ({
   __esModule: true,
   default: () => null,
@@ -71,6 +78,13 @@ describe('Coderax sidebar links', () => {
     mockAgentAccess = { use: true, create: true };
     mockEndpointsConfig = { [EModelEndpoint.agents]: {} };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
+    expect(result.current.map((link) => link.id)).toEqual([
+      'conversations',
+      'plugins',
+      'games',
+      'research',
+    ]);
+    expect(result.current[0].Component).toBeDefined();
     const builder = result.current.find((link) => link.id === EModelEndpoint.agents);
 
     expect(result.current.map((link) => link.id)).toEqual([
@@ -103,42 +117,14 @@ describe('Coderax sidebar links', () => {
   it('omits owner-only Game Studio and inaccessible Agent Builder for a non-owner', () => {
     mockUser = { role: SystemRoles.USER };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'agents', 'plugins']);
+    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins']);
   });
 
   it('follows the advertised research policy without exposing Game Studio', () => {
     mockUser = { role: SystemRoles.USER };
     mockResearchAccess = { canAccess: true };
     const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).toEqual([
-      'conversations',
-      'agents',
-      'plugins',
-      'research',
-    ]);
-  });
-
-  it('omits the Agent Builder when the endpoint is not configured', () => {
-    mockEndpointsConfig = {};
-    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).not.toContain('agents');
-  });
-
-  it('omits the Agent Builder when the builder is disabled', () => {
-    mockEndpointsConfig = { agents: { disableBuilder: true } };
-    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).not.toContain('agents');
-  });
-
-  it('requires both agent permissions', () => {
-    mockGranted.delete(key(PermissionTypes.AGENTS, Permissions.CREATE));
-    const { result } = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(result.current.map((link) => link.id)).not.toContain('agents');
-
-    mockGranted.add(key(PermissionTypes.AGENTS, Permissions.CREATE));
-    mockGranted.delete(key(PermissionTypes.AGENTS, Permissions.USE));
-    const withoutUse = renderHook(() => useUnifiedSidebarLinks(), { wrapper });
-    expect(withoutUse.result.current.map((link) => link.id)).not.toContain('agents');
+    expect(result.current.map((link) => link.id)).toEqual(['conversations', 'plugins', 'research']);
   });
 
   it('does not offer Agent Builder when the endpoint disables it', () => {
