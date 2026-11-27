@@ -18,6 +18,7 @@ on:
       - 'packages/client/**'
       - 'e2e/benchmarks-navigation/**'
       - 'e2e/perf/**'
+      - 'e2e/playwright.config.navigation-perf.ts'
       - 'e2e/specs/mock/work-parity.spec.ts'
       - '.github/workflows/ui-evidence.yml'
       - '!**.md'
@@ -36,7 +37,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_OPTIONS: '--max-old-space-size=${{ secrets.NODE_MAX_OLD_SPACE_SIZE || 6144 }}'
+  NODE_OPTIONS: '--max-old-space-size=6144'
   E2E_CHROMIUM_CHANNEL: chrome
   E2E_USE_MEMORY_MONGO: 'true'
 
@@ -69,7 +70,7 @@ jobs:
       - name: Verify Chrome is present
         run: google-chrome --version
 
-      - name: Install Playwright ffmpeg for retry videos
+      - name: Install Playwright FFmpeg for retry videos
         run: npx playwright install ffmpeg
 
       - name: Capture Chat and Work at desktop and mobile sizes
@@ -134,12 +135,12 @@ jobs:
         run: npx playwright install ffmpeg
 
       - name: Install pinned react-scan
-        run: npm install --no-save --package-lock=false react-scan@0.5.7
+        run: npm install --prefix "$RUNNER_TEMP/ui-evidence" --no-save --ignore-scripts react-scan@0.5.7
 
       - name: Measure conversation-switch latency and render work
         env:
           CI: 'true'
-          REACT_SCAN_PATH: node_modules/react-scan/dist/auto.global.js
+          REACT_SCAN_PATH: ${{ runner.temp }}/ui-evidence/node_modules/react-scan/dist/auto.global.js
         run: npx playwright test --config=e2e/playwright.config.navigation-perf.ts
 
       - name: Upload navigation performance evidence
