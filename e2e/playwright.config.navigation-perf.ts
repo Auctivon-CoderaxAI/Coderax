@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test';
 import mockConfig from './playwright.config.mock';
 
+const outputDir = 'benchmarks-navigation/.test-results';
+
 /**
  * Conversation-navigation perf benchmark config.
  *
@@ -19,8 +21,8 @@ import mockConfig from './playwright.config.mock';
 export default defineConfig({
   ...mockConfig,
   testDir: 'benchmarks-navigation',
-  outputDir: 'benchmarks-navigation/.test-results',
+  outputDir,
   timeout: 10 * 60 * 1000,
   retries: 0,
-  reporter: [['line']],
+  reporter: [['line'], ['json', { outputFile: `${outputDir}/results.json` }]],
 });

@@ -1,0 +1,157 @@
+name: UI evidence
+
+# Runs two existing acceptance checks that otherwise have no CI lane on UI-only
+# changes: the mock-shell Chat/Work screenshots and the conversation-switch
+# performance benchmark. Both use the credential-free mock model and an
+# ephemeral MongoDB. No repository secrets are read, and the runner is
+# GitHub-hosted, so this never touches production infrastructure or a personal
+# machine.
+#
+# The screenshots are Playwright attachments in the HTML report artifact. The
+# benchmark prints its timing and render totals to the job log and attaches the
+# machine-readable phases to its test-results directory.
+
+on:
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'packages/client/**'
+      - 'e2e/benchmarks-navigation/**'
+      - 'e2e/perf/**'
+      - 'e2e/playwright.config.navigation-perf.ts'
+      - 'e2e/specs/mock/work-parity.spec.ts'
+      - '.github/workflows/ui-evidence.yml'
+      - '!**.md'
+  workflow_dispatch:
+    inputs:
+      benchmark_ref:
+        description: Git ref to benchmark (defaults to the dispatched commit)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-evidence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: '--max-old-space-size=6144'
+  E2E_CHROMIUM_CHANNEL: chrome
+  E2E_USE_MEMORY_MONGO: 'true'
+
+jobs:
+  chat-work:
+    name: Chat and Work evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.16.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the application
+        run: npm run e2e:prepare
+
+      - name: Verify Chrome is present
+        run: google-chrome --version
+
+      - name: Install Playwright FFmpeg for retry videos
+        run: npx playwright install ffmpeg
+
+      - name: Capture Chat and Work at desktop and mobile sizes
+        env:
+          CI: 'true'
+        run: >-
+          npx playwright test --config=e2e/playwright.config.mock.ts
+          e2e/specs/mock/work-parity.spec.ts
+          --grep "modes retain URL"
+
+      - name: Upload Playwright report and screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-evidence-chat-work
+          path: |
+            e2e/playwright-report/**
+            e2e/specs/.test-results/**
+          retention-days: 14
+          include-hidden-files: true
+          if-no-files-found: ignore
+
+  benchmark:
+    name: Conversation switch benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout benchmark target
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.benchmark_ref || github.sha }}
+          persist-credentials: false
+
+      # The build marker refuses a checkout whose HEAD differs from GITHUB_SHA,
+      # and it only accepts a full commit id. A dispatched branch, tag or short
+      # SHA has to be resolved to the checked-out commit before the build reads it.
+      - name: Resolve the benchmark revision
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.16.0'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the application
+        env:
+          GITHUB_SHA: ${{ steps.revision.outputs.sha }}
+        run: npm run e2e:prepare
+
+      - name: Verify Chrome is present
+        run: google-chrome --version
+
+      - name: Install Playwright ffmpeg
+        run: npx playwright install ffmpeg
+
+      - name: Install pinned react-scan
+        run: npm install --prefix "$RUNNER_TEMP/ui-evidence" --no-save --ignore-scripts react-scan@0.5.7
+
+      - name: Measure conversation-switch latency and render work
+        env:
+          CI: 'true'
+          REACT_SCAN_PATH: ${{ runner.temp }}/ui-evidence/node_modules/react-scan/dist/auto.global.js
+        run: npx playwright test --config=e2e/playwright.config.navigation-perf.ts
+
+      - name: Upload navigation performance evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-evidence-navigation-perf
+          # Playwright resolves the benchmark's outputDir against its config
+          # directory (`e2e/`), not the repository root, and upload-artifact
+          # drops dot-directories unless hidden files are included.
+          path: e2e/benchmarks-navigation/.test-results/**
+          retention-days: 14
+          include-hidden-files: true
+          if-no-files-found: ignore
