@@ -12,41 +12,43 @@ const mockQueuedTurn = {
   prepareContinue: jest.fn(),
 };
 
-jest.mock(
-  '@coderax/api',
-  () => {
-    const capture = (name, value) =>
-      jest.fn((...args) => {
-        mockDeps[name] = args;
-        return value;
-      });
-    return {
-      createAgentTriggerService: capture('createAgentTriggerService', mockService),
-      createCheckpointDeletionReclaimer: capture('createCheckpointDeletionReclaimer', 'reclaimer'),
-      createAgentContinuationResolver: capture('createAgentContinuationResolver', 'continuation'),
-      createAgentEventContinueResolver: capture('createAgentEventContinueResolver', 'event-actor'),
-      createSubagentCompletionWakeupResolver: capture('createSubagentCompletionWakeupResolver', 'subagent-adapter'),
-      SUBAGENT_COMPLETION_SOURCE: 'subagent-source',
-      createBackgroundToolCompletionWakeupResolver: capture(
-        'createBackgroundToolCompletionWakeupResolver',
-        'background-adapter',
-      ),
-      createBackgroundToolDeadClaimRecovery: capture('createBackgroundToolDeadClaimRecovery', 'dead-claim-recovery'),
-      BACKGROUND_TOOL_COMPLETION_SOURCE: 'background-source',
-      createAgentQueuedTurnLifecycle: capture('createAgentQueuedTurnLifecycle', mockQueuedTurn),
-      AGENT_QUEUED_TURN_SOURCE: 'queued-turn-source',
-      GenerationJobManager: {
-        getJob: jest.fn((conversationId) => ({ conversationId })),
-        getGenerationAdmissionEvidence: jest.fn(),
-        getAccountCleanupJobIdsForUser: jest.fn(() => ['job-a']),
-        onGenerationSettled: jest.fn(() => 'unsubscribe'),
-        supportsDetachedAgentEventActions: true,
-      },
-      isWorkflowStepActive: jest.fn((run, input) => run.activeStepId === input.stepId),
-    };
-  },
-  { virtual: true },
-);
+jest.mock('@coderax/api', () => {
+  const capture = (name, value) =>
+    jest.fn((...args) => {
+      mockDeps[name] = args;
+      return value;
+    });
+  return {
+    createAgentTriggerService: capture('createAgentTriggerService', mockService),
+    createCheckpointDeletionReclaimer: capture('createCheckpointDeletionReclaimer', 'reclaimer'),
+    createAgentContinuationResolver: capture('createAgentContinuationResolver', 'continuation'),
+    createAgentEventContinueResolver: capture('createAgentEventContinueResolver', 'event-actor'),
+    createSubagentCompletionWakeupResolver: capture(
+      'createSubagentCompletionWakeupResolver',
+      'subagent-adapter',
+    ),
+    SUBAGENT_COMPLETION_SOURCE: 'subagent-source',
+    createBackgroundToolCompletionWakeupResolver: capture(
+      'createBackgroundToolCompletionWakeupResolver',
+      'background-adapter',
+    ),
+    createBackgroundToolDeadClaimRecovery: capture(
+      'createBackgroundToolDeadClaimRecovery',
+      'dead-claim-recovery',
+    ),
+    BACKGROUND_TOOL_COMPLETION_SOURCE: 'background-source',
+    createAgentQueuedTurnLifecycle: capture('createAgentQueuedTurnLifecycle', mockQueuedTurn),
+    AGENT_QUEUED_TURN_SOURCE: 'queued-turn-source',
+    GenerationJobManager: {
+      getJob: jest.fn((conversationId) => ({ conversationId })),
+      getGenerationAdmissionEvidence: jest.fn(),
+      getAccountCleanupJobIdsForUser: jest.fn(() => ['job-a']),
+      onGenerationSettled: jest.fn(() => 'unsubscribe'),
+      supportsDetachedAgentEventActions: true,
+    },
+    isWorkflowStepActive: jest.fn((run, input) => run.activeStepId === input.stepId),
+  };
+});
 
 jest.mock('~/models', () => ({
   getScheduleMCPCompletionState: jest.fn(),

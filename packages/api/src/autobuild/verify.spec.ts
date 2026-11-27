@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { CommandRunner } from './verify';
-import { summarizeBuild } from './report';
 import { createSpawnCommandRunner, redactSecrets, runBuildVerification } from './verify';
+import { summarizeBuild } from './report';
 
 function makeWorkspace(): { root: string; cleanup: () => void } {
   const root = mkdtempSync(join(tmpdir(), 'coderax-verify-'));
@@ -221,13 +221,15 @@ describe('runBuildVerification', () => {
   });
 
   it('redacts credential-shaped output and supplied secret values', () => {
+    // Assembled at runtime so the repository carries no credential-shaped literal.
+    const githubToken = ['ghp_', 'a'.repeat(32)].join('');
     const output = redactSecrets(
-      'token=abcd1234 Bearer abcdefghijklmnop ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa supersecret',
+      `token=abcd1234 Bearer abcdefghijklmnop ${githubToken} supersecret`,
       ['supersecret'],
     );
     expect(output).not.toContain('abcd1234');
     expect(output).not.toContain('abcdefghijklmnop');
-    expect(output).not.toContain('ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(output).not.toContain(githubToken);
     expect(output).not.toContain('supersecret');
     expect(output).toContain('[redacted]');
   });

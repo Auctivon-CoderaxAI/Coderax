@@ -78,7 +78,7 @@ const chatsRow = (page: Page, title: string): Locator =>
 const trigger = (page: Page) => page.getByTestId('chat-filter-menu');
 const menu = (page: Page) => page.getByRole('menu', { name: 'Filter and sort chats' });
 
-const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1280) < 768;
+const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1280) <= 768;
 
 /** Below `md` the sidebar is a drawer that starts closed; open it before reading the
  *  list. A no-op on desktop, where the list is already on screen. */
