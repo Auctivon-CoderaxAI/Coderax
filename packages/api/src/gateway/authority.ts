@@ -323,7 +323,10 @@ export function createConversationAuthority(
     if (current.engine !== 'workflow-engine') {
       return refusal('WORKFLOW_ENGINE_AUTHORITY_CONFLICT');
     }
-    if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
+    if (
+      current.inFlight > 0 ||
+      current.receipts[current.receipts.length - 1]?.outcome === 'indeterminate'
+    ) {
       return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
     }
     const generation = current.generation + 1;
@@ -380,7 +383,10 @@ export function createConversationAuthority(
       if (current == null) {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_UNMAPPED');
       }
-      if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
+      if (
+        current.inFlight > 0 ||
+        current.receipts[current.receipts.length - 1]?.outcome === 'indeterminate'
+      ) {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
       }
       if (current.engine === input.to && current.state === 'active') {

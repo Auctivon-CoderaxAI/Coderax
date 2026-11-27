@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
+import { Constants } from 'coderax-data-provider';
 import { TextQuote, WandSparkles } from 'lucide-react';
 import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem, ComposerItemKind } from '~/hooks/Input/useComposerItems';
@@ -129,7 +130,8 @@ function Tray({
   /* The read-out belongs to a thread. A landing composer already names the
      model in its action row, and its draft carries no conversation id yet, so
      showing the strip there would duplicate the control the mockups show. */
-  const showModelBar = !hideModelBar && conversation?.conversationId != null;
+  const id = conversation?.conversationId;
+  const showModelBar = !hideModelBar && !!id && id !== Constants.NEW_CONVO;
 
   if (items.length === 0 && files.size === 0) {
     return showModelBar ? <ModelBar conversation={conversation} /> : null;

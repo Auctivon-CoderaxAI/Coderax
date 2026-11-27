@@ -259,7 +259,11 @@ function ChatView({
                                together, so it holds the same band back here. Without
                                it the composer lands 4px right of where a conversation
                                puts it and slides sideways on the way in. */
-                                cn('scrollbar-gutter-spacer', landingColumnClass)
+                                cn(
+                                  'scrollbar-gutter-spacer',
+                                  landingColumnClass,
+                                  centerFormOnLanding && 'sm:grid-rows-[minmax(0,1fr)_auto_38%]',
+                                )
                               : 'h-full overflow-y-auto',
                             hasProjectBadge && 'pt-9',
                           )}
@@ -304,13 +308,13 @@ function ChatView({
                                   placeholder={chatFormPlaceholder}
                                   project={isProjectLandingPage ? project : undefined}
                                   isLandingPage={isLandingPage}
+                                  landingStarters={
+                                    isLandingPage && !workMode ? <ConversationStarters /> : null
+                                  }
                                   footerBelow={footerBelow}
                                 />
                               </ComposerPreferencesProvider>
                             )}
-                            {/* The approved design puts the suggestion row beneath the
-                              composer, not between the greeting and it. */}
-                            {isLandingPage && !workMode && <ConversationStarters />}
                             {/* The generic disclaimer and the policy links are the
                               welcome screen's; a deployment's own footer stays
                               with the conversation that always showed it. */}

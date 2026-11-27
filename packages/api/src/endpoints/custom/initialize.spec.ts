@@ -125,7 +125,7 @@ describe('initializeCustom – managed 100MillionSeek credential', () => {
     jest.replaceProperty(process, 'env', { ...process.env, ...env });
     const config = { providerFallback: { enabled: true, zeroCostOnly: false } };
     const [endpoint] = buildProviderFallbackCustomEndpoints(config, env);
-    expect(endpoint.apiKey).toBe('${100MILLIONSEEK_API_KEY}');
+    expect(endpoint.apiKey).toBe(canonical ? '${HMS_API_KEY}' : '${100MILLIONSEEK_API_KEY}');
     const params = createParams({});
     params.endpoint = endpoint.name;
     params.req.config = { ...params.req.config, config } as typeof params.req.config;
@@ -137,7 +137,12 @@ describe('initializeCustom – managed 100MillionSeek credential', () => {
     expect(mockGetOpenAIConfig).toHaveBeenCalledWith(expected, expect.any(Object), endpoint.name);
 
     if (!canonical) {
-      mockGetCustomEndpointConfig.mockReturnValue({ ...endpoint, baseURL: 'https://example.test' });
+      mockGetCustomEndpointConfig.mockReturnValue({
+        ...endpoint,
+        // A custom URL must not inherit the legacy alias for an unset canonical key.
+        apiKey: '${HMS_API_KEY}',
+        baseURL: 'https://example.test',
+      });
       await expect(initializeCustom(params)).rejects.toThrow('Missing API Key for 100MillionSeek.');
     }
   });

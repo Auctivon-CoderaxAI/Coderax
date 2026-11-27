@@ -80,7 +80,7 @@ export default function Landing({
     <div
       className={cn(
         landingGreetingBlockClass,
-        !centerFormOnLanding && 'h-full',
+        centerFormOnLanding ? 'self-end' : 'h-full',
         'transform-gpu transition-all duration-200',
         landingGreetingSpacing(centerFormOnLanding),
       )}

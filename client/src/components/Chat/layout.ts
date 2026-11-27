@@ -18,8 +18,9 @@ export const modeHeaderClass =
 export const modeHeaderStartClass = 'flex min-w-0 items-center justify-start';
 export const modeHeaderEndClass = 'flex min-w-0 items-center justify-end gap-2';
 
-/** The welcome column: composer at the viewport floor on phones, centred from `sm` up. */
-export const landingColumnClass = 'flex-1 items-center justify-end sm:justify-center';
+/** A common landing column lets the composer grow upward without moving its lower edge. */
+export const landingColumnClass =
+  'grid flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto] justify-items-center';
 
 export const landingGreetingBlockClass = 'flex flex-col items-center justify-center px-4';
 

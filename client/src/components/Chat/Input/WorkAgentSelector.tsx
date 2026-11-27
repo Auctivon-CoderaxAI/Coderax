@@ -523,6 +523,8 @@ export function WorkLandingPicker() {
   };
   const models = options.models.filter((model) => model.engine == null);
 
+  const landingPickerMenuClasses = cn(chipMenuClasses, 'w-[min(22rem,calc(100vw-2rem))]');
+
   return (
     <Ariakit.MenuProvider placement="bottom-end" focusLoop={true}>
       <Ariakit.MenuButton
@@ -539,12 +541,7 @@ export function WorkLandingPicker() {
         <span className="max-w-[13rem] truncate">{label}</span>
         <ChevronDown className="text-text-secondary size-4 shrink-0" aria-hidden="true" />
       </Ariakit.MenuButton>
-      <Ariakit.Menu
-        portal
-        gutter={8}
-        unmountOnHide
-        className={cn(chipMenuClasses, 'w-[min(22rem,calc(100vw-2rem))]')}
-      >
+      <Ariakit.Menu portal gutter={8} unmountOnHide className={landingPickerMenuClasses}>
         <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
           {localize('com_ui_agent')}
         </Ariakit.MenuHeading>

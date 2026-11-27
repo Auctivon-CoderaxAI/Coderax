@@ -76,7 +76,7 @@ const ConversationStarters = () => {
     : [localize('com_ui_default_starter')];
 
   return (
-    <div className="mt-1 mb-8 flex w-full flex-col items-center gap-1.5 px-4">
+    <div className="mt-1 flex w-full flex-col items-center gap-1.5 px-4">
       {starters.map((text: string, index: number) => (
         <button
           key={index}
