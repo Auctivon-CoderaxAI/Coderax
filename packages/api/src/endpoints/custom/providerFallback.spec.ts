@@ -11,12 +11,13 @@ const env = {
   CLOUDFLARE_TOKEN: 'cloudflare-secret',
   CLOUDFLARE_ACCOUNT_ID: 'account-id',
   FREEAI_API_KEY: 'freeai-secret',
-  '100MILLIONSEEK_API_KEY': 'hundred-million-secret',
+  HMS_API_KEY: 'hundred-million-secret',
 };
 
 const config: ProviderFallbackConfigLike = {
   providerFallback: {
     enabled: true,
+    zeroCostOnly: false,
     order: [
       'gemini',
       'cerebras',
@@ -155,6 +156,7 @@ describe('buildProviderFallbackOptions', () => {
       ...config,
       providerFallback: {
         enabled: true,
+        zeroCostOnly: false,
         order: [
           'gemini',
           'cerebras',

@@ -24,6 +24,7 @@ const research = require('./research');
 const prompts = require('./prompts');
 const schedules = require('./schedules');
 const workflows = require('./workflows');
+const workflowEngine = require('./workflowEngine');
 const skills = require('./skills');
 const balance = require('./balance');
 const actions = require('./actions');
@@ -89,6 +90,7 @@ module.exports = {
   research,
   schedules,
   workflows,
+  workflowEngine,
   skills,
   actions,
   presets,

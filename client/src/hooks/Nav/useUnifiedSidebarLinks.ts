@@ -1,14 +1,21 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SystemRoles } from 'coderax-data-provider';
-import { Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
+import { Bot, CalendarClock, Gamepad2, MessagesSquare, Microscope } from 'lucide-react';
+import { EModelEndpoint, Permissions, PermissionTypes, SystemRoles } from 'coderax-data-provider';
 import type { NavLink } from '~/common';
+import {
+  useGetEndpointsQuery,
+  useGetStartupConfig,
+  useResearchCapabilitiesQuery,
+} from '~/data-provider';
 import ConversationsSection from '~/components/UnifiedSidebar/ConversationsSection';
-import { useResearchCapabilitiesQuery } from '~/data-provider';
-import { useAuthContext } from '~/hooks';
+import AgentPanelSwitch from '~/components/SidePanel/Agents/AgentPanelSwitch';
+import { SchedulePanel } from '~/components/SidePanel/Schedules';
+import { useAuthContext, useHasAccess } from '~/hooks';
 
 /**
  * Keep the sidebar as a chat navigation surface, not a general app launcher.
+ * Scheduled chats keep a management entry so owners can pause existing jobs.
  * Work shares the chat shell; unrelated tools retain their direct routes.
  * Game Studio and Research are the exceptions: they are the only entries to
  * the owner's own creativity and evidence records, so they need a destination
@@ -19,6 +26,26 @@ export default function useUnifiedSidebarLinks() {
   const navigate = useNavigate();
   const { user } = useAuthContext();
   const { data: researchAccess } = useResearchCapabilitiesQuery();
+  const { data: startupConfig } = useGetStartupConfig();
+  const hasScheduleAccess = useHasAccess({
+    permissionType: PermissionTypes.SCHEDULES,
+    permission: Permissions.USE,
+  });
+  const hasAccessToAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.USE,
+  });
+  const hasAccessToCreateAgents = useHasAccess({
+    permissionType: PermissionTypes.AGENTS,
+    permission: Permissions.CREATE,
+  });
+  const { data: endpointsConfig } = useGetEndpointsQuery();
+  const schedulesConfig = startupConfig?.interface?.schedules;
+  const canAccessSchedules =
+    hasScheduleAccess &&
+    schedulesConfig != null &&
+    schedulesConfig !== false &&
+    !(typeof schedulesConfig === 'object' && schedulesConfig.use === false);
   const isOwner = user?.role === SystemRoles.ADMIN;
   const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   return useMemo<NavLink[]>(() => {
@@ -31,6 +58,29 @@ export default function useUnifiedSidebarLinks() {
         Component: ConversationsSection,
       },
     ];
+    if (
+      endpointsConfig?.[EModelEndpoint.agents] &&
+      hasAccessToAgents &&
+      hasAccessToCreateAgents &&
+      endpointsConfig[EModelEndpoint.agents].disableBuilder !== true
+    ) {
+      links.push({
+        title: 'com_sidepanel_agent_builder',
+        label: '',
+        icon: Bot,
+        id: EModelEndpoint.agents,
+        Component: AgentPanelSwitch,
+      });
+    }
+    if (canAccessSchedules) {
+      links.push({
+        title: 'com_ui_schedules',
+        label: '',
+        icon: CalendarClock,
+        id: 'schedules',
+        Component: SchedulePanel,
+      });
+    }
     if (isOwner) {
       links.push({
         title: 'com_games_title',
@@ -50,5 +100,13 @@ export default function useUnifiedSidebarLinks() {
       });
     }
     return links;
-  }, [canAccessResearch, isOwner, navigate]);
+  }, [
+    canAccessResearch,
+    canAccessSchedules,
+    endpointsConfig,
+    hasAccessToAgents,
+    hasAccessToCreateAgents,
+    isOwner,
+    navigate,
+  ]);
 }

@@ -5,7 +5,7 @@ import { openSidebar } from './sidebar';
 export async function openPanel(page: Page, id: string, label: string): Promise<void> {
   await openSidebar(page);
 
-  if ((page.viewportSize()?.width ?? 0) < 768) {
+  if ((page.viewportSize()?.width ?? 0) <= 768) {
     await page.getByTestId('panel-switcher-button').click();
     await page.getByRole('menuitemcheckbox', { name: label, exact: true }).click();
     return;
