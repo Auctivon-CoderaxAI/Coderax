@@ -81,7 +81,7 @@ test.describe('grouped model parameters', () => {
       await expect(saveDialog).toBeHidden();
 
       /* On a phone the drawer holding the panel covers the header's presets button. */
-      if ((page.viewportSize()?.width ?? 1280) < 768) {
+      if ((page.viewportSize()?.width ?? 1280) <= 768) {
         await page.getByTestId('close-sidebar-button').click();
       }
       await page.getByTestId('presets-button').first().click();
@@ -131,7 +131,7 @@ test.describe('grouped model parameters', () => {
     await page.reload();
     /* The shared sidebar helpers read English labels, so the Spanish shell is driven
      * by its own. */
-    if ((page.viewportSize()?.width ?? 1280) < 768) {
+    if ((page.viewportSize()?.width ?? 1280) <= 768) {
       await page.getByRole('button', { name: 'Abrir barra lateral' }).first().click();
       await page.getByTestId('panel-switcher-button').click();
       await page.getByRole('menuitemcheckbox', { name: 'Parámetros', exact: true }).click();

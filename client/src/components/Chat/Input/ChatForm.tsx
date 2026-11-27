@@ -82,6 +82,7 @@ import { submitFromComposer } from './submit';
 import SkillsCommand from './SkillsCommand';
 import AutoPlayAudio from './AutoPlayAudio';
 import Waveform from './Composer/Waveform';
+import ModelBar from './Composer/ModelBar';
 import { mainTextareaId } from '~/common';
 import CollapseChat from './CollapseChat';
 import QuoteButton from './QuoteButton';
@@ -925,6 +926,7 @@ const ChatForm = memo(function ChatForm({
               )}
             >
               <TextareaHeader addedConvo={addedConvo} setAddedConvo={setAddedConvo} />
+              <ModelBar conversation={conversation} />
               <Tray
                 items={composerItems}
                 focusComposer={focusTextArea}
