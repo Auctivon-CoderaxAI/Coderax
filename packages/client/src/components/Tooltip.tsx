@@ -101,6 +101,7 @@ const TooltipPopup = memo(function TooltipPopup({
     <AnimatePresence>
       {mounted === true && (
         <Ariakit.Tooltip
+          store={store}
           gutter={4}
           alwaysVisible
           portalElement={portalElement}
@@ -148,7 +149,10 @@ export const TooltipAnchor: ForwardRefExoticComponent<
   },
   ref,
 ) {
-  const tooltip = Ariakit.useTooltipStore({ placement: side });
+  /** One store per action is all this needs: passing it to both the anchor and
+   *  the popup is equivalent to wrapping them in a provider, without mounting
+   *  an extra context layer for every tooltip in a long transcript. */
+  const tooltip = Ariakit.useTooltipStore({ placement: side, hideTimeout: 0 });
 
   /**
    * `role="button"` renders a plain element with no native activation, so Enter and
@@ -180,9 +184,10 @@ export const TooltipAnchor: ForwardRefExoticComponent<
   );
 
   return (
-    <Ariakit.TooltipProvider store={tooltip} hideTimeout={0}>
+    <>
       <Ariakit.TooltipAnchor
         {...props}
+        store={tooltip}
         ref={ref}
         role={role}
         tabIndex={resolvedTabIndex}
@@ -196,6 +201,6 @@ export const TooltipAnchor: ForwardRefExoticComponent<
         portalElement={portalElement}
         zIndex={zIndex}
       />
-    </Ariakit.TooltipProvider>
+    </>
   );
 });

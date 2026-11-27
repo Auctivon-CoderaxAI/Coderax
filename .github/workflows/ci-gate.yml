@@ -1,180 +1,40 @@
 name: CI gate
 
-# The one required check on `main`, `CI gate (aggregate)`.
+# The one required status check. Every other workflow here is path-filtered, so
+# a pull request that touches only one area never starts the rest — and a
+# required check whose workflow never runs can never turn green.
 #
-# Every component workflow here is path-filtered, so requiring one by name
-# leaves a pull request permanently pending on a check its paths never trigger.
-# This workflow has no paths filter: it always reports, reads the component
-# filters from the base revision, and evaluates the workflow runs that GitHub
-# actually created for this pull request at this exact head SHA.
-#
-# A `pull_request` run normally executes the pull request's own workflow file.
-# The gate therefore takes its decision logic and workflow filters from the base
-# revision, and the test suite runs against that same copy. The only fallback is
-# the owner-only bootstrap below, for the pull request that introduces the gate.
-#
-# `merge_group` is declared so an enabled merge queue gets an explicit failing
-# check instead of a silently pending one. It fails closed unless every
-# component workflow also declares `merge_group`; the current component set does
-# not, so a merge queue is not supported yet. See docs/governance/ci-gate.md.
+# This job always runs. It reads the required lanes from
+# `.github/required-checks.json`, waits for the lanes GitHub actually triggered
+# for this diff, and fails on failure, on `skipped` (which verifies nothing),
+# and on a required check that never appeared although its workflow ran.
+# See `.github/scripts/ci-gate.mjs` for the decision rules.
 
 on:
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
-  merge_group:
-  push:
-    branches: [main]
-  workflow_dispatch:
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
   actions: read
-  statuses: read
+  checks: read
   pull-requests: read
 
 concurrency:
-  group: ci-gate-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: '--max-old-space-size=2048'
 
 jobs:
-  aggregate:
-    name: CI gate (aggregate)
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+  gate:
+    name: CI gate
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 95
+    timeout-minutes: 50
     steps:
-      # Kept only for the bootstrap case: the pull request that first adds the
-      # gate has no trusted copy at its base, so its own script must run once.
-      # Nothing from this checkout is executed when the base has the gate.
-      - name: Check out the pull request revision
-        if: github.event_name == 'pull_request'
-        uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-
-      - name: Check out the trusted base revision
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-          path: .gate-trusted
-          persist-credentials: false
-          # A file path is not valid in cone mode; non-cone keeps CODEOWNERS in
-          # the trusted checkout without fetching the whole tree.
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /.github/scripts
-            /.github/workflows
-            /.github/CODEOWNERS
-
-      - name: Use Node.js 24.16.0
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24.16.0'
-
-      # Gate logic and filters must not be editable by the change they judge.
-      # A base that has the gate always wins. A base that has neither the gate
-      # nor the script is the one-time bootstrap, and only an owner or member
-      # may use the pull request's copy. A partially present gate is a
-      # configuration failure, never a reason to fall back.
-      - name: Select trusted gate logic
-        id: select
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-        run: |
-          set -euo pipefail
-          trusted=0
-          bootstrap=0
-          bootstrap_authorized=0
-
-          if [ -f .gate-trusted/.github/scripts/ci-gate.mjs ]; then
-            if [ ! -f .gate-trusted/.github/scripts/ci-gate.test.mjs ]; then
-              echo "::error::The base revision has the gate script but no test suite. Refusing to run an untested gate."
-              exit 1
-            fi
-            trusted=1
-            script=.gate-trusted/.github/scripts/ci-gate.mjs
-            test_file=.gate-trusted/.github/scripts/ci-gate.test.mjs
-            workflows=.gate-trusted/.github/workflows
-            codeowners=.gate-trusted/.github/CODEOWNERS
-            echo "Using the base revision's gate logic, filters and tests."
-          else
-            if [ -f .gate-trusted/.github/workflows/ci-gate.yml ]; then
-              echo "::error::The base revision has the gate workflow but not the trusted script."
-              exit 1
-            fi
-            case "${PR_AUTHOR_ASSOCIATION:-}" in
-              OWNER|MEMBER) bootstrap_authorized=1 ;;
-            esac
-            # This organization reports its owner as COLLABORATOR, so the
-            # association alone is not an owner test. The base CODEOWNERS is
-            # trusted (the pull request cannot edit it) and names the user code
-            # owner who may perform the one-time bootstrap.
-            if [ "$bootstrap_authorized" -eq 0 ] && [ -n "${PR_AUTHOR:-}" ] && [ -f .gate-trusted/.github/CODEOWNERS ]; then
-              if grep -qE "(^|[[:space:]])@${PR_AUTHOR}([[:space:]]|$)" .gate-trusted/.github/CODEOWNERS; then
-                bootstrap_authorized=1
-              fi
-            fi
-            if [ "$bootstrap_authorized" -ne 1 ]; then
-              echo "::error::The base revision has no trusted gate and this author is not an OWNER, MEMBER or base code owner. Refusing to execute pull-request-owned gate logic."
-              exit 1
-            fi
-            bootstrap=1
-            script=.github/scripts/ci-gate.mjs
-            test_file=.github/scripts/ci-gate.test.mjs
-            workflows=.github/workflows
-            codeowners=.github/CODEOWNERS
-            echo "::warning title=CI gate bootstrap::The base revision has no gate. This one run executes the pull request copy and must be reviewed manually."
-          fi
-
-          {
-            echo "script=${script}"
-            echo "test=${test_file}"
-            echo "workflows=${workflows}"
-            echo "codeowners=${codeowners}"
-            echo "trusted=${trusted}"
-            echo "bootstrap=${bootstrap}"
-            echo "bootstrap_authorized=${bootstrap_authorized}"
-            echo "base_present=$((1 - bootstrap))"
-          } >> "$GITHUB_OUTPUT"
-
-      # A gate that misreads a filter is worse than no gate. This runs the same
-      # suite as the base revision and is never skipped.
-      - name: Self-test the selected gate
-        run: node --test "${{ steps.select.outputs.test }}"
-
-      - name: Evaluate every applicable workflow at the exact head
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GATE_EVENT: ${{ github.event_name }}
-          GATE_MODE: aggregate
-          GATE_TRUSTED: ${{ steps.select.outputs.trusted == '1' }}
-          BASE_GATE_PRESENT: ${{ steps.select.outputs.base_present == '1' }}
-          GATE_BOOTSTRAP_AUTHORIZED: ${{ steps.select.outputs.bootstrap_authorized == '1' }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_ACTION: ${{ github.event.action }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || github.ref_name }}
-          WORKFLOWS_DIR: ${{ steps.select.outputs.workflows }}
-          GATE_CODEOWNERS: ${{ steps.select.outputs.codeowners }}
-        run: node "${{ steps.select.outputs.script }}"
-
-  # Post-merge verification of the bootstrap: the gate must exist in the
-  # revision that is now on main, its own filter must stay absent, and its test
-  # suite must pass. This is a separate non-required check.
-  verify:
-    name: CI gate (installation)
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out the installed revision
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -182,12 +42,27 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '24.16.0'
+          cache: npm
 
-      - name: Self-test the installed gate
+      - name: Install the workflow parser the manifest check needs
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Check the manifest against the workflows it names
         run: node --test .github/scripts/ci-gate.test.mjs
 
-      - name: Verify the installed gate contract
+      # Candidate tests above validate changes to the gate. The admission decision
+      # uses the reviewed base script and manifest, not the candidate's code.
+      - name: Checkout trusted base for admission
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-gate
+          persist-credentials: false
+
+      - name: Evaluate the required lanes at this head
+        working-directory: trusted-gate
         env:
-          GATE_MODE: verify
-          WORKFLOWS_DIR: .github/workflows
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node .github/scripts/ci-gate.mjs

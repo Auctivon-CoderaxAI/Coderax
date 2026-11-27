@@ -6,139 +6,72 @@ branches are short-lived, exist only for the pull request they carry, and are de
 [`AGENTS.md`](../AGENTS.md) is the contributor and agent policy; this page records the platform
 setup that policy depends on.
 
-## Current protection
+## Required protection (administrator)
 
-The public branch API reports `main` as protected, with one required status check:
+Configure rulesets/branch protection for `main` with:
 
-| Rule                              | Value                               | Source                                                |
-| --------------------------------- | ----------------------------------- | ----------------------------------------------------- |
-| Protected                         | yes                                 | `GET /repos/Auctivon-CoderaxAI/Coderax/branches/main` |
-| Required check                    | `CI gate (aggregate)`               | branch API (`required_status_checks.checks`)          |
-| Required app                      | GitHub Actions, `app_id` 15368      | branch API                                            |
-| Enforcement                       | everyone                            | branch API                                            |
-| At least one independent approval | yes                                 | owner-recorded                                        |
-| Dismiss stale approvals           | yes                                 | owner-recorded                                        |
-| Require approval of the last push | yes                                 | owner-recorded                                        |
-| Conversation resolution           | yes                                 | owner-recorded                                        |
-| Code-owner review                 | no — sole code owner would deadlock | owner-recorded                                        |
-| Administrator enforcement         | yes                                 | owner-recorded                                        |
-| Force pushes / deletion           | blocked                             | owner-recorded                                        |
+- Every change through a pull request; direct pushes denied, including for administrators.
+- At least one independent approval, with approval of the most recent reviewable push by someone
+  other than its author and stale approvals dismissed when the pull request changes.
+- After the rollout checks below are satisfied, one required status check, **`CI gate`**
+  (`.github/workflows/ci-gate.yml`), evaluated at the exact head SHA. A passing run at an earlier
+  head is not a pass; the gate reruns on every push and reads the head it is attached to.
+- Code-owner review for `.github/workflows/`, `.github/scripts/` and `.github/CODEOWNERS`.
+- All review threads resolved before merge.
+- Force pushes and branch deletion disallowed.
+- No administrator override, self-approval or force-merge.
 
-The public branch API exposes only the required-check summary. Review counts, stale-approval
-dismissal, administrator enforcement, force-push and deletion rules need an admin read; re-read them
-with an authenticated owner token before treating the owner-recorded rows as current.
+`.github/CODEOWNERS` requests review from `@nnabdelshahid` for the whole repository. GitHub
+enforces that only where the branch rule requires code-owner review; with a sole code owner their
+own pull requests cannot satisfy the requirement, so an additional eligible owner is needed if
+those changes are to merge through the normal path.
 
-Do not relax any of these rules to land a change. If the required check blocks a merge, fix the
-change or the failing component. Do not disable administrator enforcement, drop the review
-requirement, add a bypass actor, or remove the required check.
+Where the hosting plan cannot enforce a rule, record the equivalent review step in the pull request
+instead of claiming platform enforcement. Do not relax the remaining rules to compensate.
 
-## One aggregate check, not one per component
+## The aggregate gate
 
-Every component workflow is path-filtered. Requiring `Static checks`, `Tests: Ubuntu`, `e2e`,
-`Lighthouse` or `a11y` by name leaves a pull request permanently pending on an "Expected" check that
-its paths never trigger. Requiring nothing lets a change merge without evidence.
+Almost every workflow in this repository is path-filtered, so a pull request that touches one area
+starts only the lanes that cover it. A required check whose workflow never starts can never turn
+green, and the usual workaround — requiring nothing — lets a change merge with no evidence.
 
-`CI gate (aggregate)` (`.github/workflows/ci-gate.yml`) is therefore the only required check:
+`CI gate` is the one check to require. It always runs, and it evaluates the lanes named in
+[`required-checks.json`](required-checks.json) using GitHub's own record of what this diff
+triggered:
 
-- It has no `paths` filter and runs on every pull request to `main`.
-- It reads each component workflow's own `on.pull_request` filters from the **base** revision and
-  evaluates the workflows those filters select for the pull request's diff.
-- It evaluates only workflow runs created for this pull request at the **exact head SHA**, choosing
-  the latest attempt. An older success cannot mask a newer cancellation.
-- `failure`, `cancelled`, `timed_out`, `action_required`, `startup_failure`, `stale`, `neutral`,
-  `skipped` and a completed run with no conclusion all fail the gate. A skipped lane verified
-  nothing.
-- A workflow whose filter matches the diff but that never reports fails after the start grace.
-- It excludes its own workflow, so it never waits on itself.
-- A failed, partial or paginated-short API read is never evaluated as an empty passing snapshot.
-  The gate retries, and fails at the deadline if no complete snapshot was available.
-- It evaluates commit statuses alongside workflow runs.
-- It fails closed on an empty changed-file list.
+- a required check that reported `success` or `neutral` passes;
+- a required check that reported a failure, a cancellation, or `skipped` fails — a skipped job
+  verified nothing, whatever its reason;
+- a required check that never appeared passes only when its workflow produced no run at this head,
+  the lane is declared path-filtered, and a settle window has elapsed so the workflow could have
+  started. If the workflow did run, the missing check is a failure.
 
-A workflow newly added by the pull request is not a required lane. Only the base revision decides
-what must gate. A base workflow that starts despite the gate's filter reading is still evaluated, so
-a parser disagreement fails toward waiting rather than toward an early green.
+Because presence comes from GitHub's own evaluation of each workflow's `paths:` filter, there is no
+second copy of those filters to drift. `ci-gate.test.mjs` reads every workflow the manifest names
+and fails the gate if a lane claims a path filter the workflow does not declare, or if a required
+workflow stops triggering on `pull_request`.
 
-The check name must stay exactly `CI gate (aggregate)`. Renaming the job leaves branch protection
-waiting on a check that no longer exists.
+`reportOnly` lanes are printed in the job summary and do not block. Each carries the reason it is
+not enforced yet; move a lane into `required` once that reason no longer holds. Adding a lane to
+`required` without fixing its outstanding failure makes every pull request red, which is why the
+list is explicit instead of inferred.
 
-## Trusted logic and the bootstrap
+Once rollout is complete, `CI gate` can replace the individual checks in branch protection; the
+other workflows remain the evidence it reads.
 
-A `pull_request` run normally executes the pull request's copy of the workflow file. The gate
-therefore:
+<!-- coderabbit-ai-generated:v1 -->
 
-1. checks out the pull request revision (used only for the bootstrap);
-2. checks out `.github/scripts`, `.github/workflows` and `.github/CODEOWNERS` from the base SHA;
-3. uses the base gate script, base test suite and base workflow filters when they exist;
-4. refuses to run if the base has the workflow but not the script;
-5. falls back to the pull request copy only when the base has **neither** the gate nor the script,
-   and only when the author is an `OWNER`/`MEMBER` or is named as a user code owner in the base
-   `.github/CODEOWNERS`. This organization reports its owner as `COLLABORATOR`, so the trusted
-   base code-owner file is the actual owner test for the bootstrap.
+<!-- coderabbit-ai-generated-section:v1:85ee6d113ea360e0caed47ea4805279c4081d4abba25cf2469d66822f9f787ad -->
 
-The fallback is the one-time bootstrap for the pull request that introduces the gate. It is reported
-as a workflow warning and in the job summary, and it disappears as soon as the gate is on `main`.
-It is not a permanent trusted implementation. A contributor cannot use it.
+## Gate trust boundary
 
-Branch protection already requires `CI gate (aggregate)` while the workflow exists only on the
-bootstrap pull request. The safe bootstrap is therefore:
+The candidate gate test suite checks proposed changes; the admission step evaluates the exact PR head using the base revision's script and lane manifest. This prevents ordinary candidate script or manifest edits from weakening the admission decision. It does not make the PR-owned workflow definition itself immutable. Require independent review of gate-control paths, and evaluate a trusted organization-level required workflow when available without new spend. Do not change required-check names or protection settings until equivalent coverage and rollback are verified. Merge-group candidates are not covered by the current PR-only gate; do not enable a merge queue until synthetic candidates receive real verification.
 
-1. Keep protection, reviews and administrator enforcement exactly as they are.
-2. Merge the pull request that carries the gate (currently PR #314) only after its own gate passes at
-   its exact head and an independent reviewer has inspected the bootstrap copy.
-3. After merge, confirm the `CI gate (installation)` push run on `main` is green. That job self-tests
-   the installed gate and asserts it still has no path filter and still declares `merge_group`.
-4. Other pull requests update from `main` and then receive the check. Until they do, they are blocked
-   by the existing rule. That is fail-closed behavior, not a reason to remove the rule.
+## Gate rollout and rollback
 
-The residual risk is the bootstrap run itself: its workflow file is pull-request-owned. Review that
-run separately; do not treat a green bootstrap as evidence that the permanent trust model has already
-been exercised.
+Keep the existing required checks while validating the aggregate gate. Before replacing them, verify equivalent coverage for backend, frontend, static, integration, security, and end-to-end workflows. A report-only lane cannot replace an existing requirement. Verify independent code-owner review is enforced for changes to the gate, its workflow, and the lane manifest. Exercise passing and failing pull requests and the local accessibility scan on a fork if forks are supported. Save the current required check names and their providers before changing the rule.
 
-## Preventing a contributor from weakening their own gate
-
-The gate logic, tests and workflow filters come from the base revision. In addition, any change under
-`.github/workflows/`, `.github/scripts/ci-gate.mjs`, `.github/scripts/ci-gate.test.mjs` or
-`.github/CODEOWNERS` requires an approval at the exact head from a user code owner unless the author
-is already an `OWNER`/`MEMBER` or is a user code owner in the base `.github/CODEOWNERS`. Stale
-approvals on earlier heads do not count.
-
-That guard cannot run if a contributor replaces the workflow with a job that never invokes the gate.
-The required check then goes missing and blocks the merge, unless the replacement keeps the name and
-fakes a pass. The durable fix is an organization ruleset required workflow, which GitHub evaluates
-from a trusted definition that a pull request cannot edit. Until the owner configures one, review
-every `.github/workflows/**` change as security-sensitive and keep code-owner review in the review
-process even though the platform rule is disabled for the sole owner.
-
-## Merge queue
-
-The gate declares `merge_group` so an enabled merge queue gets an explicit failing check instead of
-a silently pending one. It **fails closed** unless every component pull-request workflow also declares
-`merge_group`. None does today, so a merge queue is not supported.
-
-Do not report success on `merge_group` merely because component workflows are absent. To enable a
-merge queue:
-
-1. add `merge_group` to every component workflow the gate can require;
-2. verify each component can run with merge-group context (no `github.event.pull_request` fields);
-3. keep the gate's genuine merge-candidate evaluation, which compares the merge-group base and head
-   and reads `merge_group` runs at the exact candidate SHA;
-4. test a queued pull request before enabling the queue for `main`.
-
-Until then, enabling the queue makes every candidate fail visibly. That is the intended fail-closed
-state.
-
-## Independent approval at zero cost
-
-`enforce_admins: true` together with one required approval and a single repository owner freezes
-`main`: the owner cannot approve their own pull request. The fix is not to weaken the rule.
-
-The zero-cost mechanism is a second collaborator. Public repositories include free collaborators, so
-a second trusted maintainer can hold `write` access, review, and approve without a plan change or
-spend. Add them to `.github/CODEOWNERS` before relying on code-owner review.
-
-A bot whose review event is a comment rather than an approval does not satisfy the required review.
-Never self-approve, and never record a bot review as a human approval.
+If the aggregate gate blocks eligible pull requests or a reviewed revert, restore the saved required checks and remove the aggregate requirement in the same ruleset update. Keep review, thread resolution, and push restrictions in place. Then land the correction or revert through a reviewed pull request.
 
 ## Releases
 
@@ -147,3 +80,5 @@ Releases are cut from a reviewed `main` commit by pushing a `v<semver>` or `v<se
 `main-image-workflow.yml` builds the latest release image on dispatch. Keep `main` as the release
 source: never move a tag, move `main` backwards, or force-push it. Roll back code with a new
 reviewed revert pull request.
+
+<!-- /coderabbit-ai-generated:v1 -->

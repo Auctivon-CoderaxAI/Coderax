@@ -135,7 +135,7 @@ Examples:
 - `npm run test:client`
 - `npm run test:api`
 - Added tests in `foo.spec.ts`
-- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Hosted CI also runs on the public repositories, so paste the block verbatim as local evidence and confirm the required `CI gate (aggregate)` check is green at the exact pushed head.
+- The block printed by `npm run verify -- --against origin/main --manual "<what you observed>"`. Record evidence from cloud-hosted verification only, and confirm the required `CI gate` check at the exact pushed head. A runner that did not execute is not a pass.
 
 Write "Not applicable" when appropriate.
 -->

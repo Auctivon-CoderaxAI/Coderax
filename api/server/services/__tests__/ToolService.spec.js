@@ -230,10 +230,6 @@ function createEndpointsConfig(capabilities) {
 describe('ToolService - Action Capability Gating', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.replaceProperty(process, 'env', {
-      ...process.env,
-      LIBRECHAT_CODE_BASEURL: 'https://api.coderax/v1',
-    });
     mockLoadToolDefinitions.mockResolvedValue({
       toolDefinitions: [],
       toolRegistry: new Map(),
@@ -252,10 +248,6 @@ describe('ToolService - Action Capability Gating', () => {
     mockResolveMcpServerNames.mockResolvedValue([]);
     mockPrimeSearchFiles.mockResolvedValue({});
     mockPrimeCodeFiles.mockResolvedValue({});
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
   });
 
   describe('processRequiredActions content protection', () => {
@@ -1067,14 +1059,22 @@ describe('ToolService - Action Capability Gating', () => {
       };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
 
-      await loadAgentTools({
-        req,
-        res: {},
-        agent: { id: 'agent_123', tools: [Tools.file_search, Tools.execute_code] },
-        tool_resources,
-        agentResourceType: ResourceType.REMOTE_AGENT,
-        definitionsOnly: true,
+      const env = jest.replaceProperty(process, 'env', {
+        ...process.env,
+        LIBRECHAT_CODE_BASEURL: 'https://api.coderax/v1',
       });
+      try {
+        await loadAgentTools({
+          req,
+          res: {},
+          agent: { id: 'agent_123', tools: [Tools.file_search, Tools.execute_code] },
+          tool_resources,
+          agentResourceType: ResourceType.REMOTE_AGENT,
+          definitionsOnly: true,
+        });
+      } finally {
+        env.restore();
+      }
 
       const expectedParams = {
         req,
@@ -2951,8 +2951,11 @@ describe('ToolService - Action Capability Gating', () => {
       const req = createMockReq(capabilities);
       req.body = { conversationId: 'conversation-1' };
       mockGetEndpointsConfig.mockResolvedValue(createEndpointsConfig(capabilities));
-      process.env.LIBRECHAT_CODE_BASEURL = 'http://code-default.test/v1';
-      process.env.CODERAX_CODE_BASEURL_STATEFUL = 'http://code-stateful.test/v1';
+      const env = jest.replaceProperty(process, 'env', {
+        ...process.env,
+        LIBRECHAT_CODE_BASEURL: 'http://code-default.test/v1',
+        CODERAX_CODE_BASEURL_STATEFUL: 'http://code-stateful.test/v1',
+      });
 
       try {
         const stateless = await loadToolsForExecution({
@@ -2987,8 +2990,7 @@ describe('ToolService - Action Capability Gating', () => {
           statefulSessions: true,
         });
       } finally {
-        delete process.env.LIBRECHAT_CODE_BASEURL;
-        delete process.env.CODERAX_CODE_BASEURL_STATEFUL;
+        env.restore();
       }
     });
 

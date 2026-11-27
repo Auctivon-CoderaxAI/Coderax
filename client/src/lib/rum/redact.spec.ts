@@ -1,7 +1,7 @@
 import { getClientPlatform, reduceStack, scrubText, summarizeError } from './redact';
 
 // AWS's published documentation key, assembled at runtime so the repository
-// carries no credential-shaped literal.
+// carries no credential-shaped literal for secret scanners to flag.
 const AWS_EXAMPLE_KEY = ['AKIA', 'IOSFODNN7EXAMPLE'].join('');
 
 describe('scrubText', () => {

@@ -227,7 +227,7 @@ describe('Work chat persistence adapter', () => {
         workRunId: null,
         fenceWorkRun: 'run-0',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 
   it('refuses to report a conversation the database did not save', async () => {

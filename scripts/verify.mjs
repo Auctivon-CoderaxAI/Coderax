@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Local acceptance gate for a pull request.
+ * Acceptance evidence for a pull request; execute in an authorized environment.
  *
- * Hosted CI runs on the three intentionally public repositories. This script
- * remains the local evidence a reviewer gets, pasted into the pull request,
- * alongside the required `CI gate (aggregate)` check at the exact head.
+ * A hosted check that never reaches a runner proves nothing about the commit.
+ * This script supplies additional verification evidence; it does not replace
+ * the required exact-head CI checks.
  *
  * One command runs the four gates a merge has to show against the merge base:
  *
@@ -324,7 +324,7 @@ const warnings = [...checkoutWarnings];
 if (options.manual.length === 0) warnings.push('- Warning: no manual observation was supplied.');
 
 const artifact = [
-  '### Local verification (local gates; hosted CI runs separately)',
+  '### Local verification (hosted CI is billing-blocked)',
   '',
   `- Commit before gates: \`${head.slice(0, 12)}\` on \`${branch}\``,
   `- Base: \`${base}\` (merge base \`${mergeBase.slice(0, 12)}\`)`,

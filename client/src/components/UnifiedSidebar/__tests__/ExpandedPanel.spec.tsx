@@ -1,6 +1,7 @@
 import React from 'react';
 import { RecoilRoot } from 'recoil';
 import '@testing-library/jest-dom/extend-expect';
+import { createStore, Provider } from 'jotai';
 import { MemoryRouter } from 'react-router-dom';
 import { MessagesSquare, NotebookPen } from 'lucide-react';
 import { render, fireEvent, screen } from '@testing-library/react';
@@ -80,6 +81,7 @@ jest.mock('~/components/Nav/AccountSettings', () => ({
   default: () => <div data-testid="account-settings" />,
 }));
 
+import { unreadCountAtom } from '~/store/recents';
 import ExpandedPanel from '../ExpandedPanel';
 
 const createLinks = (): NavLink[] => [
@@ -107,6 +109,7 @@ function renderPanel({
   initialPanel = DEFAULT_PANEL,
   initialPath = '/c/new',
   switchToHistory = true,
+  unreadCount = 0,
 }: {
   expanded?: boolean;
   links?: NavLink[];
@@ -117,29 +120,34 @@ function renderPanel({
   initialPanel?: string;
   initialPath?: string;
   switchToHistory?: boolean;
+  unreadCount?: number;
 } = {}) {
   if (initialPanel !== DEFAULT_PANEL) {
     localStorage.setItem('side:active-panel', initialPanel);
   }
+  const store = createStore();
+  store.set(unreadCountAtom, unreadCount);
 
   const result = render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <QueryClientProvider client={createQueryClient()}>
-        <RecoilRoot>
-          <ActivePanelProvider>
-            <ExpandedPanel
-              links={links}
-              expanded={expanded}
-              onCollapse={onCollapse}
-              onExpand={onExpand}
-              onNavigate={onNavigate}
-              onLeaveInsights={onLeaveInsights}
-              switchToHistory={switchToHistory}
-            />
-          </ActivePanelProvider>
-        </RecoilRoot>
-      </QueryClientProvider>
-    </MemoryRouter>,
+    <Provider store={store}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <QueryClientProvider client={createQueryClient()}>
+          <RecoilRoot>
+            <ActivePanelProvider>
+              <ExpandedPanel
+                links={links}
+                expanded={expanded}
+                onCollapse={onCollapse}
+                onExpand={onExpand}
+                onNavigate={onNavigate}
+                onLeaveInsights={onLeaveInsights}
+                switchToHistory={switchToHistory}
+              />
+            </ActivePanelProvider>
+          </RecoilRoot>
+        </QueryClientProvider>
+      </MemoryRouter>
+    </Provider>,
   );
 
   return { ...result, onCollapse, onExpand, onLeaveInsights };
@@ -149,6 +157,32 @@ describe('ExpandedPanel', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
+  });
+
+  describe('aggregate unread indicator', () => {
+    it('keeps the Recents accessible name and describes the unread count', () => {
+      renderPanel({ unreadCount: 2 });
+
+      const button = screen.getByRole('button', { name: 'com_ui_chat_history' });
+      expect(button).toHaveAccessibleDescription('com_a11y_recents_unread_plural');
+      expect(button.querySelector('.bg-status-info')).not.toBeNull();
+    });
+
+    it('uses the singular description for one unseen reply', () => {
+      renderPanel({ unreadCount: 1 });
+
+      expect(
+        screen.getByRole('button', { name: 'com_ui_chat_history' }),
+      ).toHaveAccessibleDescription('com_a11y_recents_unread');
+    });
+
+    it('shows no dot once every reply has been caught up with', () => {
+      renderPanel({ unreadCount: 0 });
+
+      const button = screen.getByRole('button', { name: 'com_ui_chat_history' });
+      expect(button.querySelector('.bg-status-info')).toBeNull();
+      expect(button).not.toHaveAttribute('aria-describedby');
+    });
   });
 
   /**

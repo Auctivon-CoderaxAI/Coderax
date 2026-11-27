@@ -1,9 +1,6 @@
 # CI unblock: billing, visibility, and runner startup
 
-> **Status 2026-11-26:** resolved for these repositories. All three are intentionally public to
-> enable free GitHub-hosted Actions; branch protection, secret scanning and push protection are
-> enabled at no cost. The billing guidance below is retained for historical diagnosis, not as the
-> current repository state.
+> Historical diagnostic guidance. The canonical Coderax repository currently reports public visibility; this does not establish owner approval for a public-source policy or verify current runner availability or protection settings. Verify actual exact-head hosted runs and preserve the owner-only application and zero-added-cost boundaries.
 
 ## Symptom
 
