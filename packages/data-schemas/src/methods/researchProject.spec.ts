@@ -34,7 +34,8 @@ let ResearchProjectQuota: mongoose.Model<unknown>;
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
+  // Quota admission must enforce uniqueness even when deployment auto-indexing is off.
+  await mongoose.connect(mongoServer.getUri(), { autoIndex: false });
   createModels(mongoose);
   ResearchProject = mongoose.models.ResearchProject;
   ResearchProjectQuota = mongoose.models.ResearchProjectQuota;
@@ -230,6 +231,7 @@ describe('research project methods', () => {
 
     expect(results.filter((result) => result.ok)).toHaveLength(3);
     expect(await ResearchProject.countDocuments({ user: owner })).toBe(3);
+    expect(await ResearchProjectQuota.countDocuments({ user: owner })).toBe(1);
   });
 
   it('scopes saves and lists to the dossier owner', async () => {

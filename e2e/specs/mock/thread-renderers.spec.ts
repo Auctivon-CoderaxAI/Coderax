@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { AgentDetail } from './agents.helpers';
-import { cleanupAgent, openAgentBuilder, uniqueAgentName } from './agents.helpers';
+import { cleanupAgent, startChatWithAgent, uniqueAgentName } from './agents.helpers';
 import {
   MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
@@ -154,14 +154,6 @@ async function createAgent(
   });
 }
 
-async function selectAgent(page: Page, name: string): Promise<void> {
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(name);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
-}
-
 test.describe('thread renderers', () => {
   test('flat and recursive renderers agree on a branched, rich conversation', async ({ page }) => {
     test.setTimeout(240_000);
@@ -231,7 +223,7 @@ test.describe('thread renderers', () => {
         agent_ids: children.map((child) => child.id),
       });
       createdAgentIds.push(parent.id);
-      await selectAgent(page, parentName);
+      await startChatWithAgent(page, parent);
 
       const response = await sendMessageAndWaitForCompletion(
         page,
