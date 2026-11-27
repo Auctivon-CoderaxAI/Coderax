@@ -88,7 +88,7 @@ jobs:
       # Read from the checkout rather than github.sha, so a caller that builds a
       # specific ref (main-image-workflow) stamps that ref's commit. Registry names
       # must be lowercase, and the repository owner is not guaranteed to be.
-      # IMAGE_REFS is the registry list the build pushes to; Docker Hub joins it only
+      # image_refs is the registry list the build pushes to; Docker Hub joins it only
       # when both of its secrets exist, so an unconfigured mirror cannot fail the leg.
       - name: Compute build metadata
         id: metadata
@@ -105,13 +105,11 @@ jobs:
           if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
             dockerhub_image="docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
             image_refs="${image_refs},${dockerhub_image}"
-            printf 'DOCKERHUB_IMAGE=%s\n' "$dockerhub_image" >> "$GITHUB_ENV"
             echo 'dockerhub=true' >> "$GITHUB_OUTPUT"
           else
             echo "Docker Hub credentials are not configured; publishing ${IMAGE_NAME} to GHCR only."
             echo 'dockerhub=false' >> "$GITHUB_OUTPUT"
           fi
-          printf 'IMAGE_REFS=%s\n' "$image_refs" >> "$GITHUB_ENV"
           printf 'image_refs=%s\n' "$image_refs" >> "$GITHUB_OUTPUT"
           printf 'BUILD_COMMIT=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           printf 'BUILD_BRANCH=%s\n' "$BUILD_BRANCH_INPUT" >> "$GITHUB_ENV"
@@ -151,18 +149,21 @@ jobs:
             BUILD_BRANCH=${{ env.BUILD_BRANCH }}
             BUILD_DATE=${{ env.BUILD_DATE }}
 
-      - name: Export digest
+      - name: Export digest and destination fingerprint
         env:
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_REFS: ${{ steps.metadata.outputs.image_refs }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          digest="$BUILD_DIGEST"
-          if [ -z "$digest" ]; then
-            echo "Build produced no digest." >&2
+          if [[ ! "$BUILD_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Build did not produce a valid SHA-256 digest." >&2
             exit 1
           fi
-          touch "/tmp/digests/${digest#sha256:}"
+          # Bind the digest to the exact registry references without putting any
+          # secret values in the artifact.
+          fingerprint=$(printf '%s' "$IMAGE_REFS" | sha256sum)
+          printf '%s\n%s\n' "$BUILD_DIGEST" "${fingerprint%% *}" > /tmp/digests/publication
 
       # The `-arch-` separator keeps one image's artifacts out of another's glob.
       # Image names commonly prefix one another (`coderax` / `coderax-api`,
@@ -172,7 +173,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.image.image_name }}-arch-${{ matrix.arch }}
-          path: /tmp/digests/*
+          path: /tmp/digests/publication
           if-no-files-found: error
           retention-days: 1
           # A full re-run (retry-docker-builds uses `rerun` when a job was
@@ -194,8 +195,8 @@ jobs:
 
     steps:
       # Registry names must be lowercase, and the repository owner is not guaranteed to be.
-      # DOCKERHUB_IMAGE stays unset unless both Docker Hub secrets exist, matching the
-      # build job: the digests are merged into exactly the registries they were pushed to.
+      # Resolve the currently configured targets so they can be checked against
+      # the destinations recorded by every build leg, including on a merge retry.
       - name: Resolve image names
         id: names
         env:
@@ -204,19 +205,22 @@ jobs:
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          printf 'GHCR_IMAGE=ghcr.io/%s/%s\n' "${GITHUB_REPOSITORY_OWNER,,}" "$IMAGE_NAME" >> "$GITHUB_ENV"
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}"
+          image_refs="$ghcr_image"
+          printf 'GHCR_IMAGE=%s\n' "$ghcr_image" >> "$GITHUB_ENV"
           if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
-            printf 'DOCKERHUB_IMAGE=docker.io/%s/%s\n' "$DOCKERHUB_USERNAME" "$IMAGE_NAME" >> "$GITHUB_ENV"
+            image_refs="${image_refs},docker.io/${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
             echo 'dockerhub=true' >> "$GITHUB_OUTPUT"
           else
             echo 'dockerhub=false' >> "$GITHUB_OUTPUT"
           fi
+          printf 'IMAGE_REFS=%s\n' "$image_refs" >> "$GITHUB_ENV"
 
       - name: Download digests
         uses: actions/download-artifact@v7
         with:
           pattern: digests-${{ matrix.image.image_name }}-arch-*
-          merge-multiple: true
+          merge-multiple: false
           path: /tmp/digests
 
       - name: Set up Docker Buildx
@@ -242,21 +246,44 @@ jobs:
         working-directory: /tmp/digests
         env:
           EXPECTED_ARCHES: ${{ join(fromJSON(inputs.arches), ' ') }}
+          DIGEST_ARTIFACT_PREFIX: digests-${{ matrix.image.image_name }}-arch-
           TAG_SUFFIXES: ${{ inputs.tag_suffixes }}
         run: |
           set -euo pipefail
           shopt -s nullglob
 
-          # One digest per architecture. Assert the exact count: too few would
-          # publish a manifest missing an architecture, too many means the artifact
-          # glob crossed images (#15446). The old guard only rejected an empty
-          # directory, which is why four digests sailed through.
-          expected=$(wc -w <<< "$EXPECTED_ARCHES")
-          digests=(*)
-          if [ "${#digests[@]}" -ne "$expected" ]; then
-            echo "Expected $expected platform digests ($EXPECTED_ARCHES), found ${#digests[@]}: ${digests[*]}" >&2
+          read -r -a arches <<< "$EXPECTED_ARCHES"
+          artifacts=(*)
+          if (( ${#arches[@]} == 0 || ${#artifacts[@]} != ${#arches[@]} )); then
+            echo "Expected one artifact per architecture ($EXPECTED_ARCHES); found ${#artifacts[@]}." >&2
             exit 1
           fi
+          fingerprint=$(printf '%s' "$IMAGE_REFS" | sha256sum)
+          digests=()
+          declare -A seen_digests=()
+          for arch in "${arches[@]}"; do
+            record="${DIGEST_ARTIFACT_PREFIX}${arch}/publication"
+            if [[ ! -f "$record" ]]; then
+              echo "Missing publication record for ${arch}; re-run all jobs to rebuild every architecture." >&2
+              exit 1
+            fi
+            mapfile -t publication < "$record"
+            if [[ "${#publication[@]}" -ne 2 || ! "${publication[0]}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+              echo "Invalid publication record for ${arch}; re-run all jobs." >&2
+              exit 1
+            fi
+            if [[ "${publication[1]}" != "${fingerprint%% *}" ]]; then
+              echo "Registry destinations changed since the ${arch} build; re-run all jobs with the current configuration." >&2
+              exit 1
+            fi
+            digest="${publication[0]}"
+            if [[ -n "${seen_digests[$digest]:-}" ]]; then
+              echo "The publication record for ${arch} repeats another architecture's digest; re-run all jobs." >&2
+              exit 1
+            fi
+            seen_digests[$digest]=1
+            digests+=("$digest")
+          done
 
           tag_args=()
           while IFS= read -r suffix; do
@@ -268,16 +295,21 @@ jobs:
             exit 1
           fi
 
-          registries=("$GHCR_IMAGE")
-          if [ -n "${DOCKERHUB_IMAGE:-}" ]; then
-            registries+=("$DOCKERHUB_IMAGE")
-          fi
+          IFS=, read -r -a registries <<< "$IMAGE_REFS"
+
+          # Check every source before moving any tags. A previous push may no
+          # longer be readable even when its destination still matches.
+          for image in "${registries[@]}"; do
+            for digest in "${digests[@]}"; do
+              docker buildx imagetools inspect --raw "${image}@${digest}" > /dev/null
+            done
+          done
 
           echo "Merging ${#digests[@]} digests into $(( ${#tag_args[@]} / 2 )) tag(s) per registry: ${registries[*]}"
           for image in "${registries[@]}"; do
             docker buildx imagetools create \
               "${tag_args[@]/IMAGE:/${image}:}" \
-              "${digests[@]/#/${image}@sha256:}"
+              "${digests[@]/#/${image}@}"
           done
 
       - name: Inspect image
