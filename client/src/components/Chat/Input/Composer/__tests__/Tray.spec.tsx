@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem } from '~/hooks/Input/useComposerItems';
@@ -67,8 +66,8 @@ describe('Tray', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders nothing when no context is staged, even when a model is attached', () => {
-    const { container } = renderTray([], new Map(), undefined, {
+  it('keeps the active model visible when no context is staged', () => {
+    renderTray([], new Map(), undefined, {
       title: null,
       conversationId: null,
       endpoint: null,
@@ -77,7 +76,8 @@ describe('Tray', () => {
       model: 'qwen2.5-coder:7b',
     } as TConversation);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByTestId('composer-model-bar')).toHaveTextContent('qwen2.5-coder:7b');
+    expect(screen.queryByTestId('composer-tray')).not.toBeInTheDocument();
   });
 
   it('groups every staged kind under one labelled chip list', () => {
