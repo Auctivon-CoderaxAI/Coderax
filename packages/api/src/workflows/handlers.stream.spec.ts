@@ -19,7 +19,11 @@ describe('workflow run SSE polling', () => {
     const pending = new Promise<typeof run>((resolve) => {
       releaseRead = resolve;
     });
-    const getWorkflowRun = jest.fn().mockResolvedValueOnce(run).mockReturnValueOnce(pending).mockResolvedValue(run);
+    const getWorkflowRun = jest
+      .fn()
+      .mockResolvedValueOnce(run)
+      .mockReturnValueOnce(pending)
+      .mockResolvedValue(run);
     const handlers = createWorkflowHandlers({
       methods: { getWorkflowRun } as never,
       canRunAgent: async () => true,
@@ -131,7 +135,7 @@ describe('workflow run stream replay', () => {
 
     expect(writes.filter((chunk) => chunk.includes('event: run-event'))).toHaveLength(2);
     expect(frameIds(writes)).toEqual(['id: run-1:2', 'id: run-1:3', 'id: run-1:3']);
-    expect(writes.at(-1)).toContain('event: snapshot');
+    expect(writes[writes.length - 1]).toContain('event: snapshot');
   });
 
   it('ignores a cursor that belongs to another run', async () => {
