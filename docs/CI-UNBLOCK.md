@@ -1,5 +1,7 @@
 # CI unblock: billing, visibility, and runner startup
 
+> Historical diagnostic guidance. The canonical Coderax repository currently reports public visibility; this does not establish owner approval for a public-source policy or verify current runner availability or protection settings. Verify actual exact-head hosted runs and preserve the owner-only application and zero-added-cost boundaries.
+
 ## Symptom
 
 Workflow runs fail before `Set up job` with `startup_failure`, `steps=0`, and no

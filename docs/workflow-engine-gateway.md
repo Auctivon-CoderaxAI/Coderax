@@ -20,10 +20,17 @@ not a restoration of those commits.
 
 ## Owner authentication
 
-Every gateway route runs `requireJwtAuth` and then the owner gate in
-`gateway/auth.ts`. A valid session is not sufficient: Coderax is owner-controlled,
-so the authenticated user must hold the owner role. Identity is read from
-`req.user` only; a body or query `userId` is never trusted.
+Every gateway route runs `requireJwtAuth` and then checks the authenticated
+`req.user` in `gateway/auth.ts`. The deployment owner must have a non-empty
+user ID and the unscoped `ADMIN` role used by the deployment bootstrap. A
+tenant administrator cannot use the shared engine credential. The gateway is
+unavailable with `TENANT_ISOLATION_STRICT=true`, because JWT authentication
+then requires a tenant scope and the gateway does not accept one.
+
+The owner gate runs before resolving gateway transport, checking compatibility,
+or contacting the engine. It ignores identity supplied in the body or query.
+A session without a stable ID receives 401 `WORKFLOW_ENGINE_UNAUTHENTICATED`;
+one that lacks owner access receives 403 `WORKFLOW_ENGINE_FORBIDDEN`.
 
 The engine credential is read from the server environment variable named by
 `workflowEngine.tokenEnv` (default `CODERAX_ENGINE_TOKEN`) at call time. It is
@@ -41,20 +48,22 @@ workflowEngine:
   contractVersion: 1.0.0
   requestTimeoutMs: 30000
   streamIdleTimeoutMs: 120000
-  maxResponseBytes: 4194304
-  maxFrameBytes: 1048576
-  maxEventResyncs: 3
-  maxReceipts: 20
+  maxResponseBytes: 4194304 # JSON response budget, refused before buffering
+  maxFrameBytes: 1048576 # one SSE frame, measured in UTF-8 bytes
+  maxEventResyncs: 3 # reconnects without cursor progress before failing closed
+  startupCheck: true # health + readiness at startup; request checks always run
 ```
 
 `baseURL` must be https unless it points at loopback. A path prefix is preserved.
-`maxResponseBytes` and `maxFrameBytes` bound one response body and one streamed
-frame; `maxEventResyncs` bounds stalled resynchronisation of the event feed; and
-`maxReceipts` sets how many authority receipts a conversation retains. Each
-defaults to the value above, so omitting them reproduces the previous behavior.
-The transport is reversible: disabling the gateway removes the proxy surface and
-leaves every existing Coderax route untouched. No data migration is involved and
-no engine state is deleted.
+Deployment YAML must enable the gateway and sets its engine URL, credential
+variable, contract version and startup policy. A stored owner preference can
+disable the gateway or tune request and stream limits. It cannot turn an off
+deployment on, redirect engine requests, or select a different credential.
+
+Every operational limit is configurable; the defaults reproduce the previous
+behavior. The transport is reversible: disabling the gateway removes the proxy
+surface and leaves every existing Coderax route untouched. No data migration is
+involved and no engine state is deleted.
 
 ## Handshake and fail-closed behavior
 
@@ -65,9 +74,14 @@ and refuses traffic unless:
 - the engine status is not `failed`;
 - no required health check is `failed`.
 
-`prewarm` performs the same check at startup without a request. A failed check
-leaves every gateway route answering 503 with a stable code; it never falls back
-to another engine and never weakens the check to keep serving.
+`prewarm` performs the handshake at startup without a request: the same health
+contract check plus `/v1/ready`, because a process that has not finished its own
+validation must not be reported as verified. `workflowEngine.startupCheck: false`
+skips only the startup run; every request still performs its compatibility check.
+After a failed startup check, gateway requests return 503 until a fresh health
+and readiness check succeeds. The gateway then resumes its usual per-request
+compatibility checks; `/ready` also checks live readiness. Startup orchestration
+lives in `packages/api/src/gateway/startup.ts`; the CJS route loads config and calls it.
 
 Capabilities are reported separately (`durable`, `cancellation`, `resume`,
 `streaming`). Work admission requires one available engine advertising durability,
@@ -111,12 +125,21 @@ A stream that cannot be resynchronised fails closed.
 ## Single-authoritative-engine rule
 
 The gateway runs no engine and owns no execution state. It records no
-conversation, task or event, and it does not write to Coderax data. Every control
+conversation, task or event, and it does not write to Coderax data. It exposes no
+conversation-creation route, never mints a conversation id and never caches one:
+conversation identity always comes from the durable engine. Every control
 operation carries the engine's fencing generation, and the engine's lease is the
 only authority for which process may write a task. Consequently the gateway
 cannot create a second authoritative engine for a conversation: it forwards the
 owner's request to the one engine that holds the lease, or reports the engine's
 refusal.
+
+A turn addressed to an existing conversation must be recorded in that same
+conversation. If the engine answers `POST /v1/chat` or `POST /v1/work` with a
+different `conversationId` than the caller supplied, the gateway fails closed with
+`protocol_error` instead of presenting the reply as the caller's conversation.
+Conversation ids in a path or a request body are validated as single identifiers
+(`.`, `..`, slashes, backslashes and NUL are refused) before any engine call.
 
 ## Cutover blockers
 
@@ -137,3 +160,16 @@ no client route is switched. Existing Coderax Chat and Work behavior is unchange
 not modified by this change, per the WorkflowEngine migration plan while PRs #308
 and #309 are unresolved. The gateway is additive: one route mount and one
 configuration field.
+
+PR #315 carries the client i18n typecheck fix that `main` is missing; this branch
+merges that fix so its exact-head hosted checks are meaningful. It duplicates no
+gateway work and disappears from this diff once #315 lands.
+
+The engine's PR #7 publishes contract `1.1.0` and a canonical `@coderax/sdk`
+tarball. The gateway remains pinned to the merged engine contract `1.0.0` and
+does not depend on an unmerged cross-repository PR. A 1.1.0 engine is additive
+(`WorkSubmitRequest.idempotencyKey`, `TaskAccepted.replayed`,
+`stream.truncated`, typed chat frames); moving to it is one coordinated change
+that upgrades `contracts.ts`/`client.ts` to the SDK and moves the engine and both
+clients in the same release train. Until then the handshake refuses a different
+contract version rather than accepting frames it cannot validate.

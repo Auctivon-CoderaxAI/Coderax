@@ -432,8 +432,10 @@ function Bar({
             anchorRef={anchorRef}
           />
         </span>
-        {/* The provider picker belongs with the message it configures, not in the page header. */}
-        {index === 0 && (
+        {/* The provider picker belongs with the message it configures, not in the
+            page header. Work names its own model in the agent rail, so the Chat
+            picker would offer a second, unrelated selection. */}
+        {index === 0 && !showWorkAgentSelector && (
           <div
             className="max-w-36 min-w-0 shrink overflow-hidden sm:max-w-52"
             data-testid="composer-model-selection"
@@ -516,7 +518,7 @@ function Bar({
               models automatically. It sits beside the mic, where Work names the
               model its next message will use. */}
           {index === 0 && showWorkAgentSelector && (
-            <div className="max-w-44 min-w-0 shrink overflow-hidden sm:max-w-56">
+            <div className="max-w-full min-w-0 shrink overflow-visible">
               <WorkAgentConversationSelector />
             </div>
           )}

@@ -7,15 +7,17 @@
  * name and the value is read from the process environment at call time.
  */
 
+import { stripTrailingSlashes } from './url';
+
 export const DEFAULT_ENGINE_TOKEN_ENV = 'CODERAX_ENGINE_TOKEN';
 export const DEFAULT_CONTRACT_VERSION = '1.0.0';
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
-export const DEFAULT_MAPPING_ATTEMPTS = 3;
-export const DEFAULT_MAPPING_RETRY_DELAY_MS = 100;
 export const DEFAULT_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_MAX_FRAME_BYTES = 1_048_576;
 export const DEFAULT_MAX_EVENT_RESYNCS = 3;
+export const DEFAULT_MAPPING_ATTEMPTS = 3;
+export const DEFAULT_MAPPING_RETRY_DELAY_MS = 100;
 export const DEFAULT_MAX_RECEIPTS = 20;
 
 export type WorkflowEngineGatewayOptions = {
@@ -30,20 +32,17 @@ export type WorkflowEngineGatewayOptions = {
   contractVersion?: string;
   requestTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
-  /** Attempts to record a conversation the engine itself created. */
-  mappingAttempts?: number;
-  /** Backoff between mapping attempts; multiplies by the attempt number. */
-  mappingRetryDelayMs?: number;
-  /** Largest JSON response body read from the engine. */
+  /** JSON response budget; an oversize body is refused before it is buffered. */
   maxResponseBytes?: number;
-  /** Largest single SSE frame accepted from the engine. */
+  /** SSE frame budget, measured in UTF-8 bytes. */
   maxFrameBytes?: number;
-  /** Stalled stream resynchronisations tolerated before the feed is refused. */
+  /** Reconnects allowed without advancing the event cursor before failing closed. */
   maxEventResyncs?: number;
-  /** Authority receipts retained per conversation; older ones are discarded. */
-  maxReceipts?: number;
-  /** Runs the compatibility handshake at startup; request checks always run. */
+  /** Runs the compatibility and readiness handshake at startup; request checks always run. */
   startupCheck?: boolean;
+  mappingAttempts?: number;
+  mappingRetryDelayMs?: number;
+  maxReceipts?: number;
 };
 
 export type ResolvedGatewayConfig =
@@ -58,13 +57,13 @@ export type ResolvedGatewayConfig =
       contractVersion: string;
       requestTimeoutMs: number;
       streamIdleTimeoutMs: number;
-      mappingAttempts: number;
-      mappingRetryDelayMs: number;
       maxResponseBytes: number;
       maxFrameBytes: number;
       maxEventResyncs: number;
-      maxReceipts: number;
       startupCheck: boolean;
+      mappingAttempts: number;
+      mappingRetryDelayMs: number;
+      maxReceipts: number;
       /** Stable cache key; deliberately excludes the token value. */
       fingerprint: string;
     };
@@ -89,16 +88,45 @@ function positiveInteger(value: number | undefined, fallback: number): number | 
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-function boundedInteger(
-  value: number | undefined,
-  fallback: number,
-  min: number,
-  max: number,
-): number | null {
+function nonNegativeInteger(value: number | undefined, fallback: number): number | null {
   if (value == null) {
     return fallback;
   }
-  return Number.isSafeInteger(value) && value >= min && value <= max ? value : null;
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Resolve deployment settings with optional owner request preferences. */
+export function resolveGatewayOptions(
+  deployment:
+    | { config?: { workflowEngine?: WorkflowEngineGatewayOptions | null } | null }
+    | null
+    | undefined,
+  override?: WorkflowEngineGatewayOptions | null,
+): WorkflowEngineGatewayOptions | undefined {
+  const base = deployment?.config?.workflowEngine;
+  if (base == null) {
+    return undefined;
+  }
+  if (base.enabled !== true || override == null) {
+    return base;
+  }
+  return {
+    ...base,
+    ...(override.enabled === false ? { enabled: false } : {}),
+    ...(override.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: override.requestTimeoutMs }),
+    ...(override.streamIdleTimeoutMs === undefined
+      ? {}
+      : { streamIdleTimeoutMs: override.streamIdleTimeoutMs }),
+    ...(override.maxResponseBytes === undefined
+      ? {}
+      : { maxResponseBytes: override.maxResponseBytes }),
+    ...(override.maxFrameBytes === undefined ? {} : { maxFrameBytes: override.maxFrameBytes }),
+    ...(override.maxEventResyncs === undefined
+      ? {}
+      : { maxEventResyncs: override.maxEventResyncs }),
+  };
 }
 
 function isLoopback(hostname: string): boolean {
@@ -138,7 +166,7 @@ function parseBaseURL(value: string): { ok: true; url: URL } | { ok: false; deta
 
 export function resolveGatewayConfig(
   options: WorkflowEngineGatewayOptions | null | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  env: NodeJS.ProcessEnv,
 ): GatewayConfigResult {
   if (options?.enabled !== true) {
     return { ok: true, value: { enabled: false } };
@@ -220,75 +248,29 @@ export function resolveGatewayConfig(
     options.streamIdleTimeoutMs,
     DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   );
-  if (requestTimeoutMs == null || streamIdleTimeoutMs == null) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine timeouts must be positive integers.',
-    };
-  }
+  const maxResponseBytes = positiveInteger(options.maxResponseBytes, DEFAULT_MAX_RESPONSE_BYTES);
+  const maxFrameBytes = positiveInteger(options.maxFrameBytes, DEFAULT_MAX_FRAME_BYTES);
+  const maxEventResyncs = nonNegativeInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS);
   const mappingAttempts = options.mappingAttempts ?? DEFAULT_MAPPING_ATTEMPTS;
-  if (!Number.isSafeInteger(mappingAttempts) || mappingAttempts < 1 || mappingAttempts > 10) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.mappingAttempts must be an integer between 1 and 10.',
-    };
-  }
   const mappingRetryDelayMs = options.mappingRetryDelayMs ?? DEFAULT_MAPPING_RETRY_DELAY_MS;
+  const maxReceipts = options.maxReceipts ?? DEFAULT_MAX_RECEIPTS;
+  if (!Number.isSafeInteger(mappingAttempts) || mappingAttempts < 1 || mappingAttempts > 10 ||
+      !Number.isSafeInteger(mappingRetryDelayMs) || mappingRetryDelayMs < 0 || mappingRetryDelayMs > 10000 ||
+      !Number.isSafeInteger(maxReceipts) || maxReceipts < 1 || maxReceipts > 500) {
+    return { ok: false, code: 'WORKFLOW_ENGINE_INVALID_CONFIG', detail: 'Invalid conversation authority limits.' };
+  }
   if (
-    !Number.isSafeInteger(mappingRetryDelayMs) ||
-    mappingRetryDelayMs < 0 ||
-    mappingRetryDelayMs > 10_000
+    requestTimeoutMs == null ||
+    streamIdleTimeoutMs == null ||
+    maxResponseBytes == null ||
+    maxFrameBytes == null ||
+    maxEventResyncs == null
   ) {
     return {
       ok: false,
       code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.mappingRetryDelayMs must be an integer between 0 and 10000.',
-    };
-  }
-  // Transport limits are deployment policy, not request input: an operator can
-  // bound a slow or hostile engine, and a caller cannot widen the bound.
-  const maxResponseBytes = boundedInteger(
-    options.maxResponseBytes,
-    DEFAULT_MAX_RESPONSE_BYTES,
-    1_024,
-    64 * 1024 * 1024,
-  );
-  if (maxResponseBytes == null) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.maxResponseBytes must be an integer between 1024 and 67108864.',
-    };
-  }
-  const maxFrameBytes = boundedInteger(
-    options.maxFrameBytes,
-    DEFAULT_MAX_FRAME_BYTES,
-    1_024,
-    16 * 1024 * 1024,
-  );
-  if (maxFrameBytes == null) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.maxFrameBytes must be an integer between 1024 and 16777216.',
-    };
-  }
-  const maxEventResyncs = boundedInteger(options.maxEventResyncs, DEFAULT_MAX_EVENT_RESYNCS, 0, 20);
-  if (maxEventResyncs == null) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.maxEventResyncs must be an integer between 0 and 20.',
-    };
-  }
-  const maxReceipts = boundedInteger(options.maxReceipts, DEFAULT_MAX_RECEIPTS, 1, 500);
-  if (maxReceipts == null) {
-    return {
-      ok: false,
-      code: 'WORKFLOW_ENGINE_INVALID_CONFIG',
-      detail: 'workflowEngine.maxReceipts must be an integer between 1 and 500.',
+      detail:
+        'workflowEngine timeouts and byte limits must be positive integers; resyncs may be zero.',
     };
   }
 
@@ -308,7 +290,7 @@ export function resolveGatewayConfig(
 
   // A path prefix is preserved so a deployment can host the engine beside
   // other services without rewriting routes.
-  const basePath = parsed.url.pathname.replace(/\/+$/, '');
+  const basePath = stripTrailingSlashes(parsed.url.pathname);
   const baseURL = `${parsed.url.origin}${basePath}`;
   return {
     ok: true,
@@ -322,14 +304,14 @@ export function resolveGatewayConfig(
       contractVersion,
       requestTimeoutMs,
       streamIdleTimeoutMs,
-      mappingAttempts,
-      mappingRetryDelayMs,
       maxResponseBytes,
       maxFrameBytes,
       maxEventResyncs,
-      maxReceipts,
       startupCheck: options.startupCheck !== false,
-      fingerprint: `${baseURL}|${ownerUserId}|${conversations.join(',')}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${mappingAttempts}|${mappingRetryDelayMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}|${maxReceipts}`,
+      mappingAttempts,
+      mappingRetryDelayMs,
+      maxReceipts,
+      fingerprint: `${baseURL}|${JSON.stringify([ownerUserId, conversations])}|${tokenEnv}|${contractVersion}|${requestTimeoutMs}|${streamIdleTimeoutMs}|${maxResponseBytes}|${maxFrameBytes}|${maxEventResyncs}|${mappingAttempts}|${mappingRetryDelayMs}|${maxReceipts}`,
     },
   };
 }

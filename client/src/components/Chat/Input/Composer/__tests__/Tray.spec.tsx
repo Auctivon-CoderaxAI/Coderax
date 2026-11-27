@@ -1,4 +1,5 @@
 import React from 'react';
+import { Constants } from 'coderax-data-provider';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { TConversation } from 'coderax-data-provider';
 import type { ComposerItem } from '~/hooks/Input/useComposerItems';
@@ -67,17 +68,34 @@ describe('Tray', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders nothing when no context is staged, even when a model is attached', () => {
-    const { container } = renderTray([], new Map(), undefined, {
+  it.each([null, '', Constants.NEW_CONVO])(
+    'hides the model strip for draft ID %s',
+    (conversationId) => {
+      const { container } = renderTray([], new Map(), undefined, {
+        title: null,
+        conversationId,
+        endpoint: null,
+        createdAt: '',
+        updatedAt: '',
+        model: 'qwen2.5-coder:7b',
+      } as TConversation);
+
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
+
+  it('shows the active model in an existing thread without opening the staged tray', () => {
+    renderTray([], new Map(), undefined, {
       title: null,
-      conversationId: null,
+      conversationId: 'thread-id',
       endpoint: null,
       createdAt: '',
       updatedAt: '',
       model: 'qwen2.5-coder:7b',
     } as TConversation);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByTestId('composer-model-bar')).toHaveTextContent('qwen2.5-coder:7b');
+    expect(screen.queryByTestId('composer-tray')).not.toBeInTheDocument();
   });
 
   it('groups every staged kind under one labelled chip list', () => {

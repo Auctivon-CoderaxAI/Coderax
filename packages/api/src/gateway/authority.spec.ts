@@ -232,6 +232,15 @@ describe('conversation authority', () => {
     });
   });
 
+  it('refuses another dispatch while the previous claim is in flight', async () => {
+    const { authority } = authorityFor();
+    const first = await authority.admit({ ...scope, conversationId: 'conv_1' });
+    expect(first.ok).toBe(true);
+    await expect(authority.admit({ ...scope, conversationId: 'conv_1' })).resolves.toEqual({
+      ok: false, status: 409, code: 'WORKFLOW_ENGINE_AUTHORITY_BUSY',
+    });
+  });
+
   it('keeps conversations isolated by owner', async () => {
     const { authority, store } = authorityFor();
     await authority.admit({ ...scope, conversationId: 'conv_1' });

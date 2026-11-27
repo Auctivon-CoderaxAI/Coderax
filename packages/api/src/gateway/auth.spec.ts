@@ -47,12 +47,12 @@ describe('gateway owner gate', () => {
     });
   });
 
-  it('admits only the designated owner and keeps the tenant scope', () => {
+  it('rejects a designated identity when its session is tenant-scoped', () => {
     expect(
       requireOwner(request({ id: 'owner_1', role: SystemRoles.ADMIN, tenantId: 'tenant_1' }), {
         ownerUserId: 'owner_1',
       }),
-    ).toEqual({ ok: true, value: { userId: 'owner_1', tenantId: 'tenant_1' } });
+    ).toEqual({ ok: false, status: 403, code: 'WORKFLOW_ENGINE_FORBIDDEN' });
   });
 
   it('never reads identity from the request body or query', () => {

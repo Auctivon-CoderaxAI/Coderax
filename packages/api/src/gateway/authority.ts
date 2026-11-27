@@ -323,6 +323,9 @@ export function createConversationAuthority(
     if (current.engine !== 'workflow-engine') {
       return refusal('WORKFLOW_ENGINE_AUTHORITY_CONFLICT');
     }
+    if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
+      return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
+    }
     const generation = current.generation + 1;
     const next = await storeAdvance({
       ownerId: input.ownerId,
@@ -332,7 +335,7 @@ export function createConversationAuthority(
       generationDelta: 1,
       inFlightDelta: inFlight,
       receipt: inFlight > 0 ? receipt('dispatched', generation) : undefined,
-      expect: { state: 'active', engine: 'workflow-engine' },
+      expect: { state: 'active', engine: 'workflow-engine', inFlight: 0 },
     });
     return next == null ? refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY') : { ok: true, generation };
   }
@@ -377,7 +380,7 @@ export function createConversationAuthority(
       if (current == null) {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_UNMAPPED');
       }
-      if (current.inFlight > 0) {
+      if (current.inFlight > 0 || current.receipts.at(-1)?.outcome === 'indeterminate') {
         return refusal('WORKFLOW_ENGINE_AUTHORITY_BUSY');
       }
       if (current.engine === input.to && current.state === 'active') {

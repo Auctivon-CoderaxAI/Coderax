@@ -1,4 +1,5 @@
 import { Suspense, useState, useEffect, useRef, useCallback, startTransition } from 'react';
+import { useSetAtom } from 'jotai';
 import { useRecoilValue } from 'recoil';
 import { Outlet } from 'react-router-dom';
 import { useMediaQuery } from '@coderax/client';
@@ -46,6 +47,7 @@ import ModulePalette from '~/components/Nav/ModulePalette';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import useDrawerSwipe from '~/hooks/Nav/useDrawerSwipe';
 import { lazyWithRecovery } from '~/lib/assets/lazy';
+import { unreadCountAtom } from '~/store/recents';
 import ChatSettingsProvider from './ChatSettings';
 import { useHealthCheck } from '~/data-provider';
 import Settings from '~/components/Nav/Settings';
@@ -59,9 +61,16 @@ const TermsAndConditionsModal = lazyWithRecovery(
 /** Isolates the unseen-reply subscription so its updates re-render only this node, not `Root`. */
 function ReplyNotifications() {
   const replyState = useUnseenConversations();
+  const setUnreadCount = useSetAtom(unreadCountAtom);
+  const unseenCount = replyState?.unseen.length ?? 0;
   useReplyWatcher();
-  useUnseenBadge(replyState?.unseen.length ?? 0);
+  useUnseenBadge(unseenCount);
   useReplyAlerts(replyState);
+  /* The rail and drawer read one aggregate instead of scanning the cache again. */
+  useEffect(() => {
+    setUnreadCount(unseenCount);
+  }, [setUnreadCount, unseenCount]);
+  useEffect(() => () => setUnreadCount(0), [setUnreadCount]);
   return null;
 }
 

@@ -44,20 +44,17 @@ test.describe('classes that survive cn()', () => {
     page,
   }) => {
     test.setTimeout(120_000);
-    await page.goto('/c/new', { timeout: 30000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/projects', { timeout: 30000 });
 
-    /** The header's overflow trigger is a `Button size="icon"`, whose recipe
-     *  contributes `size-10`, with `size-9` written by the call site. `cn()` has
-     *  to keep the caller's: 1.9.1 knows no `size-*` group, so it keeps both,
-     *  and `.size-10` is emitted after `.size-9` — the button silently renders
-     *  at 40px instead of the 36px the header lays out for. It is `md:hidden`,
-     *  so the assertion reads the computed box, which is defined whether or not
-     *  the viewport shows it. */
-    const trigger = page.getByTestId('header-overflow-menu');
-    await expect(trigger).toBeAttached({ timeout: 30000 });
+    // ProjectsNavBar overrides the header icon's recipe size with size-9.
+    const trigger = page
+      .getByRole('main')
+      .getByRole('button', { name: 'Open sidebar', exact: true });
+    await expect(trigger).toBeVisible({ timeout: 30000 });
 
     await expect(trigger).toHaveClass(/\bsize-9\b/);
-    await expect(trigger).not.toHaveClass(/\bsize-10\b/);
+    await expect(trigger).not.toHaveClass(/\bsize-theme-button\b/);
 
     const { width, height } = await computedStyles(trigger, ['width', 'height']);
     expect(width).toBe('36px');

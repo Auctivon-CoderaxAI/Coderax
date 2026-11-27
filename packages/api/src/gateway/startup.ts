@@ -1,59 +1,50 @@
-/**
- * Startup orchestration for the WorkflowEngine gateway.
- *
- * The compatibility handshake runs once, without a request, and is deliberately
- * fire-and-forget and fail-closed: a failed check leaves every gateway route
- * answering 503, and it never blocks or rewrites an existing Coderax route.
- * `/api` hands this module the deployment config and the mounted gateway instead
- * of carrying the branch itself.
- */
-
+import type { WorkflowEngineGateway, WorkflowEngineGatewayLogger } from './router';
 import type { WorkflowEngineGatewayOptions } from './config';
-import type { WorkflowEngineGateway } from './router';
 import type { CompatibilityReport } from './compat';
 
-export type WorkflowEngineStartupLogger = {
-  info?: (message: string) => void;
-  warn?: (message: string, meta?: { error: string }) => void;
-  error?: (message: string) => void;
-};
+/**
+ * Startup orchestration belongs here, not in the CJS route module.
+ *
+ * The handshake runs in the background. An unverified startup makes gateway
+ * requests recheck readiness before dispatch; existing Coderax routes are unaffected.
+ */
 
-export type WorkflowEngineStartupDeps = {
+export type GatewayStartupDeps = {
+  gateway: Pick<WorkflowEngineGateway, 'prewarm'>;
   resolveConfig: () =>
     | WorkflowEngineGatewayOptions
     | null
     | undefined
     | Promise<WorkflowEngineGatewayOptions | null | undefined>;
-  gateway: Pick<WorkflowEngineGateway, 'prewarm'>;
-  logger?: WorkflowEngineStartupLogger;
+  logger?: WorkflowEngineGatewayLogger;
   env?: NodeJS.ProcessEnv;
 };
 
-/**
- * Runs the startup handshake once. An unreadable configuration is a log line,
- * not a crash: the request path re-reads it and fails closed there.
- */
-export async function prewarmWorkflowEngine(
-  deps: WorkflowEngineStartupDeps,
+function failureCode(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    return String((error as { code: unknown }).code);
+  }
+  return 'unknown';
+}
+
+/** Runs one startup check. Exposed so the behavior can be tested without a process. */
+export async function runWorkflowEngineStartup(
+  deps: GatewayStartupDeps,
 ): Promise<CompatibilityReport | null> {
   try {
-    const config = await deps.resolveConfig();
-    if (config?.startupCheck === false) {
-      return null;
-    }
-    return await deps.gateway.prewarm(config);
+    return await deps.gateway.prewarm(await deps.resolveConfig());
   } catch (error) {
-    deps.logger?.warn?.('[workflow-engine] startup check skipped', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    // Never log the error text: a loader or transport failure may carry a host.
+    deps.logger?.warn?.(`[workflow-engine] startup check skipped: ${failureCode(error)}`);
     return null;
   }
 }
 
-/** Arms the startup handshake; test processes never reach a real engine. */
-export function startWorkflowEnginePrewarm(deps: WorkflowEngineStartupDeps): void {
-  if ((deps.env ?? process.env).NODE_ENV === 'test') {
+/** Starts the check once at module load, except under Jest. */
+export function startWorkflowEngineGateway(deps: GatewayStartupDeps): void {
+  const env = deps.env ?? process.env;
+  if (env.NODE_ENV === 'test') {
     return;
   }
-  void prewarmWorkflowEngine(deps);
+  void runWorkflowEngineStartup(deps);
 }

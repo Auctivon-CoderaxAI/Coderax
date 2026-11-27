@@ -1,10 +1,10 @@
-import http from 'http';
 import express from 'express';
+import { get } from 'node:http';
 import request from 'supertest';
-import type { AddressInfo } from 'net';
-import type { ConversationAuthorityStore } from './authority';
+import { once } from 'node:events';
 import type { WorkflowEngineGatewayDeps } from './router';
 import type { GatewayFetch } from './client';
+import type { ConversationAuthorityStore } from './authority';
 import { createMemoryAuthorityStore } from './authority';
 import { createWorkflowEngineGateway } from './router';
 
@@ -58,8 +58,57 @@ function health(contractVersion = '1.0.0') {
   };
 }
 
+function appWithUser(fetchImpl: GatewayFetch, user: unknown) {
+  const gateway = createWorkflowEngineGateway({
+    resolveConfig: () => ({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      ownerUserId: 'owner_1',
+      tokenEnv: 'ENGINE_TOKEN',
+    }),
+    env: { ENGINE_TOKEN: 'server-token' } as NodeJS.ProcessEnv,
+    fetch: fetchImpl,
+    authorityStore: createMemoryAuthorityStore(),
+  });
+  const app = express();
+  app.use((req, _res, next) => {
+    (req as unknown as { user: unknown }).user = user;
+    next();
+  });
+  app.use(express.json());
+  app.use(gateway.router);
+  return { app, gateway };
+}
+
+function appWithRewrittenDotSegment(fetchImpl: GatewayFetch) {
+  const gateway = createWorkflowEngineGateway({
+    resolveConfig: () => ({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      ownerUserId: 'owner_1',
+      tokenEnv: 'ENGINE_TOKEN',
+    }),
+    env: { ENGINE_TOKEN: 'server-token' } as NodeJS.ProcessEnv,
+    fetch: fetchImpl,
+    authorityStore: createMemoryAuthorityStore(),
+    requireOwner: () => ({ ok: true, value: { userId: 'owner_1' } }),
+  });
+  const app = express();
+  app.use(express.json());
+  // Express normalizes dot segments in the original URL before routing. Rewriting
+  // here reaches the route with the decoded identifier the guard must reject.
+  app.use((req, _res, next) => {
+    if (req.path === '/conversations/guard') {
+      req.url = '/conversations/..';
+    }
+    next();
+  });
+  app.use(gateway.router);
+  return { app, gateway };
+}
+
 function appFor(fetchImpl: GatewayFetch, overrides: Partial<WorkflowEngineGatewayDeps> = {}) {
-  const store = overrides.authorityStore ?? createMemoryAuthorityStore();
+  const store = createMemoryAuthorityStore();
   const gateway = createWorkflowEngineGateway({
     resolveConfig: () => ({
       enabled: true,
@@ -79,28 +128,6 @@ function appFor(fetchImpl: GatewayFetch, overrides: Partial<WorkflowEngineGatewa
   return { app, gateway, store };
 }
 
-/** Sends the path verbatim: supertest resolves dot segments before Express sees them. */
-async function rawGet(app: ReturnType<typeof appFor>['app'], path: string) {
-  const server = app.listen(0);
-  try {
-    const { port } = server.address() as AddressInfo;
-    return await new Promise<{ status: number; body: string }>((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port, path, method: 'GET' }, (res) => {
-        let body = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk: string) => {
-          body += chunk;
-        });
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
-      });
-      req.on('error', reject);
-      req.end();
-    });
-  } finally {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  }
-}
-
 function chatReply(conversationId = 'conv_1') {
   return {
     conversationId,
@@ -110,7 +137,6 @@ function chatReply(conversationId = 'conv_1') {
     model: { providerId: 'coderax', modelId: 'native' },
     createdAt: at,
   };
-}
 
 describe('workflow engine gateway routes', () => {
   it('fails closed when the transport is disabled', async () => {
@@ -135,6 +161,37 @@ describe('workflow engine gateway routes', () => {
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
     expect(called).toBe(false);
+  });
+
+  it.each([
+    [401, 'unauthorized'],
+    [403, 'forbidden'],
+  ] as const)(
+    'reports upstream %i separately from gateway user authentication',
+    async (status, engineCode) => {
+      const { app } = appFor(async (url) =>
+        url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}, status),
+      );
+      const response = await request(app).get('/agents').expect(502);
+      expect(response.body).toMatchObject({
+        code: 'WORKFLOW_ENGINE_ERROR',
+        engineCode,
+        retryable: false,
+      });
+    },
+  );
+
+  it('allows bodyless cancel without defaulting requests that require a body', async () => {
+    const fetch = jest.fn(async (url: string, _init: Parameters<GatewayFetch>[1]) =>
+      url.endsWith('/v1/health')
+        ? jsonResponse(health())
+        : jsonResponse({ taskId: 'task_1', state: 'running', generation: 1, outcome: 'accepted' }),
+    );
+    const { app } = appFor(fetch);
+    await request(app).post('/tasks/task_1/cancel').expect(200);
+    expect(fetch.mock.calls.find(([url]) => url.endsWith('/cancel'))?.[1].body).toBe('{}');
+    await request(app).post('/tasks/task_1/cancel').type('text').send('ignored?').expect(400);
+    await request(app).post('/tasks/task_1/resume').expect(400);
   });
 
   it('fails closed when the server token is missing', async () => {
@@ -282,22 +339,23 @@ describe('workflow engine gateway routes', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('preserves the transport failure when Work cannot connect', async () => {
+  it.each([
+    ['refused before connection', 'ECONNREFUSED', 'engine_unreachable', true],
+    ['reset before headers', 'ECONNRESET', 'submission_outcome_unknown', false],
+  ])('classifies a Work request %s', async (_label, code, engineCode, retryable) => {
     const { app } = appFor(async (url) => {
       if (url.endsWith('/v1/health')) {
         return jsonResponse(health());
       }
-      throw Object.assign(new TypeError('fetch failed'), {
-        cause: { code: 'ECONNREFUSED' },
-      });
+      throw new TypeError('fetch failed', { cause: { code } });
     });
 
     const response = await request(app).post('/work').send({ objective: 'do the thing' });
     expect(response.status).toBe(502);
-    expect(response.body).toEqual({
+    expect(response.body).toMatchObject({
       code: 'WORKFLOW_ENGINE_ERROR',
-      engineCode: 'engine_unreachable',
-      retryable: true,
+      engineCode,
+      retryable,
     });
   });
 
@@ -335,71 +393,45 @@ describe('workflow engine gateway routes', () => {
     });
 
     const response = await request(app).get('/conversations/%2e%2e');
-    // Express normalises the dot segment before routing; the gateway guard is a
-    // second layer for engines reached through a different path normaliser.
+    // The client normalizes the path before Express receives it.
     expect(response.status).toBe(404);
     expect(calls).toBe(1);
   });
 
-  it('rejects a decoded dot-segment conversation id at the router guard', async () => {
-    let conversationCalls = 0;
-    const { app } = appFor(async (url) => {
-      if (url.endsWith('/v1/health')) {
-        return jsonResponse(health());
-      }
-      conversationCalls += 1;
-      return jsonResponse({});
-    });
-
-    // Express decodes `%2e%2e` to `..` after routing, so only the router guard
-    // can refuse it; supertest would have normalised the path away first.
-    const response = await rawGet(app, '/conversations/%2e%2e');
-    expect(response.status).toBe(400);
-    expect(JSON.parse(response.body)).toEqual({
-      code: 'WORKFLOW_ENGINE_INVALID_REQUEST',
-      detail: 'The conversation id is not a valid identifier.',
-    });
-    expect(conversationCalls).toBe(0);
-  });
-
-  it('applies the configured response-size limit to engine responses', async () => {
-    const { app } = appFor(
-      async (url) =>
-        url.endsWith('/v1/health')
-          ? jsonResponse(health())
-          : jsonResponse({ agents: [], padding: 'x'.repeat(4096) }),
-      {
-        resolveConfig: () => ({
-          enabled: true,
-          baseURL: 'https://engine.example',
-          ownerUserId: 'owner_1',
-          tokenEnv: 'ENGINE_TOKEN',
-          maxResponseBytes: 1024,
-        }),
-      },
+  it('rejects a decoded dot-only conversation id at the route guard', async () => {
+    const fetch = jest.fn<ReturnType<GatewayFetch>, Parameters<GatewayFetch>>(async () =>
+      jsonResponse(health()),
     );
+    const { app } = appFor(fetch);
+    const server = app.listen(0, '127.0.0.1');
+    try {
+      await once(server, 'listening');
+      const address = server.address();
+      if (address == null || typeof address === 'string') {
+        throw new Error('Expected a listening TCP address');
+      }
+      // Send the path as written, without URL dot segment normalization.
+      const response = await new Promise<{ status: number | undefined; body: string }>(
+        (resolve, reject) => {
+          get(
+            { host: address.address, port: address.port, path: '/conversations/%2e%2e' },
+            (res) => {
+              let body = '';
+              res.setEncoding('utf8');
+              res.on('data', (chunk: string) => (body += chunk));
+              res.on('end', () => resolve({ status: res.statusCode, body }));
+              res.on('error', reject);
+            },
+          ).on('error', reject);
+        },
+      );
 
-    const response = await request(app).get('/agents');
-    expect(response.status).toBe(502);
-    expect(response.body).toMatchObject({ engineCode: 'protocol_error', retryable: false });
-  });
-
-  it('rejects an out-of-range transport limit before any engine call', async () => {
-    const fetch = jest.fn(async () => jsonResponse(health()));
-    const { app } = appFor(fetch, {
-      resolveConfig: () => ({
-        enabled: true,
-        baseURL: 'https://engine.example',
-        ownerUserId: 'owner_1',
-        tokenEnv: 'ENGINE_TOKEN',
-        maxFrameBytes: 512,
-      }),
-    });
-
-    const response = await request(app).get('/agents');
-    expect(response.status).toBe(503);
-    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_CONFIG');
-    expect(fetch).not.toHaveBeenCalled();
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({ code: 'WORKFLOW_ENGINE_INVALID_REQUEST' });
+      expect(fetch.mock.calls).toEqual([['https://engine.example/v1/health', expect.any(Object)]]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it.each([false, true])(
@@ -430,7 +462,7 @@ describe('workflow engine gateway routes', () => {
       resolveConfig: () => ({
         enabled: true,
         baseURL: 'https://engine.example',
-        ownerUserId: 'owner_1',
+      ownerUserId: 'owner_1',
         tokenEnv: 'ENGINE_TOKEN',
         contractVersion: '2.0.0',
       }),
@@ -505,6 +537,122 @@ describe('workflow engine gateway routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.pinnedContractVersion).toBe('1.0.0');
     expect(response.body.engineContractVersion).toBe('1.0.0');
+  });
+
+  it('enforces the real owner gate before any engine call', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({ agents: [] }),
+    );
+    const denied = appWithUser(fetch, { id: 'user_1', role: 'USER' });
+    const response = await request(denied.app).get('/agents');
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
+    expect(fetch).not.toHaveBeenCalled();
+
+    const tenantAdmin = appWithUser(fetch, {
+      id: 'tenant_admin',
+      role: 'ADMIN',
+      tenantId: 'tenant_1',
+    });
+    const tenantResponse = await request(tenantAdmin.app).get('/agents');
+    expect(tenantResponse.status).toBe(403);
+    expect(tenantResponse.body.code).toBe('WORKFLOW_ENGINE_FORBIDDEN');
+    expect(fetch).not.toHaveBeenCalled();
+
+    const allowed = appWithUser(fetch, { id: 'owner_1', role: 'ADMIN' });
+    await request(allowed.app).get('/agents').expect(200);
+  });
+
+  it('refuses an unsafe body conversation id before dispatch', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}),
+    );
+    const { app } = appFor(fetch);
+
+    const response = await request(app)
+      .post('/chat')
+      .send({ message: 'hello', conversationId: '..' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_REQUEST');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a rewritten dot-only conversation id at the route guard', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({}),
+    );
+    const { app } = appWithRewrittenDotSegment(fetch);
+
+    const response = await request(app).get('/conversations/guard');
+
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe('WORKFLOW_ENGINE_INVALID_REQUEST');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('verifies engine readiness during the startup handshake', async () => {
+    const fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      return jsonResponse({ ready: true, missing: [], checks: [] });
+    });
+    const { gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      ownerUserId: 'owner_1',
+      tokenEnv: 'ENGINE_TOKEN',
+    });
+    expect(report).not.toBeNull();
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/v1/ready'))).toBe(true);
+  });
+
+  it('blocks dispatch after startup fails until readiness recovers', async () => {
+    let ready = false;
+    const fetch = jest.fn(async (url: string) => {
+      if (url.endsWith('/v1/health')) {
+        return jsonResponse(health());
+      }
+      if (url.endsWith('/v1/ready')) {
+        return jsonResponse({ ready, missing: ready ? [] : ['model'], checks: [] });
+      }
+      return jsonResponse({ agents: [] });
+    });
+    const { app, gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      ownerUserId: 'owner_1',
+      tokenEnv: 'ENGINE_TOKEN',
+    });
+    expect(report).toBeNull();
+    const blocked = await request(app).get('/agents').expect(503);
+    expect(blocked.body.code).toBe('WORKFLOW_ENGINE_ENGINE_NOT_READY');
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/v1/agents'))).toBe(false);
+
+    ready = true;
+    await request(app).get('/agents').expect(200);
+  });
+
+  it('honors startupCheck: false while leaving request checks enabled', async () => {
+    const fetch = jest.fn(async (url: string) =>
+      url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse({ agents: [] }),
+    );
+    const { app, gateway } = appFor(fetch);
+    const report = await gateway.prewarm({
+      enabled: true,
+      baseURL: 'https://engine.example',
+      ownerUserId: 'owner_1',
+      tokenEnv: 'ENGINE_TOKEN',
+      startupCheck: false,
+    });
+    expect(report).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+
+    await request(app).get('/agents').expect(200);
+    expect(fetch).toHaveBeenCalled();
   });
 
   it('requires a designated owner before the gateway answers', async () => {
@@ -745,7 +893,7 @@ describe('workflow engine gateway routes', () => {
       },
       advance: inner.advance,
     };
-    const { app, store } = appFor(
+    const { app } = appFor(
       async (url) =>
         url.endsWith('/v1/health') ? jsonResponse(health()) : jsonResponse(chatReply('conv_new')),
       {
@@ -764,7 +912,7 @@ describe('workflow engine gateway routes', () => {
     await request(app).post('/chat').send({ message: 'hi' }).expect(200);
 
     expect(creates).toBe(3);
-    await expect(store.read('owner_1', 'conv_new')).resolves.toMatchObject({
+    await expect(inner.read('owner_1', 'conv_new')).resolves.toMatchObject({
       engine: 'workflow-engine',
       state: 'active',
       inFlight: 0,

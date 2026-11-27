@@ -30,6 +30,7 @@ import {
 } from './config';
 import { contractSchemas, isTerminalEvent } from './contracts';
 import { readSseFrames, SseReadError } from './sse';
+import { stripTrailingSlashes } from './url';
 
 const schemas = contractSchemas();
 
@@ -163,11 +164,8 @@ export type EngineClientOptions = {
   contractVersion?: string;
   requestTimeoutMs: number;
   streamIdleTimeoutMs: number;
-  /** Largest JSON response body read from the engine. */
   maxResponseBytes?: number;
-  /** Largest single SSE frame accepted from the engine. */
   maxFrameBytes?: number;
-  /** Stalled stream resynchronisations tolerated before the feed is refused. */
   maxEventResyncs?: number;
   fetch?: GatewayFetch;
 };
@@ -192,10 +190,6 @@ const PROBLEM_CODES: Readonly<Record<string, GatewayTransportErrorCode>> = Objec
   internal_error: 'internal_error',
 });
 
-function joinURL(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}${path}`;
-}
-
 function parseBody<T extends z.ZodTypeAny>(schema: T, text: string): z.infer<T> {
   let parsed: unknown;
   try {
@@ -219,6 +213,21 @@ function parseProblem(text: string): Problem | null {
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The engine is the durable conversation authority. A turn addressed to an
+ * existing conversation must be recorded in that same conversation; a reply
+ * that moved it elsewhere is a protocol error, not a success the caller can
+ * mistake for its own conversation.
+ */
+function assertConversationAuthority(requested: string | undefined, actual: string): void {
+  if (requested != null && actual !== requested) {
+    throw new GatewayTransportError(
+      'protocol_error',
+      'The engine recorded the operation in a different conversation.',
+    );
   }
 }
 
@@ -254,34 +263,6 @@ function errorFromResponse(status: number, text: string): GatewayTransportError 
   );
 }
 
-/** Errors that prove the request never reached the engine. */
-const NOT_DELIVERED_CODES = new Set([
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EAI_AGAIN',
-  'ENETUNREACH',
-  'EHOSTUNREACH',
-  'ERR_INVALID_URL',
-]);
-
-function definitelyNotDelivered(cause: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = cause;
-  while (current != null && typeof current === 'object' && !seen.has(current)) {
-    seen.add(current);
-    const code = (current as { code?: unknown }).code;
-    if (typeof code === 'string') {
-      return NOT_DELIVERED_CODES.has(code);
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-function unknownSubmission(detail: string): GatewayTransportError {
-  return new GatewayTransportError('submission_outcome_unknown', detail, { detail });
-}
-
 function networkError(cause: unknown): GatewayTransportError {
   if (cause instanceof GatewayTransportError) {
     return cause;
@@ -295,6 +276,34 @@ function networkError(cause: unknown): GatewayTransportError {
   return new GatewayTransportError('engine_unreachable', 'The engine could not be reached.', {
     retryable: true,
   });
+}
+
+const PRE_CONNECT_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+function isPreConnectFailure(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause == null) {
+    return false;
+  }
+  // Node fetch wraps its socket error in a TypeError; injected transports may throw it directly.
+  const error = 'cause' in cause && cause.cause != null ? cause.cause : cause;
+  return (
+    typeof error === 'object' &&
+    error != null &&
+    !('errors' in error) &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    PRE_CONNECT_ERROR_CODES.has(error.code)
+  );
+}
+
+function unknownSubmission(detail: string): GatewayTransportError {
+  // The engine may have accepted the submission without returning a usable reply.
+  return new GatewayTransportError('submission_outcome_unknown', detail, { detail });
 }
 
 type BodyReader = {
@@ -395,6 +404,10 @@ async function readBoundedBody(
 }
 
 export function createEngineClient(options: EngineClientOptions): EngineClient {
+  const baseURL = stripTrailingSlashes(options.baseURL);
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+  const maxEventResyncs = options.maxEventResyncs ?? DEFAULT_MAX_EVENT_RESYNCS;
   const doFetch = options.fetch ?? (globalThis.fetch as unknown as GatewayFetch);
   if (typeof doFetch !== 'function') {
     throw new GatewayTransportError('engine_unreachable', 'No HTTP transport is available.');
@@ -406,9 +419,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       'Unsupported WorkflowEngine contract version.',
     );
   }
-  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
-  const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
-  const maxEventResyncs = options.maxEventResyncs ?? DEFAULT_MAX_EVENT_RESYNCS;
 
   function linkedController(signal: AbortSignal | undefined, timeoutMs: number) {
     const controller = new AbortController();
@@ -432,6 +442,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     },
   ): Promise<z.infer<T>> {
     const link = linkedController(init.signal, init.timeoutMs ?? options.requestTimeoutMs);
+    const submitsWork = path === '/v1/work' && init.method === 'POST';
     try {
       const headers: Record<string, string> = {
         accept: 'application/json',
@@ -444,10 +455,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       if (init.body !== undefined) {
         headers['content-type'] = 'application/json';
       }
-      const submission = path === '/v1/work' && init.method === 'POST';
       let response: Awaited<ReturnType<GatewayFetch>>;
       try {
-        response = await doFetch(joinURL(options.baseURL, path), {
+        response = await doFetch(`${baseURL}${path}`, {
           method: init.method,
           headers,
           ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -455,13 +465,9 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           redirect: 'error',
         });
       } catch (cause) {
-        // A refused connection cannot have created a task. A timeout, reset or
-        // abort after the request was written may have, and the contract has no
-        // submission deduplication, so the outcome is unknown rather than a
-        // failure the caller may safely retry.
-        if (submission && !definitelyNotDelivered(cause)) {
+        if (submitsWork && !isPreConnectFailure(cause)) {
           throw unknownSubmission(
-            'The engine may have accepted the work, but its response was not received.',
+            'The engine may have accepted the work, but no response was received.',
           );
         }
         throw networkError(cause);
@@ -475,8 +481,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
           maxResponseBytes,
         );
       } catch (cause) {
-        if (submission) {
-          // The engine may have created a task. The contract has no submission deduplication.
+        if (submitsWork) {
           throw unknownSubmission(
             'The engine may have accepted the work, but its response could not be read.',
           );
@@ -486,17 +491,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       if (!response.ok && !init.acceptNonOk?.(response.status, text)) {
         throw errorFromResponse(response.status, text);
       }
-      try {
-        return parseBody(schema, text);
-      } catch (cause) {
-        if (submission && response.ok) {
-          // An accepted submission with an undocumented body is still accepted.
-          throw unknownSubmission(
-            'The engine may have accepted the work, but its response was not recognised.',
-          );
-        }
-        throw cause;
-      }
+      return parseBody(schema, text);
     } finally {
       link.dispose();
     }
@@ -517,7 +512,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
     }
     const link = linkedController(init.signal, options.requestTimeoutMs);
     try {
-      return await doFetch(joinURL(options.baseURL, path), {
+      return await doFetch(`${baseURL}${path}`, {
         method: init.method,
         headers,
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -525,6 +520,11 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         redirect: 'error',
       });
     } catch (cause) {
+      if (init.method === 'POST' && !isPreConnectFailure(cause)) {
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but no response was received.',
+        );
+      }
       throw networkError(cause);
     } finally {
       // The deadline covers only the wait for response headers. Body lifetime is
@@ -549,6 +549,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
   async function* chatFrames(
     response: Awaited<ReturnType<GatewayFetch>>,
     signal: AbortSignal | undefined,
+    requestedConversationId: string | undefined,
   ): AsyncIterable<ChatStreamFrame> {
     for await (const frame of readSseFrames(response.body, {
       idleTimeoutMs: options.streamIdleTimeoutMs,
@@ -571,6 +572,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }
       const reply = schemas.ChatReply.safeParse(parsed);
       if (reply.success) {
+        assertConversationAuthority(requestedConversationId, reply.data.conversationId);
         yield { kind: 'reply', reply: reply.data };
         continue;
       }
@@ -602,7 +604,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         await nonOkResponse(response, signal);
       }
       let terminal = false;
-      let gap = false;
       const seen = new Set<string>();
       try {
         for await (const frame of readSseFrames(response.body, {
@@ -638,7 +639,6 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
             continue;
           }
           if (event.data.seq > lastSeq + 1) {
-            gap = true;
             break;
           }
           lastSeq = event.data.seq;
@@ -660,13 +660,7 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       stalledResyncs = lastSeq === previousSeq ? stalledResyncs + 1 : 0;
       // A gap, or a close without a terminal event, is resynchronised from the
       // exact last delivered sequence rather than silently skipped.
-      if (stalledResyncs > maxEventResyncs && !gap) {
-        throw new GatewayTransportError(
-          'protocol_error',
-          'The engine event stream ended without a terminal event.',
-        );
-      }
-      if (stalledResyncs > maxEventResyncs + 3) {
+      if (stalledResyncs > maxEventResyncs) {
         throw new GatewayTransportError(
           'protocol_error',
           'The engine event stream could not be resynchronised.',
@@ -742,8 +736,16 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
         auth: 'owner',
         signal,
       }),
-    submitWork: (body, signal) =>
-      request('/v1/work', schemas.TaskAccepted, { method: 'POST', body, auth: 'owner', signal }),
+    submitWork: async (body, signal) => {
+      const accepted = await request('/v1/work', schemas.TaskAccepted, {
+        method: 'POST',
+        body,
+        auth: 'owner',
+        signal,
+      });
+      assertConversationAuthority(body.conversationId, accepted.conversationId);
+      return accepted;
+    },
     cancelTask: (taskId, body, signal) =>
       request(`/v1/work/${encodeURIComponent(taskId)}/cancel`, schemas.TaskControlResult, {
         method: 'POST',
@@ -767,20 +769,37 @@ export function createEngineClient(options: EngineClientOptions): EngineClient {
       }),
     submitChat: async (body, signal) => {
       const response = await openStream('/v1/chat', { method: 'POST', body, signal });
-      if (!response.ok) {
-        await nonOkResponse(response, signal);
-      }
       const contentType = response.headers.get('content-type') ?? '';
-      if (contentType.includes('text/event-stream')) {
-        return { kind: 'stream', frames: chatFrames(response, signal) };
+      if (response.ok && contentType.includes('text/event-stream')) {
+        return {
+          kind: 'stream',
+          frames: chatFrames(response, signal, body.conversationId),
+        };
       }
-      const text = await readBoundedBody(
-        response,
-        options.requestTimeoutMs,
-        signal,
-        maxResponseBytes,
-      );
-      return { kind: 'json', reply: parseBody(schemas.ChatReply, text) };
+      let text: string;
+      try {
+        text = await readBoundedBody(response, options.requestTimeoutMs, signal, maxResponseBytes);
+      } catch (cause) {
+        if (cause instanceof GatewayTransportError && cause.code === 'protocol_error') {
+          throw cause;
+        }
+        if (response.status >= 400 && response.status < 500) {
+          throw errorFromResponse(response.status, '');
+        }
+        throw unknownSubmission(
+          'The engine may have accepted the chat, but its response could not be read.',
+        );
+      }
+      if (!response.ok) {
+        const failure = errorFromResponse(response.status, text);
+        if (failure.retryable && response.status >= 500) {
+          throw unknownSubmission('The engine did not confirm whether it accepted the chat.');
+        }
+        throw failure;
+      }
+      const reply = parseBody(schemas.ChatReply, text);
+      assertConversationAuthority(body.conversationId, reply.conversationId);
+      return { kind: 'json', reply };
     },
     streamTaskEvents: (taskId, after, signal) => taskEvents(taskId, after, signal),
   };

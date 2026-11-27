@@ -1,6 +1,6 @@
 # Coderax Design Architecture
 
-**Module, navigation and interface specification — v1.1**
+**Module, navigation and interface specification — v2.0**
 
 |                   |                                                                                                                                                                                                                                                      |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -93,7 +93,7 @@ This section exists because a design architecture written without it would be fi
 - The rail is **52px** collapsed and **≥360px** expanded, capped at **40%** of viewport width, persisted at `side:width`; the transition is **300ms** `cubic-bezier(0.32, 0.72, 0, 1)`.
 - The active side panel persists at `side:active-panel`; `DEFAULT_PANEL` is `conversations`.
 - **The rail is deliberately not an app launcher.** `useUnifiedSidebarLinks.ts` says so in a comment: _"Keep the sidebar as a chat navigation surface, not a general app launcher."_ It exposes exactly one link — chat history.
-- Modules are therefore discovered today by URL, the product switcher, or nothing at all. There is no unified module navigation. **This is the central IA gap this document closes.**
+- Modules are discovered by URL, the product switcher and the command palette at the recorded baseline. The palette is progress toward unified module navigation; recents, object results, actions and federated search remain planned.
 
 **What the shell exposes at `2cdce45c`.** The rail has exactly two entries: chat history, and — for
 the owner only — Game Studio. The drawer adds a labelled shortcut block (Projects, Game Studio,
@@ -129,6 +129,10 @@ The token layer is unusually strong: it already supports per-theme control geome
 5. **The capability registry is a document, not a system.** `docs/product/CAPABILITY_REGISTRY.md` records evidence at a named SHA, but there is no machine-readable store and no `/registry` surface yet, so nothing links a claim to a receipt automatically.
 6. **Every string is localized.** A design that invents 400 strings without keys creates 400 blockers.
 7. **Themes own appearance, not layout or behaviour.** New modules must not smuggle layout into theme definitions.
+
+### 1.5 Scope of this revision
+
+This v2.0 specification reconciles the v1.1 full audit with the additional design requirements from the parallel v2.0 draft at `2cdce45c`: a planned GitHub connection surface, evidence-led Game Studio acceptance criteria, and the rule that the palette cannot advertise nonexistent routes. Source inspection is not an executed test, a deployment, or proof of feature readiness.
 
 ## 2. Design principles
 
@@ -268,6 +272,7 @@ Routes marked _(existing)_ are already in `client/src/routes/index.tsx` and must
 | C6  | Backend Factory         | `/backend`, `/backend/:appId`              | Planned | 3    |
 | C7  | Distribution            | `/distribute`, `/distribute/:projectId`    | Planned | 3    |
 | C8  | Evidence Explorer       | `/evidence`, `/evidence/:receiptId`        | Planned | 2    |
+| C9  | GitHub & Repositories   | `/eng/github`, `/eng/github/:owner/:repo`  | Planned | 2    |
 
 #### Group D — Creation
 
@@ -361,7 +366,7 @@ ones are therefore not the same decision (§13 D9).
 
 - Results are de-duplicated by target; a conversation and its project collapse to the project with a secondary line.
 - Each result states its scope (`Project · Aurora`, `Workspace`).
-- Unavailable results are shown, dimmed, with the blocker — hiding them makes the platform feel smaller than it is.
+- Only real destinations appear in the palette. Existing but refused destinations state the blocker; unbuilt modules belong in the capability registry, not in navigation.
 - Keyboard: ↑↓ move, ⏎ open, ⌘⏎ open in inspector, Esc dismiss, ⌘K toggle.
 - The palette issues at most one network request per federated source per open, with per-source 1500ms timeout and graceful partial results.
 
@@ -1106,6 +1111,19 @@ This wave establishes the shared runtime surfaces the rest of the platform depen
 - **Deviations:** receipts are immutable; corrections are additive with a supersedes link.
 - **Relationships:** every module writes here; §10 reads from here.
 
+**C9 · GitHub & Repositories** — `Planned` — `/eng/github`, `/eng/github/:owner/:repo`
+
+- **Purpose:** the connection surface the brief requires and v1.0 lacked: build on the existing read-only PR/check observer and link a GitHub account or App, verify the identity, choose repositories with least privilege, and reach branches, issues, pull requests and checks. **Signing in is not repository access**, and the screen says so until a repository is explicitly selected.
+- **Journey:** connect → verify account and organisations → select repositories → inspect repository health → open or create an issue, branch or PR → read checks and review state → revoke.
+- **Screens:** connections (account, granted scopes, last verified) | repository picker | repository overview (branches, PRs, issues, checks) | PR detail | permissions and revocation.
+- **Components:** connection card with `VerificationBadge`, scope table, repository table, check-run list, `CapabilityBadge`, `EvidenceCard` per verification.
+- **Inputs:** provider (GitHub App or OAuth), account or organisation, repository selection, branch, PR or issue.
+- **Actions:** connect, verify, select and deselect repositories, refresh, create issue, create branch, open PR, comment, revoke.
+- **Permissions:** nothing is granted by connecting. Read is T0 once the repository is selected and the owner grant is verified; branch, issue and comment are T2; merge and repository settings are T3 and remain the owner's. Tokens stay server-side and are never rendered back.
+- **States:** `Not connected` (First use) | `No repositories selected` (Not configured) | `Permission revoked — reconnect` (Blocked) | `Rate limited until 14:20` (Degraded, with the reset time) | `Identity changed` (warning requiring re-verification).
+- **Deviations:** the surface distinguishes the eight stages the brief forbids conflating — authenticated, code generated, committed, pushed, PR opened, PR reviewed, PR merged, deployment verified. A repository that is not the verified canonical one is labelled before any write. A write to an unselected repository is refused by the backend, not hidden in the UI.
+- **Relationships:** prerequisite for C2 (indexing), C3 (review), C7 (distribution) and `ENG-01`; feeds F6's supply-chain view; A2 executes the writes under a grant.
+
 **F6 · Security Center** — `Preview` — `/security`
 
 - **Purpose:** the owner's single view of grants, sessions, findings and supply chain.
@@ -1369,6 +1387,7 @@ These modules are the ones most likely to be misrepresented by a UI. Every one o
 - **Blocked on:** a verified cloud workload executor for builds, and a game-input environment for the
   Gaming Agent (D8). Until both exist, the honest end state of this module is a persisted, editable
   design brief.
+- **Additional acceptance requirements:** preserve unsaved spec drafts across tabs, refuse stale revisions rather than overwrite them, keep tabs accessible at narrow widths, and expose the server capability reason when builds, playtests or agent sessions are unavailable. No test execution is claimed by this design revision.
 - **Relationships:** D8, D4, C7, C4 (gameplay tests).
 
 **D8 · Gaming Agent** — `Blocked` — `/games/agent/:sessionId`
@@ -1647,6 +1666,11 @@ Design work is accepted on observable evidence, not on the existence of a screen
 | ACC-13 | 7    | A workload whose cost status is unknown              | Admission is requested                               | The workload is blocked and queued, never admitted                                     | Governor log; UI state           |
 | ACC-14 | all  | Any table below 768px                                | The viewport narrows                                 | The table becomes a card list; no horizontal scroll on the page                        | Responsive capture               |
 | ACC-15 | all  | Any new visible string                               | The build runs                                       | The string resolves through `useLocalize()`; English key added                         | Lint + diff                      |
+| ACC-16 | 6    | A game project with no cloud executor                     | The owner opens Builds, Playtests or Agent                            | Each renders a blocked panel naming the server's unavailable capability reason; no build, play or start control is offered | `GameWorkspace` test; manual check |
+| ACC-17 | 6    | Two sessions editing one game spec                        | The second saves against a stale revision                            | The save is refused with a revision-conflict response; the draft is kept and nothing is overwritten              | API handler test; form state       |
+| ACC-18 | 0    | Any module in `MODULES`                                   | The owner presses Enter on a palette row                             | The target route exists in `client/src/routes/index.tsx`; a planned module is absent, not dimmed             | Registry test; recorded flow       |
+| ACC-19 | 2    | A GitHub surface with no connection                       | The owner opens it                                                   | It offers Connect and states that sign-in is not repository access; no repository list is fabricated        | Recorded flow (planned)            |
+| ACC-20 | 2    | A repository not selected by the owner                    | A tool attempts a write                                              | The backend refuses; the UI labels the repository as unselected before the attempt                          | Negative test (planned)            |
 
 ### 10.3 Definition of done for a design change
 
@@ -1662,11 +1686,11 @@ Waves are ordered by dependency, not by ambition. Later modules reuse earlier co
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | **0 · Shell foundation**       | `ModuleShell`, `CapabilityBadge`, `CommandPalette`, run state machine, `EvidenceCard`, seven-state taxonomy, module registry, `/registry` read-only, new semantic tokens | Palette navigates every existing route; every module route renders a truthful state; tokens pass theme and lint checks           | —          |
 | **1 · Coherence**              | Upgrade A1-A8, B1, B2, D1, F1, F2, G1-G5 to the module contract; add `ScopeChip`/`ApprovalSheet` to Work; settings routes                                                | Chat↔Work escalation works end to end in one URL; no surface invents its own header or state language                           | 0          |
-| **2 · Engineering + evidence** | A10, C1-C5, C8, F6, F7                                                                                                                                                   | A change can be made, reviewed, tested, verified and restored with receipts at every step                                        | 0, 1       |
+| **2 · Engineering + evidence** | A10, C1-C5, C8, C9, F6, F7                                                                                                                                                   | A change can be made, reviewed, tested, verified and restored with receipts at every step                                        | 0, 1       |
 | **3 · Creation**               | C6, C7, D2, D3, D4 + the 56 templates                                                                                                                                    | A website or dashboard can be created from a template, edited at component level and exported with an honest distribution matrix | 2          |
 | **4 · Knowledge**              | A9, E1-E7                                                                                                                                                                | Research and memory are source-attributed and project-scoped                                                                     | 2          |
 | **5 · Agents**                 | B3-B7                                                                                                                                                                    | Teams, councils and model routing produce measured results and visible disagreement                                              | 2          |
-| **6 · Media**                  | D5-D8                                                                                                                                                                    | Each studio states its validation level per asset and cannot export a placeholder as a finished work                             | 3, 4       |
+| **6 · Media**                  | D5-D8 (D7 project/spec preview; executor blocked)                                                                                                                        | Each studio states its validation level per asset and cannot export a placeholder as a finished work                             | 3, 4       |
 | **7 · Cloud + ops**            | F3, F4, F5                                                                                                                                                               | Workloads are admitted, refused and explained under a fail-closed governor                                                       | 2, 5       |
 
 **Reality against this plan at `2cdce45c`.** Wave 0 is partly shipped: `CommandPalette` and the module
@@ -1756,8 +1780,9 @@ These need the owner's decision or an external prerequisite. None block Wave 0.
 | D7  | Cloud execution provider and admission limits                   | Owner decision                                                            | Governs every `Blocked` state in Waves 2-7                                                                                |
 | D8  | External agent integrations (FreeBuff / OpenCode / Claude Code) | Opt-in, separately labelled, separately granted                           | The brief forbids silent substitution                                                                                     |
 | D9  | Palette: hide unbuilt modules or list them dimmed?              | Hide unbuilt; list only existing-but-refused destinations with the reason | The shipped registry enforces "no row without a route"; dimmed capability belongs in the registry surface, not navigation |
+| D10 | Game Studio executor and admission limits                       | Owner decision; until then the M1 gate stays `unavailable`        | Every build, playtest and agent tab depends on it                 |
 
-**Known blockers already reflected in the design:** video generation capacity (D5), avatar synthesis (D6), game input environment (D8), OS signing and store accounts (C7), and cloud executors (C1, C6, F3). Each appears as a `Blocked` state with its prerequisite rather than as a missing feature.
+**Known blockers already reflected in the design:** video generation capacity (D5), avatar synthesis (D6), game build execution and input environment (D7, D8), OS signing and store accounts (C7), and cloud executors (C1, C6, F3). Each appears as a `Blocked` state with its prerequisite rather than as a missing feature.
 
 ---
 
