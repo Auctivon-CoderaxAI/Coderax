@@ -194,7 +194,7 @@ export async function fetchModels({
   // resolving headers against a specific user's identity.
   const hasUserScopedHeaders = !!headers && Object.keys(headers).length > 0 && !!userObject;
   const shouldCache = !skipCache && !(userIdQuery && user) && !hasUserScopedHeaders;
-  const cacheKey = shouldCache ? modelsCacheKey(baseURL ?? '', apiKey) : '';
+  const cacheKey = shouldCache ? modelsCacheKey(baseURL ?? '', name) : '';
   const modelsCache = shouldCache ? standardCache(CacheKeys.MODEL_QUERIES) : null;
   if (modelsCache && cacheKey) {
     const cachedModels = await modelsCache.get(cacheKey);
@@ -315,8 +315,18 @@ export async function fetchModels({
   return models;
 }
 
-function modelsCacheKey(baseURL: string, apiKey: string): string {
-  return crypto.createHash('sha256').update(`${baseURL}:${apiKey}`).digest('hex').slice(0, 32);
+/**
+ * Scopes model discovery to non-secret endpoint identity. Credentials must not
+ * be hashed into cache keys: a stable fingerprint of a secret in shared cache
+ * storage is still credential material, and user-provided keys bypass this
+ * cache entirely.
+ */
+function modelsCacheKey(baseURL: string, endpointName: string): string {
+  return crypto
+    .createHash('sha256')
+    .update(`${baseURL}:${endpointName}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 /** Options for fetching OpenAI models */
@@ -376,7 +386,7 @@ export async function fetchOpenAIModels(
       azure: opts.azure,
       user: opts.user,
       name: EModelEndpoint.openAI,
-      skipCache: opts.skipCache,
+      skipCache: opts.skipCache || Boolean(opts.openAIApiKey),
       headers: opts.headers,
       userObject: opts.userObject,
     });

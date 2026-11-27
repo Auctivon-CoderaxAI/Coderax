@@ -1,3 +1,4 @@
+import type { TResearchProjectListParams } from './research';
 import type { StartupConfigContext } from './config';
 import type { AssistantsEndpoint } from './schemas';
 import { ResourceType } from './accessPermissions';
@@ -232,6 +233,16 @@ export const gameProjectById = (id: string) => `${gameProjects()}/${encodeURICom
 export const gameProjectSpec = (id: string) => `${gameProjectById(id)}/spec`;
 
 export const gameCapabilities = () => `${gamesRoot}/capabilities`;
+
+export const researchRoot = `${BASE_URL}/api/research`;
+
+export const researchProjects = (params: TResearchProjectListParams = {}) =>
+  `${researchRoot}/projects${buildQuery(params)}`;
+
+export const researchProjectById = (id: string) =>
+  `${researchProjects()}/${encodeURIComponent(id)}`;
+
+export const researchCapabilities = () => `${researchRoot}/capabilities`;
 
 export const search = (q: string, cursor?: string | null) =>
   `${BASE_URL}/api/search?q=${q}${cursor ? `&cursor=${cursor}` : ''}`;

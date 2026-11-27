@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { expect } from '@playwright/test';
 import type { Locator, Page, Request } from '@playwright/test';
 import type { AgentDetail } from './agents.helpers';
-import { openAgentBuilder, uniqueAgentName } from './agents.helpers';
+import { startChatWithAgent, uniqueAgentName } from './agents.helpers';
 import {
   MOCK_ENDPOINTS,
   NEW_CHAT_PATH,
@@ -133,11 +133,7 @@ export async function createApprovalAgent(page: Page): Promise<AgentDetail> {
 
 export async function createAndSelectApprovalAgent(page: Page): Promise<string> {
   const agent = await createApprovalAgent(page);
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name: agent.name }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(agent.name);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
+  await startChatWithAgent(page, agent);
   return agent.id;
 }
 

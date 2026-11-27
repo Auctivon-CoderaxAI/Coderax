@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import type { AgentDetail } from './agents.helpers';
-import { cleanupAgent, openAgentBuilder, uniqueAgentName } from './agents.helpers';
+import { cleanupAgent, startChatWithAgent, uniqueAgentName } from './agents.helpers';
 import {
   MOCK_ENDPOINTS,
   getAccessToken,
@@ -31,14 +31,6 @@ async function createAgent(
   });
 }
 
-async function selectAgent(page: Page, name: string): Promise<void> {
-  const form = await openAgentBuilder(page);
-  await form.getByRole('combobox', { name: 'Agent', exact: true }).click();
-  await page.getByRole('option', { name }).click();
-  await expect(form.getByLabel('Agent name')).toHaveValue(name);
-  await form.getByRole('button', { name: 'Select Agent' }).click();
-}
-
 test.describe('isolated subagent results', () => {
   test('renders the streamed child final answer instead of fallback or stale text', async ({
     page,
@@ -62,7 +54,7 @@ test.describe('isolated subagent results', () => {
       });
       parentId = parent.id;
 
-      await selectAgent(page, parentName);
+      await startChatWithAgent(page, parent);
       const response = await sendMessageAndWaitForCompletion(
         page,
         `E2E_SUBAGENT_RESULT:${child.id}:${label}`,

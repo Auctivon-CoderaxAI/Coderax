@@ -2,9 +2,17 @@ import { memo } from 'react';
 import { useSetAtom } from 'jotai';
 import { useNavigate } from 'react-router-dom';
 import { SettingsTabValues, SystemRoles } from 'coderax-data-provider';
-import { Compass, FolderKanban, Gamepad2, SlidersHorizontal, Sparkles } from 'lucide-react';
+import {
+  Compass,
+  FolderKanban,
+  Gamepad2,
+  Microscope,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import type { TranslationKeys } from '~/hooks';
 import { settingsOpenAtom, settingsTabAtom } from '~/components/Nav/Settings';
+import { useResearchCapabilitiesQuery } from '~/data-provider';
 import { useAuthContext, useLocalize } from '~/hooks';
 
 interface QuickLink {
@@ -25,12 +33,20 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
   const setSettingsOpen = useSetAtom(settingsOpenAtom);
   const setSettingsTab = useSetAtom(settingsTabAtom);
   const { user } = useAuthContext();
+  const { data: researchAccess } = useResearchCapabilitiesQuery();
   const isOwner = user?.role === SystemRoles.ADMIN;
+  const canAccessResearch = isOwner || researchAccess?.canAccess === true;
   const gamesLink: QuickLink = {
     id: 'games',
     labelKey: 'com_games_title',
     icon: Gamepad2,
     onSelect: () => navigate('/games'),
+  };
+  const researchLink: QuickLink = {
+    id: 'research',
+    labelKey: 'com_research_title',
+    icon: Microscope,
+    onSelect: () => navigate('/research'),
   };
 
   const links: QuickLink[] = [
@@ -41,6 +57,7 @@ function QuickLinks({ onNavigate }: { onNavigate: () => void }) {
       onSelect: () => navigate('/projects'),
     },
     ...(isOwner ? [gamesLink] : []),
+    ...(canAccessResearch ? [researchLink] : []),
     {
       id: 'skills',
       labelKey: 'com_ui_skills',

@@ -166,7 +166,7 @@ rewritten to the uploaded asset:
 | --- | --- |
 | ![Before](./sidebar-before.png) | ![After](./sidebar-after.png) |
 
-    gh pr create --base dev --body-file ./pr-body.md \
+    gh pr create --base main --body-file ./pr-body.md \
       --attach ./sidebar-before.png --attach ./sidebar-after.png
 
     gh pr edit 123 --attach './sidebar-after.png#Sidebar after the change'

@@ -336,6 +336,7 @@ export function getOpenAIConfig(
     configOptions.fetch = createFreeOpenRouterFetch(
       undiciFetch,
       options.freeOpenRouterMaxOutputTokens,
+      options.freeInferenceBudget,
     ) as unknown as Fetch;
   }
 

@@ -1,3 +1,4 @@
+import { Provider, useAtomValue } from 'jotai';
 import { MemoryRouter } from 'react-router-dom';
 import { RecoilRoot, useRecoilValue } from 'recoil';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -18,6 +19,8 @@ import useKeyboardShortcuts, {
 } from './useKeyboardShortcuts';
 import { ReasoningControl } from '~/components/Chat/Input/Reasoning';
 import Thinking from '~/components/Chat/Input/Composer/Thinking';
+import ModulePalette from '~/components/Nav/ModulePalette';
+import { commandPaletteOpenAtom } from '~/store/palette';
 import store from '~/store';
 
 /** `copy-to-clipboard` exports a single callable: `copy(text, options?)`. */
@@ -112,7 +115,9 @@ function renderHarness(
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={queryClient}>
           <RecoilRoot initializeState={initializeState}>
-            <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+            <Provider>
+              <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
+            </Provider>
           </RecoilRoot>
         </QueryClientProvider>
       ),
@@ -508,6 +513,128 @@ describe('global shortcut dispatch', () => {
 
     expect(escalation.onClick).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+function PaletteProbe() {
+  const open = useAtomValue(commandPaletteOpenAtom);
+  return <span data-testid="palette-open">{String(open)}</span>;
+}
+
+/** A bare `role="dialog"` node, which is all `anyModalOpen` looks for. */
+function appendDialog() {
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+describe('command palette shortcut', () => {
+  it('starts closed when the palette host remounts in the same store', () => {
+    const { getByTestId, rerender } = renderHarness(
+      undefined,
+      '/c/test-convo',
+      undefined,
+      <>
+        <ModulePalette />
+        <PaletteProbe />
+      </>,
+    );
+    dispatchKey({ key: 'k', ctrlKey: true });
+    expect(getByTestId('palette-open')).toHaveTextContent('true');
+
+    rerender(<PaletteProbe />);
+    rerender(
+      <>
+        <Harness />
+        <ModulePalette />
+        <PaletteProbe />
+      </>,
+    );
+    expect(getByTestId('palette-open')).toHaveTextContent('false');
+  });
+
+  it('toggles the palette with its default chord', () => {
+    const { getByTestId } = renderHarness(undefined, '/c/test-convo', undefined, <PaletteProbe />);
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(getByTestId('palette-open').textContent).toBe('true');
+  });
+
+  it('closes the palette with the same chord from its own input', () => {
+    const { getByTestId } = renderHarness(undefined, '/c/test-convo', undefined, <PaletteProbe />);
+    dispatchKey({ key: 'k', ctrlKey: true });
+    appendDialog();
+    const input = document.createElement('input');
+    input.setAttribute('role', 'combobox');
+    document.body.appendChild(input);
+    input.focus();
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true }, input);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(getByTestId('palette-open').textContent).toBe('false');
+  });
+
+  it('yields to another open dialog instead of opening over it', () => {
+    const { getByTestId } = renderHarness(undefined, '/c/test-convo', undefined, <PaletteProbe />);
+    appendDialog();
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(getByTestId('palette-open').textContent).toBe('false');
+  });
+
+  it('opens while the caret sits in a composer', () => {
+    const { getByTestId } = renderHarness(undefined, '/c/test-convo', undefined, <PaletteProbe />);
+    const textarea = document.createElement('textarea');
+    document.body.appendChild(textarea);
+    textarea.focus();
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true }, textarea);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(getByTestId('palette-open').textContent).toBe('true');
+  });
+
+  it('follows a rebinding and stops answering the default chord', () => {
+    const { getByTestId } = renderHarness(
+      undefined,
+      '/c/test-convo',
+      (snapshot) => {
+        snapshot.set(store.customShortcuts, {
+          openCommandPalette: { mac: 'Meta+Alt+K', other: 'Control+Alt+K' },
+        });
+      },
+      <PaletteProbe />,
+    );
+
+    dispatchKey({ key: 'k', ctrlKey: true });
+    expect(getByTestId('palette-open').textContent).toBe('false');
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true, altKey: true });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(getByTestId('palette-open').textContent).toBe('true');
+  });
+
+  it('stays inert while the shortcuts switch is off', () => {
+    const { getByTestId } = renderHarness(
+      undefined,
+      '/c/test-convo',
+      (snapshot) => {
+        snapshot.set(store.shortcutsEnabled, false);
+      },
+      <PaletteProbe />,
+    );
+
+    const event = dispatchKey({ key: 'k', ctrlKey: true });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(getByTestId('palette-open').textContent).toBe('false');
   });
 });
 

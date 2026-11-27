@@ -34,16 +34,27 @@ export type WorkRunLeaseClaim = {
   expiresAt: Date;
 };
 
+/**
+ * A claim is a compare-and-set on the lease row. `previousToken` is the
+ * expired generation the claim replaced, read in the same operation; the new
+ * run may adopt a conversation row that still carries it.
+ */
+export type WorkRunLeaseClaimResult = {
+  claimed: boolean;
+  previousToken: string | null;
+};
+
 export type WorkRunLeaseStore = {
   read: (scope: RunScope, now: Date) => Promise<WorkRunLeaseSnapshot | null>;
-  claim: (scope: RunScope, claim: WorkRunLeaseClaim) => Promise<boolean>;
+  claim: (scope: RunScope, claim: WorkRunLeaseClaim) => Promise<WorkRunLeaseClaimResult>;
   renew: (
     scope: RunScope,
     token: string,
     now: Date,
     expiresAt: Date,
   ) => Promise<{ renewed: boolean; cancelRequested: boolean }>;
-  cancel: (scope: RunScope, now: Date) => Promise<WorkRunCancelOutcome>;
+  /** With `token`, only the generation the caller observed is flagged or retired. */
+  cancel: (scope: RunScope, now: Date, token?: string) => Promise<WorkRunCancelOutcome>;
   release: (scope: RunScope, token: string) => Promise<boolean>;
   /** Deletes at most `limit` rows whose lease expired before `before`. */
   prune: (before: Date, limit: number) => Promise<number>;
@@ -62,7 +73,7 @@ export function createWorkRunLeaseStore(db: WorkRunDb): WorkRunLeaseStore {
   return {
     read: (scope, now) => db.readWorkRun({ key: workRunKey(scope), now }),
     claim: (scope, claim) =>
-      db.claimWorkRun({
+      db.claimWorkRunLease({
         key: workRunKey(scope),
         user: scope.userId,
         conversationId: scope.conversationId,
@@ -73,7 +84,8 @@ export function createWorkRunLeaseStore(db: WorkRunDb): WorkRunLeaseStore {
       }),
     renew: (scope, token, now, expiresAt) =>
       db.renewWorkRun({ key: workRunKey(scope), token, now, expiresAt }),
-    cancel: (scope, now) => db.cancelWorkRun({ key: workRunKey(scope), now }),
+    cancel: (scope, now, token) =>
+      db.cancelWorkRun({ key: workRunKey(scope), now, ...(token ? { token } : {}) }),
     release: (scope, token) => db.releaseWorkRun({ key: workRunKey(scope), token }),
     prune: (before, limit) => db.pruneWorkRuns({ before, limit }),
   };
@@ -99,6 +111,7 @@ export function createMemoryWorkRunLeaseStore(): WorkRunLeaseStore {
         return null;
       }
       return {
+        token: lease.token,
         cancelRequested: lease.cancelRequested,
         expiresAt: lease.expiresAt,
         live: lease.expiresAt.getTime() > now.getTime(),
@@ -108,14 +121,14 @@ export function createMemoryWorkRunLeaseStore(): WorkRunLeaseStore {
       const key = workRunKey(scope);
       const existing = leases.get(key);
       if (existing && existing.expiresAt.getTime() > claim.now.getTime()) {
-        return false;
+        return { claimed: false, previousToken: null };
       }
       leases.set(key, {
         token: claim.token,
         cancelRequested: false,
         expiresAt: claim.expiresAt,
       });
-      return true;
+      return { claimed: true, previousToken: existing?.token ?? null };
     },
     renew: async (scope, token, now, expiresAt) => {
       const lease = leases.get(workRunKey(scope));
@@ -125,10 +138,10 @@ export function createMemoryWorkRunLeaseStore(): WorkRunLeaseStore {
       lease.expiresAt = expiresAt;
       return { renewed: true, cancelRequested: lease.cancelRequested };
     },
-    cancel: async (scope, now) => {
+    cancel: async (scope, now, token) => {
       const key = workRunKey(scope);
       const lease = leases.get(key);
-      if (!lease) {
+      if (!lease || (token != null && lease.token !== token)) {
         return 'none';
       }
       if (lease.expiresAt.getTime() > now.getTime()) {

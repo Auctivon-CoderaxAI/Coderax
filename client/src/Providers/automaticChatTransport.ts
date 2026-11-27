@@ -137,10 +137,20 @@ export function createAutomaticChatTransport({
   transport,
   selection,
   endpointsConfig,
+  workMode = false,
+  workConversation = false,
 }: {
   transport: Transport;
   selection: AutomaticChatModel;
   endpointsConfig?: TEndpointsConfig;
+  workMode?: boolean;
+  /**
+   * True only for a conversation stored as Work that is being viewed in Chat. That
+   * transcript can leave `agent_id`, `spec` or `ephemeralAgent` in the payload, and
+   * those leftovers must not override the Chat model selection. Chat mode alone is
+   * not evidence of that state: an agent endpoint in Chat may be an explicit pick.
+   */
+  workConversation?: boolean;
 }): AutomaticChatTransportController {
   /** Per-route start outcomes never cross browser accounts or chat hosts. */
   const health = new Map<string, RouteHealth>();
@@ -159,8 +169,29 @@ export function createAutomaticChatTransport({
     ...transport,
     start: async (request, options) => {
       const endpoint = request.payload.endpoint;
-      if (isAgentsEndpoint(endpoint) || isAssistantsEndpoint(endpoint)) {
+      const storedWorkEndpoint = isAgentsEndpoint(endpoint) && !workMode && workConversation;
+      if (isAssistantsEndpoint(endpoint) || (isAgentsEndpoint(endpoint) && workMode)) {
+        // One approval authorizes one paid request. This request bypasses paid
+        // routing, so it must not leave an approval live for a later one.
+        clearPaidApproval();
         return transport.start(request, options);
+      }
+      if (!storedWorkEndpoint && (request.payload.spec || request.payload.agent_id)) {
+        // Explicit model specs and agent requests are administrator/user-selected routes.
+        // One approval authorizes one paid request, so a bypass must consume it.
+        clearPaidApproval();
+        return transport.start(request, options);
+      }
+
+      let chatRequest = request;
+      if (storedWorkEndpoint) {
+        // A Work transcript may retain agent-only fields after switching to Chat.
+        // Clear them at the transport boundary before selecting a Chat model.
+        const payload = { ...request.payload };
+        delete payload.agent_id;
+        delete payload.ephemeralAgent;
+        delete payload.spec;
+        chatRequest = { ...request, payload };
       }
 
       let candidates: ModelRouteCandidate[];
@@ -188,7 +219,7 @@ export function createAutomaticChatTransport({
       let lastError: unknown;
       for (let index = 0; index < candidates.length; index += 1) {
         const candidate = candidates[index] as ModelRouteCandidate;
-        const routedRequest = withCandidate(request, candidate, endpointsConfig, paidRequest);
+        const routedRequest = withCandidate(chatRequest, candidate, endpointsConfig, paidRequest);
         const startedAt = Date.now();
         try {
           const result = await transport.start(routedRequest, options);
