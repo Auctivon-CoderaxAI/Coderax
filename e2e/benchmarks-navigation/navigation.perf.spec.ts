@@ -224,7 +224,8 @@ async function holdConversationRecord(page: Page, conversationId: string) {
 
   return async () => {
     release();
-    await page.unroute(pattern);
+    // Drain the held handlers before disabling interception for this page.
+    await page.unrouteAll({ behavior: 'wait' });
     return heldRequests;
   };
 }

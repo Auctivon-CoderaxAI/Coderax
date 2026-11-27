@@ -29,6 +29,11 @@
         "types": "./dist/proxy.d.cts",
         "default": "./dist/proxy.cjs"
       }
+    },
+    "./gateway": {
+      "require": {
+        "default": "./dist/gateway.cjs"
+      }
     }
   },
   "scripts": {

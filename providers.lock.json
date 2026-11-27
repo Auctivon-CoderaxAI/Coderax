@@ -1,0 +1,508 @@
+{
+  "version": 1,
+  "auditedAt": "2026-11-26T00:00:00.000Z",
+  "policy": {
+    "additionalSpendUsd": 0,
+    "paidRoutesEnabled": false,
+    "defaultRoutingDecision": "deny",
+    "routingRequires": "verified-free-model",
+    "credentialValuesCommitted": false,
+    "clientVisibleSecrets": false
+  },
+  "providers": [
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "kind": "inference",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "OPENROUTER_API_KEY"
+      },
+      "zeroCost": {
+        "status": "verified-free-model",
+        "basis": "free-model",
+        "verifiedAt": "2026-11-23",
+        "evidenceUrl": "https://openrouter.ai/api/v1/models",
+        "note": "Every routed model is a :free variant listed with prompt and completion price 0."
+      },
+      "capabilities": {
+        "verified": true,
+        "streaming": true,
+        "tools": true,
+        "reasoning": true,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": true
+      },
+      "models": [
+        {
+          "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "label": "NVIDIA Nemotron 3 Ultra (free)",
+          "verified": true,
+          "pricingBasis": "free-model",
+          "contextTokens": 1000000,
+          "capabilities": { "streaming": true, "tools": true, "reasoning": true },
+          "observedLatencyMs": 1473,
+          "observedLatencyAt": "2026-11-23",
+          "sourceUrl": "https://openrouter.ai/api/v1/models"
+        },
+        {
+          "id": "nvidia/nemotron-3.5-lightning:free",
+          "label": "NVIDIA Nemotron 3.5 Lightning (free)",
+          "verified": true,
+          "pricingBasis": "free-model",
+          "contextTokens": 1000000,
+          "capabilities": { "streaming": true, "tools": true, "reasoning": true },
+          "observedLatencyMs": 3040,
+          "observedLatencyAt": "2026-11-23",
+          "sourceUrl": "https://openrouter.ai/api/v1/models"
+        },
+        {
+          "id": "google/gemma-4-31b-it:free",
+          "label": "Google Gemma 4 31B (free)",
+          "verified": true,
+          "pricingBasis": "free-model",
+          "contextTokens": 262144,
+          "capabilities": { "streaming": true, "tools": true, "reasoning": true },
+          "observedLatencyMs": 801,
+          "observedLatencyAt": "2026-11-23",
+          "sourceUrl": "https://openrouter.ai/api/v1/models"
+        }
+      ],
+      "routing": {
+        "surface": "work-free-inference",
+        "eligible": true,
+        "reason": null,
+        "evidence": "docs/free-inference-verification.json"
+      }
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini",
+      "kind": "inference",
+      "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "auth": {
+        "type": "api-key",
+        "credentialEnv": "GEMINI_API_KEY"
+      },
+      "zeroCost": {
+        "status": "free-tier-unverified",
+        "basis": "free-tier",
+        "verifiedAt": null,
+        "evidenceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+        "note": "A free tier exists for some models, but the API key does not expose the account plan, region, or remaining quota, so usage-based billing cannot be ruled out."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "gemini-3.5-flash-lite",
+          "label": "Gemini 3.5 Flash Lite",
+          "verified": false,
+          "pricingBasis": "free-tier",
+          "contextTokens": 1000000,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://ai.google.dev/gemini-api/docs/models"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "billing_plan_unverified",
+        "evidence": null
+      }
+    },
+    {
+      "id": "cerebras",
+      "label": "Cerebras",
+      "kind": "inference",
+      "baseURL": "https://api.cerebras.ai/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "CEREBRAS_API_KEY"
+      },
+      "zeroCost": {
+        "status": "trial-credit",
+        "basis": "free-trial-credit",
+        "verifiedAt": null,
+        "evidenceUrl": "https://www.cerebras.ai/pricing",
+        "note": "The advertised free start is a one-time $5 credit granted after a verified payment method. A trial credit is not a recurring zero-cost route."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "gpt-oss-120b",
+          "label": "OpenAI GPT-OSS 120B",
+          "verified": false,
+          "pricingBasis": "free-trial-credit",
+          "contextTokens": 65536,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://inference-docs.cerebras.ai/models/overview"
+        },
+        {
+          "id": "qwen-3.8-27b",
+          "label": "Qwen 3.8 27B",
+          "verified": false,
+          "pricingBasis": "free-trial-credit",
+          "contextTokens": 65536,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://inference-docs.cerebras.ai/models/overview"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "trial_credits",
+        "evidence": null
+      }
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "kind": "inference",
+      "baseURL": "https://api.groq.com/openai/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "GROQ_API_KEY"
+      },
+      "zeroCost": {
+        "status": "free-tier-unverified",
+        "basis": "free-tier",
+        "verifiedAt": null,
+        "evidenceUrl": "https://console.groq.com/docs/billing-faqs",
+        "note": "Groq has both Free and billable Developer tiers. The credential does not reveal the account tier, so the router cannot prove calls stay free."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": false,
+        "reasoning": true,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "openai/gpt-oss-120b",
+          "label": "OpenAI GPT-OSS 120B on Groq",
+          "verified": false,
+          "pricingBasis": "free-tier",
+          "contextTokens": 32768,
+          "capabilities": { "streaming": true, "tools": false, "reasoning": true },
+          "observedLatencyMs": 338,
+          "observedLatencyAt": "2026-11-23",
+          "sourceUrl": "https://console.groq.com/docs/models"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "billing_plan_unverified",
+        "evidence": null
+      }
+    },
+    {
+      "id": "opencodeai",
+      "label": "OpenCode Zen",
+      "kind": "inference",
+      "baseURL": "https://opencode.ai/zen/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "OPENCODEAI_API_KEY"
+      },
+      "zeroCost": {
+        "status": "paid",
+        "basis": "per-request",
+        "verifiedAt": null,
+        "evidenceUrl": "https://opencode.ai/docs/zen",
+        "note": "Zen is charged per request. Its free-tier chat models require the OpenCode client, so a server-side Coderax call is not a verified free route."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "deepseek-v4.1-flash-free",
+          "label": "DeepSeek V4.1 Flash (OpenCode free tier)",
+          "verified": false,
+          "pricingBasis": "requires-opencode-client",
+          "contextTokens": 200000,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://opencode.ai/docs/zen"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "paid",
+        "evidence": null
+      }
+    },
+    {
+      "id": "apinex",
+      "label": "APInex",
+      "kind": "inference",
+      "baseURL": "https://api.apinex.bond/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "APINEX_KEY"
+      },
+      "zeroCost": {
+        "status": "requires-topup",
+        "basis": "free-allowance-after-topup",
+        "verifiedAt": null,
+        "evidenceUrl": "https://apinex.bond/developers/models/connect",
+        "note": "The advertised 25M daily token allowance starts after a single top-up of $5 or more. A $0 wallet is valid, but the free allowance is not available without spending."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "free/deepseek-v4.1-flash",
+          "label": "DeepSeek V4.1 Flash (APInex free)",
+          "verified": false,
+          "pricingBasis": "free-allowance-after-topup",
+          "contextTokens": 1000000,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://apinex.bond/developers/models/chat"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "trial_credits",
+        "evidence": null
+      }
+    },
+    {
+      "id": "cloudflare",
+      "label": "Cloudflare Workers AI",
+      "kind": "inference",
+      "baseURL": "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "CLOUDFLARE_TOKEN",
+        "requiredEnv": ["CLOUDFLARE_ACCOUNT_ID"]
+      },
+      "zeroCost": {
+        "status": "free-allocation-unverified",
+        "basis": "free-daily-allocation",
+        "verifiedAt": null,
+        "evidenceUrl": "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+        "note": "The daily Neuron allocation is free on the Workers Free plan. The API does not expose the account plan, so paid-plan overage cannot be ruled out."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "@cf/openai/gpt-oss-120b",
+          "label": "OpenAI GPT-OSS 120B on Workers AI",
+          "verified": false,
+          "pricingBasis": "free-daily-allocation",
+          "contextTokens": 128000,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://developers.cloudflare.com/workers-ai/models/"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "billing_plan_unverified",
+        "evidence": null
+      }
+    },
+    {
+      "id": "freeai",
+      "label": "Free.ai",
+      "kind": "inference",
+      "baseURL": "https://api.free.ai/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "FREEAI_API_KEY"
+      },
+      "zeroCost": {
+        "status": "free-allowance-overage",
+        "basis": "free-daily-allowance",
+        "verifiedAt": null,
+        "evidenceUrl": "https://free.ai/developer",
+        "note": "30,000 tokens/day are free; self-hosted models bill raw token counts beyond that pool. The key does not expose remaining allowance, so a call can incur charges."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "qwen7b",
+          "label": "Qwen 7B (Free.ai self-hosted)",
+          "verified": false,
+          "pricingBasis": "free-daily-allowance",
+          "contextTokens": 32768,
+          "capabilities": { "streaming": true, "tools": null, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://free.ai/api/"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "billing_plan_unverified",
+        "evidence": null
+      }
+    },
+    {
+      "id": "100millionseek",
+      "label": "100MillionSeek",
+      "kind": "inference",
+      "baseURL": "https://100milionseek.top/v1",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "HMS_API_KEY",
+        "legacyEnv": ["100MILLIONSEEK_API_KEY"],
+        "note": "The service documents HMS_API_KEY. 100MILLIONSEEK_API_KEY starts with a digit, so POSIX shells cannot export it."
+      },
+      "zeroCost": {
+        "status": "free-service-unverified",
+        "basis": "free-daily-allowance",
+        "verifiedAt": null,
+        "evidenceUrl": "https://100milionseek.top/docs",
+        "note": "The service advertises 100M tokens per account per UTC day at no charge. No authenticated probe was possible, so the claim remains unverified."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": true,
+        "tools": true,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": true,
+        "work": false
+      },
+      "models": [
+        {
+          "id": "deepseek-v4.1-flash-free",
+          "label": "DeepSeek V4.1 Flash (100MillionSeek)",
+          "verified": false,
+          "pricingBasis": "free-daily-allowance",
+          "contextTokens": 198000,
+          "capabilities": { "streaming": true, "tools": true, "reasoning": null },
+          "observedLatencyMs": null,
+          "observedLatencyAt": null,
+          "sourceUrl": "https://100milionseek.top/docs"
+        }
+      ],
+      "routing": {
+        "surface": "provider-fallback",
+        "eligible": false,
+        "reason": "credential_and_service_unverified",
+        "evidence": null
+      }
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "kind": "deployment",
+      "baseURL": "https://api.vercel.com",
+      "auth": {
+        "type": "bearer",
+        "credentialEnv": "VERCEL_KEY"
+      },
+      "zeroCost": {
+        "status": "deployment-only",
+        "basis": "not-an-inference-provider",
+        "verifiedAt": null,
+        "evidenceUrl": "https://vercel.com/docs/rest-api",
+        "note": "VERCEL_KEY authenticates deployments. It must never be forwarded to an AI gateway or used as a model credential."
+      },
+      "capabilities": {
+        "verified": false,
+        "streaming": null,
+        "tools": null,
+        "reasoning": null,
+        "structuredOutputs": null
+      },
+      "compatibility": {
+        "chat": false,
+        "work": false
+      },
+      "models": [],
+      "routing": {
+        "surface": "deployment",
+        "eligible": false,
+        "reason": "not_an_inference_provider",
+        "evidence": null
+      }
+    }
+  ]
+}
