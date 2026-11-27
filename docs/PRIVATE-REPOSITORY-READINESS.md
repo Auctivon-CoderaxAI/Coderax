@@ -2,7 +2,7 @@
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:c77a1118a3014a26923920d0bc74e9c527065a5ab529e784cf06b71237fcb92f -->
+<!-- coderabbit-ai-generated-section:v1:c7eb451e4733b2b5f104878674e6f0e4d37ad3a8dbe150df9b86ad4932dfaa1d -->
 
 Status: **not yet ready** for GitHub Free private operation at $0 additional spend. Visibility is unchanged. The workflow cleanup is prepared, but the post-cutover compute budget has not been verified.
 
@@ -55,7 +55,7 @@ Before changing visibility, project a full billing cycle of private usage after 
 
 0. Approve the post-cutover compute projection above before changing visibility.
 1. For PRs affecting native acceptance, review the exact proposed revision before running both [native acceptance variants](../e2e/byom/README.md) on a trusted Mac with the pinned fixture revision. Record the tested SHA and result in the PR before merging. On GitHub Free private repositories, use this local procedure because the protected environment and its secret are unavailable. Remove any repository or organization copy of the fixture token before enabling this workflow. A successful `Native workspace acceptance not verified` job reports that the hosted macOS tests did not run; it does not satisfy the acceptance requirement.
-2. Keep the repository public until all three npm publish workflows (`client.yml`, `data-provider.yml`, and `data-schemas.yml`) require an approved commit SHA as a manual dispatch input and `publish-npm` stops before `npm publish` if `github.sha` does not match it. The current manual procedure cannot prevent publishing a different commit: an independent reviewer records approval for the exact release commit, and an authorized maintainer checks that it is the tip of `main` before dispatch, but `main` can advance between that check and dispatch. Checking the run SHA afterward only detects a mismatch after the workflow could already have published. Verify the npm trusted publisher configuration and identify any dependency on environment secrets before cutover. If a run is canceled, check the registry version and run SHA before retrying: a canceled run can already have published.
+2. Have an independent reviewer record approval for the exact release commit. Enter that full SHA as `approved_sha` when dispatching `client.yml`, `data-provider.yml`, or `data-schemas.yml` from `main`. If the dispatch resolves to a different commit, the pack job fails before checkout and the dependent publish job does not run. Review and approve the new revision before dispatching again if `main` has advanced. Verify the npm trusted publisher configuration and identify any dependency on environment secrets before cutover. If a run is canceled, check the registry version and run SHA before retrying: a canceled run can already have published.
 3. Enable `ALLOW_IMAGE_PUBLISH=true` only if automatic main-branch builds and pushes to both registries are wanted.
 4. In [GitHub billing settings](https://docs.github.com/en/billing/how-tos/set-up-budgets), set a separate $0 budget for each relevant metered product (for example, Actions and Packages), scoped to the account or organization that pays for this repository. Enable **Stop usage when budget limit is reached** for each budget that offers it. If a product cannot be capped, keep its paid usage disabled. Alerts alone do not stop charges.
 

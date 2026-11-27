@@ -3,6 +3,10 @@ name: Publish `@coderax/client` to NPM
 on:
   workflow_dispatch:
     inputs:
+      approved_sha:
+        description: 'Full commit SHA recorded in the release approval'
+        required: true
+        type: string
       reason:
         description: 'Reason for manual trigger'
         required: false
@@ -22,7 +26,18 @@ jobs:
     outputs:
       skip: ${{ steps.check.outputs.skip }}
     steps:
+      - name: Verify approved commit
+        env:
+          APPROVED_SHA: ${{ inputs.approved_sha }}
+        run: |
+          if [[ "$GITHUB_SHA" != "$APPROVED_SHA" ]]; then
+            echo "::error::The dispatch commit does not match the approved release SHA."
+            exit 1
+          fi
+
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Use Node.js
         uses: actions/setup-node@v5
