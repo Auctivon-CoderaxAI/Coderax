@@ -21,7 +21,7 @@ ARG NODE_MAX_OLD_SPACE_SIZE=6144
 ARG NPM_CI_TIMEOUT_SECONDS=1500
 ARG NPM_CI_ATTEMPTS=2
 
-RUN mkdir -p /app && chown node:node /app
+RUN mkdir -p /app /srv/engine /srv/coderax/private && chown node:node /app /srv/engine /srv/coderax/private
 WORKDIR /app
 
 USER node

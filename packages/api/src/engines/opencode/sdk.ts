@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { EngineResult } from '../types';
 import type { OpenCodeTransport } from './adapter';
+import type { EngineResult } from '../types';
+import { openCodeAuthHeader } from './auth';
 import { engineFailure } from '../types';
 
 /**
@@ -44,7 +45,11 @@ type SdkClient = {
 };
 
 type SdkModule = {
-  createOpencodeClient: (config: { baseUrl?: string; directory?: string }) => unknown;
+  createOpencodeClient: (config: {
+    baseUrl?: string;
+    directory?: string;
+    headers?: Record<string, string>;
+  }) => unknown;
 };
 
 /** Locate the pinned ESM entry without relying on the missing require condition. */
@@ -87,6 +92,8 @@ function requiredString(value: unknown): string | null {
 export function loadOpenCodeSdk(options: {
   baseURL: string;
   directory: string;
+  username?: string;
+  password?: string;
 }): EngineResult<LoadedOpenCodeSdk> {
   let loaded: unknown;
   try {
@@ -122,7 +129,15 @@ export function loadOpenCodeSdk(options: {
   }
 
   const createClient = loaded.createOpencodeClient;
-  const client = createClient({ baseUrl: options.baseURL, directory: options.directory });
+  const headers = openCodeAuthHeader({
+    ...(options.username ? { username: options.username } : {}),
+    ...(options.password ? { password: options.password } : {}),
+  });
+  const client = createClient({
+    baseUrl: options.baseURL,
+    directory: options.directory,
+    ...(headers ? { headers } : {}),
+  });
   const sdk = client as SdkClient;
   if (
     !isRecord(sdk) ||

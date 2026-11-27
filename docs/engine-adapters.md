@@ -10,23 +10,23 @@ Power Mode are disabled by default.
 
 ## What is implemented
 
-| Piece                  | Location                                                          | Behavior                                                                                                                                                             |
-| ---------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Adapter contract       | `packages/api/src/engines/types.ts`                               | Normalized `started`, `text_delta`, `tool_call`, `tool_result`, `file_edit`, `approval_required`, `usage`, `completed`, `failed`, `cancelled` events; typed failures |
-| One-run arbitration    | `packages/api/src/engines/arbiter.ts`                             | A task key can be held by exactly one engine; a second engine gets `busy`                                                                                            |
-| Workspace confinement  | `packages/api/src/engines/workspace.ts`                           | Real-path checks inside the mode root; private and cloud roots must not overlap; symlink escapes are rejected                                                        |
-| Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                             |
-| OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an operator-run `opencode serve`; session create, prompt, SSE events, abort                                                  |
-| OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                            |
-| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint (`allowedHosts` cannot make a non-loopback host usable), and workspace-confined filesystem; unavailable unless a compatible SDK is supplied     |
-| Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                    |
-| Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                        |
-| Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                           |
-| Owner Work ingress     | `packages/api/src/engines/workChat.ts`                            | ADMIN-only `POST /api/work/chat` branch; streams and persists the turn, holds one live run per conversation, and reuses Work cancellation; off by default            |
-| Private/cloud boundary | `packages/api/src/cloud/mode.ts`                                  | Cross-mode denial, owner check, single-use export approval bound to exact content                                                                                    |
-| Secret scrubbing       | `packages/api/src/cloud/redact.ts`                                | Provider keys, bearer tokens and sensitive env values removed from outbound text and logs                                                                            |
-| GroqCloud provider     | `packages/api/src/cloud/groq.ts`                                  | One allowlisted free model, explicit free-tier attestation, local daily budget, 429/402 fail closed, no tools                                                        |
-| Config                 | `engines`, `cloudPower` in `packages/data-provider/src/config.ts` | Disabled defaults, bounded timeouts and budgets                                                                                                                      |
+| Piece                  | Location                                                          | Behavior                                                                                                                                                                                                                  |
+| ---------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Adapter contract       | `packages/api/src/engines/types.ts`                               | Normalized `started`, `text_delta`, `tool_call`, `tool_result`, `file_edit`, `approval_required`, `usage`, `completed`, `failed`, `cancelled` events; typed failures                                                      |
+| One-run arbitration    | `packages/api/src/engines/arbiter.ts`                             | A task key can be held by exactly one engine; a second engine gets `busy`                                                                                                                                                 |
+| Workspace confinement  | `packages/api/src/engines/workspace.ts`                           | Real-path checks inside the mode root; private and cloud roots must not overlap; symlink escapes are rejected                                                                                                             |
+| Shared settlement      | `packages/api/src/engines/run.ts`                                 | Timeout, cancellation and stream loss settle once; a stream ending without a terminal event is a failure                                                                                                                  |
+| OpenCode adapter       | `packages/api/src/engines/opencode/`                              | Official `@opencode-ai/sdk` client over an authenticated operator-run `opencode serve`; bounded `/global/health` probe, session create, prompt, SSE events, abort                                                         |
+| OpenHands adapter      | `packages/api/src/engines/openhands/`                             | Remote Agent Server transport with Agent Server event mapping; typed refusal when no server/client exists                                                                                                                 |
+| Freebuff adapter       | `packages/api/src/engines/freebuff/`                              | Source-built Freebuff SDK, direct local BYOK only, loopback provider endpoint (`allowedHosts` cannot make a non-loopback host usable), and workspace-confined filesystem; unavailable unless a compatible SDK is supplied |
+| Engine registry        | `packages/api/src/engines/registry.ts`                            | Default-engine selection, fail-closed availability, lease release                                                                                                                                                         |
+| Config service         | `packages/api/src/engines/service.ts`                             | Reads `engines` config, loads the SDK only when enabled, produces safe status                                                                                                                                             |
+| Read route             | `GET /api/work/engines`                                           | Availability of each engine and why it cannot run; no paths or credentials                                                                                                                                                |
+| Owner Work ingress     | `packages/api/src/engines/workChat.ts`                            | ADMIN-only `POST /api/work/chat` branch; streams and persists the turn, holds one live run per conversation, and reuses Work cancellation; off by default                                                                 |
+| Private/cloud boundary | `packages/api/src/cloud/mode.ts`                                  | Cross-mode denial, owner check, single-use export approval bound to exact content                                                                                                                                         |
+| Secret scrubbing       | `packages/api/src/cloud/redact.ts`                                | Provider keys, bearer tokens and sensitive env values removed from outbound text and logs                                                                                                                                 |
+| GroqCloud provider     | `packages/api/src/cloud/groq.ts`                                  | One allowlisted free model, explicit free-tier attestation, local daily budget, 429/402 fail closed, no tools                                                                                                             |
+| Config                 | `engines`, `cloudPower` in `packages/data-provider/src/config.ts` | Disabled defaults, bounded timeouts and budgets                                                                                                                                                                           |
 
 ## OpenCode (primary engine)
 
@@ -46,7 +46,8 @@ Owner setup (no cost):
 
 ```bash
 # on the host that owns the workspace
-npm install -g opencode-ai
+export OPENCODE_SERVER_PASSWORD="$(openssl rand -hex 32)"
+npm install -g opencode-ai@1.19.6
 opencode serve --hostname 127.0.0.1 --port 4096
 ```
 
@@ -55,25 +56,45 @@ engines:
   defaultEngine: opencode
   workspaces:
     privateRoot: /srv/coderax/private
-    cloudRoot: /srv/coderax/cloud
+    cloudRoot: /srv/engine/cloud
   opencode:
     enabled: true
     baseURL: http://127.0.0.1:4096
-    # Required: a free OpenCode model in cloud mode, a local model in private mode.
-    model: opencode/deepseek-v4.1-flash-free
+    # `auto` uses the verified $0 OpenRouter candidates in cloud mode, then the
+    # free OpenCode Console allowlist. A pinned provider/model still works.
+    model: auto
+    passwordEnv: OPENCODE_SERVER_PASSWORD
+    probeTimeoutMs: 5000
+    maxModelAttempts: 3
     timeoutMs: 900000
   workChat:
     enabled: true
     mode: cloud
 ```
 
-`engines.opencode.model` is required. It pins every run to a zero-cost model:
-private mode accepts only a local provider (`ollama` or `lmstudio`), while cloud
-mode also accepts the free OpenCode Console allowlist. The engine reports
-`sdk_unavailable` with an explanatory detail rather than starting on a paid
-default. The adapter creates a session, subscribes before prompting, streams SDK
-events, maps tool and file evidence, and aborts on cancellation. A run that
+`engines.opencode.model` is required. It pins every run to a zero-cost model, or
+`auto` resolves an ordered, bounded list of verified $0 candidates: the
+OpenRouter `:free` models when `OPENROUTER_API_KEY` is present, then the free
+OpenCode Console allowlist. Private mode accepts only a local provider (`ollama`
+or `lmstudio`); `auto` is refused there because it names hosted models. The
+engine reports `sdk_unavailable` with an explanatory detail rather than starting
+on a paid default.
+
+The server enforces `OPENCODE_SERVER_PASSWORD`. Coderax reads the password from
+the environment variable named by `passwordEnv`, sends it as an HTTP Basic
+`Authorization` header (never in the URL), and probes `GET /global/health` with
+the same credential before it resolves a workspace or creates a session. A 401,
+a body without `healthy: true`, or a probe that exceeds `probeTimeoutMs` is
+reported as `server_unavailable`; configuration alone is never treated as live
+readiness. The adapter creates a session, subscribes before prompting, streams
+SDK events, maps tool and file evidence, and aborts on cancellation. A run that
 produces text but no terminal event is reported as `protocol_error`.
+
+The OCI compose stack runs this server as an unprivileged, read-only-root
+container on the private `engine` network with no published port. It mounts only
+the cloud workspace (`/srv/engine/cloud`); the private root is on an app-only
+volume. Both containers run as uid 1000 so the confined run directories are
+writable without a privileged chown. See `deploy/oci/README.md`.
 
 ### Owner-only Work ingress
 
@@ -294,6 +315,10 @@ The focused suites cover:
 - workspace traversal, symlink escape and overlapping roots;
 - OpenCode event parsing including cumulative text, tool success/error, file
   deduplication and abort;
+- the model plan (`auto` ordering, cloud-only enforcement, attempt bounds), the
+  bounded provider fallback including cancellation during the first-event watch,
+  Basic auth header construction, and the authenticated `/global/health` probe
+  reporting `server_unavailable` for 401, unhealthy and timed-out servers;
 - OpenHands disabled/not-configured behavior and event mapping;
 - cloud cross-mode retrieval, non-owner access, approval binding, single use,
   expiry and prompt injection;
@@ -304,7 +329,12 @@ The focused suites cover:
 
 1. **No live OpenCode or OpenHands server or model credential was available in
    this environment.** The adapters and owner ingress are exercised against
-   protocol-conformant transports; a live model run is not claimed.
+   protocol-conformant transports; a live model run is not claimed. The
+   transport-only live check is opt-in with `OPENCODE_E2E=1`,
+   `OPENCODE_E2E_URL`, and `OPENCODE_E2E_PASSWORD`; it verifies session creation,
+   `server.connected` and abort without sending a prompt. The OCI compose file is
+   validated structurally, but this environment did not run the OpenCode container
+   or reach a hosted model.
 2. **The owner ingress is text-only.** Attachments, regenerate, compact and edit
    turns stay on the native path or are rejected; a saved-agent selection always
    stays native. There is no engine picker UI: the owner enables the branch in
@@ -316,3 +346,9 @@ The focused suites cover:
    TypeScript client.** The adapter stays disabled rather than faking support.
 5. **The Groq daily ledger is process-local.** It is a guard, not a distributed
    billing guarantee; exhaustion still fails closed through Groq's 429.
+6. **OpenCode's shell is not a per-run process sandbox.** The adapter resolves
+   each session directory inside the cloud root and the engine container does
+   not mount the private root, but co-tenant cloud run directories share the
+   container uid. A malicious shell command is not isolated from other cloud
+   runs; use separate deployments or a stronger process sandbox for adversarial
+   tenants.

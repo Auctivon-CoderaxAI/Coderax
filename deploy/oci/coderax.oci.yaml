@@ -1,7 +1,29 @@
 # API-only configuration for the Oracle Always Free A1 backend.
 # Native Work uses the verified $0 OpenRouter models when OPENROUTER_API_KEY is
-# present in app.env. No local model server, model weights, or GPU is required.
+# present in app.env. The OpenCode service is cloud-only, authenticated, and
+# reaches the same free provider over outbound HTTPS. No local model server,
+# model weights, or GPU is required.
 version: 1.3.17
 cache: true
 freeInference:
   enabled: true
+engines:
+  defaultEngine: opencode
+  workChat:
+    enabled: true
+    mode: cloud
+  workspaces:
+    # App-only volume; the OpenCode container mounts only the cloud workspace.
+    privateRoot: /srv/coderax/private
+    cloudRoot: /srv/engine/cloud
+  opencode:
+    enabled: true
+    baseURL: http://opencode:4096
+    # `auto` resolves only the verified $0 OpenRouter models when the key is
+    # present, then the free OpenCode Console allowlist. It never lets the
+    # server choose a paid default.
+    model: auto
+    passwordEnv: OPENCODE_SERVER_PASSWORD
+    probeTimeoutMs: 5000
+    maxModelAttempts: 3
+    timeoutMs: 900000

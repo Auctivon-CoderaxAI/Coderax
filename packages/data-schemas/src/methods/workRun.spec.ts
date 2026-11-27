@@ -46,6 +46,8 @@ describe('Work run lease methods', () => {
     await expect(methods.claimWorkRun(claim('token-2'))).resolves.toBe(false);
 
     await expect(methods.readWorkRun({ key: KEY, now: new Date() })).resolves.toMatchObject({
+      /** The token is the generation a conversation write is fenced to. */
+      token: 'token-1',
       cancelRequested: false,
       live: true,
     });
@@ -189,5 +191,60 @@ describe('Work run lease methods', () => {
       methods.readWorkRun({ key: 'tenant-1:owner:conversation-recent', now }),
     ).resolves.toMatchObject({ live: false });
     await expect(methods.readWorkRun({ key: KEY, now })).resolves.toMatchObject({ live: true });
+  });
+
+  test('reports the expired generation a takeover replaced', async () => {
+    const now = new Date();
+    await methods.claimWorkRun(
+      claim('dead-token', {
+        now: new Date(now.getTime() - 120_000),
+        expiresAt: new Date(now.getTime() - 60_000),
+      }),
+    );
+
+    await expect(methods.claimWorkRunLease(claim('token-2'))).resolves.toEqual({
+      claimed: true,
+      previousToken: 'dead-token',
+    });
+  });
+
+  test('reports no replaced generation for the first claim', async () => {
+    await expect(methods.claimWorkRunLease(claim('token-1'))).resolves.toEqual({
+      claimed: true,
+      previousToken: null,
+    });
+  });
+
+  test('verifies the unique key index before admitting a claim', async () => {
+    await methods.claimWorkRun(claim('token-1'));
+
+    const keyIndex = (await WorkRun.listIndexes()).find((index) => index.name === 'key_1');
+    expect(keyIndex).toMatchObject({ unique: true, key: { key: 1 } });
+  });
+
+  test('does not flag or retire a replacement generation', async () => {
+    await methods.claimWorkRun(claim('token-1'));
+
+    await expect(
+      methods.cancelWorkRun({ key: KEY, now: new Date(), token: 'token-2' }),
+    ).resolves.toBe('none');
+    await expect(
+      methods.renewWorkRun({
+        key: KEY,
+        token: 'token-1',
+        now: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    ).resolves.toEqual({ renewed: true, cancelRequested: false });
+
+    /** An expired row is only retired for the generation the caller observed. */
+    const expired = new Date(Date.now() + 60_000);
+    await expect(methods.cancelWorkRun({ key: KEY, now: expired, token: 'token-2' })).resolves.toBe(
+      'none',
+    );
+    await expect(methods.readWorkRun({ key: KEY, now: expired })).resolves.toMatchObject({
+      token: 'token-1',
+      live: false,
+    });
   });
 });

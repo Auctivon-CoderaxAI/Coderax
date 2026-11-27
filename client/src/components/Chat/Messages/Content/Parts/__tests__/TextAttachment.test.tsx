@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import type { TAttachment } from 'coderax-data-provider';
 
@@ -99,9 +98,8 @@ const restoreScrollHeight = () => {
     Object.defineProperty(HTMLPreElement.prototype, 'scrollHeight', originalScrollHeightDescriptor);
   } else {
     // No own descriptor existed before — delete the override so the prototype
-    // chain falls back to the inherited HTMLElement implementation.
-
-    delete (HTMLPreElement.prototype as any).scrollHeight;
+    // chain falls back to the inherited DOM implementation.
+    Reflect.deleteProperty(HTMLPreElement.prototype, 'scrollHeight');
   }
 };
 

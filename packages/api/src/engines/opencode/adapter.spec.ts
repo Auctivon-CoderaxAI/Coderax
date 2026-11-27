@@ -121,6 +121,72 @@ describe('OpenCode adapter', () => {
     });
   });
 
+  it('retries a provider refusal on the next candidate without aborting the task', async () => {
+    let sessions = 0;
+    const prompt = jest.fn(async () => {});
+    const abort = jest.fn(async () => {});
+    const transport: OpenCodeTransport = {
+      createSession: async () => ({ id: `s${(sessions += 1)}` }),
+      subscribe: async ({ sessionId }) => {
+        if (sessionId === 's1') {
+          return (async function* () {
+            yield {
+              type: 'session.error',
+              properties: { sessionID: 's1', error: { name: 'ProviderAuthError' } },
+            };
+          })();
+        }
+        return (async function* () {
+          yield {
+            type: 'message.part.updated',
+            properties: {
+              sessionID: 's2',
+              part: { id: 'p', sessionID: 's2', type: 'text', text: 'second' },
+            },
+          };
+          yield { type: 'session.idle', properties: { sessionID: 's2' } };
+        })();
+      },
+      prompt,
+      abort,
+    };
+
+    const started = await startOpenCodeRun(
+      {
+        enabled: true,
+        transport,
+        roots: { private: privateRoot, cloud: cloudRoot },
+        limits,
+        models: [
+          { providerId: 'openrouter', modelId: 'a:free' },
+          { providerId: 'openrouter', modelId: 'b:free' },
+        ],
+        firstEventTimeoutMs: 1_000,
+      },
+      request(privateRoot),
+    );
+    expect(started.ok).toBe(true);
+    if (!started.ok) {
+      return;
+    }
+    expect(started.value.sessionId).toBe('s2');
+    await expect(collect(started.value.events)).resolves.toEqual([
+      { type: 'started', sessionId: 's2' },
+      { type: 'text_delta', text: 'second' },
+      { type: 'completed', sessionId: 's2' },
+    ]);
+    expect(prompt).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ model: { providerId: 'openrouter', modelId: 'a:free' } }),
+    );
+    expect(prompt).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model: { providerId: 'openrouter', modelId: 'b:free' } }),
+    );
+    expect(abort).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 's1' }));
+    await started.value.close();
+  });
+
   it('treats a stream that ends without a terminal event as a failure', async () => {
     const transport: OpenCodeTransport = {
       createSession: async () => ({ id: 's1' }),

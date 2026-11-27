@@ -316,6 +316,12 @@ export interface ConversationMethods {
       stampReply?: boolean;
       /** Durable messageId paired atomically with a reply stamp. */
       replyMessageId?: string;
+      /** Applies only while the row belongs to this Work run generation. */
+      workRunGeneration?: string;
+      /** Applies only while the row belongs to this generation or the one it replaced. */
+      workRunClaim?: { generation: string; replaces?: string | null };
+      /** Applies only while the row has not settled, so an observation cannot replace an outcome. */
+      unsettledWorkRun?: boolean;
     },
   ): Promise<IConversation | { message: string } | null>;
   /**
@@ -2464,6 +2470,12 @@ export function createConversationMethods(
       stampReply?: boolean;
       /** Durable messageId paired atomically with a reply stamp. */
       replyMessageId?: string;
+      /** Applies only while the row belongs to this Work run generation. */
+      workRunGeneration?: string;
+      /** Applies only while the row belongs to this generation or the one it replaced. */
+      workRunClaim?: { generation: string; replaces?: string | null };
+      /** Applies only while the row has not settled, so an observation cannot replace an outcome. */
+      unsettledWorkRun?: boolean;
     },
   ) {
     try {
@@ -2679,6 +2691,28 @@ export function createConversationMethods(
       const baseFilter = {
         conversationId,
         user: userId,
+        /** A Work run writes only while its generation still owns the row: a retry stamps its
+         *  own, so a late outcome from the run it replaced matches nothing. */
+        ...(metadata?.workRunGeneration ? { workRunId: metadata.workRunGeneration } : {}),
+        /** A startup stamp owns the row only when it still belongs to this generation, the
+         *  expired generation the claim replaced, or no run at all. A row a newer run
+         *  stamped matches neither, so a startup that outlived its lease cannot take it. */
+        ...(metadata?.workRunClaim
+          ? {
+              workRunId: {
+                $in: [
+                  metadata.workRunClaim.generation,
+                  ...(metadata.workRunClaim.replaces ? [metadata.workRunClaim.replaces] : []),
+                  null,
+                ],
+              },
+            }
+          : {}),
+        /** Interruption recovery only moves an unsettled row; `$nin` also matches an absent
+         *  state, so a row written before the marker existed is still recoverable. */
+        ...(metadata?.unsettledWorkRun === true
+          ? { workState: { $nin: ['completed', 'failed', 'cancelled'] } }
+          : {}),
         ...(metadata?.titleSource === 'generated' && {
           titleSetByUser: { $ne: true },
           title: { $in: [null, '', 'New Chat'] },

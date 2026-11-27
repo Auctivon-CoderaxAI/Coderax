@@ -138,6 +138,7 @@ describe('automatic Chat model transport', () => {
       selection,
       endpointsConfig,
       workMode: false,
+      workConversation: true,
     });
     const request = {
       ...makeRequest(EModelEndpoint.agents),
@@ -187,6 +188,50 @@ describe('automatic Chat model transport', () => {
 
     await controller.transport.start(request);
     expect(start).toHaveBeenCalledWith(request, undefined);
+  });
+
+  it('keeps an explicitly selected agent in Chat instead of stripping it as stale Work state', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'explicit-agent-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'chat-free:free', provider: 'openrouter' }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+      workMode: false,
+      workConversation: false,
+    });
+    const request = {
+      ...makeRequest(EModelEndpoint.agents),
+      server: 'https://coderax.example/api/agents/chat',
+      payload: {
+        ...makeRequest(EModelEndpoint.agents).payload,
+        agent_id: 'chat-agent',
+      },
+    };
+
+    await controller.transport.start(request);
+
+    expect(start).toHaveBeenCalledWith(request, undefined);
+    expect(start.mock.calls[0]?.[0].payload).toHaveProperty('agent_id', 'chat-agent');
+  });
+
+  it('keeps an explicit model spec on an agent endpoint in Chat', async () => {
+    const start = jest.fn().mockResolvedValue({ generationId: 'explicit-spec-generation' });
+    const selection = selectAutomaticChatModel([{ id: 'chat-free:free', provider: 'openrouter' }]);
+    const controller = createAutomaticChatTransport({
+      transport: makeTransport(start),
+      selection,
+      endpointsConfig,
+      workMode: false,
+      workConversation: false,
+    });
+    const request = makeRequest(EModelEndpoint.agents);
+    request.payload.spec = 'chat-agent-spec';
+
+    await controller.transport.start(request);
+
+    expect(start).toHaveBeenCalledWith(request, undefined);
+    expect(start.mock.calls[0]?.[0].payload).toHaveProperty('spec', 'chat-agent-spec');
   });
 
   it('forwards explicit model specs and saved agents unchanged', async () => {

@@ -18,6 +18,9 @@ import { engineFailure } from '../types';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The startup write found a newer run owning the conversation. */
+class WorkRunOwnershipLostError extends Error {}
+
 function writeEvent(res: Response, event: object): void {
   if (res.writableEnded || res.destroyed) {
     return;
@@ -221,16 +224,21 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
     let activeHandle: EngineRunHandle | null = null;
     let reserved = false;
     const reservation = { userId, tenantId, conversationId };
+    const startup = new AbortController();
     let closeCancelled = false;
     const cancelForClose = (): void => {
       closed = true;
-      if (!activeHandle || closeCancelled) {
+      if (closeCancelled) {
         return;
       }
       closeCancelled = true;
-      void activeHandle
-        .cancel()
-        .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+      if (activeHandle) {
+        void activeHandle
+          .cancel()
+          .catch(() => options.logger?.warn?.('[Work] Could not cancel a closed engine stream.'));
+        return;
+      }
+      startup.abort();
     };
     res.on('close', () => {
       if (!finished) {
@@ -287,22 +295,60 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
       if (closed) return;
       let recorded = false;
+      /** The lease token claimed by this execution, handed over before dispatch. */
+      let runGeneration: string | null = null;
+      /** A terminal write applies only while this run still owns the row; it also detaches
+       *  the generation, so a later reading of a dead lease cannot reopen the outcome. */
+      const settle = (workState: 'completed' | 'failed' | 'cancelled') =>
+        runGeneration == null
+          ? { conversationId, workState }
+          : { conversationId, workState, workRunId: null, fenceWorkRun: runGeneration };
       const started = await runtime.start({
-        beforeDispatch: async () => {
+        signal: startup.signal,
+        beforeDispatch: async (ownership) => {
           if (closed) throw new Error('Work request closed');
+          runGeneration = ownership.generation;
           try {
-            await store.saveConversation({
-              conversationId,
-              title,
-              workAgent: engine,
-              workState: 'running',
-              create: existing == null,
-            });
+            if (ownership.generation == null) {
+              await store.saveConversation({
+                conversationId,
+                title,
+                workAgent: engine,
+                workState: 'running',
+                create: existing == null,
+              });
+            } else {
+              /**
+               * The claim names the run that owns the conversation: it applies
+               * only while the row belongs to this generation or to the expired
+               * run this claim replaced. A row a newer run stamped matches
+               * neither, so a startup that outlived its lease cannot take the
+               * newer run's place.
+               */
+              const applied = await store.saveConversation({
+                conversationId,
+                title,
+                workAgent: engine,
+                workState: 'running',
+                create: existing == null,
+                workRunId: ownership.generation,
+                claimWorkRun: {
+                  generation: ownership.generation,
+                  replaces: ownership.replaces,
+                },
+              });
+              if (!applied) {
+                throw new WorkRunOwnershipLostError('The Work run no longer owns the task.');
+              }
+            }
             recorded = true;
             if (closed) {
-              await store.saveConversation({ conversationId, workState: 'cancelled' });
+              await store.saveConversation(settle('cancelled'));
             }
           } catch (error) {
+            if (error instanceof WorkRunOwnershipLostError) {
+              throw error;
+            }
             storeUnavailable = true;
             throw error;
           }
@@ -317,10 +363,14 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       if (!started.ok) {
         /** A rejected second request must never overwrite the active run's state. */
         if (started.error.code !== 'busy') {
+          /** A start refused because the owner cancelled is a cancelled run. */
+          const startupState = started.error.code === 'cancelled' ? 'cancelled' : 'failed';
           try {
+            /** A startup that stamped its generation settles through that fence. */
             await store.saveConversation({
-              conversationId,
-              workState: 'failed',
+              ...(runGeneration == null
+                ? { conversationId, workState: startupState }
+                : settle(startupState)),
               ...(!recorded && existing == null ? { title, create: true } : {}),
             });
           } catch (error) {
@@ -342,7 +392,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       activeHandle = started.value;
       if (closed) {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        await store.saveConversation(settle('cancelled'));
         finished = true;
         return;
       }
@@ -367,7 +417,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
         await store.saveConversation({ conversationId });
       } catch {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'failed' });
+        await store.saveConversation(settle('failed'));
         if (closed) {
           finished = true;
           return;
@@ -380,7 +430,7 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
       }
       if (closed) {
         await started.value.cancel();
-        await store.saveConversation({ conversationId, workState: 'cancelled' });
+        await store.saveConversation(settle('cancelled'));
         finished = true;
         return;
       }
@@ -521,15 +571,12 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           unfinished: cancelled || failed || approvalRequired,
           ...(error ? { error } : {}),
         });
-        await store.saveConversation({
-          conversationId,
-          workState: terminalState,
-        });
+        await store.saveConversation(settle(terminalState));
       } catch {
         persisted = false;
         options.logger?.warn?.('[Work] Could not persist the engine response.');
         try {
-          await store.saveConversation({ conversationId, workState: 'failed' });
+          await store.saveConversation(settle('failed'));
         } catch {
           // The stream still has to close even when storage is unavailable.
         }
@@ -575,7 +622,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           : {}),
       });
       res.end();
-    } catch {
+    } catch (error) {
+      if (error instanceof WorkRunOwnershipLostError) {
+        /** A newer run owns the task; writing here would overwrite its state. */
+        if (!res.headersSent) {
+          res.status(409).json({
+            code: 'WORK_ENGINE_BUSY',
+            message: 'Another Work run is already active for this task.',
+          });
+        }
+        return;
+      }
       options.logger?.error?.(`[Work] The ${engineLabel(engine)} Work chat path failed.`);
       if (activeHandle && !finished) {
         try {
@@ -606,11 +663,17 @@ export function createEngineWorkChatHandler(options: HandlerOptions): RequestHan
           : `The ${engineLabel(engine)} engine could not start this task.`,
       });
     } finally {
-      if (activeHandle) {
-        await runtime.release?.({ ...reservation, handle: activeHandle });
-      }
-      if (reserved) {
-        options.releaseRun?.(reservation);
+      try {
+        if (activeHandle) {
+          await runtime.release?.({ ...reservation, handle: activeHandle });
+        }
+      } catch {
+        /** A failed lease release must not keep the handler's reservation. */
+        options.logger?.warn?.('[Work] Could not release the engine run lease.');
+      } finally {
+        if (reserved) {
+          options.releaseRun?.(reservation);
+        }
       }
     }
   };

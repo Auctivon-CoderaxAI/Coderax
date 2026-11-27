@@ -1,6 +1,7 @@
-import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { execFile } from 'node:child_process';
 import { resolveOpenCodeSdkEntry } from './sdk';
+import { openCodeAuthHeader } from './auth';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,7 +11,12 @@ const execFileAsync = promisify(execFile);
  * It is opt-in so the normal suite needs neither a server nor a network:
  *
  *   OPENCODE_E2E=1 OPENCODE_E2E_URL=http://127.0.0.1:4096 \
+ *     OPENCODE_E2E_PASSWORD=<the server password> \
  *     npx jest src/engines/opencode/live.spec.ts
+ *
+ * A deployed server enforces `OPENCODE_SERVER_PASSWORD`, so the check sends the
+ * same Authorization header the API builds in production. Without the variable
+ * it exercises an unsecured local server only.
  *
  * The SDK is ESM-only, and Jest's CommonJS loader cannot load it. The check
  * therefore runs the pinned entry in a native Node child process, which is the
@@ -22,6 +28,7 @@ const runLive = process.env.OPENCODE_E2E === '1' ? describe : describe.skip;
 
 runLive('OpenCode live transport', () => {
   const baseURL = process.env.OPENCODE_E2E_URL ?? 'http://127.0.0.1:4096';
+  const password = process.env.OPENCODE_E2E_PASSWORD;
 
   it('creates a session, receives server.connected, and aborts it', async () => {
     const entry = resolveOpenCodeSdkEntry();
@@ -33,7 +40,8 @@ runLive('OpenCode live transport', () => {
 const { createOpencodeClient } = require(process.argv[1]);
 (async () => {
   const [, , baseURL, directory] = process.argv;
-  const client = createOpencodeClient({ baseUrl: baseURL });
+  const headers = JSON.parse(process.argv[4]);
+  const client = createOpencodeClient({ baseUrl: baseURL, headers });
   const session = await client.session.create({
     body: { title: 'coderax-live-transport' },
     query: { directory },
@@ -61,7 +69,14 @@ const { createOpencodeClient } = require(process.argv[1]);
 `;
     const { stdout } = await execFileAsync(
       process.execPath,
-      ['-e', script, entry, baseURL, process.cwd()],
+      [
+        '-e',
+        script,
+        entry,
+        baseURL,
+        process.cwd(),
+        JSON.stringify(openCodeAuthHeader(password ? { password } : {}) ?? {}),
+      ],
       { timeout: 30_000 },
     );
     expect(JSON.parse(stdout.trim())).toMatchObject({ first: 'server.connected' });

@@ -9,13 +9,14 @@ import { defineConfig } from 'tsdown';
 // Some dependencies of the MCP SDK are dynamically imported by its transports.
 // Vercel's function tracing omitted these modules even though npm ci installed
 // them: keep them in the emitted API bundle alongside the SDK itself.
-const mcpRuntimeModules = /^(?:@modelcontextprotocol\/sdk|@langchain\/langgraph-checkpoint(?:-mongodb)?|@simplewebauthn\/server|@hexagon\/base64|@levischuck\/tiny-cbor|@peculiar\/[^/]+|reflect-metadata|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server|cluster-key-slot|croner|express-rate-limit|helmet|mathjs|ollama|proxy-from-env|rate-limit-redis|re2js|asn1js|pvtsutils|pvutils|tslib|tsyringe)(?:\/|$)/;
+const mcpRuntimeModules =
+  /^(?:@modelcontextprotocol\/sdk|@langchain\/langgraph-checkpoint(?:-mongodb)?|@simplewebauthn\/server|@hexagon\/base64|@levischuck\/tiny-cbor|@peculiar\/[^/]+|reflect-metadata|eventsource(?:-parser)?|jose|pkce-challenge|ajv(?:-formats)?|json-schema-typed|zod-to-json-schema|hono|@hono\/node-server|cluster-key-slot|croner|express-rate-limit|helmet|mathjs|ollama|proxy-from-env|rate-limit-redis|re2js|asn1js|pvtsutils|pvutils|tslib|tsyringe)(?:\/|$)/;
 
-export default defineConfig({
-  // The telemetry entry is a thin shim (`src/telemetry.ts`) rather than the
-  // `src/telemetry/index.ts` barrel: oxc emits declarations flat into outDir keyed
-  // by source basename, so two `index.ts` entries would collide (index.d.cts +
-  // index2.d.cts). Distinct basenames yield stable `index.*` / `telemetry.*` output.
+// The telemetry entry is a thin shim (`src/telemetry.ts`) rather than the
+// `src/telemetry/index.ts` barrel: oxc emits declarations flat into outDir keyed
+// by source basename, so two `index.ts` entries would collide (index.d.cts +
+// index2.d.cts). Distinct basenames yield stable `index.*` / `telemetry.*` output.
+const apiConfig = {
   entry: [
     'src/index.ts',
     'src/telemetry.ts',
@@ -34,10 +35,36 @@ export default defineConfig({
   // only first-party code: relative imports and the `~/*` tsconfig alias (-> src).
   // `neverBundle` is the 0.22 replacement for the deprecated `external` option.
   deps: {
-    neverBundle: (id) => id !== 'mathjs' && !mcpRuntimeModules.test(id) && !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
+    neverBundle: (id) =>
+      id !== 'mathjs' &&
+      !mcpRuntimeModules.test(id) &&
+      !id.startsWith('.') &&
+      !id.startsWith('~') &&
+      !path.isAbsolute(id),
     // Vercel Services traces this workspace as a function. The calculator and
     // MCP SDK, plus its SDK-specific transport/auth dependencies, must be in the
     // emitted API bundle. Vercel's function tracer omitted these at runtime.
     alwaysBundle: ['mathjs', mcpRuntimeModules],
   },
-});
+};
+
+/**
+ * The WorkflowEngine gateway ships as its own subpath entry (`@coderax/api/gateway`).
+ *
+ * It is intentionally separate from the API barrel: the gateway is developed in
+ * isolation, and its contract schemas are deliberately typed from the zod objects
+ * rather than re-declared for a declaration build.
+ */
+const gatewayConfig = {
+  entry: ['src/gateway.ts'],
+  format: ['cjs'],
+  platform: 'node',
+  dts: false,
+  outDir: 'dist',
+  sourcemap: true,
+  deps: {
+    neverBundle: (id) => !id.startsWith('.') && !id.startsWith('~') && !path.isAbsolute(id),
+  },
+};
+
+export default defineConfig([apiConfig, gatewayConfig]);

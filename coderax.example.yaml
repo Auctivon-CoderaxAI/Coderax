@@ -16,6 +16,9 @@ cache: true
 # Legacy orders listing vercel skip it; a Vercel-only order disables fallback.
 # providerFallback:
 #   enabled: true
+#   # Default true. Only a verified $0 model is used; false explicitly accepts
+#   # account-tier billing and is the owner's decision to make.
+#   zeroCostOnly: true
 #   order: [gemini, cerebras, groq, opencode, apinex, cloudflare, freeai, 100millionseek]
 #   models:
 #     gemini: gemini-3.5-flash-lite

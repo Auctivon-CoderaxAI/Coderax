@@ -16,8 +16,8 @@ import type {
   AnthropicModelOptions,
   ProviderInitializeParams,
 } from '~/types';
+import { buildProviderFallbackOptions, resolveCustomEndpointApiKey } from './providerFallback';
 import { getLLMConfig as getAnthropicLLMConfig } from '~/endpoints/anthropic/llm';
-import { buildProviderFallbackOptions } from './providerFallback';
 import { resolveModelTransportTimeouts } from '~/agents/config';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
@@ -213,7 +213,7 @@ export async function initializeCustom(
     throw new Error(`Config not found for the ${endpoint} custom endpoint.`);
   }
 
-  const CUSTOM_API_KEY = extractEnvVariable(endpointConfig.apiKey ?? '');
+  const CUSTOM_API_KEY = resolveCustomEndpointApiKey(endpoint, endpointConfig, appConfig?.config);
   const CUSTOM_BASE_URL = extractEnvVariable(endpointConfig.baseURL ?? '');
 
   if (CUSTOM_API_KEY.match(envVarRegex)) {
