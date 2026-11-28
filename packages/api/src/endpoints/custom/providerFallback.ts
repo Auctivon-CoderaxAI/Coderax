@@ -10,11 +10,13 @@ import {
   providerFallbackOrder,
 } from 'coderax-data-provider';
 import type {
+  CatalogSnapshot,
   ProviderFallbackConfigLike,
   ProviderFallbackProvider,
   TEndpoint,
 } from 'coderax-data-provider';
 import type { FallbackConfig, OpenAIClientOptions } from '@librechat/agents';
+import { checkModelRoute } from '~/providers/guard';
 
 type FallbackParams = {
   /** Custom endpoint name selected for this turn. */
@@ -24,6 +26,8 @@ type FallbackParams = {
   config: ProviderFallbackConfigLike;
   env: Record<string, string | undefined> | undefined;
   modelParameters?: Record<string, unknown>;
+  /** Current discovery, used to refuse a fallback that is no longer a verified $0 route. */
+  snapshot?: CatalogSnapshot | null;
 };
 
 const ENV_PLACEHOLDER = /\$\{([A-Z0-9_]+)\}/g;
@@ -113,6 +117,7 @@ export function buildProviderFallbackOptions({
   config,
   env,
   modelParameters,
+  snapshot,
 }: FallbackParams): FallbackConfig[] | undefined {
   const primary = providerFallbackForEndpoint(endpoint);
   if (!primary || !isProviderFallbackEnabled(config)) {
@@ -131,10 +136,17 @@ export function buildProviderFallbackOptions({
     if (!apiKey) {
       continue;
     }
+    const model = providerFallbackModel(config, provider);
+    if (snapshot) {
+      const admission = checkModelRoute(snapshot, { provider: provider.id, model });
+      if (!admission.allowed) {
+        continue;
+      }
+    }
     fallbacks.push({
       provider: Providers.OPENAI,
       clientOptions: {
-        model: providerFallbackModel(config, provider),
+        model,
         apiKey,
         configuration: {
           baseURL: resolveEnvPlaceholders(providerFallbackBaseURL(config, provider), env),

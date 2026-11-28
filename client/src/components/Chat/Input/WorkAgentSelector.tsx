@@ -20,6 +20,7 @@ import {
   sanitizeWorkSelection,
   resolveWorkSelection,
   getWorkModelKey,
+  workCatalogModelKey,
   selectWorkAgent,
   selectWorkAgentIdentity,
   selectWorkMode,
@@ -32,6 +33,7 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { chipClasses, chipMenuClasses, chipMenuHeadingClasses, chipMenuItemClasses } from './chip';
+import ProviderCatalog from '~/components/Chat/Menus/Endpoints/ProviderCatalog';
 import { WorkProviderStatus } from './WorkProviderStatus';
 import { createStorageAtom } from '~/store/jotai-utils';
 import { useConversationMode } from '../mode';
@@ -632,6 +634,23 @@ export function WorkLandingPicker() {
                 </Ariakit.MenuItemRadio>
               );
             })}
+            <Ariakit.MenuSeparator className="border-border-light my-1 h-px" />
+            <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
+              {localize('com_providers_catalog')}
+            </Ariakit.MenuHeading>
+            {/* Selecting here stores Work's provider/model key directly: the route is
+             * admitted server-side, and the catalog is the only place a model that the
+             * routing endpoint does not offer can still be inspected with its reason. */}
+            <ProviderCatalog
+              initialFilter="work"
+              onSelect={(model) =>
+                setStored({
+                  ...selection,
+                  agentId: WORK_AUTOMATIC,
+                  modelKey: workCatalogModelKey(model),
+                })
+              }
+            />
           </>
         )}
 

@@ -12,12 +12,19 @@ command -v openssl >/dev/null 2>&1 || {
 }
 
 umask 077
+hide_secret_input() {
+  trap 'stty echo 2>/dev/null || true' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  stty -echo
+}
+
 read_secret() {
   secret_name=$1
   secret_prompt=$2
   printf '%s' "$secret_prompt"
-  trap 'stty echo 2>/dev/null || true' EXIT HUP INT TERM
-  stty -echo
+  hide_secret_input
   IFS= read -r "$secret_name"
   stty echo
   trap - EXIT HUP INT TERM
@@ -59,6 +66,39 @@ case "$OPENROUTER_API_KEY" in
   *[!A-Za-z0-9._-]*) echo 'The OpenRouter API key must be a single token without spaces.' >&2; exit 1 ;;
 esac
 
+# Every other OpenAI-compatible provider is optional. A missing credential is a
+# reported provider state, not a hidden provider: the model catalog lists the
+# provider with the reason it cannot run, so provisioning every key that exists
+# is worthwhile even though inference still requires verified $0 pricing.
+read_secret_optional() {
+  optional_name=$1
+  optional_prompt=$2
+  printf '%s' "$optional_prompt"
+  hide_secret_input
+  IFS= read -r "$optional_name" || eval "$optional_name="
+  stty echo
+  trap - EXIT HUP INT TERM
+  printf '\n'
+  eval "optional_value=\${$optional_name:-}"
+  case "$optional_value" in
+    '') ;;
+    *[!A-Za-z0-9._:/-]*)
+      echo "The value for $optional_name must be a single token without spaces or quotes." >&2
+      exit 1
+      ;;
+  esac
+}
+
+read_secret_optional GEMINI_API_KEY 'Enter GEMINI_API_KEY (Enter to skip): '
+read_secret_optional CEREBRAS_API_KEY 'Enter CEREBRAS_API_KEY (Enter to skip): '
+read_secret_optional GROQ_API_KEY 'Enter GROQ_API_KEY (Enter to skip): '
+read_secret_optional OPENCODEAI_API_KEY 'Enter OPENCODEAI_API_KEY (Enter to skip): '
+read_secret_optional APINEX_KEY 'Enter APINEX_KEY (Enter to skip): '
+read_secret_optional FREEAI_API_KEY 'Enter FREEAI_API_KEY (Enter to skip): '
+# HMS_API_KEY is the canonical name: a variable starting with a digit cannot be
+# exported by a POSIX shell, so the 100MillionSeek key is stored under it.
+read_secret_optional HMS_API_KEY 'Enter the 100MillionSeek key, stored as HMS_API_KEY (Enter to skip): '
+
 printf 'Enter the public IPv4 address assigned to the VM: '
 IFS= read -r PUBLIC_IP
 case "$PUBLIC_IP" in
@@ -96,6 +136,12 @@ DOMAIN_CLIENT=https://coderaxai.vercel.app
 DOMAIN_SERVER=https://coderaxai.vercel.app
 EOF
 printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> app.env
+for optional_name in GEMINI_API_KEY CEREBRAS_API_KEY GROQ_API_KEY OPENCODEAI_API_KEY APINEX_KEY FREEAI_API_KEY HMS_API_KEY; do
+  eval "optional_value=\${$optional_name:-}"
+  if [ -n "$optional_value" ]; then
+    printf '%s=%s\n' "$optional_name" "$optional_value" >> app.env
+  fi
+done
 printf 'OPENCODE_SERVER_PASSWORD=%s\n' "$OPENCODE_SERVER_PASSWORD" >> app.env
 cat > engine.env <<EOF
 OPENCODE_SERVER_PASSWORD=$OPENCODE_SERVER_PASSWORD
@@ -107,6 +153,7 @@ CODERAX_PROXY_SECRET=$PROXY_SECRET
 CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev
 EOF
 unset MONGO_URI JWT_SECRET JWT_REFRESH_SECRET CREDS_KEY CREDS_IV PASSWORD_LOGIN_PASSWORD OPENROUTER_API_KEY PROXY_SECRET OPENCODE_SERVER_PASSWORD secret_name secret_prompt
+unset GEMINI_API_KEY CEREBRAS_API_KEY GROQ_API_KEY OPENCODEAI_API_KEY APINEX_KEY FREEAI_API_KEY HMS_API_KEY optional_name optional_prompt optional_value
 chmod 600 app.env origin.env engine.env
 
 printf 'Created protected environment files. API origin: https://%s\n' "$API_HOST"
