@@ -158,10 +158,33 @@ describe('provider adapters', () => {
     });
   });
 
+  it('keeps zero-priced OpenRouter Chat models without a free identity out of routing', () => {
+    const models = normalizeProviderModels(
+      provider('openrouter'),
+      { data: [{ ...openRouterPayload.data[0], id: 'acme/chat' }, openRouterPayload.data[0]] },
+      { status: 'present', env: 'OPENROUTER_API_KEY', legacy: false },
+      now().toISOString(),
+    );
+
+    expect(models[0]).toMatchObject({
+      id: 'acme/chat',
+      pricing: { free: true },
+      available: false,
+      reason: 'pricing_unverified',
+      chat: false,
+      work: false,
+    });
+    for (const mode of ['chat', 'work'] as const) {
+      expect(planModelFallback(models, { mode }).map(({ id }) => id)).toEqual([
+        openRouterPayload.data[0].id,
+      ]);
+    }
+  });
+
   it('keeps non-Chat OpenRouter models visible without routing to them', async () => {
     const embedding = {
       ...openRouterPayload.data[0],
-      id: 'acme/embed',
+      id: 'acme/embed:free',
       architecture: { input_modalities: ['text'], output_modalities: ['embeddings'] },
       endpoints: ['/api/v1/embeddings'],
     };
@@ -173,7 +196,7 @@ describe('provider adapters', () => {
       },
       now,
     });
-    for (const id of ['acme/embed', 'acme/vision-only:free']) {
+    for (const id of ['acme/embed:free', 'acme/vision-only:free']) {
       expect(models.find((model) => model.id === id)).toMatchObject({
         pricing: { free: true },
         available: true,
@@ -639,6 +662,51 @@ describe('catalog cache', () => {
     expect(recovered.counts.discoveredProviders).toBe(1);
     expect(recovered.models).toEqual([]);
     expect(catalog.isStale()).toBe(false);
+  });
+
+  it('serves healthy routes while an optional provider waits for and then retries discovery', async () => {
+    let clock = 0;
+    const groqFetch = jest
+      .fn<ReturnType<CatalogFetch>, Parameters<CatalogFetch>>()
+      .mockImplementationOnce(okFetch(groqPayload))
+      .mockImplementationOnce(okFetch({}, 503));
+    const openRouterFetch = jest.fn(okFetch(openRouterPayload));
+    const catalog = new ModelCatalog({
+      now: () => clock,
+      env: { OPENROUTER_API_KEY: 'test', GROQ_API_KEY: 'test' },
+      fetch: (url, init) => (url.includes('groq.com') ? groqFetch : openRouterFetch)(url, init),
+    });
+    await catalog.ensureFresh();
+    clock = 100;
+    const partial = await catalog.refresh();
+    expect(partial.models.find(({ provider }) => provider === 'groq')).toMatchObject({
+      available: false,
+      chat: false,
+      work: false,
+      reason: 'provider_unreachable',
+    });
+    expect(catalog.isStale()).toBe(false);
+
+    clock += 29_999;
+    expect(await catalog.ensureFresh()).toBe(partial);
+    expect(openRouterFetch).toHaveBeenCalledTimes(2);
+    expect(groqFetch).toHaveBeenCalledTimes(2);
+
+    let finishRetry: (value: Awaited<ReturnType<CatalogFetch>>) => void = () => {};
+    groqFetch.mockImplementationOnce(() => new Promise((resolve) => (finishRetry = resolve)));
+    clock += 1;
+    for (const cached of await Promise.all([catalog.ensureFresh(), catalog.ensureFresh()])) {
+      expect(cached).toBe(partial);
+      expect(planModelFallback(cached.models, { mode: 'chat' }).map(({ id }) => id)).toEqual([
+        openRouterPayload.data[0].id,
+      ]);
+    }
+    expect(openRouterFetch).toHaveBeenCalledTimes(3);
+    expect(groqFetch).toHaveBeenCalledTimes(3);
+
+    finishRetry({ status: 200, ok: true, json: async () => groqPayload });
+    const recovered = await catalog.refresh();
+    expect(recovered.providers.find(({ provider }) => provider === 'groq')?.status).toBe('ok');
   });
 
   it('keeps the last good snapshot when a refresh fails', async () => {

@@ -403,10 +403,11 @@ function normalizePricing(provider: CatalogProvider, raw: RawRecord): CatalogMod
  * 2. A published nonzero price disqualifies it outright.
  * 3. A metered allowance or an account-plan provider keeps the model visible
  *    but disabled: neither a price list nor a credential proves the route is $0.
- * 4. Only an explicit per-model free price on a free-model provider passes.
+ * 4. Only a `:free` identity with an explicit per-model free price passes.
  */
 export function evaluateModelAvailability(
   provider: CatalogProvider,
+  id: string,
   pricing: CatalogModelPricing,
   credential: ProviderCredentialState,
   active: boolean,
@@ -423,7 +424,7 @@ export function evaluateModelAvailability(
   if (provider.zeroCost !== 'free-model') {
     return { available: false, reason: 'account_allowance_unverified' };
   }
-  if (pricing.free === null) {
+  if (!id.endsWith(':free') || pricing.basis !== 'per-model' || pricing.free !== true) {
     return { available: false, reason: 'pricing_unverified' };
   }
   return { available: true, reason: 'available' };
@@ -501,6 +502,7 @@ function normalizeModelList(
     const pricing = normalizePricing(provider, raw);
     const { available, reason } = evaluateModelAvailability(
       provider,
+      id,
       pricing,
       credential,
       isActive(raw),
@@ -874,6 +876,9 @@ export type CatalogCacheOptions = {
   fetch?: CatalogFetch;
 };
 
+// Retry partial failures sooner than the normal cache TTL without blocking reads.
+const PARTIAL_DISCOVERY_RETRY_MS = 30_000;
+
 /**
  * Cached catalog with refresh-on-read. Concurrent readers share one in-flight
  * discovery, and a failed refresh keeps the last good snapshot.
@@ -881,6 +886,7 @@ export type CatalogCacheOptions = {
 export class ModelCatalog {
   private snapshot: CatalogSnapshot | null = null;
   private refreshedAt: number | null = null;
+  private retryAt: number | null = null;
   private inFlight: Promise<CatalogSnapshot> | null = null;
   private readonly ttlMs: number;
   private readonly now: () => number;
@@ -920,8 +926,12 @@ export class ModelCatalog {
         if (failures.size === 0) {
           this.snapshot = snapshot;
           this.refreshedAt = this.now();
+          this.retryAt = null;
           return snapshot;
         }
+        const refreshedAt = snapshot.counts.discoveredProviders > 0 ? this.now() : null;
+        this.refreshedAt = refreshedAt;
+        this.retryAt = refreshedAt === null ? null : refreshedAt + PARTIAL_DISCOVERY_RETRY_MS;
         return this.retainFailedModels(snapshot, failures);
       })
       .catch((error: unknown) => {
@@ -943,6 +953,8 @@ export class ModelCatalog {
                     discoveredAt: null,
                   },
           );
+          this.refreshedAt = null;
+          this.retryAt = null;
           return this.retainFailedModels(
             {
               ...previous,
@@ -984,11 +996,18 @@ export class ModelCatalog {
       models,
       counts: { ...snapshot.counts, models: models.length },
     };
-    this.refreshedAt = null;
     return this.snapshot;
   }
 
   async ensureFresh(): Promise<CatalogSnapshot> {
-    return this.inFlight ?? (this.isStale() ? this.refresh() : (this.snapshot as CatalogSnapshot));
+    const snapshot = this.snapshot;
+    if (!snapshot || this.isStale()) {
+      return this.refresh();
+    }
+    if (!this.inFlight && this.retryAt !== null && this.now() >= this.retryAt) {
+      // This refresh has a snapshot to fall back to if discovery fails.
+      void this.refresh();
+    }
+    return snapshot;
   }
 }
