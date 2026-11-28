@@ -12,12 +12,19 @@ command -v openssl >/dev/null 2>&1 || {
 }
 
 umask 077
+hide_secret_input() {
+  trap 'stty echo 2>/dev/null || true' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  stty -echo
+}
+
 read_secret() {
   secret_name=$1
   secret_prompt=$2
   printf '%s' "$secret_prompt"
-  trap 'stty echo 2>/dev/null || true' EXIT HUP INT TERM
-  stty -echo
+  hide_secret_input
   IFS= read -r "$secret_name"
   stty echo
   trap - EXIT HUP INT TERM
@@ -67,8 +74,7 @@ read_secret_optional() {
   optional_name=$1
   optional_prompt=$2
   printf '%s' "$optional_prompt"
-  trap 'stty echo 2>/dev/null || true' EXIT HUP INT TERM
-  stty -echo
+  hide_secret_input
   IFS= read -r "$optional_name" || eval "$optional_name="
   stty echo
   trap - EXIT HUP INT TERM

@@ -58,7 +58,7 @@ export const CATALOG_PROVIDERS: readonly CatalogProvider[] = [
     id: 'openrouter',
     label: 'OpenRouter',
     baseURL: 'https://openrouter.ai/api/v1',
-    modelsURL: 'https://openrouter.ai/api/v1/models',
+    modelsURL: 'https://openrouter.ai/api/v1/models?output_modalities=all',
     adapter: 'openai',
     auth: 'bearer',
     apiKeyEnv: 'OPENROUTER_API_KEY',
@@ -302,19 +302,19 @@ function capabilityFromParameters(parameters: readonly string[], names: readonly
   return names.some((name) => parameters.includes(name));
 }
 
-/** OpenRouter publishes modal and tool support per model. */
+/** OpenRouter publishes supported request parameters per model. */
 function openRouterCapabilities(raw: RawRecord): CatalogModelCapabilities {
   const parameters = asStringArray(raw.supported_parameters);
-  const architecture = asRecord(raw.architecture);
-  const inputModalities = architecture ? asStringArray(architecture.input_modalities) : [];
-  const textOnly = inputModalities.length === 0 || inputModalities.includes('text');
   return {
     streaming: true,
     reasoning:
       capabilityFromParameters(parameters, ['reasoning', 'include_reasoning']) ??
       (asRecord(raw.reasoning) ? true : null),
     tools: capabilityFromParameters(parameters, ['tools', 'tool_choice']),
-    structuredOutputs: capabilityFromParameters(parameters, ['response_format', 'structured_outputs']),
+    structuredOutputs: capabilityFromParameters(parameters, [
+      'response_format',
+      'structured_outputs',
+    ]),
   };
 }
 
@@ -331,12 +331,61 @@ function modalityCapabilities(raw: RawRecord): CatalogModelCapabilities {
   };
 }
 
+// OpenRouter publishes these charge dimensions separately from token pricing.
+const OPENROUTER_EXTRA_PRICES = [
+  'request',
+  'image',
+  'image_output',
+  'image_token',
+  'audio',
+  'audio_output',
+  'input_audio_cache',
+  'input_cache_read',
+  'input_cache_write',
+  'input_cache_write_1h',
+  'internal_reasoning',
+  'web_search',
+] as const;
+
+function openRouterExtraPrices(pricing: RawRecord): (number | null)[] {
+  const prices = OPENROUTER_EXTRA_PRICES.filter((key) => key in pricing).map((key) =>
+    asNumber(pricing[key]),
+  );
+  if ('overrides' in pricing) {
+    if (!Array.isArray(pricing.overrides)) {
+      prices.push(null);
+    } else {
+      for (const override of pricing.overrides) {
+        const entry = asRecord(override);
+        if (!entry) {
+          prices.push(null);
+          continue;
+        }
+        for (const key of ['prompt', 'completion', ...OPENROUTER_EXTRA_PRICES]) {
+          if (key in entry) prices.push(asNumber(entry[key]));
+        }
+      }
+    }
+  }
+  return prices;
+}
+
 function normalizePricing(provider: CatalogProvider, raw: RawRecord): CatalogModelPricing {
   const pricing = asRecord(raw.pricing);
   if (provider.pricing === 'per-model' && pricing) {
     const prompt = asNumber(pricing.prompt);
     const completion = asNumber(pricing.completion);
-    const free = prompt === 0 && completion === 0 ? true : prompt == null || completion == null ? null : false;
+    const prices = [
+      prompt,
+      completion,
+      ...(provider.id === 'openrouter' ? openRouterExtraPrices(pricing) : []),
+    ];
+    let free: boolean | null = null;
+    if (prices.some((price) => price !== null && price !== 0)) {
+      free = false;
+    } else if (prices.every((price) => price === 0)) {
+      free = true;
+    }
     return { promptPerToken: prompt, completionPerToken: completion, free, basis: 'per-model' };
   }
   return {
@@ -380,12 +429,9 @@ export function evaluateModelAvailability(
   return { available: true, reason: 'available' };
 }
 
-function parserFor(provider: CatalogProvider) {
-  return (payload: unknown): RawRecord[] => {
-    const body = asRecord(payload);
-    const list = body ? (body.data ?? body.models) : null;
-    return Array.isArray(list) ? list.map(asRecord).filter((entry): entry is RawRecord => entry !== null) : [];
-  };
+function modelList(provider: CatalogProvider, body: RawRecord | null): unknown[] | null {
+  const list = provider.adapter === 'gemini' ? body?.models : body?.data;
+  return Array.isArray(list) ? list : null;
 }
 
 function modelId(provider: CatalogProvider, raw: RawRecord): string | null {
@@ -426,18 +472,32 @@ export function normalizeProviderModels(
   credential: ProviderCredentialState,
   discoveredAt: string,
 ): CatalogModel[] {
+  return normalizeModelList(
+    provider,
+    modelList(provider, asRecord(payload)) ?? [],
+    credential,
+    discoveredAt,
+  );
+}
+
+function normalizeModelList(
+  provider: CatalogProvider,
+  list: unknown[],
+  credential: ProviderCredentialState,
+  discoveredAt: string,
+): CatalogModel[] {
   const models: CatalogModel[] = [];
   const seen = new Set<string>();
-  for (const raw of parserFor(provider)(payload)) {
+  for (const entry of list) {
+    const raw = asRecord(entry);
+    if (!raw) continue;
     const id = modelId(provider, raw);
     if (!id || seen.has(id)) {
       continue;
     }
     seen.add(id);
     const capabilities =
-      provider.id === 'openrouter'
-        ? openRouterCapabilities(raw)
-        : modalityCapabilities(raw);
+      provider.id === 'openrouter' ? openRouterCapabilities(raw) : modalityCapabilities(raw);
     const pricing = normalizePricing(provider, raw);
     const { available, reason } = evaluateModelAvailability(
       provider,
@@ -445,7 +505,11 @@ export function normalizeProviderModels(
       credential,
       isActive(raw),
     );
-    const tools = capabilities.tools === true;
+    const chat =
+      available &&
+      (provider.id !== 'openrouter' ||
+        (asStringArray(asRecord(raw.architecture)?.input_modalities).includes('text') &&
+          asStringArray(raw.endpoints).includes('/api/v1/chat/completions')));
     models.push({
       provider: provider.id,
       providerLabel: provider.label,
@@ -456,8 +520,8 @@ export function normalizeProviderModels(
       capabilities,
       available,
       reason,
-      chat: available,
-      work: available && tools,
+      chat,
+      work: chat && capabilities.tools === true,
       sourceURL: provider.docsURL,
       discoveredAt,
     });
@@ -522,32 +586,59 @@ export async function discoverProviderModels(
       : { authorization: `Bearer ${credentialValue ?? ''}` }),
   };
   try {
-    const response = await options.fetch(provider.modelsURL, {
-      headers,
-      signal: AbortSignal.timeout(options.timeoutMs ?? 20_000),
-    });
-    if (!response.ok) {
-      return {
-        state: {
-          ...base,
-          status: discoveryStatusFor(credential, response.status),
-          httpStatus: response.status,
-          error: `HTTP ${response.status}`,
-        },
-        models: [],
-      };
+    const signal = AbortSignal.timeout(options.timeoutMs ?? 20_000);
+    const rows: unknown[] = [];
+    const seenTokens = new Set<string>();
+    let url = provider.modelsURL;
+    while (true) {
+      const response = await options.fetch(url, { headers, signal });
+      if (!response.ok) {
+        return {
+          state: {
+            ...base,
+            status: discoveryStatusFor(credential, response.status),
+            httpStatus: response.status,
+            error: `HTTP ${response.status}`,
+          },
+          models: [],
+        };
+      }
+      const body = asRecord(await response.json());
+      const page = modelList(provider, body);
+      const token = provider.adapter === 'gemini' ? body?.nextPageToken : undefined;
+      if (page === null || (token !== undefined && typeof token !== 'string')) {
+        return {
+          state: {
+            ...base,
+            status: 'provider_unreachable',
+            httpStatus: response.status,
+            error: 'invalid model catalog response',
+          },
+          models: [],
+        };
+      }
+      for (const row of page) rows.push(row);
+      if (!token) {
+        const models = normalizeModelList(provider, rows, credential, discoveredAt);
+        return {
+          state: {
+            ...base,
+            status: 'ok',
+            httpStatus: response.status,
+            modelCount: models.length,
+            discoveredAt,
+          },
+          models,
+        };
+      }
+      if (seenTokens.has(token)) {
+        throw new Error('repeated model catalog page token');
+      }
+      seenTokens.add(token);
+      const nextURL = new URL(provider.modelsURL);
+      nextURL.searchParams.set('pageToken', token);
+      url = nextURL.toString();
     }
-    const models = normalizeProviderModels(provider, await response.json(), credential, discoveredAt);
-    return {
-      state: {
-        ...base,
-        status: 'ok',
-        httpStatus: response.status,
-        modelCount: models.length,
-        discoveredAt,
-      },
-      models,
-    };
   } catch (error) {
     return {
       state: {
@@ -574,8 +665,7 @@ export async function discoverCatalog(
 ): Promise<CatalogSnapshot> {
   const providers = options.providers ?? CATALOG_PROVIDERS;
   const fetchImpl =
-    options.fetch ??
-    ((input, init) => fetch(input, init) as unknown as ReturnType<CatalogFetch>);
+    options.fetch ?? ((input, init) => fetch(input, init) as unknown as ReturnType<CatalogFetch>);
   const results = await Promise.all(
     providers.map((provider) =>
       discoverProviderModels(provider, {
@@ -694,20 +784,18 @@ export type QuotaWindow = { limit: number; used: number; resetAt: number };
 
 /** Per-provider request budget, reset on a fixed UTC-day boundary. */
 export class ProviderQuotaLedger {
-  private readonly windows = new Map<string, QuotaWindow>();
+  private readonly usage = new Map<string, number>();
 
   private key(provider: CatalogProviderId, now: number): string {
     return `${provider}:${Math.floor(now / 86_400_000)}`;
   }
 
   window(provider: CatalogProviderId, now: number, limit: number): QuotaWindow {
-    return (
-      this.windows.get(this.key(provider, now)) ?? {
-        limit,
-        used: 0,
-        resetAt: (Math.floor(now / 86_400_000) + 1) * 86_400_000,
-      }
-    );
+    return {
+      limit,
+      used: this.usage.get(this.key(provider, now)) ?? 0,
+      resetAt: (Math.floor(now / 86_400_000) + 1) * 86_400_000,
+    };
   }
 
   remaining(provider: CatalogProviderId, now: number, limit: number): number {
@@ -716,11 +804,12 @@ export class ProviderQuotaLedger {
   }
 
   consume(provider: CatalogProviderId, now: number, limit: number, requests = 1): boolean {
+    if (!Number.isSafeInteger(requests) || requests < 0) return false;
     const window = this.window(provider, now, limit);
     if (window.used + requests > window.limit) {
       return false;
     }
-    this.windows.set(this.key(provider, now), { ...window, used: window.used + requests });
+    this.usage.set(this.key(provider, now), window.used + requests);
     return true;
   }
 }
@@ -755,7 +844,10 @@ export function planModelFallback(
     if (excluded.has(modelKey(model))) return false;
     if (options.health && !options.health.isAvailable(model.provider, now)) return false;
     const limit = options.providerLimits?.[model.provider];
-    if (limit != null && options.quota && options.quota.remaining(model.provider, now, limit) <= 0) {
+    if (
+      limit != null &&
+      (limit <= 0 || (options.quota && options.quota.remaining(model.provider, now, limit) <= 0))
+    ) {
       return false;
     }
     return true;

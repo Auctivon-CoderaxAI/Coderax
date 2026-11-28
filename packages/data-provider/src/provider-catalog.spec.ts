@@ -1,3 +1,9 @@
+import type {
+  CatalogFetch,
+  CatalogModel,
+  CatalogProvider,
+  CatalogSnapshot,
+} from './provider-catalog';
 import {
   CATALOG_PROVIDERS,
   ModelCatalog,
@@ -12,7 +18,6 @@ import {
   resolveProviderCredential,
   searchModels,
 } from './provider-catalog';
-import type { CatalogFetch, CatalogModel, CatalogProvider, CatalogSnapshot } from './provider-catalog';
 
 const provider = (id: string): CatalogProvider => {
   const found = CATALOG_PROVIDERS.find((entry) => entry.id === id);
@@ -30,6 +35,7 @@ const openRouterPayload = {
       pricing: { prompt: '0', completion: '0' },
       supported_parameters: ['tools', 'reasoning', 'response_format', 'temperature'],
       architecture: { input_modalities: ['text'] },
+      endpoints: ['/api/v1/chat/completions'],
     },
     {
       id: 'deepseek/deepseek-v4.1-flash',
@@ -38,14 +44,16 @@ const openRouterPayload = {
       pricing: { prompt: '0.000000051', completion: '0.000000567' },
       supported_parameters: ['tools', 'reasoning'],
       architecture: { input_modalities: ['text'] },
+      endpoints: ['/api/v1/chat/completions'],
     },
     {
       id: 'acme/vision-only:free',
       name: 'Acme Vision (free)',
       context_length: 32_000,
       pricing: { prompt: '0', completion: '0' },
-      supported_parameters: [],
+      supported_parameters: ['tools'],
       architecture: { input_modalities: ['image'] },
+      endpoints: ['/api/v1/chat/completions'],
     },
   ],
 };
@@ -79,14 +87,24 @@ const geminiPayload = {
 
 /** Free.ai publishes a $0 price but bills past a daily token pool. */
 const freeaiPayload = {
-  data: [{ id: 'qwen7b', name: 'Qwen 3.6 35B', type: 'chat', self_hosted: true, pricing: { prompt: '0', completion: '0' } }],
+  data: [
+    {
+      id: 'qwen7b',
+      name: 'Qwen 3.6 35B',
+      type: 'chat',
+      self_hosted: true,
+      pricing: { prompt: '0', completion: '0' },
+    },
+  ],
 };
 
-const okFetch = (payload: unknown, status = 200): CatalogFetch => async () => ({
-  status,
-  ok: status >= 200 && status < 300,
-  json: async () => payload,
-});
+const okFetch =
+  (payload: unknown, status = 200): CatalogFetch =>
+  async () => ({
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => payload,
+  });
 
 const now = () => new Date('2026-11-28T00:00:00.000Z');
 
@@ -138,6 +156,80 @@ describe('provider adapters', () => {
       free: false,
       basis: 'per-model',
     });
+  });
+
+  it('keeps non-Chat OpenRouter models visible without routing to them', async () => {
+    const embedding = {
+      ...openRouterPayload.data[0],
+      id: 'acme/embed',
+      architecture: { input_modalities: ['text'], output_modalities: ['embeddings'] },
+      endpoints: ['/api/v1/embeddings'],
+    };
+    const { models } = await discoverProviderModels(provider('openrouter'), {
+      env: { OPENROUTER_API_KEY: 'test' },
+      fetch: async (url) => {
+        expect(new URL(url).searchParams.get('output_modalities')).toBe('all');
+        return okFetch({ data: [...openRouterPayload.data, embedding] })(url, { headers: {} });
+      },
+      now,
+    });
+    for (const id of ['acme/embed', 'acme/vision-only:free']) {
+      expect(models.find((model) => model.id === id)).toMatchObject({
+        pricing: { free: true },
+        available: true,
+        chat: false,
+        work: false,
+      });
+    }
+    for (const mode of ['chat', 'work'] as const) {
+      expect(planModelFallback(models, { mode }).map(({ id }) => id)).toEqual([
+        openRouterPayload.data[0].id,
+      ]);
+    }
+  });
+
+  it.each([
+    [{ prompt: '0', completion: '0', request: '0.01' }, false, 'nonzero_price'],
+    [{ completion: '0', image: '0.01' }, false, 'nonzero_price'],
+    [{ prompt: '0', completion: '0', input_cache_read: '0.01' }, false, 'nonzero_price'],
+    [{ prompt: '0', completion: '0', overrides: [{ prompt: '0.01' }] }, false, 'nonzero_price'],
+    [{ prompt: '0', completion: '0', request: 'unknown' }, null, 'pricing_unverified'],
+    [{ prompt: '0' }, null, 'pricing_unverified'],
+  ] as const)('keeps OpenRouter pricing %j out of routing', (pricing, free, reason) => {
+    const models = normalizeProviderModels(
+      provider('openrouter'),
+      { data: [{ ...openRouterPayload.data[0], pricing }] },
+      { status: 'present', env: 'OPENROUTER_API_KEY', legacy: false },
+      now().toISOString(),
+    );
+    expect(models[0]).toMatchObject({ pricing: { free }, reason, available: false });
+    expect(planModelFallback(models, { mode: 'chat' })).toEqual([]);
+  });
+
+  it.each([200, 503])('follows Gemini page tokens and handles a later HTTP %i', async (status) => {
+    const token = 'next+/=';
+    const fetch: CatalogFetch = async (url, init) => {
+      expect(init.headers['x-goog-api-key']).toBe('test');
+      const current = new URL(url).searchParams.get('pageToken');
+      if (current === null) {
+        return okFetch({ ...geminiPayload, nextPageToken: token })(url, init);
+      }
+      expect(current).toBe(token);
+      return okFetch({ models: [{ name: 'models/second-page' }] }, status)(url, init);
+    };
+    const { state, models } = await discoverProviderModels(provider('gemini'), {
+      env: { GEMINI_API_KEY: 'test' },
+      fetch,
+      now,
+    });
+    expect(state).toMatchObject({
+      status: status === 200 ? 'ok' : 'provider_unreachable',
+      httpStatus: status,
+      modelCount: status === 200 ? 2 : 0,
+    });
+    expect(models.map(({ id }) => id)).toEqual(
+      status === 200 ? ['gemini-3.5-flash-lite', 'second-page'] : [],
+    );
   });
 
   it('reads Gemini names, strips the models/ prefix and keeps account-plan models visible', async () => {
@@ -236,8 +328,10 @@ describe('discovery states', () => {
 
 describe('catalog discovery', () => {
   const routedFetch: CatalogFetch = async (url) => {
-    if (url.includes('openrouter')) return { status: 200, ok: true, json: async () => openRouterPayload };
-    if (url.includes('generativelanguage')) return { status: 200, ok: true, json: async () => geminiPayload };
+    if (url.includes('openrouter'))
+      return { status: 200, ok: true, json: async () => openRouterPayload };
+    if (url.includes('generativelanguage'))
+      return { status: 200, ok: true, json: async () => geminiPayload };
     if (url.includes('groq')) return { status: 200, ok: true, json: async () => groqPayload };
     if (url.includes('free.ai')) return { status: 200, ok: true, json: async () => freeaiPayload };
     if (url.includes('cerebras')) return { status: 401, ok: false, json: async () => ({}) };
@@ -271,14 +365,30 @@ describe('catalog discovery', () => {
     expect(snapshot.counts.workModels).toBe(1);
   });
 
+  it.each([
+    [{ error: 'maintenance' }, 'provider_unreachable', 0],
+    [{ data: [] }, 'ok', 1],
+  ] as const)('reports the discovery status for %j', async (payload, status, discovered) => {
+    const snapshot = await discoverCatalog({
+      providers: [provider('openrouter')],
+      env: { OPENROUTER_API_KEY: 'test' },
+      fetch: okFetch(payload),
+      now,
+    });
+    expect(snapshot.providers[0]).toMatchObject({ status, modelCount: 0, httpStatus: 200 });
+    expect(snapshot.counts.discoveredProviders).toBe(discovered);
+  });
+
   it('reports missing credentials per provider without dropping the others', async () => {
     const snapshot = await discoverCatalog({
       env: { OPENROUTER_API_KEY: 'a' },
       fetch: routedFetch,
       now,
     });
-    expect(snapshot.providers.filter((entry) => entry.status === 'credential_missing')).toHaveLength(7);
-    expect(snapshot.models.every((model: CatalogModel) => model.provider === 'openrouter')).toBe(true);
+    expect(
+      snapshot.providers.filter((entry) => entry.status === 'credential_missing'),
+    ).toHaveLength(7);
+    expect(snapshot.models.map(({ id }) => id)).toEqual(openRouterPayload.data.map(({ id }) => id));
   });
 });
 
@@ -334,7 +444,12 @@ describe('fallback, health and quota', () => {
       id: 'openai/gpt-oss-120b',
       label: 'GPT-OSS 120B',
       contextTokens: 131_072,
-      pricing: { promptPerToken: null, completionPerToken: null, free: null, basis: 'account-plan' },
+      pricing: {
+        promptPerToken: null,
+        completionPerToken: null,
+        free: null,
+        basis: 'account-plan',
+      },
       capabilities: { streaming: true, reasoning: null, tools: null, structuredOutputs: null },
       chat: false,
       work: false,
@@ -349,7 +464,12 @@ describe('fallback, health and quota', () => {
       id: 'deepseek-v4.1-flash-free',
       label: 'DeepSeek V4.1 Flash (100MillionSeek)',
       contextTokens: 198_000,
-      pricing: { promptPerToken: null, completionPerToken: null, free: null, basis: 'account-plan' },
+      pricing: {
+        promptPerToken: null,
+        completionPerToken: null,
+        free: null,
+        basis: 'account-plan',
+      },
       capabilities: { streaming: true, reasoning: null, tools: true, structuredOutputs: null },
       chat: false,
       work: false,
@@ -385,6 +505,41 @@ describe('fallback, health and quota', () => {
     expect(planModelFallback(build(), { mode: 'chat', now: 31_001, health })).toHaveLength(1);
   });
 
+  it('uses the current limit without changing recorded usage', () => {
+    const quota = new ProviderQuotaLedger();
+    expect(quota.consume('openrouter', 1_000, 2)).toBe(true);
+    expect(
+      planModelFallback(build(), {
+        mode: 'chat',
+        now: 1_000,
+        quota,
+        providerLimits: { openrouter: 1 },
+      }),
+    ).toEqual([]);
+    expect(quota.consume('openrouter', 1_000, 1)).toBe(false);
+    expect(quota.remaining('openrouter', 1_000, 3)).toBe(2);
+    expect(quota.remaining('openrouter', 86_400_000, 1)).toBe(1);
+  });
+
+  it('leaves spent usage intact when the request count is invalid', () => {
+    const quota = new ProviderQuotaLedger();
+    expect(quota.consume('openrouter', 1_000, 1)).toBe(true);
+    for (const invalid of [-1, NaN, Infinity, 0.5]) {
+      expect(quota.consume('openrouter', 1_000, 1, invalid)).toBe(false);
+    }
+    expect(quota.consume('openrouter', 1_000, 1)).toBe(false);
+    expect(quota.remaining('openrouter', 1_000, 1)).toBe(0);
+  });
+
+  it.each([0, -1])('excludes a limit of %i without a ledger', (limit) => {
+    expect(
+      planModelFallback(build(), {
+        mode: 'chat',
+        providerLimits: { openrouter: limit },
+      }),
+    ).toEqual([]);
+  });
+
   it('stops routing once the provider daily quota is spent', () => {
     const quota = new ProviderQuotaLedger();
     const limits = { openrouter: 2 };
@@ -392,9 +547,9 @@ describe('fallback, health and quota', () => {
     expect(quota.consume('openrouter', 1_000, 2)).toBe(true);
     expect(quota.consume('openrouter', 1_000, 2)).toBe(false);
     expect(quota.remaining('openrouter', 1_000, 2)).toBe(0);
-    expect(planModelFallback(build(), { mode: 'chat', now: 1_000, quota, providerLimits: limits })).toEqual(
-      [],
-    );
+    expect(
+      planModelFallback(build(), { mode: 'chat', now: 1_000, quota, providerLimits: limits }),
+    ).toEqual([]);
   });
 });
 
@@ -403,7 +558,13 @@ describe('catalog cache', () => {
     generatedAt: at,
     providers: [],
     models,
-    counts: { providers: 8, discoveredProviders: 1, models: models.length, availableModels: 1, workModels: 1 },
+    counts: {
+      providers: 8,
+      discoveredProviders: 1,
+      models: models.length,
+      availableModels: 1,
+      workModels: 1,
+    },
   });
   const model = normalizeProviderModels(
     provider('openrouter'),
