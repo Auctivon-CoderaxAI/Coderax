@@ -11,6 +11,7 @@ import {
   validateOrigin,
   verifyDeployment,
   verifyRepositoryConfig,
+  verifyRevisionDrift,
 } from './verify-cloudflare-deployment.mjs';
 
 const COMMIT = 'a'.repeat(40);
@@ -106,8 +107,25 @@ describe('parseArgs', () => {
       mode: 'config',
       url: null,
       expectedCommit: null,
+      drift: false,
       help: false,
     });
+  });
+
+  it('compares revisions instead of a pinned commit in drift mode', () => {
+    assert.deepEqual(parseArgs(['--drift', '--url', 'https://coderax.example']), {
+      mode: 'drift',
+      url: 'https://coderax.example',
+      expectedCommit: null,
+      drift: true,
+      help: false,
+    });
+    assert.throws(() => parseArgs(['--drift']), /needs --url/);
+    assert.throws(() => parseArgs(['--drift', '--config-only']), /live deployment/);
+    assert.throws(
+      () => parseArgs(['--drift', '--url', 'https://coderax.example', '--expected-commit', COMMIT]),
+      /does not take --expected-commit/,
+    );
   });
 });
 
@@ -187,6 +205,55 @@ describe('verifyDeployment', () => {
     await assert.rejects(
       () => verifyDeployment(ORIGIN, COMMIT, localFetch),
       /did not confirm backend startup/,
+    );
+  });
+});
+
+describe('verifyRevisionDrift', () => {
+  it('reports no drift when the Worker and the backend serve the same revision', async () => {
+    fixture();
+    const result = await verifyRevisionDrift(ORIGIN, localFetch);
+    assert.equal(result.drift, false);
+    assert.equal(result.workerCommit, COMMIT);
+    assert.equal(result.backendCommit, COMMIT);
+  });
+
+  it('flags drift when the backend lags the served Worker', async () => {
+    fixture({
+      '/api/config': {
+        type: 'application/json',
+        body: JSON.stringify({ appTitle: 'Coderax', buildInfo: { commit: OTHER_COMMIT } }),
+      },
+    });
+    const result = await verifyRevisionDrift(ORIGIN, localFetch);
+    assert.equal(result.drift, true);
+    assert.equal(result.workerCommit, COMMIT);
+    assert.equal(result.backendCommit, OTHER_COMMIT);
+  });
+
+  it('fails closed when the backend cannot identify its revision', async () => {
+    fixture({
+      '/api/config': { type: 'application/json', body: JSON.stringify({ appTitle: 'Coderax' }) },
+    });
+    await assert.rejects(() => verifyRevisionDrift(ORIGIN, localFetch), /buildInfo\.commit/);
+  });
+
+  it('fails when the Worker marker changes while the comparison runs', async () => {
+    let reads = 0;
+    fixture({
+      '/deployment.json': {
+        type: 'application/json',
+        body: () =>
+          JSON.stringify({
+            worker: 'coderax',
+            commit: reads++ === 0 ? COMMIT : OTHER_COMMIT,
+            branch: 'main',
+          }),
+      },
+    });
+    await assert.rejects(
+      () => verifyRevisionDrift(ORIGIN, localFetch),
+      /reports b{40}, expected/,
     );
   });
 });

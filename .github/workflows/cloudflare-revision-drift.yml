@@ -1,0 +1,49 @@
+name: Cloudflare revision drift
+
+# The Worker and the API behind it are released separately: Workers Builds
+# rebuilds the Worker on merge, while the API is rebuilt on the OCI VM. Either
+# side can therefore serve an older revision than the other. This scheduled
+# check compares the two self-reported revisions and fails when they disagree,
+# so drift is noticed without waiting for someone to pin an expected commit.
+#
+# Read-only: two GET requests per endpoint against a public origin, no secrets.
+on:
+  schedule:
+    - cron: "43 6 * * *"
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: "HTTPS origin of the coderax Worker"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CODERAX_ORIGIN: ${{ github.event.inputs.origin || 'https://coderax.nnabdelshahid.workers.dev' }}
+
+# Drift is a steady state to observe, not a race to resolve: never let a new run
+# cancel one that is already reporting.
+concurrency:
+  group: cloudflare-revision-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Compare the served and backend revisions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.16.0"
+
+      - name: Flag revision drift
+        run: node scripts/verify-cloudflare-deployment.mjs --drift --url "$CODERAX_ORIGIN"
