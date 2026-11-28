@@ -373,6 +373,7 @@ const startServer = async () => {
 
   /* Middleware */
   app.use(requestContextMiddleware);
+  app.use('/api', routes.apiMeta.apiVersionHeaders, routes.apiMeta.rejectUnsupportedApiVersion);
   app.use('/api/agents/chat', agentStartupIngressMiddleware);
   app.use(metricsMiddleware);
   app.use(noIndex);
@@ -441,6 +442,7 @@ const startServer = async () => {
   app.use('/oauth', preAuthTenantMiddleware, routes.oauth);
   /* API Endpoints */
   app.use('/api/auth', preAuthTenantMiddleware, routes.auth);
+  app.use('/api/meta', routes.apiMeta);
   app.use(
     '/api/cyvox',
     requireJwtAuth,

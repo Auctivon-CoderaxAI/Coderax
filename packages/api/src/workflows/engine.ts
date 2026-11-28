@@ -79,7 +79,8 @@ function appendEvent(
   at: Date,
   extra: { stepId?: string; message?: string } = {},
 ): WorkflowRunEvent[] {
-  const next = [...events, { type, at: at.toISOString(), ...extra }];
+  const seq = Math.max(events[events.length - 1]?.seq ?? 0, events.length) + 1;
+  const next = [...events, { seq, type, at: at.toISOString(), ...extra }];
   return next.length > WORKFLOW_EVENTS_MAX ? next.slice(-WORKFLOW_EVENTS_MAX) : next;
 }
 
@@ -926,11 +927,11 @@ export function createWorkflowEngine(
     }
     const unverified = verification != null && verification.status !== 'verified';
     status = unhandledFailure || unverified ? 'failed' : 'completed';
-    error = unhandledFailure
-      ? (error ?? STEP_ERROR)
-      : unverified
-        ? BUILD_UNVERIFIED_ERROR
-        : null;
+    if (unhandledFailure) {
+      error = error ?? STEP_ERROR;
+    } else {
+      error = unverified ? BUILD_UNVERIFIED_ERROR : null;
+    }
     note(
       unhandledFailure || unverified ? 'run.failed' : 'run.completed',
       unverified ? { message: BUILD_UNVERIFIED_ERROR } : {},
