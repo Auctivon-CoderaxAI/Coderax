@@ -172,7 +172,9 @@ describe('ProviderCatalog', () => {
     }
     expect(onSelect).not.toHaveBeenCalled();
     fireEvent.click(free);
-    expect(onSelect).toHaveBeenCalledWith('OpenRouter', chat.id);
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'openrouter', providerLabel: 'OpenRouter', id: chat.id }),
+    );
   });
 
   beforeEach(() => {

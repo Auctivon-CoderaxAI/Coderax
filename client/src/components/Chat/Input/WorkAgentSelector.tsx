@@ -20,6 +20,7 @@ import {
   sanitizeWorkSelection,
   resolveWorkSelection,
   getWorkModelKey,
+  workCatalogModelKey,
   selectWorkAgent,
   selectWorkAgentIdentity,
   selectWorkMode,
@@ -32,6 +33,7 @@ import {
   toWorkOptions,
 } from './workSelection';
 import { chipClasses, chipMenuClasses, chipMenuHeadingClasses, chipMenuItemClasses } from './chip';
+import ProviderCatalog from '~/components/Chat/Menus/Endpoints/ProviderCatalog';
 import { WorkProviderStatus } from './WorkProviderStatus';
 import { createStorageAtom } from '~/store/jotai-utils';
 import { useConversationMode } from '../mode';
@@ -352,7 +354,21 @@ export function WorkModelSelect({
       id={id}
       label={localize('com_ui_model')}
       title={modelTitle}
-      details={<WorkProviderStatus />}
+      details={
+        <>
+          <WorkProviderStatus />
+          <ProviderCatalog
+            initialFilter="work"
+            onSelect={(model) =>
+              onChange({
+                ...selection,
+                agentId: WORK_AUTOMATIC,
+                modelKey: workCatalogModelKey(model),
+              })
+            }
+          />
+        </>
+      }
       value={workModelChipValue(selection)}
       options={shownOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}

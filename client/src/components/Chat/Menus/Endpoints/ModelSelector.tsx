@@ -146,9 +146,11 @@ function ModelSelectorContent({ compact = false }: { compact?: boolean }) {
           </>
         )}
         {!searchResults && (
-          <ProviderCatalog
-            onSelect={(endpoint, model) => setSelectedValues({ endpoint, model, modelSpec: '' })}
-          />
+                      <ProviderCatalog
+              onSelect={(model) =>
+                setSelectedValues({ endpoint: model.providerLabel, model: model.id, modelSpec: '' })
+              }
+            />
         )}
       </Menu>
       <DialogManager

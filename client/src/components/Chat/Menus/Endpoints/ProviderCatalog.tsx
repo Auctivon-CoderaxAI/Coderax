@@ -25,7 +25,8 @@ const filterLabels = {
 } as const satisfies Record<ProviderCatalogFilter, string>;
 
 export type ProviderCatalogProps = {
-  onSelect: (endpoint: string, model: string) => void;
+  onSelect: (model: ProviderCatalogModel) => void;
+  initialFilter?: ProviderCatalogFilter;
 };
 
 function contextLabel(tokens: number | null): string | null {
@@ -84,10 +85,10 @@ export function buildCatalogRows(
   return rows;
 }
 
-export default function ProviderCatalog({ onSelect }: ProviderCatalogProps) {
+export default function ProviderCatalog({ onSelect, initialFilter = 'all' }: ProviderCatalogProps) {
   const localize = useLocalize();
   const reasonLabel = useReasonLabel();
-  const [filter, setFilter] = useState<ProviderCatalogFilter>('all');
+  const [filter, setFilter] = useState<ProviderCatalogFilter>(initialFilter);
   const [query, setQuery] = useState('');
   const catalog = useGetProviderCatalogQuery();
   const rows = useMemo(
@@ -219,7 +220,7 @@ function ModelRow({
 }: {
   model: ProviderCatalogModel;
   reasonLabel: (reason: string) => string;
-  onSelect: (endpoint: string, model: string) => void;
+  onSelect: (model: ProviderCatalogModel) => void;
 }) {
   const localize = useLocalize();
   const context = contextLabel(model.contextTokens);
@@ -239,7 +240,7 @@ function ModelRow({
       aria-disabled={disabled}
       title={model.available ? model.id : reasonLabel(model.reason)}
       onClick={() => {
-        if (!disabled) onSelect(model.providerLabel, model.id);
+        if (!disabled) onSelect(model);
       }}
       className="flex-col items-start gap-0 px-3 py-1 text-left"
     >
