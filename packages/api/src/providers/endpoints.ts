@@ -1,5 +1,6 @@
 import { CATALOG_PROVIDERS } from 'coderax-data-provider';
 import type { CatalogProviderId, CatalogSnapshot } from 'coderax-data-provider';
+import { checkModelRoute } from './guard';
 
 /**
  * Turn discovered, eligible models into ordinary custom endpoints.
@@ -75,17 +76,24 @@ export function mergeCatalogCustomEndpoints<
   return { ...config, endpoints: { ...endpoints, custom: merged } } as T;
 }
 
-/** A generated endpoint always checks the current catalog, even with cached config. */
+/**
+ * A generated endpoint always checks the current catalog, even with cached config.
+ * Admission refuses a stale snapshot and reports the exact reason, so a route that
+ * became paid or disappeared after configuration cannot be sent.
+ */
 export function assertCatalogModel(
   snapshot: CatalogSnapshot,
   provider: unknown,
   model: unknown,
 ): void {
-  if (
-    !snapshot.models.some(
-      (row) => row.provider === provider && row.id === model && row.available && row.chat,
-    )
-  ) {
+  if (typeof provider !== 'string' || typeof model !== 'string') {
+    throw new Error('The selected catalog model is unavailable.');
+  }
+  const admission = checkModelRoute(snapshot, { provider, model });
+  if (!admission.allowed) {
+    throw new Error(admission.message);
+  }
+  if (!admission.model.chat) {
     throw new Error('The selected catalog model is unavailable.');
   }
 }

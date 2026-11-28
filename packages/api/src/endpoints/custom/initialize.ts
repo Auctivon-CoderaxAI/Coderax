@@ -337,6 +337,14 @@ export async function initializeCustom(
     endpointTokenConfig = (await cache.get(tokenKey)) as EndpointTokenConfig | undefined;
   }
 
+  let fallbackSnapshot: Awaited<ReturnType<typeof runtimeProviderCatalog.snapshot>> | null =
+    null;
+  try {
+    fallbackSnapshot = (await runtimeProviderCatalog.snapshot()) ?? null;
+  } catch {
+    fallbackSnapshot = null;
+  }
+
   const providerFallbacks = buildProviderFallbackOptions({
     endpoint,
     endpointConfig,
@@ -346,6 +354,7 @@ export async function initializeCustom(
     },
     env: process.env,
     modelParameters: model_parameters,
+    snapshot: fallbackSnapshot,
   });
 
   const customOptions = buildCustomOptions(

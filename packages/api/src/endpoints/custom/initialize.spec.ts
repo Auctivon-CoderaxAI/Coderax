@@ -68,6 +68,7 @@ describe('initializeCustom – discovered catalog endpoint', () => {
     });
     mockGetOpenAIConfig.mockClear();
     mockCatalogSnapshot.mockResolvedValue({
+      generatedAt: new Date().toISOString(),
       models: [{ provider: 'openrouter', id: model, available: true, chat: true }],
     });
 
@@ -79,10 +80,61 @@ describe('initializeCustom – discovered catalog endpoint', () => {
     expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
 
     mockCatalogSnapshot.mockResolvedValue({
+      generatedAt: new Date().toISOString(),
       models: [{ provider: 'openrouter', id: model, available: false, chat: false }],
     });
-    await expect(initializeCustom(params)).rejects.toThrow('selected catalog model');
+    await expect(initializeCustom(params)).rejects.toThrow('not available for inference');
     expect(mockGetOpenAIConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a paid model before the request client is built', async () => {
+    const model = 'listed/model:free';
+    const params = createParams({});
+    params.endpoint = 'OpenRouter';
+    params.model_parameters = { model };
+    mockGetCustomEndpointConfig.mockReturnValue({
+      name: 'OpenRouter',
+      catalogProvider: 'openrouter',
+      apiKey: 'fake-key',
+      baseURL: 'https://openrouter.ai/api/v1',
+      models: { default: [model] },
+    });
+    mockGetOpenAIConfig.mockClear();
+    mockCatalogSnapshot.mockResolvedValue({
+      generatedAt: new Date().toISOString(),
+      models: [{ provider: 'openrouter', id: model, available: false, reason: 'nonzero_price', chat: true }],
+    });
+
+    await expect(initializeCustom(params)).rejects.toThrow('priced above $0');
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale snapshot and an unknown route before sending', async () => {
+    const model = 'listed/model:free';
+    const params = createParams({});
+    params.endpoint = 'OpenRouter';
+    params.model_parameters = { model };
+    mockGetCustomEndpointConfig.mockReturnValue({
+      name: 'OpenRouter',
+      catalogProvider: 'openrouter',
+      apiKey: 'fake-key',
+      baseURL: 'https://openrouter.ai/api/v1',
+      models: { default: [model] },
+    });
+    mockGetOpenAIConfig.mockClear();
+
+    mockCatalogSnapshot.mockResolvedValue({
+      generatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      models: [{ provider: 'openrouter', id: model, available: true, chat: true }],
+    });
+    await expect(initializeCustom(params)).rejects.toThrow('not been verified recently');
+
+    mockCatalogSnapshot.mockResolvedValue({
+      generatedAt: new Date().toISOString(),
+      models: [{ provider: 'openrouter', id: 'other/model', available: true, chat: true }],
+    });
+    await expect(initializeCustom(params)).rejects.toThrow('not in the verified provider catalog');
+    expect(mockGetOpenAIConfig).not.toHaveBeenCalled();
   });
 });
 
