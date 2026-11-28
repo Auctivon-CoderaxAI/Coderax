@@ -5,6 +5,8 @@ import type {
   CatalogModel,
   CatalogSnapshot,
 } from 'coderax-data-provider';
+import type { RouteSelection } from './guard';
+import { admitModelRoute } from './guard';
 
 /**
  * Runtime view of the provider catalog.
@@ -96,6 +98,11 @@ export type ProviderCatalogService = {
   refresh(): Promise<CatalogReport>;
   models(filter?: CatalogFilter): Promise<CatalogModel[]>;
   select(options: { mode: 'chat' | 'work'; preferredModelId?: string }): Promise<CatalogModel[]>;
+  /**
+   * Admit a concrete route immediately before sending, retrying or falling back.
+   * Re-reads the snapshot each time so no caller acts on earlier evidence.
+   */
+  admit(selection: RouteSelection): Promise<CatalogModel>;
 };
 
 /** One cached catalog per process; the service adds the report projection. */
@@ -124,6 +131,9 @@ export function createProviderCatalog(
     },
     async select({ mode, preferredModelId }) {
       return planModelFallback((await catalog.ensureFresh()).models, { mode, preferredModelId });
+    },
+    async admit(selection: RouteSelection) {
+      return admitModelRoute({ snapshot: () => catalog.ensureFresh() }, selection);
     },
   };
 }
