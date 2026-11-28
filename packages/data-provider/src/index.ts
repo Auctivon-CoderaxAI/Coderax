@@ -15,6 +15,8 @@ export * from './cyvox-model';
 export * from './model-routing';
 export * from './free-inference';
 export * from './provider-fallback';
+export * from './provider-status';
+export * from './provider-catalog';
 export * from './fireworks-glm';
 /* messages  */
 export * from './messages';

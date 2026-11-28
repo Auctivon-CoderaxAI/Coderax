@@ -201,3 +201,34 @@ test('environment setup writes only protected, untracked secret files', async ()
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
   if (dockerIgnore) assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
 });
+
+test('Oracle provisioning covers every catalog provider and the HMS alias', async () => {
+  const setup = await read('deploy/oci/prepare-env.sh');
+  const catalog = await read('packages/data-provider/src/provider-catalog.ts');
+
+  for (const name of [
+    'OPENROUTER_API_KEY',
+    'GEMINI_API_KEY',
+    'CEREBRAS_API_KEY',
+    'GROQ_API_KEY',
+    'OPENCODEAI_API_KEY',
+    'APINEX_KEY',
+    'FREEAI_API_KEY',
+    'HMS_API_KEY',
+  ]) {
+    assert.match(setup, new RegExp(`\\b${name}\\b`), `prepare-env.sh must provision ${name}`);
+    assert.match(catalog, new RegExp(`apiKeyEnv: '${name}'`), `${name} must be a catalog credential`);
+  }
+
+  // The canonical 100MillionSeek name is the Linux-safe alias, never the digit-led one.
+  const hundredMillionSeek = catalog.slice(catalog.indexOf('100millionseek'));
+  assert.match(hundredMillionSeek, /apiKeyEnv: 'HMS_API_KEY'/);
+  assert.match(hundredMillionSeek, /legacyApiKeyEnv: \['100MILLIONSEEK_API_KEY'\]/);
+  assert.doesNotMatch(setup, /\b100MILLIONSEEK_API_KEY\b/);
+  assert.match(setup, /stored as HMS_API_KEY/);
+
+  // Optional keys are validated as single tokens before being written to app.env.
+  assert.match(setup, /read_secret_optional\(\)/);
+  assert.match(setup, /must be a single token without spaces or quotes/);
+  assert.match(setup, /for optional_name in GEMINI_API_KEY/);
+});
