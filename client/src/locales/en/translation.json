@@ -508,6 +508,7 @@
   "com_providers_reason_unavailable": "This model is not available for inference.",
   "com_providers_reasoning": "reasoning",
   "com_providers_search": "Search discovered models...",
+  "com_providers_eligible": "Eligible",
   "com_providers_summary": "{0} eligible of {1} discovered",
   "com_providers_tools": "tools",
   "com_endpoint_search_var": "Search {{0}}...",

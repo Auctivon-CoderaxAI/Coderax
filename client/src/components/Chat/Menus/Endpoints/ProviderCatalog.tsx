@@ -190,10 +190,7 @@ export default function ProviderCatalog({ onSelect, initialFilter = 'all' }: Pro
                   <div className="text-text-secondary flex items-center justify-between px-3 py-1 text-xs font-medium">
                     <span>{row.status.label}</span>
                     <span data-testid={`provider-summary-${row.status.provider}`}>
-                      {localize('com_providers_summary', {
-                        0: String(row.status.modelsEligible),
-                        1: String(row.status.modelsDiscovered),
-                      })}
+                      {`${localize('com_providers_eligible')}: ${row.status.modelsEligible} / ${row.status.modelsDiscovered}`}
                     </span>
                   </div>
                 ) : (

@@ -354,21 +354,7 @@ export function WorkModelSelect({
       id={id}
       label={localize('com_ui_model')}
       title={modelTitle}
-      details={
-        <>
-          <WorkProviderStatus />
-          <ProviderCatalog
-            initialFilter="work"
-            onSelect={(model) =>
-              onChange({
-                ...selection,
-                agentId: WORK_AUTOMATIC,
-                modelKey: workCatalogModelKey(model),
-              })
-            }
-          />
-        </>
-      }
+      details={<WorkProviderStatus />}
       value={workModelChipValue(selection)}
       options={shownOptions}
       onChange={(modelKey) => onChange({ ...selection, agentId: WORK_AUTOMATIC, modelKey })}
@@ -648,6 +634,23 @@ export function WorkLandingPicker() {
                 </Ariakit.MenuItemRadio>
               );
             })}
+            <Ariakit.MenuSeparator className="border-border-light my-1 h-px" />
+            <Ariakit.MenuHeading render={<div />} className={chipMenuHeadingClasses}>
+              {localize('com_providers_catalog')}
+            </Ariakit.MenuHeading>
+            {/* Selecting here stores Work's provider/model key directly: the route is
+             * admitted server-side, and the catalog is the only place a model that the
+             * routing endpoint does not offer can still be inspected with its reason. */}
+            <ProviderCatalog
+              initialFilter="work"
+              onSelect={(model) =>
+                setStored({
+                  ...selection,
+                  agentId: WORK_AUTOMATIC,
+                  modelKey: workCatalogModelKey(model),
+                })
+              }
+            />
           </>
         )}
 
