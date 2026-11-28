@@ -149,6 +149,33 @@ test('production image starts Node without depending on pruned dev tools', async
   assert.doesNotMatch(dockerfile, /^CMD \["npm", "run", "backend"\]$/m);
 });
 
+test('OCI image build stamps the deployed source revision', async () => {
+  const compose = await read('deploy/oci/compose.yaml');
+  const dockerfile = await read('Dockerfile');
+  const app = serviceBlock(compose, 'app');
+  for (const arg of ['BUILD_COMMIT', 'BUILD_BRANCH', 'BUILD_DATE']) {
+    assert.match(app, new RegExp(`^ {8}${arg}: \\$\\{${arg}:-\\}$`, 'm'));
+    assert.match(dockerfile, new RegExp(`^ARG ${arg}=$`, 'm'));
+    assert.match(dockerfile, new RegExp(`^ENV ${arg}=\\$\\{${arg}\\}$`, 'm'));
+  }
+  // Provenance comes from the deployment, never from a committed guess.
+  assert.doesNotMatch(app, /BUILD_COMMIT: ?[0-9a-f]{40}/);
+});
+
+test('the OCI deploy entry point refuses an unidentifiable revision', async () => {
+  const script = await read('deploy/oci/deploy.sh');
+  assert.match(script, /CODERAX_SOURCE_COMMIT/);
+  assert.match(script, /\[ "\$\{#commit\}" -eq 40 \]/);
+  assert.match(script, /export BUILD_COMMIT BUILD_BRANCH BUILD_DATE/);
+  assert.match(script, /docker compose -f compose\.yaml up -d --build --wait/);
+  assert.ok(
+    script.includes('\\"commit\\":\\"$BUILD_COMMIT\\"'),
+    'deploy.sh must confirm /api/config reports the stamped commit',
+  );
+  const readme = await read('deploy/oci/README.md');
+  assert.match(readme, /sh deploy\/oci\/deploy\.sh/);
+});
+
 test('environment setup writes only protected, untracked secret files', async () => {
   const setup = await read('deploy/oci/prepare-env.sh');
   const ignore = await readIfPresent('.gitignore');
@@ -173,4 +200,35 @@ test('environment setup writes only protected, untracked secret files', async ()
   assert.match(setup, /do not print or commit that file/);
   if (ignore) assert.match(ignore, /deploy\/oci\/\*\.env/);
   if (dockerIgnore) assert.match(dockerIgnore, /deploy\/oci\/\*\.env/);
+});
+
+test('Oracle provisioning covers every catalog provider and the HMS alias', async () => {
+  const setup = await read('deploy/oci/prepare-env.sh');
+  const catalog = await read('packages/data-provider/src/provider-catalog.ts');
+
+  for (const name of [
+    'OPENROUTER_API_KEY',
+    'GEMINI_API_KEY',
+    'CEREBRAS_API_KEY',
+    'GROQ_API_KEY',
+    'OPENCODEAI_API_KEY',
+    'APINEX_KEY',
+    'FREEAI_API_KEY',
+    'HMS_API_KEY',
+  ]) {
+    assert.match(setup, new RegExp(`\\b${name}\\b`), `prepare-env.sh must provision ${name}`);
+    assert.match(catalog, new RegExp(`apiKeyEnv: '${name}'`), `${name} must be a catalog credential`);
+  }
+
+  // The canonical 100MillionSeek name is the Linux-safe alias, never the digit-led one.
+  const hundredMillionSeek = catalog.slice(catalog.indexOf('100millionseek'));
+  assert.match(hundredMillionSeek, /apiKeyEnv: 'HMS_API_KEY'/);
+  assert.match(hundredMillionSeek, /legacyApiKeyEnv: \['100MILLIONSEEK_API_KEY'\]/);
+  assert.doesNotMatch(setup, /\b100MILLIONSEEK_API_KEY\b/);
+  assert.match(setup, /stored as HMS_API_KEY/);
+
+  // Optional keys are validated as single tokens before being written to app.env.
+  assert.match(setup, /read_secret_optional\(\)/);
+  assert.match(setup, /must be a single token without spaces or quotes/);
+  assert.match(setup, /for optional_name in GEMINI_API_KEY/);
 });

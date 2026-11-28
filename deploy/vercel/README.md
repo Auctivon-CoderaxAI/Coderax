@@ -203,7 +203,9 @@ merging, check that `vercel deploy --help` at the new version still lists
 `coderax-post-merge-deployment.yml` and every `--live-url` check require
 `/api/config` to report a full `buildInfo.commit`. The API runs on the OCI host,
 where `packages/api/src/app/build.ts` can only resolve `BUILD_COMMIT` /
-`BUILD_BRANCH` / `BUILD_DATE` from the environment. Build the image with the
-build args `docker-publish.yml` already passes, or add `BUILD_COMMIT` to the
-OCI app environment. A deployment that cannot identify its commit is
-intentionally reported as unverified rather than passed.
+`BUILD_BRANCH` / `BUILD_DATE` from the environment. `deploy/oci/deploy.sh` now
+passes them as image build args and fails when the deployed commit is not the
+full 40-character SHA. Until the running VM is recreated from such a build, it
+still reports no `buildInfo`, and those checks stay unverified rather than
+passed. A deployment that cannot identify its commit is intentionally reported
+as unverified rather than passed.

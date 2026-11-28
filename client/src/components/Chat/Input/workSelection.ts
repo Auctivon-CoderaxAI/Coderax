@@ -145,6 +145,11 @@ export function getWorkModelKey(model: Pick<TWorkModel, 'id' | 'provider'>): str
   return JSON.stringify([model.provider ?? '', model.id]);
 }
 
+/** A catalog row carries the provider id Work keys selections by, not the endpoint label. */
+export function workCatalogModelKey(model: Pick<TWorkModel, 'id' | 'provider'>): string {
+  return getWorkModelKey(model);
+}
+
 export function workAgentOf(selection: WorkSelection | null | undefined): TWorkAgentId {
   return selection?.workAgent === 'opencode' || selection?.workAgent === 'freebuff'
     ? selection.workAgent

@@ -11,6 +11,15 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      # Deployment provenance for /api/config buildInfo. The VM builds from a
+      # source snapshot with no .git, so packages/api/src/app/build.ts can only
+      # resolve the revision from these values; deploy.sh supplies them from the
+      # checked-out commit. An empty value is reported as missing by the release
+      # gate rather than being replaced by a guessed commit.
+      args:
+        BUILD_COMMIT: ${BUILD_COMMIT:-}
+        BUILD_BRANCH: ${BUILD_BRANCH:-}
+        BUILD_DATE: ${BUILD_DATE:-}
     image: coderax:oci-always-free
     restart: unless-stopped
     env_file:
