@@ -4,6 +4,7 @@ const {
   mergeFreeInferenceCustomEndpoints,
   mergeProviderFallbackCustomEndpoints,
 } = require('coderax-data-provider');
+const { createProviderCatalog, mergeCatalogCustomEndpoints } = require('@coderax/api');
 const { AppService, logger } = require('@coderax/data-schemas');
 const {
   createAppConfigService,
@@ -37,6 +38,8 @@ async function invalidateCodeEnvironmentConfigCache(tenantId) {
   await getCodeEnvironmentRegistry().invalidateAccessibleConfigurations(tenantId);
 }
 
+const providerCatalog = createProviderCatalog({ env: process.env });
+
 const loadBaseConfig = async (mode) => {
   /** @type {TCustomConfig} */
   const rawConfig = (await loadCustomConfig(true, { mode })) ?? {};
@@ -45,7 +48,22 @@ const loadBaseConfig = async (mode) => {
   const withFreeProviders = mergeFreeInferenceCustomEndpoints(rawConfig, process.env);
   /** Credentialed fallback providers become custom endpoints too, with the
    *  other providers attached to each turn as SDK fallbacks. */
-  const config = mergeProviderFallbackCustomEndpoints(withFreeProviders, process.env);
+  const withFallbackProviders = mergeProviderFallbackCustomEndpoints(
+    withFreeProviders,
+    process.env,
+  );
+  /** Discovered, eligible models become custom endpoints as well, so the model
+   *  picker and the runner read one configuration. A provider failure keeps the
+   *  last known snapshot; a cold failure merges nothing and stays startup-safe. */
+  let providerSnapshot = null;
+  try {
+    providerSnapshot = await providerCatalog.snapshot();
+  } catch (error) {
+    logger.warn('Provider catalog unavailable; serving configured endpoints only', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
+  }
+  const config = mergeCatalogCustomEndpoints(withFallbackProviders, providerSnapshot);
   /** @type {Record<string, FunctionTool>} */
   const systemTools = loadAndFormatTools({
     adminFilter: config.filteredTools,
