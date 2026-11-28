@@ -174,3 +174,5 @@ export type * from './types';
 export * from './tools/approval';
 
 export * from './mcp/approval';
+
+export * from './providers/catalog';
