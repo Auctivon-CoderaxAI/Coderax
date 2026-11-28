@@ -1,4 +1,5 @@
 const accessPermissions = require('./accessPermissions');
+const apiMeta = require('./apiMeta');
 const assistants = require('./assistants');
 const categories = require('./categories');
 const adminAuth = require('./admin/auth');
@@ -33,6 +34,7 @@ const banner = require('./banner');
 const openapi = require('./openapi');
 const search = require('./search');
 const models = require('./models');
+const providers = require('./providers');
 const convos = require('./convos');
 const traces = require('./traces');
 const config = require('./config');
@@ -51,6 +53,7 @@ const insights = require('./insights');
 const studio = require('./studio');
 
 module.exports = {
+  apiMeta,
   insights,
   studio,
   rum,
@@ -84,6 +87,7 @@ module.exports = {
   search,
   config,
   models,
+  providers,
   prompts,
   projects,
   games,

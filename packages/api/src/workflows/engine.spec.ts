@@ -100,6 +100,20 @@ function setup(steps: WorkflowStepRecord[], options: { stepTimeoutMs?: number } 
 }
 
 describe('createWorkflowEngine', () => {
+  it('continues worker event sequences after the retained log rolls over', async () => {
+    const ctx = setup([step()]);
+    ctx.run.events = Array.from({ length: 200 }, (_, i) => ({
+      at: new Date(ctx.nowMs()).toISOString(),
+      type: 'run.queued',
+      seq: i + 21,
+    }));
+    await ctx.engine.runTick();
+    const seqs = ctx.run.events.map((event) => event.seq);
+    expect(seqs).toHaveLength(200);
+    expect(seqs).toContain(221);
+    expect(new Set(seqs).size).toBe(200);
+  });
+
   it('runs steps in order and completes the run', async () => {
     const ctx = setup([step(), step({ id: 'two', title: 'Two' })]);
     await ctx.engine.runTick();

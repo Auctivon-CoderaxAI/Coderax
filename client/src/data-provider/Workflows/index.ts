@@ -187,7 +187,7 @@ export const useWorkflowRunStream = (
       method: 'GET',
       headers: { Authorization: `Bearer ${token}` },
     });
-    source.addEventListener('message', (event: MessageEvent<string>) => {
+    source.addEventListener('snapshot', (event: MessageEvent<string>) => {
       try {
         const payload = JSON.parse(event.data) as { run?: WorkflowRunView };
         if (payload.run != null) {

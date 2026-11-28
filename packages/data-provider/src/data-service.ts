@@ -452,6 +452,13 @@ export const getModels = async (): Promise<t.TModelsConfig> => {
   return request.get(endpoints.models());
 };
 
+/** Provider catalog: credential, discovery and eligibility state per provider. */
+export const getProviderCatalog = async (): Promise<
+  import('./provider-status').ProviderCatalogResponse
+> => {
+  return request.get(endpoints.providerCatalog());
+};
+
 /* Assistants */
 
 export const createAssistant = ({

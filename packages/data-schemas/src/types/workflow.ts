@@ -85,6 +85,11 @@ export interface IWorkflowRunEvent {
   type: WorkflowRunEventType;
   stepId?: string;
   message?: string;
+  /**
+   * Assigned once when the event is appended and never reused, so it stays a
+   * valid stream cursor after the retained log drops its oldest entries.
+   */
+  seq?: number;
 }
 
 export interface IWorkflowRun {

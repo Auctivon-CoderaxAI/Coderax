@@ -24,7 +24,7 @@ Use only a `VM.Standard.A1.Flex` instance that the Oracle Console marks **Always
 4. Run `sh deploy/oci/prepare-env.sh` on the VM. The script prompts without echo for the database-only MongoDB URI and the existing Production `JWT_SECRET`, `JWT_REFRESH_SECRET`, `CREDS_KEY`, and `CREDS_IV`. Keep those existing values so current sessions and encrypted database credentials remain usable. It also requires an OpenRouter API key, which is the only Work inference path: the verified $0 OpenRouter models are selected automatically. It generates a new proxy secret, writes owner-only local environment files, and does not print their values.
 5. Validate the Oracle API hostname printed by the script, then set `CODERAX_API_ORIGIN=https://<printed-host>` and `CODERAX_PROXY_SECRET` from `origin.env` as Cloudflare Worker secrets for the `coderax` Worker in **Production**. Keep the secret server-only; never use a `NEXT_PUBLIC_`, `VITE_` or public Worker variable for it. The Worker defaults its API host gate to `coderax.nnabdelshahid.workers.dev`; a nonempty `CODERAX_ALLOWED_HOSTS` replaces that default, so include the canonical host alongside any preview or custom hosts. Set `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev` in the Compose environment (the tracked `compose.yaml` already defaults to it), and set `CODERAX_PUBLIC_HOST=coderax.nnabdelshahid.workers.dev` in `origin.env`.
 6. Configure only inbound 80/443 (and temporary operator-IP-only SSH) in the Oracle security list. Configure Atlas for the VM's `/32` and the Coderax database user above.
-7. Run `docker compose -f deploy/oci/compose.yaml config --quiet`, then `docker compose -f deploy/oci/compose.yaml up -d --build --wait`.
+7. Run `sh deploy/oci/deploy.sh`. It stamps the checked-out commit into the image as the `BUILD_COMMIT`, `BUILD_BRANCH` and `BUILD_DATE` build args, validates the Compose file, builds and starts the stack, then confirms `/api/config` reports that same full commit. The source snapshot may have no `.git`, so pass `CODERAX_SOURCE_COMMIT` and `CODERAX_SOURCE_BRANCH` from the revision you transferred. A commit that is not the full 40 characters is refused, because the release gate matches on the full SHA.
 8. After the VM reports ready, verify the Oracle HTTPS origin directly with the proxy secret, then verify the Cloudflare canonical URL without it. Read the secret from `origin.env` into a shell variable; do not echo it, enable `set -x`, or place it in command history. Direct probes without the header return `403`:
 
    ```sh
@@ -62,8 +62,10 @@ Set the following as secrets on the `coderax` Worker in **Production**:
 - `CODERAX_PUBLIC_ORIGIN=https://coderax.nnabdelshahid.workers.dev` in the Compose environment;
   `DOMAIN_CLIENT` and `DOMAIN_SERVER` derive from it. If you edit `app.env` directly, the Compose
   `environment:` block still takes precedence.
-- `BUILD_COMMIT` on the VM: the full 40-character commit of the deployed source, so `/api/config`
-  reports `buildInfo.commit` and the release gate can identify the revision.
+- `BUILD_COMMIT`, `BUILD_BRANCH` and `BUILD_DATE`: image build args supplied by
+  `deploy/oci/deploy.sh`, so `/api/config` reports `buildInfo.commit` and the release gate can
+  identify the backend revision. A build without them deliberately reports no revision and fails
+  the gate closed.
 
 Until the proxy origin, secret and source commit are in place, the Worker fails closed with HTTP 503.
 

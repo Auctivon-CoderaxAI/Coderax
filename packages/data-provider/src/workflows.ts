@@ -224,6 +224,7 @@ export type WorkflowRunEventType = (typeof WORKFLOW_RUN_EVENT_TYPES)[number];
 
 /** A structured, ordered execution log entry. */
 export interface WorkflowRunEvent {
+  seq?: number;
   at: string;
   type: WorkflowRunEventType;
   stepId?: string;

@@ -1,3 +1,5 @@
+export * from './apiContract';
+export * from './apiMeta';
 export * from './app';
 export * from './cyvox/addon';
 export * from './cyvox/settings';
@@ -112,6 +114,8 @@ export * from './work/router';
 export * from './work/state';
 export * from './work/seed';
 export * from './work/authorization';
+export * from './work/clientStream';
+export * from './work/idempotencyKey';
 /* Messages */
 export * from './messages';
 /* Skills */
@@ -174,3 +178,6 @@ export type * from './types';
 export * from './tools/approval';
 
 export * from './mcp/approval';
+
+export * from './providers/catalog';
+export * from './providers/endpoints';

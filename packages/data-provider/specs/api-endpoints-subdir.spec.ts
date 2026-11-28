@@ -138,3 +138,7 @@ describe('buildLoginRedirectUrl — deep subdirectory (BASE_URL = /app/chat)', (
     expect(redirectTo).toBe('/app/chatroom/page');
   });
 });
+
+it('builds the provider catalog endpoint under the application base path', () => {
+  expect(loadModuleWithBase('/app/chat/').providerCatalog()).toBe('/app/chat/api/providers');
+});

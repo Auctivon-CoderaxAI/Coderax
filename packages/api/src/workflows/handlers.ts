@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { WORKFLOW_TEMPLATES } from 'coderax-data-provider';
 import { logger, WorkflowWorkspaceConflictError } from '@coderax/data-schemas';
+import {
+  WORKFLOW_RUNS_PAGE_MAX,
+  WORKFLOW_RUN_STATUSES,
+  WORKFLOW_TEMPLATES,
+} from 'coderax-data-provider';
 import type {
   WorkflowArtifact,
   WorkflowEventTrigger,
@@ -15,6 +19,13 @@ import type { WorkflowMethods } from '@coderax/data-schemas';
 import type { Response } from 'express';
 import type { WorkflowSchedulePayload } from './definition';
 import type { ServerRequest } from '~/types';
+import {
+  formatWorkflowRunStreamId,
+  latestRunSequence,
+  parseWorkflowRunStreamId,
+  sequenceRunEvents,
+  toServerSentEventFrame,
+} from './runStream';
 import {
   parseApproveWorkflowStep,
   parseCreateWorkflow,
@@ -81,6 +92,7 @@ interface WorkflowRunRecordView {
     type: WorkflowRunView['events'][number]['type'];
     stepId?: string;
     message?: string;
+    seq?: number;
   }>;
   pauseRequestedAt?: Date | string;
   createdAt?: Date | string;
@@ -166,6 +178,20 @@ export function toWorkflowView(workflow: WorkflowRecord): WorkflowView {
   };
 }
 
+function toRunEventView(entry: {
+  at: Date | string;
+  type: WorkflowRunView['events'][number]['type'];
+  stepId?: string;
+  message?: string;
+}): WorkflowRunView['events'][number] {
+  return {
+    at: iso(entry.at) ?? new Date(0).toISOString(),
+    type: entry.type,
+    ...(entry.stepId == null ? {} : { stepId: entry.stepId }),
+    ...(entry.message == null ? {} : { message: entry.message }),
+  };
+}
+
 export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
   return {
     id: run.id,
@@ -197,12 +223,7 @@ export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
     ...(run.error == null ? {} : { error: run.error }),
     ...(run.verification == null ? {} : { verification: run.verification }),
     ...(run.trigger == null ? {} : { trigger: run.trigger }),
-    events: (run.events ?? []).map((entry) => ({
-      at: iso(entry.at) ?? new Date(0).toISOString(),
-      type: entry.type,
-      ...(entry.stepId == null ? {} : { stepId: entry.stepId }),
-      ...(entry.message == null ? {} : { message: entry.message }),
-    })),
+    events: (run.events ?? []).map(toRunEventView),
     ...(run.pauseRequestedAt == null ? {} : { pauseRequestedAt: iso(run.pauseRequestedAt) }),
     createdAt: iso(run.createdAt) ?? new Date(0).toISOString(),
     ...(run.startedAt == null ? {} : { startedAt: iso(run.startedAt) }),
@@ -212,6 +233,59 @@ export function toRunView(run: WorkflowRunRecordView): WorkflowRunView {
 
 function userId(req: ServerRequest): string | undefined {
   return req.user?.id;
+}
+
+/** A stream cursor is read from the request, never assumed. */
+function headerValue(req: ServerRequest, name: string): string | undefined {
+  const value = req.headers?.[name];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function queryValue(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  if (Array.isArray(value) && typeof value[0] === 'string' && value[0].length > 0) {
+    return value[0];
+  }
+  return undefined;
+}
+
+const RUN_STATUS_SET = new Set<string>(WORKFLOW_RUN_STATUSES);
+
+/** `status` is a comma-separated list; an unknown name is a client error. */
+function parseRunStatuses(value: string | undefined): WorkflowRunStatus[] | null {
+  if (value == null) {
+    return [];
+  }
+  const statuses = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (statuses.some((entry) => !RUN_STATUS_SET.has(entry))) {
+    return null;
+  }
+  return statuses as WorkflowRunStatus[];
+}
+
+function parseRunLimit(value: string | undefined): number | null {
+  if (value == null) {
+    return WORKFLOW_RUNS_PAGE_MAX;
+  }
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+  const limit = Number(value);
+  return limit >= 1 && limit <= WORKFLOW_RUNS_PAGE_MAX ? limit : null;
+}
+
+/** `undefined` means absent, `null` means present but unparseable. */
+function parseRunBefore(value: string | undefined): Date | null | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const before = new Date(value);
+  return Number.isNaN(before.getTime()) ? null : before;
 }
 
 function unavailable(res: Response): void {
@@ -686,6 +760,54 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
       }
     },
 
+    /**
+     * The owner-wide run index. A run started in the web UI is discoverable
+     * here without knowing the workflow id that started it.
+     */
+    listAllRuns: async (req: ServerRequest, res: Response): Promise<void> => {
+      const owner = userId(req);
+      if (owner == null) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+      const query = (req.query ?? {}) as Record<string, unknown>;
+      const statuses = parseRunStatuses(queryValue(query.status));
+      if (statuses == null) {
+        res.status(400).json({ error: 'Unknown run status' });
+        return;
+      }
+      const limit = parseRunLimit(queryValue(query.limit));
+      if (limit == null) {
+        res.status(400).json({ error: `limit must be 1-${WORKFLOW_RUNS_PAGE_MAX}` });
+        return;
+      }
+      const before = parseRunBefore(queryValue(query.before));
+      if (before === null) {
+        res.status(400).json({ error: 'before must be an ISO timestamp' });
+        return;
+      }
+      try {
+        const runs = await deps.methods.listWorkflowRuns(owner, queryValue(query.workflowId), {
+          ...(statuses.length === 0 ? {} : { status: statuses }),
+          ...(before === undefined ? {} : { before }),
+          limit,
+        });
+        const oldest = runs[runs.length - 1];
+        res.status(200).json({
+          runs: runs.map(toRunView),
+          /* Only a full page can have a successor. An exact fit costs one empty
+           * read, which is cheaper than skipping a run. */
+          nextBefore:
+            runs.length === limit && oldest?.createdAt != null
+              ? (iso(oldest.createdAt) ?? null)
+              : null,
+        });
+      } catch (error) {
+        logger.error('[workflows] failed to list runs', error);
+        unavailable(res);
+      }
+    },
+
     startRun: async (req: ServerRequest, res: Response): Promise<void> => {
       const owner = userId(req);
       const { id } = req.params as { id?: string };
@@ -778,7 +900,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         res.status(404).json({ error: 'Run not found' });
         return;
       }
-      let initial;
+      let initial: WorkflowRunRecordView | null;
       try {
         initial = await deps.methods.getWorkflowRun(runId, owner);
       } catch (error) {
@@ -791,21 +913,70 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         return;
       }
 
+      /**
+       * A reconnect names the last durable event it applied. The cursor is
+       * ignored unless it belongs to this run, and it cannot go backwards.
+       */
+      const cursor = parseWorkflowRunStreamId(headerValue(req, 'last-event-id'));
+      const latest = latestRunSequence(initial.events);
+      // A cursor past the log cannot be honoured: clamping it to the latest
+      // durable event keeps a stale client from suppressing everything after it.
+      const resumedFrom =
+        cursor != null && cursor.runId === runId ? Math.min(cursor.sequence, latest) : null;
+      let delivered = resumedFrom ?? latest;
+
       res.status(200);
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders?.();
+      // A dropped connection retries on its own; one second is the same order
+      // as the poll below, so the gap is a frame rather than a lost interval.
+      res.write('retry: 1000\n\n');
 
       let closed = false;
-      let last = '';
-      const write = (run: WorkflowRunRecordView): void => {
-        const payload = `data: ${JSON.stringify({ run: toRunView(run) })}\n\n`;
-        if (payload === last) {
+      let lastSnapshot = '';
+
+      /** Writes each event this client has not applied, in log order. */
+      const writeEvents = (run: WorkflowRunRecordView): void => {
+        for (const { sequence, event } of sequenceRunEvents(run.events, delivered)) {
+          if (sequence > delivered + 1) {
+            res.write(
+              toServerSentEventFrame({
+                event: 'replay-gap',
+                data: { runId, after: delivered, nextAvailable: sequence },
+              }),
+            );
+            return; // The following snapshot resynchronizes the client.
+          }
+          res.write(
+            toServerSentEventFrame({
+              event: 'run-event',
+              id: formatWorkflowRunStreamId(runId, sequence),
+              data: { runId, sequence, event: toRunEventView(event) },
+            }),
+          );
+          delivered = sequence;
+        }
+      };
+
+      /**
+       * The current run under a cursor that covers every event it contains, so
+       * a client that applies the snapshot never needs those events again.
+       * An unchanged snapshot is not resent.
+       */
+      const writeSnapshot = (run: WorkflowRunRecordView): void => {
+        delivered = Math.max(delivered, latestRunSequence(run.events));
+        const payload = toServerSentEventFrame({
+          event: 'snapshot',
+          id: formatWorkflowRunStreamId(runId, delivered),
+          data: { run: toRunView(run) },
+        });
+        if (payload === lastSnapshot) {
           return;
         }
-        last = payload;
+        lastSnapshot = payload;
         res.write(payload);
       };
 
@@ -834,7 +1005,8 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
               stop();
               return;
             }
-            write(run);
+            writeEvents(run);
+            writeSnapshot(run);
             if (TERMINAL_STATUSES.includes(run.status)) {
               stop();
             }
@@ -856,7 +1028,12 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         clearInterval(timer);
       });
 
-      write(initial);
+      // A fresh connection takes the snapshot as its cursor; a reconnect first
+      // receives exactly the events it missed, in order.
+      if (resumedFrom != null) {
+        writeEvents(initial);
+      }
+      writeSnapshot(initial);
       if (TERMINAL_STATUSES.includes(initial.status)) {
         stop();
       }
@@ -1008,7 +1185,7 @@ export function createWorkflowHandlers(deps: WorkflowsHandlerDeps) {
         }
         const run = await deps.methods.cancelWorkflowRun(runId, owner, now());
         if (run == null) {
-          res.status(404).json({ error: 'Run not found' });
+          res.status(409).json({ error: 'Run changed during cancellation; reload and retry' });
           return;
         }
         let stopped = false;

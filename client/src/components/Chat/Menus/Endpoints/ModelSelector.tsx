@@ -14,6 +14,7 @@ import { useShortcutAriaKey, useShortcutHint } from '~/hooks/useKeyboardShortcut
 import { ModelSelectorChatProvider } from './ModelSelectorChatContext';
 import { getSelectedIcon, getDisplayValue } from './utils';
 import { CustomMenu as Menu } from './CustomMenu';
+import ProviderCatalog from './ProviderCatalog';
 import DialogManager from './DialogManager';
 import { useLocalize } from '~/hooks';
 
@@ -143,6 +144,13 @@ function ModelSelectorContent({ compact = false }: { compact?: boolean }) {
             {/* Render custom groups (specs with group field not matching any endpoint) */}
             {renderCustomGroups(modelSpecs || [], mappedEndpoints ?? [])}
           </>
+        )}
+        {!searchResults && (
+                      <ProviderCatalog
+              onSelect={(model) =>
+                setSelectedValues({ endpoint: model.providerLabel, model: model.id, modelSpec: '' })
+              }
+            />
         )}
       </Menu>
       <DialogManager
