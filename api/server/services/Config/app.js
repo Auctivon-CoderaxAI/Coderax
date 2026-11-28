@@ -4,7 +4,7 @@ const {
   mergeFreeInferenceCustomEndpoints,
   mergeProviderFallbackCustomEndpoints,
 } = require('coderax-data-provider');
-const { createProviderCatalog, mergeCatalogCustomEndpoints } = require('@coderax/api');
+const { runtimeProviderCatalog, mergeCatalogCustomEndpoints } = require('@coderax/api');
 const { AppService, logger } = require('@coderax/data-schemas');
 const {
   createAppConfigService,
@@ -38,8 +38,6 @@ async function invalidateCodeEnvironmentConfigCache(tenantId) {
   await getCodeEnvironmentRegistry().invalidateAccessibleConfigurations(tenantId);
 }
 
-const providerCatalog = createProviderCatalog({ env: process.env });
-
 const loadBaseConfig = async (mode) => {
   /** @type {TCustomConfig} */
   const rawConfig = (await loadCustomConfig(true, { mode })) ?? {};
@@ -57,7 +55,7 @@ const loadBaseConfig = async (mode) => {
    *  last known snapshot; a cold failure merges nothing and stays startup-safe. */
   let providerSnapshot = null;
   try {
-    providerSnapshot = await providerCatalog.snapshot();
+    providerSnapshot = await runtimeProviderCatalog.snapshot();
   } catch (error) {
     logger.warn('Provider catalog unavailable; serving configured endpoints only', {
       errorName: error instanceof Error ? error.name : 'UnknownError',

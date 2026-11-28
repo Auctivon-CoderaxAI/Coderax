@@ -1,5 +1,5 @@
 import { CATALOG_PROVIDERS } from 'coderax-data-provider';
-import type { CatalogSnapshot } from 'coderax-data-provider';
+import type { CatalogProviderId, CatalogSnapshot } from 'coderax-data-provider';
 
 /**
  * Turn discovered, eligible models into ordinary custom endpoints.
@@ -12,6 +12,7 @@ import type { CatalogSnapshot } from 'coderax-data-provider';
 
 export type CatalogCustomEndpoint = {
   name: string;
+  catalogProvider: CatalogProviderId;
   baseURL: string;
   apiKey: string;
   modelDisplayLabel: string;
@@ -21,8 +22,7 @@ export type CatalogCustomEndpoint = {
 
 /**
  * Only models that are both eligible (`available`) and usable in Chat become
- * endpoint entries. A billable or unverified-price model never reaches the
- * runner, so selecting it cannot produce a request to a provider.
+ * endpoint entries. Request admission consults the current catalog separately.
  */
 export function buildCatalogCustomEndpoints(
   snapshot: CatalogSnapshot | null,
@@ -41,6 +41,7 @@ export function buildCatalogCustomEndpoints(
     return [
       {
         name: provider.label,
+        catalogProvider: provider.id,
         baseURL: provider.baseURL,
         apiKey: '${' + provider.apiKeyEnv + '}',
         modelDisplayLabel: provider.label,
@@ -55,10 +56,9 @@ export function buildCatalogCustomEndpoints(
  * Merge the discovered endpoints into a deployment config. An endpoint the
  * operator already configured wins, so this never relabels or replaces one.
  */
-export function mergeCatalogCustomEndpoints<T extends { endpoints?: Record<string, unknown> | null }>(
-  config: T,
-  snapshot: CatalogSnapshot | null,
-): T {
+export function mergeCatalogCustomEndpoints<
+  T extends { endpoints?: Record<string, unknown> | null },
+>(config: T, snapshot: CatalogSnapshot | null): T {
   const additions = buildCatalogCustomEndpoints(snapshot);
   if (additions.length === 0) {
     return config;
@@ -73,4 +73,19 @@ export function mergeCatalogCustomEndpoints<T extends { endpoints?: Record<strin
     return config;
   }
   return { ...config, endpoints: { ...endpoints, custom: merged } } as T;
+}
+
+/** A generated endpoint always checks the current catalog, even with cached config. */
+export function assertCatalogModel(
+  snapshot: CatalogSnapshot,
+  provider: unknown,
+  model: unknown,
+): void {
+  if (
+    !snapshot.models.some(
+      (row) => row.provider === provider && row.id === model && row.available && row.chat,
+    )
+  ) {
+    throw new Error('The selected catalog model is unavailable.');
+  }
 }

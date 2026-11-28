@@ -606,6 +606,41 @@ describe('catalog cache', () => {
     expect(calls).toBe(1);
   });
 
+  it('retains disabled rows on a resolved HTTP outage, then retries a valid empty catalog', async () => {
+    let clock = 0;
+    let response = okFetch(openRouterPayload);
+    const catalog = new ModelCatalog({
+      now: () => clock,
+      env: { OPENROUTER_API_KEY: 'test' },
+      fetch: (url, init) => response(url, init),
+    });
+    const good = await catalog.ensureFresh();
+    expect(good.counts.availableModels).toBeGreaterThan(0);
+    clock = 100;
+    response = okFetch({}, 503);
+    const failed = await catalog.refresh();
+    expect(failed.generatedAt).toBe(good.generatedAt);
+    expect(failed.models.map(({ id, discoveredAt }) => ({ id, discoveredAt }))).toEqual(
+      good.models.map(({ id, discoveredAt }) => ({ id, discoveredAt })),
+    );
+    expect(failed.providers[0]).toMatchObject({ status: 'provider_unreachable', httpStatus: 503 });
+    expect(failed.counts).toMatchObject({
+      discoveredProviders: 0,
+      availableModels: 0,
+      workModels: 0,
+    });
+    expect(planModelFallback(failed.models, { mode: 'chat' })).toEqual([]);
+    expect(planModelFallback(failed.models, { mode: 'work' })).toEqual([]);
+    expect(catalog.isStale()).toBe(true);
+
+    clock = 200;
+    response = okFetch({ data: [] });
+    const recovered = await catalog.ensureFresh();
+    expect(recovered.counts.discoveredProviders).toBe(1);
+    expect(recovered.models).toEqual([]);
+    expect(catalog.isStale()).toBe(false);
+  });
+
   it('keeps the last good snapshot when a refresh fails', async () => {
     let calls = 0;
     const catalog = new ModelCatalog({

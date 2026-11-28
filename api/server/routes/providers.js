@@ -1,12 +1,9 @@
 const express = require('express');
-const { createProviderCatalog } = require('@coderax/api');
+const { runtimeProviderCatalog } = require('@coderax/api');
 const { requireJwtAuth } = require('~/server/middleware/');
 const { logger } = require('@coderax/data-schemas');
 
 const router = express.Router();
-
-/** One cached catalog per process: discovery runs at most once per TTL. */
-const catalog = createProviderCatalog({ env: process.env });
 
 const fail = (res, error, action) => {
   logger.error(`Provider catalog ${action} failed`, {
@@ -18,7 +15,7 @@ const fail = (res, error, action) => {
 /** Every registered provider, its credential state and every discovered model. */
 router.get('/', requireJwtAuth, async (req, res) => {
   try {
-    res.json(await catalog.report());
+    res.json(await runtimeProviderCatalog.report());
   } catch (error) {
     fail(res, error, 'read');
   }
@@ -27,7 +24,7 @@ router.get('/', requireJwtAuth, async (req, res) => {
 /** Explicit refresh, for the status panel's manual refresh action. */
 router.post('/refresh', requireJwtAuth, async (req, res) => {
   try {
-    res.json(await catalog.refresh());
+    res.json(await runtimeProviderCatalog.refresh());
   } catch (error) {
     fail(res, error, 'refresh');
   }

@@ -1,7 +1,17 @@
 jest.mock('coderax-data-provider', () => ({
   CATALOG_PROVIDERS: [
-    { id: 'openrouter', label: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', apiKeyEnv: 'OPENROUTER_API_KEY' },
-    { id: 'groq', label: 'Groq', baseURL: 'https://api.groq.com/openai/v1', apiKeyEnv: 'GROQ_API_KEY' },
+    {
+      id: 'openrouter',
+      label: 'OpenRouter',
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKeyEnv: 'OPENROUTER_API_KEY',
+    },
+    {
+      id: 'groq',
+      label: 'Groq',
+      baseURL: 'https://api.groq.com/openai/v1',
+      apiKeyEnv: 'GROQ_API_KEY',
+    },
   ],
 }));
 
@@ -29,7 +39,13 @@ const snapshot = (models: CatalogModel[]): CatalogSnapshot => ({
   generatedAt: '2026-11-28T00:00:00.000Z',
   providers: [],
   models,
-  counts: { providers: 2, discoveredProviders: 1, models: models.length, availableModels: 0, workModels: 0 },
+  counts: {
+    providers: 2,
+    discoveredProviders: 1,
+    models: models.length,
+    availableModels: 0,
+    workModels: 0,
+  },
 });
 
 describe('buildCatalogCustomEndpoints', () => {
@@ -44,7 +60,12 @@ describe('buildCatalogCustomEndpoints', () => {
           available: false,
           chat: false,
           reason: 'nonzero_price',
-          pricing: { promptPerToken: 0.000001, completionPerToken: 0.000001, free: false, basis: 'per-model' },
+          pricing: {
+            promptPerToken: 0.000001,
+            completionPerToken: 0.000001,
+            free: false,
+            basis: 'per-model',
+          },
         }),
         // An account-plan provider stays visible in the catalog but has no route.
         model({
@@ -61,6 +82,7 @@ describe('buildCatalogCustomEndpoints', () => {
     expect(endpoints).toEqual([
       {
         name: 'OpenRouter',
+        catalogProvider: 'openrouter',
         baseURL: 'https://openrouter.ai/api/v1',
         apiKey: '${OPENROUTER_API_KEY}',
         modelDisplayLabel: 'OpenRouter',

@@ -10,8 +10,8 @@ const mockRefresh = jest.fn();
 
 jest.mock('coderax-data-provider', () => ({
   ModelCatalog: jest.fn().mockImplementation(() => ({
-    ensureFresh: mockEnsureFresh,
-    refresh: mockRefresh,
+    ensureFresh: () => mockEnsureFresh(),
+    refresh: () => mockRefresh(),
   })),
   filterModels: (models: unknown[], filter: { mode?: string }) =>
     filter.mode === 'work'
@@ -83,7 +83,12 @@ const snapshot = (overrides: Partial<CatalogSnapshot> = {}): CatalogSnapshot => 
       id: 'deepseek/deepseek-v4.1-flash',
       label: 'DeepSeek V4.1 Flash',
       contextTokens: 200_000,
-      pricing: { promptPerToken: 0.000000051, completionPerToken: 0.000000567, free: false, basis: 'per-model' },
+      pricing: {
+        promptPerToken: 0.000000051,
+        completionPerToken: 0.000000567,
+        free: false,
+        basis: 'per-model',
+      },
       capabilities: { streaming: true, reasoning: true, tools: true, structuredOutputs: true },
       available: false,
       reason: 'nonzero_price',

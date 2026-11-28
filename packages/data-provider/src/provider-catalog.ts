@@ -880,7 +880,7 @@ export type CatalogCacheOptions = {
  */
 export class ModelCatalog {
   private snapshot: CatalogSnapshot | null = null;
-  private refreshedAt = 0;
+  private refreshedAt: number | null = null;
   private inFlight: Promise<CatalogSnapshot> | null = null;
   private readonly ttlMs: number;
   private readonly now: () => number;
@@ -897,7 +897,7 @@ export class ModelCatalog {
   }
 
   isStale(): boolean {
-    return this.snapshot === null || this.now() - this.refreshedAt >= this.ttlMs;
+    return this.refreshedAt === null || this.now() - this.refreshedAt >= this.ttlMs;
   }
 
   async refresh(): Promise<CatalogSnapshot> {
@@ -910,13 +910,53 @@ export class ModelCatalog {
       now: () => new Date(this.now()),
     })
       .then((snapshot) => {
-        this.snapshot = snapshot;
-        this.refreshedAt = this.now();
-        return snapshot;
+        const failures = new Map(
+          snapshot.providers.flatMap(({ provider, status }) =>
+            status === 'credential_rejected' || status === 'provider_unreachable'
+              ? [[provider, status] as const]
+              : [],
+          ),
+        );
+        if (failures.size === 0) {
+          this.snapshot = snapshot;
+          this.refreshedAt = this.now();
+          return snapshot;
+        }
+        return this.retainFailedModels(snapshot, failures);
       })
       .catch((error: unknown) => {
         if (this.snapshot) {
-          return this.snapshot;
+          const previous = this.snapshot;
+          const failures = new Map<CatalogProviderId, 'provider_unreachable'>();
+          for (const { provider } of previous.models)
+            failures.set(provider, 'provider_unreachable');
+          const providers = previous.providers.map(
+            (state): ProviderDiscoveryState =>
+              state.status === 'credential_missing'
+                ? state
+                : {
+                    ...state,
+                    status: 'provider_unreachable',
+                    httpStatus: null,
+                    error: null,
+                    modelCount: 0,
+                    discoveredAt: null,
+                  },
+          );
+          return this.retainFailedModels(
+            {
+              ...previous,
+              providers,
+              models: [],
+              counts: {
+                ...previous.counts,
+                discoveredProviders: 0,
+                availableModels: 0,
+                workModels: 0,
+              },
+            },
+            failures,
+          );
         }
         throw error;
       })
@@ -926,7 +966,29 @@ export class ModelCatalog {
     return this.inFlight;
   }
 
+  private retainFailedModels(
+    snapshot: CatalogSnapshot,
+    failures: ReadonlyMap<CatalogProviderId, 'credential_rejected' | 'provider_unreachable'>,
+  ): CatalogSnapshot {
+    const retained = (this.snapshot?.models ?? []).flatMap((model) => {
+      const reason = failures.get(model.provider);
+      return reason ? [{ ...model, available: false, chat: false, work: false, reason }] : [];
+    });
+    const models = [...snapshot.models, ...retained];
+    this.snapshot = {
+      ...snapshot,
+      generatedAt:
+        snapshot.counts.discoveredProviders === 0
+          ? (this.snapshot?.generatedAt ?? snapshot.generatedAt)
+          : snapshot.generatedAt,
+      models,
+      counts: { ...snapshot.counts, models: models.length },
+    };
+    this.refreshedAt = null;
+    return this.snapshot;
+  }
+
   async ensureFresh(): Promise<CatalogSnapshot> {
-    return this.isStale() ? this.refresh() : (this.snapshot as CatalogSnapshot);
+    return this.inFlight ?? (this.isStale() ? this.refresh() : (this.snapshot as CatalogSnapshot));
   }
 }

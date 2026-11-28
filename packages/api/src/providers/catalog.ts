@@ -15,11 +15,7 @@ import type {
  * snapshot, and only a cold start with no snapshot can fail.
  */
 
-export type ProviderAuthentication =
-  | 'authenticated'
-  | 'rejected'
-  | 'not_attempted'
-  | 'unreachable';
+export type ProviderAuthentication = 'authenticated' | 'rejected' | 'not_attempted' | 'unreachable';
 
 export type ProviderStatus = {
   provider: string;
@@ -39,7 +35,9 @@ export type CatalogReport = {
   models: CatalogModel[];
 };
 
-function authenticationFor(status: CatalogSnapshot['providers'][number]['status']): ProviderAuthentication {
+function authenticationFor(
+  status: CatalogSnapshot['providers'][number]['status'],
+): ProviderAuthentication {
   switch (status) {
     case 'ok':
       return 'authenticated';
@@ -129,3 +127,8 @@ export function createProviderCatalog(
     },
   };
 }
+
+/** Reporting, endpoint configuration, and request admission share discovery in this process. */
+export const runtimeProviderCatalog: ProviderCatalogService = createProviderCatalog({
+  env: process.env,
+});

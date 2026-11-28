@@ -22,8 +22,10 @@ import { resolveModelTransportTimeouts } from '~/agents/config';
 import { extractDefaultParams } from '~/endpoints/openai/llm';
 import { isUserProvided, checkUserKeyExpiry } from '~/utils';
 import { createFreeInferenceBudget } from '~/routing/budget';
+import { runtimeProviderCatalog } from '~/providers/catalog';
 import { getOpenAIConfig } from '~/endpoints/openai/config';
 import { getScopedTokenConfigKey } from '~/endpoints/keys';
+import { assertCatalogModel } from '~/providers/endpoints';
 import { getCustomEndpointConfig } from '~/app/config';
 import { isKeylessLocalOllama } from './localOllama';
 import { resolveEndpointRuntime } from '~/types';
@@ -211,6 +213,18 @@ export async function initializeCustom(
 
   if (!endpointConfig) {
     throw new Error(`Config not found for the ${endpoint} custom endpoint.`);
+  }
+
+  if ('catalogProvider' in endpointConfig) {
+    const model = model_parameters?.model;
+    if (typeof model !== 'string' || !endpointConfig.models?.default?.includes(model)) {
+      throw new Error('The selected catalog model is unavailable.');
+    }
+    assertCatalogModel(
+      await runtimeProviderCatalog.snapshot(),
+      endpointConfig.catalogProvider,
+      model,
+    );
   }
 
   const CUSTOM_API_KEY = resolveCustomEndpointApiKey(endpoint, endpointConfig, appConfig?.config);
