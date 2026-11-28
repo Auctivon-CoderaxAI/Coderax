@@ -8,11 +8,21 @@ import type {
   ProviderCatalogResponse,
   ProviderCatalogStatus,
 } from 'coderax-data-provider';
+import { CustomMenuItem } from './CustomMenu';
 import { useLocalize } from '~/hooks';
 
 type Row =
   | { kind: 'provider'; status: ProviderCatalogStatus }
   | { kind: 'model'; model: ProviderCatalogModel };
+
+const filterLabels = {
+  all: 'com_providers_filter_all',
+  available: 'com_providers_filter_available',
+  free: 'com_providers_filter_free',
+  reasoning: 'com_providers_filter_reasoning',
+  tools: 'com_providers_filter_tools',
+  work: 'com_providers_filter_work',
+} as const satisfies Record<ProviderCatalogFilter, string>;
 
 export type ProviderCatalogProps = {
   onSelect: (endpoint: string, model: string) => void;
@@ -89,6 +99,12 @@ export default function ProviderCatalog({ onSelect }: ProviderCatalogProps) {
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 44,
+    getItemKey: (index) => {
+      const row = rows[index];
+      return row.kind === 'provider'
+        ? `provider:${row.status.provider}`
+        : `model:${row.model.provider}:${row.model.id}`;
+    },
     overscan: 8,
   });
 
@@ -101,6 +117,20 @@ export default function ProviderCatalog({ onSelect }: ProviderCatalogProps) {
   }
 
   if (!catalog.data) {
+    if (catalog.isError) {
+      return (
+        <div className="text-text-secondary flex items-center gap-2 px-3 py-2 text-sm">
+          <span role="alert">{localize('com_providers_load_error')}</span>
+          <button
+            type="button"
+            className="text-text-primary rounded-theme-control hover:bg-surface-hover px-2 py-1"
+            onClick={() => void catalog.refetch()}
+          >
+            {localize('com_ui_retry')}
+          </button>
+        </div>
+      );
+    }
     return null;
   }
 
@@ -123,7 +153,7 @@ export default function ProviderCatalog({ onSelect }: ProviderCatalogProps) {
                 : 'text-text-secondary hover:bg-surface-hover rounded-theme-control px-2 py-0.5 text-xs'
             }
           >
-            {localize(`com_providers_filter_${value}`)}
+            {localize(filterLabels[value])}
           </button>
         ))}
       </div>
@@ -140,23 +170,20 @@ export default function ProviderCatalog({ onSelect }: ProviderCatalogProps) {
       <div
         ref={scrollRef}
         className="max-h-72 overflow-y-auto"
-        role="list"
+        role="group"
         aria-label={localize('com_providers_catalog')}
       >
-        <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+        <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const row = rows[item.index];
             if (!row) return null;
             return (
               <div
                 key={item.key}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${item.start}px)`,
-                }}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="absolute top-0 left-0 w-full"
+                style={{ transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === 'provider' ? (
                   <div className="text-text-secondary flex items-center justify-between px-3 py-1 text-xs font-medium">
@@ -205,19 +232,16 @@ function ModelRow({
     .filter(Boolean)
     .join(' · ');
 
+  const disabled = !model.available || !model.chat;
   return (
-    <button
-      type="button"
-      role="listitem"
-      disabled={!model.available}
-      aria-disabled={!model.available}
+    <CustomMenuItem
+      disabled={disabled}
+      aria-disabled={disabled}
       title={model.available ? model.id : reasonLabel(model.reason)}
-      onClick={() => onSelect(model.providerLabel, model.id)}
-      className={
-        model.available
-          ? 'hover:bg-surface-hover flex w-full flex-col items-start px-3 py-1 text-left'
-          : 'flex w-full flex-col items-start px-3 py-1 text-left opacity-60'
-      }
+      onClick={() => {
+        if (!disabled) onSelect(model.providerLabel, model.id);
+      }}
+      className="flex-col items-start gap-0 px-3 py-1 text-left"
     >
       <span className="text-text-primary w-full truncate text-sm">{model.label}</span>
       <span className="text-text-secondary w-full truncate text-xs">
@@ -226,12 +250,12 @@ function ModelRow({
       </span>
       {!model.available && (
         <span
-          className="text-xs text-red-500"
+          className="text-status-error-strong text-xs"
           data-testid={`disabled-${model.provider}-${model.id}`}
         >
           {reasonLabel(model.reason)}
         </span>
       )}
-    </button>
+    </CustomMenuItem>
   );
 }

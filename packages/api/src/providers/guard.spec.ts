@@ -1,9 +1,5 @@
 import type { CatalogModel, CatalogSnapshot } from 'coderax-data-provider';
-import {
-  ModelRouteBlockedError,
-  admitModelRoute,
-  checkModelRoute,
-} from './guard';
+import { ModelRouteBlockedError, admitModelRoute, checkModelRoute } from './guard';
 
 const NOW = Date.parse('2026-11-28T12:00:00.000Z');
 
@@ -24,10 +20,19 @@ function model(overrides: Partial<CatalogModel> = {}): CatalogModel {
   } as CatalogModel;
 }
 
-function snapshot(models: CatalogModel[], generatedAt = new Date(NOW).toISOString()): CatalogSnapshot {
+function snapshot(
+  models: CatalogModel[],
+  generatedAt = new Date(NOW).toISOString(),
+): CatalogSnapshot {
   return {
     generatedAt,
-    counts: { providers: 1, discoveredProviders: 1, models: models.length, availableModels: 1, workModels: 1 },
+    counts: {
+      providers: 1,
+      discoveredProviders: 1,
+      models: models.length,
+      availableModels: 1,
+      workModels: 1,
+    },
     providers: [],
     models,
   } as CatalogSnapshot;
@@ -45,7 +50,11 @@ describe('checkModelRoute', () => {
   });
 
   it('blocks a model that is no longer in the catalog', () => {
-    const result = checkModelRoute(snapshot([model()]), { ...selection, model: 'gone' }, { now: NOW });
+    const result = checkModelRoute(
+      snapshot([model()]),
+      { ...selection, model: 'gone' },
+      { now: NOW },
+    );
     expect(result).toMatchObject({ allowed: false, reason: 'model_not_in_catalog' });
   });
 
@@ -59,9 +68,13 @@ describe('checkModelRoute', () => {
 
   it('blocks unverified pricing and account allowances', () => {
     expect(
-      checkModelRoute(snapshot([model({ available: false, reason: 'pricing_unverified' })]), selection, {
-        now: NOW,
-      }),
+      checkModelRoute(
+        snapshot([model({ available: false, reason: 'pricing_unverified' })]),
+        selection,
+        {
+          now: NOW,
+        },
+      ),
     ).toMatchObject({ allowed: false, reason: 'pricing_unverified' });
     expect(
       checkModelRoute(
@@ -92,7 +105,10 @@ describe('checkModelRoute', () => {
   });
 
   it('re-checks the snapshot on every call so a retry cannot reuse old evidence', async () => {
-    const snapshots = [snapshot([model()]), snapshot([model({ available: false, reason: 'nonzero_price' })])];
+    const snapshots = [
+      snapshot([model()]),
+      snapshot([model({ available: false, reason: 'nonzero_price' })]),
+    ];
     let calls = 0;
     const catalog = { snapshot: async () => snapshots[calls++] } as never;
 

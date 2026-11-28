@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ProviderCatalogResponse } from 'coderax-data-provider';
 import ProviderCatalog, { buildCatalogRows } from '../ProviderCatalog';
+import { CustomMenu } from '../CustomMenu';
 
 jest.mock('coderax-data-provider/react-query', () => ({
   useGetProviderCatalogQuery: jest.fn(),
@@ -64,7 +65,12 @@ const catalog: ProviderCatalogResponse = {
       id: 'openai/gpt-5',
       label: 'GPT-5',
       contextTokens: 400000,
-      pricing: { promptPerToken: 1.25e-6, completionPerToken: 1e-5, free: false, basis: 'per-model' },
+      pricing: {
+        promptPerToken: 1.25e-6,
+        completionPerToken: 1e-5,
+        free: false,
+        basis: 'per-model',
+      },
       capabilities: { streaming: true, reasoning: true, tools: true, structuredOutputs: true },
       available: false,
       reason: 'nonzero_price',
@@ -117,6 +123,58 @@ describe('buildCatalogRows', () => {
 });
 
 describe('ProviderCatalog', () => {
+  it('offers retry after an initial failure and keeps cached data after a refresh failure', () => {
+    const refetch = jest.fn();
+    (useGetProviderCatalogQuery as jest.Mock).mockReturnValue({ isError: true, refetch });
+    const { rerender } = render(<ProviderCatalog onSelect={jest.fn()} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('com_providers_load_error');
+    fireEvent.click(screen.getByRole('button', { name: 'com_ui_retry' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+
+    (useGetProviderCatalogQuery as jest.Mock).mockReturnValue({ isError: true, data: catalog });
+    rerender(<ProviderCatalog onSelect={jest.fn()} />);
+    expect(screen.getByTestId('provider-catalog')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('registers measured options and only selects available Chat models', async () => {
+    jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(260);
+    const [chat] = catalog.models;
+    const catalogWithNonChat = {
+      ...catalog,
+      models: [
+        ...catalog.models,
+        { ...chat, chat: false, work: false, id: 'example/image:free', label: 'Image model' },
+      ],
+    };
+    (useGetProviderCatalogQuery as jest.Mock).mockReturnValue({ data: catalogWithNonChat });
+    const onSelect = jest.fn();
+    render(
+      <CustomMenu
+        defaultOpen
+        label="Catalog"
+        onSearch={jest.fn()}
+        combobox={<input aria-label="Search models" />}
+      >
+        <ProviderCatalog onSelect={onSelect} />
+      </CustomMenu>,
+    );
+
+    const listbox = within(await screen.findByRole('listbox'));
+    const paid = listbox.getByRole('option', { name: /GPT-5/ });
+    const nonChat = listbox.getByRole('option', { name: /Image model/ });
+    const free = listbox.getByRole('option', { name: /DeepSeek R1/ });
+    expect(free.closest('[data-index]')).toHaveAttribute('data-index', '1');
+    expect(paid).toHaveTextContent('com_providers_reason_nonzero_price');
+    for (const option of [paid, nonChat]) {
+      expect(option).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(option);
+    }
+    expect(onSelect).not.toHaveBeenCalled();
+    fireEvent.click(free);
+    expect(onSelect).toHaveBeenCalledWith('OpenRouter', chat.id);
+  });
+
   beforeEach(() => {
     (useGetProviderCatalogQuery as jest.Mock).mockReturnValue({ data: catalog, isLoading: false });
   });
@@ -124,10 +182,7 @@ describe('ProviderCatalog', () => {
   it('renders the catalog with every filter control', () => {
     render(<ProviderCatalog onSelect={jest.fn()} />);
     expect(screen.getByTestId('provider-catalog')).toBeInTheDocument();
-    expect(screen.getByRole('searchbox')).toHaveAttribute(
-      'aria-label',
-      'com_providers_search',
-    );
+    expect(screen.getByRole('searchbox')).toHaveAttribute('aria-label', 'com_providers_search');
     expect(screen.getByText('com_providers_filter_free')).toBeInTheDocument();
     expect(screen.getByLabelText('com_providers_filters')).toBeInTheDocument();
   });

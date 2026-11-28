@@ -456,7 +456,7 @@ export const getModels = async (): Promise<t.TModelsConfig> => {
 export const getProviderCatalog = async (): Promise<
   import('./provider-status').ProviderCatalogResponse
 > => {
-  return request.get('/api/providers');
+  return request.get(endpoints.providerCatalog());
 };
 
 /* Assistants */

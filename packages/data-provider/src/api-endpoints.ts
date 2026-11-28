@@ -257,6 +257,7 @@ export const aiEndpoints = () => `${BASE_URL}/api/endpoints`;
 
 export const tokenConfig = () => `${BASE_URL}/api/endpoints/token-config`;
 
+export const providerCatalog = () => `${BASE_URL}/api/providers`;
 export const models = () => `${BASE_URL}/api/models`;
 
 export const tokenizer = () => `${BASE_URL}/api/tokenizer`;

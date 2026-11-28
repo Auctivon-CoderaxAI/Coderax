@@ -1,5 +1,4 @@
 import type { CatalogModel, CatalogSnapshot } from 'coderax-data-provider';
-import type { ProviderCatalogService } from './catalog';
 
 /**
  * Admission is checked when a route is chosen, and again before every request,
@@ -25,7 +24,7 @@ export type RouteAdmission =
   | { allowed: false; reason: RouteBlockReason; message: string };
 
 /** A snapshot older than this cannot prove that a model is still free. */
-export const DEFAULT_MAX_SNAPSHOT_AGE_MS = 15 * 60_000;
+export const DEFAULT_MAX_SNAPSHOT_AGE_MS: number = 15 * 60_000;
 
 const REASON_MESSAGES: Record<RouteBlockReason, string> = {
   catalog_stale: 'Provider pricing has not been verified recently enough to prove a $0 route.',
@@ -80,8 +79,7 @@ export function checkModelRoute(
   }
 
   const model = snapshot.models.find(
-    (candidate) =>
-      candidate.provider === selection.provider && candidate.id === selection.model,
+    (candidate) => candidate.provider === selection.provider && candidate.id === selection.model,
   );
   if (!model) {
     return blocked('model_not_in_catalog');
@@ -109,7 +107,7 @@ export class ModelRouteBlockedError extends Error {
  * admitted on an earlier request's evidence.
  */
 export async function admitModelRoute(
-  catalog: Pick<ProviderCatalogService, 'snapshot'>,
+  catalog: { snapshot(force?: boolean): Promise<CatalogSnapshot> },
   selection: RouteSelection,
   options: { now?: number; maxAgeMs?: number } = {},
 ): Promise<CatalogModel> {
